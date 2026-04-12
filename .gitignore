@@ -29,6 +29,12 @@ wget-log
 !local/recipes/**/source/
 !local/recipes/**/source/**
 
+# But not fetched tarballs or build artifacts inside local/
+local/recipes/**/source.tar
+local/recipes/**/source.tar.tmp
+local/recipes/**/target/
+local/recipes/**/build/
+
 # Vendor source trees (fetched, not our code)
 **/amdgpu-source/
 
