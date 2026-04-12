@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test AMD GPU driver on Red Bear OS
-# Run this inside RBOS (or via QEMU serial console)
+# Run this inside Red Bear OS (or via QEMU serial console)
 set -euo pipefail
 
 echo "=== AMD GPU Driver Test ==="

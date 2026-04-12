@@ -559,13 +559,13 @@ rustInstall()
 ###########################################################################
 boot()
 {
-    echo "Cloning RBOS repo..."
+    echo "Cloning Red Bear OS repo..."
     git clone https://github.com/vasilito/Red-Bear-OS-3.git --origin upstream
     echo "Creating .config with PODMAN_BUILD=1"
-    echo 'PODMAN_BUILD?=1' > rbos/.config
+    echo 'PODMAN_BUILD?=1' > redbear/.config
     if [[ "$(uname -m)" == "arm64" ]]; then
         echo "Appending .config with ARCH=aarch64"
-        echo 'ARCH=aarch64' >> rbos/.config
+        echo 'ARCH=aarch64' >> redbear/.config
     fi
     echo "Cleaning up..."
     rm podman_bootstrap.sh
@@ -573,13 +573,13 @@ boot()
     echo "---------------------------------------"
     echo "Well it looks like you are ready to go!"
     echo "---------------------------------------"
-    echo "The file rbos/.config was created with PODMAN_BUILD=1."
+    echo "The file redbear/.config was created with PODMAN_BUILD=1."
     echo "If you need a much quicker installation, run: "
-    echo "  echo REPO_BINARY=1 >> rbos/.config"
+    echo "  echo REPO_BINARY=1 >> redbear/.config"
     echo
     echo "Run the following commands to build Red Bear OS using Podman:"
     echo
-    echo "cd rbos"
+    echo "cd redbear"
     MAKE="make"
     if [[ "$(uname)" == "FreeBSD" ]]; then
         MAKE="gmake"

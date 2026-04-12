@@ -425,10 +425,10 @@ pub fn build(
             let cookbook_sysroot = sysroot_dir.canonicalize().unwrap();
             let cookbook_toolchain = toolchain_dir.canonicalize().ok();
             let bash_args = if cli_verbose { "-ex" } else { "-e" };
-            let local_redoxer = Path::new("target/release/cookbook_rbos_redoxer");
+            let local_redoxer = Path::new("target/release/cookbook_redbear_redoxer");
             let mut command = if is_redox() && !local_redoxer.is_file() {
-                let mut command = Command::new("cookbook_rbos_redoxer");
-                command.env("COOKBOOK_REDOXER", "cookbook_rbos_redoxer");
+                let mut command = Command::new("cookbook_redbear_redoxer");
+                command.env("COOKBOOK_REDOXER", "cookbook_redbear_redoxer");
                 command
             } else {
                 let cookbook_redoxer = local_redoxer

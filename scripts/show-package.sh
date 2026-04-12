@@ -6,7 +6,7 @@ if [ -z "$*" ]
 then
     echo "Show the contents of the stage and sysroot folders in recipe(s)"
     echo "Usage: $0 recipe1 ..."
-    echo "Must be run from the RBOS build directory"
+    echo "Must be run from the Red Bear OS build directory"
     echo "e.g. $0 kernel"
     exit 1
 fi

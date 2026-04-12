@@ -1,5 +1,5 @@
 <p align="center">
-<img alt="Red Bear OS" width="200" src="assets/rbos-icon.png">
+<img alt="Red Bear OS" width="200" src="assets/redbear-icon.png">
 </p>
 
 <h1 align="center">Red Bear OS</h1>
@@ -53,7 +53,7 @@ Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. 
 ```bash
 make all CONFIG_NAME=redbear-full        # Full desktop + custom drivers
 make all CONFIG_NAME=redbear-minimal     # Minimal server
-make live CONFIG_NAME=redbear-full       # Live ISO (rbos-live.iso)
+make live CONFIG_NAME=redbear-full       # Live ISO (redbear-live.iso)
 make qemu                                # Boot in QEMU
 ```
 
@@ -72,6 +72,10 @@ The `local/` directory is never touched by upstream updates. Recipe patches for 
 - [Redox Book](https://doc.redox-os.org/book/)
 - [Hardware Support](https://doc.redox-os.org/book/hardware-support.html)
 - [Contributing](CONTRIBUTING.md)
+
+## AI Policy
+
+We welcome contributions made with the assistance of LLMs and AI tools. If you use AI to help write code, documentation, or patches, that's great — we care about the quality of the result, not how it was produced.
 
 ## License
 

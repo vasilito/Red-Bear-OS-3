@@ -2,7 +2,7 @@
 
 # Configuration variables for running make in Podman
 ## Tag the podman image $IMAGE_TAG
-IMAGE_TAG?=rbos-base
+IMAGE_TAG?=redbear-base
 ## Working Directory in Podman
 CONTAINER_WORKDIR?=/mnt/redox
 
@@ -92,10 +92,10 @@ KERNEL_PATH_TARGET := $(ROOT)/$(KERNEL_PATH)/target/$(TARGET)
 # TODO: make this work using `make debug.kernel` and remove this
 kernel_debugger:
 	@echo "Building and running gdbgui container..."
-	podman build -t rbos-kernel-debug - < $(ROOT)/podman/redox-gdb-containerfile
-	podman run --rm -p 5000:5000 -it --name rbos-gdb \
+	podman build -t redbear-kernel-debug - < $(ROOT)/podman/redox-gdb-containerfile
+	podman run --rm -p 5000:5000 -it --name redbear-gdb \
 		-v "$(KERNEL_PATH_TARGET)/build/kernel.sym:/kernel.sym" \
 		-v "$(KERNEL_PATH_SOURCE)/src:/src" \
-		rbos-kernel-debug --gdb-cmd "gdb -ex 'set confirm off' \
+		redbear-kernel-debug --gdb-cmd "gdb -ex 'set confirm off' \
 			-ex 'add-symbol-file /kernel.sym' \
 			-ex 'target remote host.containers.internal:1234'"

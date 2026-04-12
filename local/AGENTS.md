@@ -45,7 +45,7 @@ git rebase upstream-redox/master
 # If rebase fails (nuclear option):
 git rebase --abort
 git reset --hard upstream-redox/master
-./local/scripts/apply-patches.sh --force     # Rebuild RBOS changes from patch files
+./local/scripts/apply-patches.sh --force     # Rebuild Red Bear OS changes from patch files
 
 # After sync:
 cargo build --release                         # Rebuild cookbook

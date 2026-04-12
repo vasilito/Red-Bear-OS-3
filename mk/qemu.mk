@@ -158,7 +158,7 @@ ifneq ($(QEMU_KERNEL),)
 endif
 
 ifeq ($(live),yes)
-	DISK=$(BUILD)/rbos-live.iso
+	DISK=$(BUILD)/redbear-live.iso
 else
 	DISK=$(BUILD)/harddrive.img
 endif
@@ -212,7 +212,7 @@ else
 
 	EXTRANETARGS=
 	ifeq ($(netboot),yes)
-		EXTRANETARGS+=,tftp=$(BUILD),bootfile=rbos.ipxe
+		EXTRANETARGS+=,tftp=$(BUILD),bootfile=redbear.ipxe
 		QEMUFLAGS+=-kernel /usr/lib/ipxe/ipxe-amd64.efi
 	endif
 

@@ -628,9 +628,9 @@ pub(crate) fn fetch_cargo(
         source_dir = source_dir.join(cargopath);
     }
 
-    let local_redoxer = Path::new("target/release/cookbook_rbos_redoxer");
+    let local_redoxer = Path::new("target/release/cookbook_redbear_redoxer");
     let mut command = if is_redox() && !local_redoxer.is_file() {
-        Command::new("cookbook_rbos_redoxer")
+        Command::new("cookbook_redbear_redoxer")
     } else {
         let cookbook_redoxer = local_redoxer
             .canonicalize()

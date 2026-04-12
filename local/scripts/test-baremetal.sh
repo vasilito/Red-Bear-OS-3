@@ -186,7 +186,7 @@ refuse_unsafe_device "$DEVICE"
 warn_if_system_disk "$DEVICE"
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
-    echo "=== Building RBOS image ==="
+    echo "=== Building Red Bear OS image ==="
     run_cmd make -C "$REDOX_ROOT" all CONFIG_NAME="$CONFIG"
 else
     echo "=== Skipping build step ==="
@@ -194,7 +194,7 @@ fi
 
 echo "=== Checking image ==="
 if [ ! -f "$IMAGE_PATH" ]; then
-    echo "ERROR: RBOS image not found: $IMAGE_PATH"
+    echo "ERROR: Red Bear OS image not found: $IMAGE_PATH"
     exit 1
 fi
 

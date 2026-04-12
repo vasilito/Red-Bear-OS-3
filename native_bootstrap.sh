@@ -846,7 +846,7 @@ is_os_redox()
 
 ###############################################################################
 # This function takes care of installing all dependencies for building Red Bear OS on
-# Redox OS itself (bootstrapping RBOS on Redox)
+# Redox OS itself (bootstrapping Red Bear OS on Redox)
 # @params:    $1 the emulator to install, "virtualbox" or "qemu"
 ###############################################################################
 redox()
@@ -1068,10 +1068,10 @@ statusCheck()
 ###########################################################################
 boot()
 {
-    echo "Cloning RBOS repo..."
+    echo "Cloning Red Bear OS repo..."
     git clone https://github.com/vasilito/Red-Bear-OS-3.git --origin upstream
     echo "Creating .config with PODMAN_BUILD=0"
-    echo 'PODMAN_BUILD?=0' > rbos/.config
+    echo 'PODMAN_BUILD?=0' > redbear/.config
     echo "Cleaning up..."
     rm native_bootstrap.sh
     echo
@@ -1084,7 +1084,7 @@ boot()
     echo 'source $HOME/.cargo/env'
     echo
     echo "Run the following commands to build Red Bear OS:"
-    echo "cd rbos"
+    echo "cd redbear"
     MAKE="make"
     if [[ "$(uname)" == "FreeBSD" ]]; then
         MAKE="gmake"

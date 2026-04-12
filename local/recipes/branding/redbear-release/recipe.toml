@@ -7,11 +7,23 @@ script = """
 mkdir -p "${COOKBOOK_STAGE}/usr/lib"
 mkdir -p "${COOKBOOK_STAGE}/etc"
 mkdir -p "${COOKBOOK_STAGE}/usr/share/redbear"
+mkdir -p "${COOKBOOK_STAGE}/usr/share/icons/hicolor/128x128/apps"
+mkdir -p "${COOKBOOK_STAGE}/usr/share/redbear/images"
 
+# Core branding
 cp "${COOKBOOK_SOURCE}/os-release" "${COOKBOOK_STAGE}/usr/lib/os-release"
 cp "${COOKBOOK_SOURCE}/hostname" "${COOKBOOK_STAGE}/etc/hostname"
 cp "${COOKBOOK_SOURCE}/motd" "${COOKBOOK_STAGE}/etc/motd"
 cp "${COOKBOOK_SOURCE}/banner" "${COOKBOOK_STAGE}/usr/share/redbear/banner"
 
 ln -sf ../usr/lib/os-release "${COOKBOOK_STAGE}/etc/os-release"
+
+# Branding images (staged by integrate-redbear.sh from local/Assets/images/)
+if [ -f "${COOKBOOK_SOURCE}/images/icon.png" ]; then
+    cp "${COOKBOOK_SOURCE}/images/icon.png" "${COOKBOOK_STAGE}/usr/share/icons/hicolor/128x128/apps/redbear-os.png"
+    cp "${COOKBOOK_SOURCE}/images/icon.png" "${COOKBOOK_STAGE}/usr/share/redbear/images/icon.png"
+fi
+if [ -f "${COOKBOOK_SOURCE}/images/loading-background.png" ]; then
+    cp "${COOKBOOK_SOURCE}/images/loading-background.png" "${COOKBOOK_STAGE}/usr/share/redbear/images/loading-background.png"
+fi
 """

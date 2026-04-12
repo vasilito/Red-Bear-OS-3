@@ -1,0 +1,8 @@
+[package]
+name = "redbear-info"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "redbear-info"
+path = "src/main.rs"

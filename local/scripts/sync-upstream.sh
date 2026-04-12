@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# sync-upstream.sh — Update from upstream Redox and reapply RBOS patches.
+# sync-upstream.sh — Update from upstream Redox and reapply Red Bear OS patches.
 #
 # Usage:
 #   ./local/scripts/sync-upstream.sh              # Rebase onto upstream master
 #   ./local/scripts/sync-upstream.sh --dry-run    # Preview what would change
 #   ./local/scripts/sync-upstream.sh --no-merge   # Only fetch + check for conflicts
 #
-# Strategy: git rebase (preserves RBOS commits, replays on new upstream).
+# Strategy: git rebase (preserves Red Bear OS commits, replays on new upstream).
 # Fallback: if rebase fails, patches in local/patches/build-system/ can be
 #           applied from scratch via: ./local/scripts/apply-patches.sh --force
 
@@ -87,7 +87,7 @@ echo ""
 echo "=== Sync Summary ==="
 echo "Upstream:  $UPSTREAM_REF"
 echo "Local:     HEAD ($(git rev-parse --short HEAD))"
-echo "Ahead:     $AHEAD RBOS commits"
+echo "Ahead:     $AHEAD Red Bear OS commits"
 echo "Behind:    $BEHIND upstream commits"
 
 if [ "$NO_MERGE" = 1 ]; then
@@ -107,7 +107,7 @@ fi
 STASHED=0
 if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
     echo "==> Stashing uncommitted changes..."
-    git stash push -m "rbos-sync-$(date +%Y%m%d-%H%M%S)"
+    git stash push -m "redbear-sync-$(date +%Y%m%d-%H%M%S)"
     STASHED=1
 fi
 
@@ -115,7 +115,7 @@ PREV_HEAD=$(git rev-parse HEAD)
 
 # ── 5. Rebase ───────────────────────────────────────────────────────
 echo ""
-echo "==> Rebasing RBOS commits onto $UPSTREAM_REF..."
+echo "==> Rebasing Red Bear OS commits onto $UPSTREAM_REF..."
 echo "    (this replays our $AHEAD commits on top of updated upstream)"
 
 if git rebase "$UPSTREAM_REF"; then

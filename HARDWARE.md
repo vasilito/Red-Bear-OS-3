@@ -81,7 +81,7 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 
 ## Recommended
 
-| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
 | Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital |
 | System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
@@ -89,7 +89,7 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 
 ## Booting
 
-| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
 | ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, No ethernet driver, Correct video mode not offered (firmware issue) |
 | ASUS | PRIME B350M-E (custom) | 0.9.0 | 2024-09-20 | desktop | x86-64 | UEFI | Partial support for the PS/2 keyboard, PS/2 mouse is broken |
@@ -110,7 +110,7 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 
 ## Broken
 
-| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
 | ASUS | PN41 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
 | BEELINK | U59 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
@@ -123,4 +123,3 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 | Panasonic | Toughbook CF-18 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Hangs after PIT initialization |
 | Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Correct video mode not offered (firmware issue), Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |
 | XMG (Schenker) | Apex 17 (M21) | 0.9.0 | 2024-09-30 | demo, server | x86-64 | UEFI | After selecting resolution, (release) repeats `...::interrupt::irq::ERROR -- Local apic internal error: ESR=0x40` a few times before it freezes; (daily) really slowly prints statements from `...::rmm::INFO` before it abruptly aborts |
-

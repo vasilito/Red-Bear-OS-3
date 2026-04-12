@@ -2,7 +2,7 @@
 
 set -e
 
-MOUNT_POINT="/mnt/rbos"
+MOUNT_POINT="/mnt/redbear"
 DISK_DEVICE=""
 
 show_help() {
@@ -11,19 +11,19 @@ show_help() {
     echo "Mount or unmount a Red Bear OS filesystem partition"
     echo ""
     echo "Options:"
-    echo "  -u, --unmount    Unmount the RBOS filesystem partition"
-    echo "  -m, --mount-point PATH    Custom mount point (default: /mnt/rbos)"
+    echo "  -u, --unmount    Unmount the Red Bear OS filesystem partition"
+    echo "  -m, --mount-point PATH    Custom mount point (default: /mnt/redbear)"
     echo "  -h, --help       Show this help"
     echo ""
     echo "Examples:"
     echo "  $0 /dev/sda3                    Mount /dev/sda3"
     echo "  $0 -u                           Unmount from default location"
-    echo "  $0 -m /mnt/my-rbos /dev/sda3   Mount to custom location"
+    echo "  $0 -m /mnt/my-redbear /dev/sda3   Mount to custom location"
 }
 
 unmount_fs() {
     if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
-        echo "Unmounting RBOS filesystem from $MOUNT_POINT..."
+        echo "Unmounting Red Bear OS filesystem from $MOUNT_POINT..."
         fusermount -u "$MOUNT_POINT" || fusermount3 -u "$MOUNT_POINT"
         echo "Successfully unmounted"
     else
@@ -93,7 +93,7 @@ if [ "$UNMOUNT" = true ]; then
 fi
 
 if [ -z "$DISK_DEVICE" ]; then
-    DISK_DEVICE="/dev/disk/by-partlabel/RBOS_INSTALL"
+    DISK_DEVICE="/dev/disk/by-partlabel/Red Bear OS_INSTALL"
     if [ ! -b "$DISK_DEVICE" ]; then
         echo "Error: No device specified and default partition not found"
         echo ""
@@ -114,6 +114,6 @@ mkdir -p "$MOUNT_POINT"
 echo "Mounting $DISK_DEVICE to $MOUNT_POINT..."
 "$REDOXFS_BIN" "$DISK_DEVICE" "$MOUNT_POINT"
 
-echo "RBOS filesystem successfully mounted at $MOUNT_POINT"
+echo "Red Bear OS filesystem successfully mounted at $MOUNT_POINT"
 echo "To unmount, run: $0 -u"
 

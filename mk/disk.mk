@@ -17,7 +17,7 @@ else
 	mv $@.partial $@
 endif
 
-$(BUILD)/rbos-live.iso: $(FSTOOLS) $(REPO_TAG) rbos.ipxe
+$(BUILD)/redbear-live.iso: $(FSTOOLS) $(REPO_TAG) redbear.ipxe
 ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
@@ -31,7 +31,7 @@ else
 	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
 	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) --write-bootloader="$(BUILD)/bootloader-live.efi" --live $@.partial
 	mv $@.partial $@
-	cp rbos.ipxe $(BUILD)/rbos.ipxe
+	cp redbear.ipxe $(BUILD)/redbear.ipxe
 endif
 
 $(BUILD)/filesystem.img: $(FSTOOLS) $(REPO_TAG)
@@ -84,9 +84,9 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
 	@mkdir -p $(MOUNT_DIR)
-	$(REDOXFS) $(BUILD)/rbos-live.iso $(MOUNT_DIR)
+	$(REDOXFS) $(BUILD)/redbear-live.iso $(MOUNT_DIR)
 	@sleep 2
-	@echo "\033[1;36;49mrbos-live.iso mounted ($$(pgrep redoxfs))\033[0m"
+	@echo "\033[1;36;49mredbear-live.iso mounted ($$(pgrep redoxfs))\033[0m"
 endif
 
 unmount: FORCE

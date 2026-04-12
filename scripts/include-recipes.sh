@@ -11,7 +11,7 @@ if [ -z "$*" ]
 then
     echo "Find matching recipes, and format for inclusion in config"
     echo "Usage: $0 \"pattern\""
-    echo "Must be run from the RBOS build directory"
+    echo "Must be run from the Red Bear OS build directory"
     echo "e.g. $0 \"TODO.*error\""
     exit 1
 fi

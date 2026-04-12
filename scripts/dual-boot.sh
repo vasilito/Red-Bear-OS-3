@@ -9,7 +9,7 @@ if [ -n "$1" ]
 then
     DISK="$1"
 else
-    DISK=/dev/disk/by-partlabel/RBOS_INSTALL
+    DISK=/dev/disk/by-partlabel/Red Bear OS_INSTALL
 fi
 
 if [ ! -b "${DISK}" ]
@@ -37,10 +37,10 @@ fi
 BOOTLOADER="recipes/core/bootloader/target/${ARCH}-unknown-redox/stage/usr/lib/boot/bootloader.efi"
 set -x
 sudo mkdir -pv "${ESP}/EFI" "${ESP}/loader/entries"
-sudo cp -v "${BOOTLOADER}" "${ESP}/EFI/rbos.efi"
-sudo tee "${ESP}/loader/entries/rbos.conf" <<EOF
+sudo cp -v "${BOOTLOADER}" "${ESP}/EFI/redbear.efi"
+sudo tee "${ESP}/loader/entries/redbear.conf" <<EOF
 title Red Bear OS
-efi /EFI/rbos.efi
+efi /EFI/redbear.efi
 EOF
 set +x
 
@@ -48,5 +48,5 @@ sync
 
 echo "Finished installing Red Bear OS dual boot"
 echo ""
-echo "To mount the RBOS filesystem partition, run:"
+echo "To mount the Red Bear OS filesystem partition, run:"
 echo "  ./scripts/mount-redoxfs.sh ${DISK}"

@@ -24,9 +24,9 @@ for ARCH in "${ARCHS[@]}"
 do
     for CONFIG_NAME in "${CONFIGS[@]}"
     do
-        IMAGE="build/${ARCH}/${CONFIG_NAME}/rbos-live.iso"
+        IMAGE="build/${ARCH}/${CONFIG_NAME}/redbear-live.iso"
         make ARCH="${ARCH}" CONFIG_NAME="${CONFIG_NAME}" "${IMAGE}"
-        cp -v "${IMAGE}" "${VENTOY}/rbos-${CONFIG_NAME}-${ARCH}.iso"
+        cp -v "${IMAGE}" "${VENTOY}/redbear-${CONFIG_NAME}-${ARCH}.iso"
     done
 done
 

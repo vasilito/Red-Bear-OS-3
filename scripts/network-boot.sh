@@ -9,7 +9,7 @@ set -ex
 trap 'kill -HUP 0' EXIT
 
 eval $(make setenv)
-make "${BUILD}/rbos-live.iso"
+make "${BUILD}/redbear-live.iso"
 
 echo "Allowing packet forwarding"
 echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
@@ -45,7 +45,7 @@ ARGS=(
     "--dhcp-boot=tag:!ipxe,tag:efi-aarch64,ipxe-aarch64.efi"
     # IPXE
     "--dhcp-userclass=set:ipxe,iPXE"
-    "--dhcp-boot=tag:ipxe,rbos.ipxe"
+    "--dhcp-boot=tag:ipxe,redbear.ipxe"
 )
 
 sudo dnsmasq "${ARGS[@]}"&

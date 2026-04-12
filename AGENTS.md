@@ -75,16 +75,16 @@ redox-master/
 echo 'PODMAN_BUILD?=0' > .config          # Native build (no container)
 echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 
-# Build RBOS
+# Build Red Bear OS
 make all                                  # Build desktop config → harddrive.img
-make all CONFIG_NAME=redbear-full         # Full RBOS desktop + custom drivers
-make all CONFIG_NAME=redbear-minimal      # Minimal RBOS server
+make all CONFIG_NAME=redbear-full         # Full Red Bear OS desktop + custom drivers
+make all CONFIG_NAME=redbear-minimal      # Minimal Red Bear OS server
 CI=1 make all CONFIG_NAME=redbear-minimal # CI mode (disables TUI, for non-interactive)
 
 # Run
 make qemu                                 # Boot in QEMU
 make qemu QEMUFLAGS="-m 4G"              # With more RAM
-make live                                 # Build live ISO → rbos-live.iso
+make live                                 # Build live ISO → redbear-live.iso
 
 # Single recipe
 ./target/release/repo cook recipes/libs/mesa     # Build one recipe
@@ -107,7 +107,7 @@ make all
   → mk/fstools.mk (build cookbook repo binary + fstools)
   → mk/repo.mk (repo cook --filesystem=config/*.toml)
     → For each recipe: fetch source → apply patches → build → stage into sysroot
-  → mk/disk.mk (create filesystem.img, harddrive.img, rbos-live.iso)
+  → mk/disk.mk (create filesystem.img, harddrive.img, redbear-live.iso)
     → redoxfs-mkfs → redox_installer → bootloader embedding
 ```
 
@@ -135,7 +135,7 @@ make all
 
 ## PATCH MANAGEMENT
 
-All RBOS modifications to upstream files are kept separately in `local/patches/`.
+All Red Bear OS modifications to upstream files are kept separately in `local/patches/`.
 
 ### Structure
 
@@ -182,19 +182,19 @@ local/patches/
 | Script | Purpose |
 |--------|---------|
 | `local/scripts/apply-patches.sh` | Apply all build-system patches + create recipe symlinks |
-| `local/scripts/sync-upstream.sh` | Fetch upstream + rebase RBOS commits + verify symlinks |
+| `local/scripts/sync-upstream.sh` | Fetch upstream + rebase Red Bear OS commits + verify symlinks |
 
 ### Updating from Upstream
 
 ```bash
 # Automated (preferred):
-./local/scripts/sync-upstream.sh              # Rebase RBOS onto latest upstream
+./local/scripts/sync-upstream.sh              # Rebase Red Bear OS onto latest upstream
 ./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts first
 
 # Manual:
 git remote add upstream-redox https://github.com/redox-os/redox.git  # once
 git fetch upstream-redox master
-git rebase upstream-redox/master             # replays RBOS commits on new upstream
+git rebase upstream-redox/master             # replays Red Bear OS commits on new upstream
 
 # Nuclear option (if rebase fails badly):
 git rebase --abort

@@ -1,5 +1,5 @@
 [package]
-name = "rbos_cookbook"
+name = "redbear_cookbook"
 version = "0.1.0"
 authors = ["Jeremy Soller <jackpot51@gmail.com>"]
 edition = "2024"
@@ -8,7 +8,7 @@ default-run = "repo"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "cookbook_rbos_redoxer"
+name = "cookbook_redbear_redoxer"
 path = "src/bin/cookbook_redoxer.rs"
 
 [[bin]]

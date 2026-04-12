@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# apply-patches.sh — Apply all RBOS patches on top of upstream Redox build system.
+# apply-patches.sh — Apply all Red Bear OS patches on top of upstream Redox build system.
 #
 # Usage: ./local/scripts/apply-patches.sh [--force]
 #
@@ -95,25 +95,25 @@ mkdir -p recipes/core
 symlink "../../local/recipes/core/ext4d" "recipes/core/ext4d"
 
 # ── 4. New files not in upstream ────────────────────────────────────
-echo "==> Ensuring RBOS-specific files exist..."
+echo "==> Ensuring Red Bear OS-specific files exist..."
 
-# rbos.ipxe (network boot)
-if [ ! -f rbos.ipxe ] && [ ! -L rbos.ipxe ]; then
-    cat > rbos.ipxe <<'IPXE'
+# redbear.ipxe (network boot)
+if [ ! -f redbear.ipxe ] && [ ! -L redbear.ipxe ]; then
+    cat > redbear.ipxe <<'IPXE'
 #!ipxe
 
 kernel bootloader-live.efi
-initrd http://${next-server}:8080/rbos-live.iso
+initrd http://${next-server}:8080/redbear-live.iso
 boot
 IPXE
-    echo "  created rbos.ipxe"
+    echo "  created redbear.ipxe"
 fi
 
 # redbear-full config (not in upstream)
 if [ ! -f config/redbear-full.toml ] && [ ! -L config/redbear-full.toml ]; then
     cat > config/redbear-full.toml <<'TOML'
 # Red Bear OS Full Configuration
-# Complete desktop + all RBOS custom drivers and tools
+# Complete desktop + all Red Bear OS custom drivers and tools
 #
 # Build: make all CONFIG_NAME=redbear-full
 # Live:  make live CONFIG_NAME=redbear-full
@@ -132,7 +132,7 @@ redbear-release = {}
 # ext4 filesystem support (our custom port)
 ext4d = {}
 
-# RBOS driver infrastructure
+# Red Bear OS driver infrastructure
 redox-driver-sys = {}
 linux-kpi = {}
 firmware-loader = {}
@@ -145,12 +145,12 @@ udev-shim = {}
 redox-drm = {}
 amdgpu = {}
 
-# RBOS meta-package (dependencies, default config)
+# Red Bear OS meta-package (dependencies, default config)
 redbear-meta = {}
 TOML
     echo "  created config/redbear-full.toml"
 fi
 
 echo ""
-echo "==> All RBOS patches applied. Ready to build."
+echo "==> All Red Bear OS patches applied. Ready to build."
 echo "    make all CONFIG_NAME=redbear-full"

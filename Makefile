@@ -9,23 +9,23 @@ all: $(BUILD)/harddrive.img
 
 live:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
-	-$(FUMOUNT) /tmp/rbos_installer/ || true
-	rm -f $(BUILD)/rbos-live.iso
-	$(MAKE) $(BUILD)/rbos-live.iso
+	-$(FUMOUNT) /tmp/redbear_installer/ || true
+	rm -f $(BUILD)/redbear-live.iso
+	$(MAKE) $(BUILD)/redbear-live.iso
 
-popsicle: $(BUILD)/rbos-live.iso
-	popsicle-gtk $(BUILD)/rbos-live.iso
+popsicle: $(BUILD)/redbear-live.iso
+	popsicle-gtk $(BUILD)/redbear-live.iso
 
 image:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
-	-$(FUMOUNT) /tmp/rbos_installer/ || true
-	rm -f $(BUILD)/harddrive.img $(BUILD)/rbos-live.iso
+	-$(FUMOUNT) /tmp/redbear_installer/ || true
+	rm -f $(BUILD)/harddrive.img $(BUILD)/redbear-live.iso
 	$(MAKE) all
 
 rebuild:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
-	-$(FUMOUNT) /tmp/rbos_installer/ || true
-	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/rbos-live.iso
+	-$(FUMOUNT) /tmp/redbear_installer/ || true
+	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/redbear-live.iso
 	$(MAKE) all
 
 # To tell that it's not safe
@@ -44,7 +44,7 @@ else
 ifneq ($(NOT_ON_PODMAN),1)
 	$(MAKE) repo_clean
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
-	-$(FUMOUNT) /tmp/rbos_installer/ || true
+	-$(FUMOUNT) /tmp/redbear_installer/ || true
 endif # NOT_ON_PODMAN
 	rm -rf repo
 	rm -rf $(BUILD) $(PREFIX)
@@ -97,6 +97,13 @@ include mk/virtualbox.mk
 
 # CI
 include mk/ci.mk
+
+include mk/redbear.mk
+
+# Ensure Red Bear OS integration runs before repo cook and disk image creation
+$(BUILD)/harddrive.img: $(REDBEAR_TAG)
+$(BUILD)/redbear-live.iso: $(REDBEAR_TAG)
+$(REPO_TAG): $(REDBEAR_TAG)
 
 env: prefix FORCE $(CONTAINER_TAG)
 ifeq ($(PODMAN_BUILD),1)

@@ -71,7 +71,7 @@ else
 fi
 
 # Step 3: Build
-echo ">>> Building RBOS with config: $CONFIG"
+echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
 CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 
