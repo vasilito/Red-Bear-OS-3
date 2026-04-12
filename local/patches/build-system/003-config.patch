@@ -1,0 +1,3247 @@
+diff --git a/config/aarch64/ci.toml b/config/aarch64/ci.toml
+new file mode 100644
+index 0000000..1d184f3
+--- /dev/null
++++ b/config/aarch64/ci.toml
+@@ -0,0 +1,320 @@
++# The Redox build server configuration
++
++# General settings
++[general]
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++
++# If you need to disable some broken package comment out instead of removal to not increase the maintenance cost
++#TODO: commented out recipes need to be built and tested inside of Redox to verify if they returned to work
++
++# Meta-packages below
++
++# auto-test = {}
++# dev-essential = {}
++# dev-redox = {}
++# redox-tests = {}
++# x11-minimal = {}
++# x11-full = {}
++
++# Normal packages below
++
++acid = {}
++acid-bins = {}
++base = {}
++base-initfs = {}
++bash = {}
++bash-completion = {}
++bootloader = {}
++bottom = {}
++ca-certificates = {}
++contain = {}
++coreutils = {}
++cosmic-edit = {}
++cosmic-files = {}
++cosmic-icons = {}
++cosmic-term = {}
++cosmic-text = {}
++curl = {}
++dash = {}
++dejavu = {}
++diffutils = {}
++expat = {}
++extrautils = {}
++findutils = {}
++freefont = {}
++freetype2 = {}
++gcc13 = {}
++gettext = {}
++git = {}
++gnu-binutils = {}
++gnu-make = {}
++hicolor-icon-theme = {}
++installer = {}
++installer-gui = {}
++ion = {}
++kernel = {}
++kibi = {}
++libffi = {}
++libgcc = {}
++libiconv = {}
++libjpeg = {}
++libogg = {}
++liborbital = {}
++libpng = {}
++libstdcxx = {}
++libvorbis = {}
++libxkbcommon = {}
++libxml2 = {}
++llvm21 = {}
++nano = {}
++nasm = {}
++ncurses = {}
++netdb = {}
++netsurf = {}
++netutils = {}
++nghttp2 = {}
++openssl1 = {}
++openssl3 = {}
++orbdata = {}
++orbital = {}
++orbterm = {}
++orbutils = {}
++patch = {}
++patchelf = {}
++pcre = {}
++pkgutils = {}
++pls = {}
++pop-icon-theme = {}
++redoxfs = {}
++relibc = {}
++ripgrep = {}
++rust = {}
++rustpython = {}
++sdl1 = {}
++sed = {}
++shared-mime-info = {}
++smith = {}
++terminfo = {}
++userutils = {}
++uutils = {}
++vim = {}
++xz = {}
++zlib = {}
++zstd = {}
++# #"gcc13.cxx" = {}
++# #"llvm21.clang" = {}
++# #"llvm21.clang-dev" = {}
++# #"llvm21.dev" = {}
++# #"llvm21.lld" = {}
++# #"llvm21.lld-dev" = {}
++# #"llvm21.runtime" = {}
++# #"python312.dev" = {}
++# #"rust.doc" = {}
++# #atk = {} # depends on glib which does not build
++# #benchmarks = {}
++# #binutils-gdb = {}
++# #book = {}
++# #cairo-demo = {} # linking errors
++# #classicube = {}
++# #cmake = {}
++# #cmatrix = {} # needs ncursesw now
++# #cookbook = {}
++# #cosmic-reader = {}
++# #cosmic-settings = {}
++# #cosmic-store = {}
++# #devilutionx = {}
++# #dynamic-example = {}
++# #fal
++# #fd = {} # ctrlc-3.1.1
++# #file = {}
++# #flycast = {}
++# #freeciv = {}
++# #freeglut = {}
++# #friar = {} # mio patch
++# #game-2048 = {} # rustc-serialize
++# #gawk = {} # langinfo.h
++# #gigalomania = {} # old recipe format
++# #gitoxide = {}
++# #goaccess = {}
++# #gstreamer = {} # conflict with thread local errno
++# #harfbuzz = {} # depends on glib which does not build
++# #helix = {}
++# #hello-redox = {}
++# #hematite = {} # needs crate patches for redox-unix
++# #hf = {}
++# #ibm-plex = {}
++# #iced = {}
++# #jansson = {} # needs config.sub update
++# #jq = {}
++# #libarchive = {}
++# #libatomic = {}
++# #libcosmic = {}
++# #libflac = {}
++# #libmodplug1 = {}
++# #libmpfr = {}
++# #libnettle = {}
++# #libogg = {}
++# #libpsl = {}
++# #libssh2 = {}
++# #libtool = {}
++# #liburcu = {}
++# #libuv = {}
++# #lua-compat-53 = {}
++# #luajit = {}
++# #luarocks = {}
++# #luv = {}
++# #mdp = {} # gcc hangs
++# #miniserve = {} # actix
++# #mpc = {}
++# #mupen64plus = {}
++# #ncdu = {} # multiple definitions of symbols
++# #newlib = {} # obsolete
++# #newlibtest = {} # obsolete
++# #noto-color-emoji = {}
++# #nushell = {} # needs cargo update
++# #openjk = {}
++# #openposixtestsuite = {}
++# #opentyrian = {}
++# #orbcalculator = {}
++# #ostest-bins = {}
++# #pango = {} # undefined references to std::__throw_system_error(int)
++# #pastel = {} # needs crate patches for redox-unix
++# #pathfinder = {} # servo-fontconfig
++# #pciids = {}
++# #pcre2 = {}
++# #pixman = {} # depends on glib which does not build
++# #pkgar = {} # uses virtual Cargo.toml, needs recipe update
++# #pls = {}
++# #pop-wallpapers = {}
++# #powerline = {} # dirs
++# #qemu = {} # can be built, but not working
++# #quakespasm = {}
++# #redox-posix-tests = {}
++# #redox-ssh = {} # does not compile
++# #retroarch = {} # OS_TLSIndex not declared
++# #rust-cairo = {} # linking errors
++# #rust-cairo-demo = {} # linking errors
++# #rvvm = {}
++# #schismtracker = {} # uses system includes
++# #sdl-player = {} # wctype_t
++# #sdl2-gfx = {}
++# #sm64ex = {}
++# #spacecadetpinball = {}
++# #twin-commander = {}
++# #ubuntu-wallpapers = {}
++# #unibilium = {}
++# #utf8proc = {}
++# #vice = {} # linker errors
++# #vvvvvv = {} # did not compile
++# #webrender = {} # unwind
++# #website = {}
++# #wesnoth = {}
++# #wget = {}
++# autoconf = {}
++# automake = {}
++# binutils = {}
++# bzip2 = {}
++# cairo = {}
++# cleye = {}
++# composer = {}
++# cpal = {}
++# dosbox = {}
++# duktape = {}
++# eduke32 = {}
++# exampled = {}
++# expat = {}
++# extrautils = {}
++# ffmpeg6 = {}
++# fontconfig = {}
++# freedoom = {}
++# freepats = {}
++# fribidi = {}
++# gdbserver = {} # wrong libc type
++# gdk-pixbuf = {}
++# gears = {}
++# generaluser-gs = {}
++# glib = {}
++# glutin = {}
++# gnu-grep = {}
++# htop = {}
++# intel-one-mono = {}
++# lci = {}
++# libavif = {}
++# libc-bench = {}
++# libedit = {}
++# libgmp = {}
++# libicu = {}
++# libonig = {}
++# libsodium = {}
++# libuuid = {}
++# libwebp = {}
++# lsd = {}
++# lua54 = {}
++# lz4 = {}
++# mednafen = {}
++# mesa = {} # libudev was not found
++# mesa-glu = {} # depends on mesa
++# mgba = {}
++# mpc = {} # libmpfr not found
++# ncursesw = {}
++# neverball = {}
++# nginx = {}
++# onefetch = {}
++# openjazz = {}
++# openssh = {}
++# openttd = {}
++# openttd-opengfx = {}
++# openttd-openmsx = {}
++# openttd-opensfx = {}
++# orbclient = {}
++# osdemo = {}
++# perg = {}
++# periodictable = {}
++# perl5 = {}
++# php84 = {}
++# pixelcannon = {}
++# pkg-config = {}
++# prboom = {}
++# procedural-wallpapers-rs = {}
++# python312 = {}
++# readline = {}
++# redox-fatfs = {}
++# redox-games = {}
++# relibc-tests = {}
++# relibc-tests-bins = {}
++# rodioplay = {}
++# rs-nes = {}
++# rsync = {}
++# rust64 = {}
++# rustual-boy = {}
++# scummvm = {}
++# sdl-gfx = {}
++# sdl1-image = {}
++# sdl1-mixer = {}
++# sdl1-ttf = {}
++# sdl2 = {}
++# sdl2-gears = {}
++# sdl2-image = {}
++# sdl2-mixer = {}
++# sdl2-ttf = {}
++# servo = {}
++# shellharden = {}
++# shellstorm = {}
++# simple-http-server = {}
++# sodium = {}
++# sopwith = {}
++# sqlite3 = {}
++# strace = {} # unknown syscall
++# syobonaction = {}
++# timidity = {}
++# tokei = {}
++# ttf-hack = {}
++# vttest = {}
++# webkitgtk3 = {}
++# winit = {}
++# xxhash = {}
++# zoxide = {} # untested
+diff --git a/config/aarch64/demo.toml b/config/aarch64/demo.toml
+new file mode 100644
+index 0000000..2158607
+--- /dev/null
++++ b/config/aarch64/demo.toml
+@@ -0,0 +1,3 @@
++# Configuration for demonstration
++
++include = ["../desktop.toml"]
+diff --git a/config/aarch64/dev.toml b/config/aarch64/dev.toml
+new file mode 100644
+index 0000000..ce6a482
+--- /dev/null
++++ b/config/aarch64/dev.toml
+@@ -0,0 +1,20 @@
++# Configuration for development
++
++include = ["../dev.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++# filesystem_size = 1024
++
++# Package settings
++[packages]
++# see ci.toml for error reasons
++gdbserver = "ignore"
++gnu-binutils = "ignore"
++mesa = "ignore"
++mesa-glu = "ignore"
++mpc = "ignore"
++strace = "ignore"
+diff --git a/config/aarch64/jeremy.toml b/config/aarch64/jeremy.toml
+new file mode 100644
+index 0000000..f3d8c0a
+--- /dev/null
++++ b/config/aarch64/jeremy.toml
+@@ -0,0 +1,3 @@
++# Configuration for Jeremy Soller
++
++include = ["desktop.toml"]
+diff --git a/config/aarch64/raspi3bp/minimal.toml b/config/aarch64/raspi3bp/minimal.toml
+new file mode 100644
+index 0000000..8b47243
+--- /dev/null
++++ b/config/aarch64/raspi3bp/minimal.toml
+@@ -0,0 +1,10 @@
++# Minimal configuration
++
++include = ["../../minimal.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 256
++# EFI partition size in MiB
++efi_partition_size = 128
+diff --git a/config/aarch64/redoxer.toml b/config/aarch64/redoxer.toml
+new file mode 100644
+index 0000000..a17c50c
+--- /dev/null
++++ b/config/aarch64/redoxer.toml
+@@ -0,0 +1,8 @@
++# Configuration used for building redoxer base image
++
++include = ["../redoxer.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
+diff --git a/config/acid.toml b/config/acid.toml
+new file mode 100644
+index 0000000..5392934
+--- /dev/null
++++ b/config/acid.toml
+@@ -0,0 +1,31 @@
++# Configuration for "acid" testing
++
++include = ["base.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
++
++# Package settings
++[packages]
++acid = {}
++coreutils = {}
++ion = {}
++
++[[files]]
++path = "/usr/lib/init.d/10_acid"
++data = """
++requires_weak 00_drivers
++ion /usr/lib/run_acid.ion
++"""
++
++[[files]]
++path = "/usr/lib/run_acid.ion"
++data = """
++#!/usr/bin/env ion
++export RUST_BACKTRACE=full
++cd /home/user/acid
++cargo test
++shutdown
++"""
+diff --git a/config/auto-test.toml b/config/auto-test.toml
+new file mode 100644
+index 0000000..b6ff978
+--- /dev/null
++++ b/config/auto-test.toml
+@@ -0,0 +1,32 @@
++# Configuration for automated testing of essential test suites
++# Smaller test suites are executed first to catch possible bugs or regressions faster
++
++include = ["base.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
++
++# Package settings
++[packages]
++auto-test = {}
++
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 10_net
++ion /usr/lib/run_tests.ion
++"""
++
++[[files]]
++path = "/usr/lib/run_tests.ion"
++data = """
++#!/usr/bin/env ion
++export RUST_BACKTRACE=full
++cd /home/user/acid
++cargo test
++bash /root/relibc-tests/run.sh
++os-test-runner
++shutdown
++"""
+diff --git a/config/base.toml b/config/base.toml
+new file mode 100644
+index 0000000..1f47fd5
+--- /dev/null
++++ b/config/base.toml
+@@ -0,0 +1,325 @@
++# Base configuration: This configuration is meant to be included by
++# other configurations rather than use directly. It is the greatest
++# common divisor of all other configurations and misses several
++# parts necessary to create a bootable system.
++
++# General settings
++[general]
++# Do not prompt if settings are not defined
++prompt = false
++
++[packages]
++base = {}
++base-initfs = {}
++bootloader = {}
++kernel = {}
++libgcc = {}
++libstdcxx = {}
++netdb = {}
++netutils = {}
++relibc = {}
++userutils = {}
++uutils = {}
++
++## Configuration files
++[[files]]
++path = "/usr/lib/init.d/00_base"
++data = """
++# clear and recreate tmpdir with 0o1777 permission
++rm -rf /tmp
++mkdir -m a=rwxt /tmp
++
++notify ipcd
++notify ptyd
++nowait sudo --daemon
++"""
++
++[[files]]
++path = "/usr/lib/init.d/00_drivers"
++data = """
++requires_weak 00_base
++pcid-spawner
++"""
++
++## Network init
++[[files]]
++path = "/usr/lib/init.d/10_net"
++data = """
++requires_weak 00_drivers
++notify smolnetd
++nowait dhcpd
++"""
++
++[[files]]
++path = "/etc/login_schemes.toml"
++data = """
++[user_schemes.root]
++schemes = ["*"]
++[user_schemes.user]
++schemes = [
++  # Kernel schemes
++  "debug",
++  "event",
++  "memory",
++  "pipe",
++  "serio",
++  "irq",
++  "time",
++  "sys",
++  # Base schemes
++  "rand",
++  "null",
++  "zero",
++  "log",
++  # Network schemes
++  "ip",
++  "icmp",
++  "tcp",
++  "udp",
++  # IPC schemes
++  "shm",
++  "chan",
++  "uds_stream",
++  "uds_dgram",
++  # File schemes
++  "file",
++  # Display schemes
++  "display.vesa",
++  "display*",
++  # Other schemes
++  "pty",
++  "sudo",
++  "audio",
++  "orbital",
++]
++"""
++
++[[files]]
++path = "/etc/hostname"
++data = "redbear"
++
++## Default net configuration (optimized for QEMU)
++[[files]]
++path = "/etc/net/dns"
++data = """
++9.9.9.9
++"""
++
++[[files]]
++path = "/etc/net/ip"
++data = """
++10.0.2.15
++"""
++
++[[files]]
++path = "/etc/net/ip_router"
++data = """
++10.0.2.2
++"""
++
++[[files]]
++path = "/etc/net/ip_subnet"
++data = """
++255.255.255.0
++"""
++
++# https://www.freedesktop.org/software/systemd/man/latest/os-release.html
++[[files]]
++path = "/usr/lib/os-release"
++data = """
++PRETTY_NAME="Red Bear OS 0.1.0"
++NAME="Red Bear OS"
++VERSION_ID="0.1.0"
++VERSION="0.1.0"
++ID="redbear-os"
++ID_LIKE="redox-os"
++
++HOME_URL="https://github.com/vasilito/Red-Bear-OS-3"
++DOCUMENTATION_URL="https://doc.redox-os.org/"
++SUPPORT_URL="https://github.com/vasilito/Red-Bear-OS-3/issues"
++"""
++# FIXME maybe add VARIANT= and VARIANT_ID= keys depending on the chosen configuration?
++
++[[files]]
++path = "/etc/os-release"
++data = "../usr/lib/os-release"
++symlink = true
++
++[[files]]
++path = "/etc/pkg.d/50_redox"
++data = "https://static.redox-os.org/pkg"
++
++## /usr and symlinks for usrmerge
++[[files]]
++path = "/usr"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/usr/bin"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/bin"
++data = "usr/bin"
++symlink = true
++
++[[files]]
++path = "/usr/include"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/include"
++data = "usr/include"
++symlink = true
++
++[[files]]
++path = "/usr/lib"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/lib"
++data = "usr/lib"
++symlink = true
++
++[[files]]
++path = "/usr/libexec"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/usr/share"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/share"
++data = "usr/share"
++symlink = true
++
++[[files]]
++path = "/ui"
++data = "usr/share/ui"
++symlink = true
++
++## legacy orbital font directory
++[[files]]
++path = "/usr/share/ui/fonts"
++data = "/usr/share/fonts"
++symlink = true
++
++## legacy orbital icon directory
++[[files]]
++path = "/usr/share/ui/icons"
++data = "/usr/share/icons"
++symlink = true
++
++## /var
++[[files]]
++path = "/var"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/var/cache"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/var/lib"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/var/lock"
++data = ""
++directory = true
++mode = 0o1777
++
++[[files]]
++path = "/var/log"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/var/run"
++data = ""
++directory = true
++mode = 0o755
++
++[[files]]
++path = "/var/tmp"
++data = ""
++directory = true
++mode = 0o1777
++
++## Device file symlinks
++[[files]]
++path = "/dev/null"
++data = "/scheme/null"
++symlink = true
++
++[[files]]
++path = "/dev/random"
++data = "/scheme/rand"
++symlink = true
++
++[[files]]
++path = "/dev/urandom"
++data = "/scheme/rand"
++symlink = true
++
++[[files]]
++path = "/dev/zero"
++data = "/scheme/zero"
++symlink = true
++
++[[files]]
++path = "/dev/tty"
++data = "libc:tty"
++symlink = true
++
++[[files]]
++path = "/dev/stdin"
++data = "libc:stdin"
++symlink = true
++
++[[files]]
++path = "/dev/stdout"
++data = "libc:stdout"
++symlink = true
++
++[[files]]
++path = "/dev/stderr"
++data = "libc:stderr"
++symlink = true
++
++# User settings
++[users.root]
++password = "password"
++uid = 0
++gid = 0
++shell = "/usr/bin/ion"
++
++[users.user]
++# Password is unset
++password = ""
++shell = "/usr/bin/ion"
++
++# Group settings
++[groups.sudo]
++gid = 1
++members = ["user"]
+diff --git a/config/desktop-minimal.toml b/config/desktop-minimal.toml
+new file mode 100644
+index 0000000..852dc83
+--- /dev/null
++++ b/config/desktop-minimal.toml
+@@ -0,0 +1,32 @@
++# Minimal desktop configuration
++
++include = ["minimal.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 256
++
++# Package settings
++[packages]
++orbdata = {}
++orbital = {}
++orbterm = {}
++orbutils = {}
++
++[[files]]
++path = "/usr/lib/init.d/20_orbital"
++data = """
++requires_weak 10_net
++notify audiod
++nowait VT=3 orbital orblogin launcher
++"""
++
++# Override console config to not switch to VT 2
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 20_orbital
++nowait getty 2
++nowait getty /scheme/debug/no-preserve -J
++"""
+diff --git a/config/desktop.toml b/config/desktop.toml
+new file mode 100644
+index 0000000..70691f7
+--- /dev/null
++++ b/config/desktop.toml
+@@ -0,0 +1,26 @@
++# Default build system configuration
++
++include = ["desktop-minimal.toml", "server.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 650
++
++# Package settings
++[packages]
++cosmic-edit = {}
++cosmic-files = {}
++cosmic-icons = {}
++cosmic-term = {}
++dejavu = {}
++ext4d = {}
++freefont = {}
++hicolor-icon-theme = {}
++installer-gui = {}
++netsurf = {}
++patchelf = {}
++pop-icon-theme = {}
++shared-mime-info = {}
++# orbterm from desktop-minimal should be ignored
++orbterm = "ignore"
+diff --git a/config/dev.toml b/config/dev.toml
+new file mode 100644
+index 0000000..8f92fb2
+--- /dev/null
++++ b/config/dev.toml
+@@ -0,0 +1,15 @@
++# Configuration for development
++
++include = ["desktop.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 20000
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++dev-redox = {}
++hello-redox = {}
+diff --git a/config/i586/ci.toml b/config/i586/ci.toml
+new file mode 100644
+index 0000000..3432fba
+--- /dev/null
++++ b/config/i586/ci.toml
+@@ -0,0 +1,317 @@
++# The Redox build server configuration
++
++# General settings
++[general]
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++
++# If you need to disable some broken package comment out instead of removal to not increase the maintenance cost
++#TODO: commented out recipes need to be built and tested inside of Redox to verify if they returned to work
++
++# Meta-packages below
++
++# auto-test = {}
++# dev-essential = {}
++# dev-redox = {}
++# redox-tests = {}
++# x11-minimal = {}
++# x11-full = {}
++
++# Normal packages below
++
++# acid = {} # rust require dynamic linking
++acid-bins = {}
++base = {}
++base-initfs = {}
++bash = {}
++bash-completion = {}
++bootloader = {}
++bottom = {}
++ca-certificates = {}
++contain = {}
++coreutils = {}
++cosmic-edit = {}
++cosmic-files = {}
++cosmic-icons = {}
++cosmic-term = {}
++cosmic-text = {}
++curl = {}
++dash = {}
++dejavu = {}
++diffutils = {}
++expat = {}
++extrautils = {}
++findutils = {}
++freefont = {}
++freetype2 = {}
++gettext = {}
++git = {}
++gnu-make = {}
++hicolor-icon-theme = {}
++installer = {}
++installer-gui = {}
++ion = {}
++kernel = {}
++kibi = {}
++libffi = {}
++libgcc = {}
++libiconv = {}
++libjpeg = {}
++libogg = {}
++liborbital = {}
++libpng = {}
++libstdcxx = {}
++libvorbis = {}
++libxkbcommon = {}
++libxml2 = {}
++nano = {}
++nasm = {}
++ncurses = {}
++netdb = {}
++netsurf = {}
++netutils = {}
++nghttp2 = {}
++openssl1 = {}
++orbdata = {}
++orbital = {}
++orbterm = {}
++orbutils = {}
++patch = {}
++pcre = {}
++patchelf = {}
++pop-icon-theme = {}
++pkgutils = {}
++redoxfs = {}
++relibc = {}
++ripgrep = {}
++rustpython = {}
++sdl1 = {}
++sed = {}
++shared-mime-info = {}
++smith = {}
++terminfo = {}
++userutils = {}
++uutils = {}
++xz = {}
++#vim = {} # conflicting types
++zlib = {}
++
++# #"gcc13.cxx" = {}
++# #"llvm21.clang" = {}
++# #"llvm21.clang-dev" = {}
++# #"llvm21.dev" = {}
++# #"llvm21.lld" = {}
++# #"llvm21.lld-dev" = {}
++# #"llvm21.runtime" = {}
++# #"python312.dev" = {}
++# #"rust.doc" = {}
++# #atk = {} # depends on glib which does not build
++# #benchmarks = {}
++# #binutils-gdb = {}
++# #book = {}
++# #cairo-demo = {} # linking errors
++# #classicube = {}
++# #cmake = {}
++# #cmatrix = {} # needs ncursesw now
++# #cookbook = {}
++# #cosmic-reader = {}
++# #cosmic-settings = {}
++# #cosmic-store = {}
++# #devilutionx = {}
++# #dynamic-example = {}
++# #fal
++# #fd = {} # ctrlc-3.1.1
++# #file = {}
++# #flycast = {}
++# #freeciv = {}
++# #freeglut = {}
++# #friar = {} # mio patch
++# #game-2048 = {} # rustc-serialize
++# #gawk = {} # langinfo.h
++# #gigalomania = {} # old recipe format
++# #gitoxide = {}
++# #goaccess = {}
++# #gstreamer = {} # conflict with thread local errno
++# #harfbuzz = {} # depends on glib which does not build
++# #helix = {}
++# #hello-redox = {}
++# #hematite = {} # needs crate patches for redox-unix
++# #hf = {}
++# #ibm-plex = {}
++# #iced = {}
++# #jansson = {} # needs config.sub update
++# #jq = {}
++# #libarchive = {}
++# #libatomic = {}
++# #libcosmic = {}
++# #libflac = {}
++# #libmodplug1 = {}
++# #libmpfr = {}
++# #libnettle = {}
++# #libogg = {}
++# #libpsl = {}
++# #libssh2 = {}
++# #libtool = {}
++# #liburcu = {}
++# #libuv = {}
++# #lua-compat-53 = {}
++# #luajit = {}
++# #luarocks = {}
++# #luv = {}
++# #mdp = {} # gcc hangs
++# #miniserve = {} # actix
++# #mpc = {}
++# #mupen64plus = {}
++# #ncdu = {} # multiple definitions of symbols
++# #newlib = {} # obsolete
++# #newlibtest = {} # obsolete
++# #noto-color-emoji = {}
++# #nushell = {} # needs cargo update
++# #openjk = {}
++# #openposixtestsuite = {}
++# #opentyrian = {}
++# #orbcalculator = {}
++# #ostest-bins = {}
++# #pango = {} # undefined references to std::__throw_system_error(int)
++# #pastel = {} # needs crate patches for redox-unix
++# #pathfinder = {} # servo-fontconfig
++# #pciids = {}
++# #pcre2 = {}
++# #pixman = {} # depends on glib which does not build
++# #pkgar = {} # uses virtual Cargo.toml, needs recipe update
++# #pls = {}
++# #pop-wallpapers = {}
++# #powerline = {} # dirs
++# #qemu = {} # can be built, but not working
++# #quakespasm = {}
++# #redox-posix-tests = {}
++# #redox-ssh = {} # does not compile
++# #retroarch = {} # OS_TLSIndex not declared
++# #rust-cairo = {} # linking errors
++# #rust-cairo-demo = {} # linking errors
++# #rvvm = {}
++# #schismtracker = {} # uses system includes
++# #sdl-player = {} # wctype_t
++# #sdl2-gfx = {}
++# #sm64ex = {}
++# #spacecadetpinball = {}
++# #twin-commander = {}
++# #ubuntu-wallpapers = {}
++# #unibilium = {}
++# #utf8proc = {}
++# #vice = {} # linker errors
++# #vvvvvv = {} # did not compile
++# #webrender = {} # unwind
++# #website = {}
++# #wesnoth = {}
++# #wget = {}
++# autoconf = {}
++# automake = {}
++# binutils = {}
++# bzip2 = {}
++# cairo = {}
++# cleye = {}
++# composer = {}
++# cpal = {}
++# dosbox = {}
++# duktape = {}
++# eduke32 = {}
++# exampled = {}
++# ffmpeg6 = {}
++# fontconfig = {}
++# freedoom = {}
++# freepats = {}
++# fribidi = {}
++# gcc13 = {}
++# gdbserver = {}
++# gdk-pixbuf = {}
++# gears = {}
++# generaluser-gs = {}
++# glib = {}
++# glutin = {}
++# gnu-binutils = {}
++# gnu-grep = {}
++# htop = {}
++# intel-one-mono = {}
++# lci = {}
++# libavif = {}
++# libc-bench = {}
++# libedit = {}
++# libgmp = {}
++# libicu = {}
++# libonig = {}
++# libsodium = {}
++# libuuid = {}
++# libwebp = {}
++# llvm21 = {}
++# lsd = {}
++# lua54 = {}
++# lz4 = {}
++# mednafen = {}
++# mesa = {}
++# mesa-glu = {}
++# mgba = {}
++# ncursesw = {}
++# neverball = {}
++# nginx = {}
++# onefetch = {}
++# openjazz = {}
++# openssh = {}
++# openssl3 = {}
++# openttd = {}
++# openttd-opengfx = {}
++# openttd-openmsx = {}
++# openttd-opensfx = {}
++# orbclient = {}
++# osdemo = {}
++# perg = {}
++# periodictable = {}
++# perl5 = {}
++# php84 = {}
++# pixelcannon = {}
++# pkg-config = {}
++# prboom = {}
++# procedural-wallpapers-rs = {}
++# python312 = {}
++# readline = {}
++# redox-fatfs = {}
++# redox-games = {}
++# relibc-tests = {}
++# relibc-tests-bins = {}
++# rodioplay = {}
++# rs-nes = {}
++# rsync = {}
++# rust = {}
++# rust64 = {}
++# rustual-boy = {}
++# scummvm = {}
++# sdl-gfx = {}
++# sdl1-image = {}
++# sdl1-mixer = {}
++# sdl1-ttf = {}
++# sdl2 = {}
++# sdl2-gears = {}
++# sdl2-image = {}
++# sdl2-mixer = {}
++# sdl2-ttf = {}
++# servo = {}
++# shellharden = {}
++# shellstorm = {}
++# simple-http-server = {}
++# sodium = {}
++# sopwith = {}
++# sqlite3 = {}
++# strace = {}
++# syobonaction = {}
++# timidity = {}
++# tokei = {}
++# ttf-hack = {}
++# vttest = {}
++# webkitgtk3 = {}
++# winit = {}
++# xxhash = {}
++# zoxide = {} # untested
++# zstd = {}
+diff --git a/config/i586/demo.toml b/config/i586/demo.toml
+new file mode 100644
+index 0000000..e4568ae
+--- /dev/null
++++ b/config/i586/demo.toml
+@@ -0,0 +1,49 @@
++# Configuration for demonstration
++
++include = ["../desktop.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 768
++
++# Package settings
++[packages]
++# Games
++dosbox = {}
++freedoom = {}
++prboom = {}
++redox-games = {}
++
++# Demos
++pixelcannon = {}
++
++# MIDI
++freepats = {}
++
++[[files]]
++path = "/home/user/Welcome.txt"
++data = """
++##############################################################################
++#                                                                            #
++#                          Welcome to Red Bear OS!                           #
++#                                                                            #
++# Red Bear OS (RBOS) is a derivative of Redox, an operating system written   #
++# in Rust, a language with focus on safety and high performance. Redox,      #
++# following the microkernel design, aims to be secure, usable, and free.     #
++# Redox is inspired by previous kernels and operating systems, such as       #
++# SeL4, MINIX, Plan 9, and BSD.                                             #
++#                                                                            #
++# Red Bear OS _is not_ just a kernel, it's a full-featured Operating System, #
++# providing packages (memory allocator, file system, display manager, core   #
++# utilities, etc.) that together make up a functional and convenient         #
++# operating system. You can loosely think of it as the GNU or BSD ecosystem, #
++# but in a memory safe language and with modern technology.                  #
++#                                                                            #
++# The website can be found at https://github.com/vasilito/Red-Bear-OS-3.     #
++#                                                                            #
++# For things to try on Red Bear OS, please see                               #
++# https://doc.redox-os.org/book/ch02-06-trying-out-redox.html                #
++#                                                                            #
++##############################################################################
++"""
+diff --git a/config/i586/dev.toml b/config/i586/dev.toml
+new file mode 100644
+index 0000000..6974b4e
+--- /dev/null
++++ b/config/i586/dev.toml
+@@ -0,0 +1,14 @@
++# Configuration for development
++
++include = ["../dev.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++# filesystem_size = 1024
++
++# Package settings
++[packages]
++# example = {}
+diff --git a/config/i586/jeremy.toml b/config/i586/jeremy.toml
+new file mode 100644
+index 0000000..d76b88d
+--- /dev/null
++++ b/config/i586/jeremy.toml
+@@ -0,0 +1,39 @@
++# Configuration for Jeremy Soller
++
++include = ["../desktop.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 4000
++
++# Package settings
++[packages]
++# apps
++cosmic-text = {}
++pixelcannon = {}
++sodium = {}
++
++# cli
++acid = {}
++cleye = {}
++ripgrep = {}
++
++# demos
++cpal = {}
++orbclient = {}
++rodioplay = {}
++winit = {}
++
++# games
++dosbox = {}
++eduke32 = {}
++freedoom = {}
++prboom = {}
++redox-games = {}
++
++# stuff
++freepats = {}
++generaluser-gs = {}
++jeremy = {}
++ttf-hack = {}
+diff --git a/config/i586/redoxer.toml b/config/i586/redoxer.toml
+new file mode 100644
+index 0000000..a17c50c
+--- /dev/null
++++ b/config/i586/redoxer.toml
+@@ -0,0 +1,8 @@
++# Configuration used for building redoxer base image
++
++include = ["../redoxer.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
+diff --git a/config/minimal.toml b/config/minimal.toml
+new file mode 100644
+index 0000000..5f11074
+--- /dev/null
++++ b/config/minimal.toml
+@@ -0,0 +1,26 @@
++# Minimal configuration
++
++include = ["base.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 196
++
++# Package settings
++[packages]
++ca-certificates = {}
++coreutils = {}
++extrautils = {}
++ion = {}
++pkgutils = {}
++kibi = {}
++
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 10_net
++inputd -A 2
++nowait getty 2
++nowait getty /scheme/debug/no-preserve -J
++"""
+diff --git a/config/os-test.toml b/config/os-test.toml
+new file mode 100644
+index 0000000..58ed1b4
+--- /dev/null
++++ b/config/os-test.toml
+@@ -0,0 +1,22 @@
++# Configuration for "os-test" testing
++
++include = ["server.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++os-test-bins = {} # Provides source and cross-compiled binaries
++
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 10_net
++RUST_BACKTRACE=full os-test-runner
++shutdown
++"""
+diff --git a/config/redbear-desktop.toml b/config/redbear-desktop.toml
+new file mode 100644
+index 0000000..fdce13e
+--- /dev/null
++++ b/config/redbear-desktop.toml
+@@ -0,0 +1,14 @@
++# Red Bear OS Desktop Configuration
++# Mainline Redox desktop + Red Bear branding + ext4 filesystem support
++#
++# Build: make all CONFIG_NAME=redbear-desktop
++# Live:  make live CONFIG_NAME=redbear-desktop
++
++include = ["desktop.toml"]
++
++[general]
++filesystem_size = 10240
++
++[packages]
++# Red Bear OS branding (os-release, hostname, motd)
++redbear-release = {}
+diff --git a/config/redbear-full.toml b/config/redbear-full.toml
+new file mode 100644
+index 0000000..57c66ae
+--- /dev/null
++++ b/config/redbear-full.toml
+@@ -0,0 +1,35 @@
++# Red Bear OS Full Configuration
++# Complete desktop + all RBOS custom drivers and tools
++#
++# Build: make all CONFIG_NAME=redbear-full
++# Live:  make live CONFIG_NAME=redbear-full
++
++include = ["desktop.toml"]
++
++[general]
++# 2GB filesystem — plenty for full desktop + drivers
++# (desktop.toml sets 650MB, but we want headroom for our custom packages)
++filesystem_size = 2048
++
++[packages]
++# Red Bear OS branding (os-release, hostname, motd)
++redbear-release = {}
++
++# ext4 filesystem support (our custom port)
++ext4d = {}
++
++# RBOS driver infrastructure
++redox-driver-sys = {}
++linux-kpi = {}
++firmware-loader = {}
++
++# Input layer
++evdevd = {}
++udev-shim = {}
++
++# GPU driver (AMD — modesetting display core)
++redox-drm = {}
++amdgpu = {}
++
++# RBOS meta-package (dependencies, default config)
++redbear-meta = {}
+diff --git a/config/redbear-live.toml b/config/redbear-live.toml
+new file mode 100644
+index 0000000..cd46cb7
+--- /dev/null
++++ b/config/redbear-live.toml
+@@ -0,0 +1,10 @@
++# Red Bear OS Live Configuration
++# Live ISO variant — boots into Red Bear OS Desktop from USB/DVD
++#
++# Build: make live CONFIG_NAME=redbear-live
++
++include = ["redbear-desktop.toml"]
++
++[general]
++# Larger filesystem for live image with more tools
++filesystem_size = 12288
+diff --git a/config/redbear-minimal.toml b/config/redbear-minimal.toml
+new file mode 100644
+index 0000000..c0091fb
+--- /dev/null
++++ b/config/redbear-minimal.toml
+@@ -0,0 +1,20 @@
++# Red Bear OS Minimal Configuration
++# Console/Server variant with bare-metal driver support but no GUI
++#
++# Build: make all CONFIG_NAME=redbear-minimal
++
++include = ["minimal.toml"]
++
++[general]
++filesystem_size = 512
++
++[packages]
++# Red Bear OS branding
++redbear-release = {}
++
++# Firmware loading
++firmware-loader = {}
++
++# Input event handling
++evdevd = {}
++udev-shim = {}
+diff --git a/config/redoxer-gui.toml b/config/redoxer-gui.toml
+new file mode 100644
+index 0000000..c3e6149
+--- /dev/null
++++ b/config/redoxer-gui.toml
+@@ -0,0 +1,18 @@
++# Configuration for the Redoxer GUI image
++
++include = ["redoxer.toml"]
++
++# Package settings
++[packages]
++orbdata = {}
++orbital = {}
++
++# Override to run inside of orbital
++[[files]]
++path = "/usr/lib/init.d/30_redoxer"
++data = """
++requires_weak 10_net
++echo
++echo "## running redoxer in orbital ##"
++nowait VT=3 orbital redoxerd
++"""
+diff --git a/config/redoxer.toml b/config/redoxer.toml
+new file mode 100644
+index 0000000..6532300
+--- /dev/null
++++ b/config/redoxer.toml
+@@ -0,0 +1,51 @@
++# Configuration for the Redoxer image
++
++include = ["base.toml"]
++
++# Package settings
++[packages]
++bash = {}
++ca-certificates = {}
++coreutils = {}
++extrautils = {}
++findutils = {}
++gnu-make = {}
++ion = {}
++pkgutils = {}
++relibc = {}
++sed = {}
++
++# Override to not background dhcpd
++[[files]]
++path = "/usr/lib/init.d/10_net"
++data = """
++requires_weak 00_drivers
++notify smolnetd
++dhcpd
++"""
++
++[[files]]
++path = "/usr/lib/init.d/30_redoxer"
++data = """
++requires_weak 10_net
++ion /usr/lib/run_redoxer.ion
++"""
++
++[[files]]
++path = "/usr/lib/run_redoxer.ion"
++data = """
++#!/usr/bin/env ion
++echo
++echo "## preparing environment ##"
++export GROUPS=0
++export HOME=/root
++export HOST=redox
++export SHELL=/bin/sh
++export UID=0
++export USER=root
++cd /root
++env
++echo
++echo "## running redoxer ##"
++redoxerd
++"""
+diff --git a/config/riscv64gc/ci.toml b/config/riscv64gc/ci.toml
+new file mode 100644
+index 0000000..382a421
+--- /dev/null
++++ b/config/riscv64gc/ci.toml
+@@ -0,0 +1,318 @@
++# The Redox build server configuration
++
++# General settings
++[general]
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++
++# If you need to disable some broken package comment out instead of removal to not increase the maintenance cost
++#TODO: commented out recipes need to be built and tested inside of Redox to verify if they returned to work
++
++# Meta-packages below
++
++# auto-test = {}
++# dev-essential = {}
++# dev-redox = {}
++# redox-tests = {}
++# x11-minimal = {}
++# x11-full = {}
++
++# Normal packages below
++
++# acid = {} # rust require dynamic linking
++acid-bins = {}
++base = {}
++base-initfs = {}
++bash = {}
++bash-completion = {}
++bootloader = {}
++bottom = {}
++ca-certificates = {}
++#contain = {} # redox_syscall 0.4 not working on riscv64gc?
++coreutils = {}
++cosmic-edit = {}
++cosmic-files = {}
++cosmic-icons = {}
++cosmic-term = {}
++#cosmic-text = {} # need to bump redox_syscall
++curl = {}
++dash = {}
++dejavu = {}
++diffutils = {}
++expat = {}
++extrautils = {}
++findutils = {}
++freefont = {}
++freetype2 = {}
++gettext = {}
++git = {}
++gnu-make = {}
++hicolor-icon-theme = {}
++installer = {}
++#installer-gui = {} # redox_syscall 0.4 not working on riscv64gc?
++ion = {}
++kernel = {}
++kibi = {}
++libffi = {}
++libgcc = {}
++#libiconv = {} # not tested yet, netsurf is commented out
++libjpeg = {}
++libogg = {}
++#liborbital = {} # not tested yet, netsurf is commented out
++libpng = {}
++libstdcxx = {}
++libvorbis = {}
++libxkbcommon = {}
++libxml2 = {}
++#nano = {} # error compiling ncurses
++nasm = {}
++#ncurses = {}
++netdb = {}
++#netsurf = {} # error compiling nghttp2
++netutils = {}
++#nghttp2 = {}
++openssl1 = {}
++orbdata = {}
++orbital = {}
++orbterm = {}
++orbutils = {}
++#patch = {} error configure machine `riscv64gc-unknown' not recognized
++pcre = {}
++patchelf = {}
++pop-icon-theme = {}
++pkgutils = {}
++redoxfs = {}
++relibc = {}
++ripgrep = {}
++rustpython = {}
++#sdl1 = {} # not tested yet, netsurf is commented out
++sed = {}
++shared-mime-info = {}
++smith = {}
++terminfo = {}
++userutils = {}
++uutils = {}
++xz = {}
++#vim = {} # error compiling ncurses
++zlib = {}
++
++# #"gcc13.cxx" = {}
++# #"llvm21.clang" = {}
++# #"llvm21.clang-dev" = {}
++# #"llvm21.dev" = {}
++# #"llvm21.lld" = {}
++# #"llvm21.lld-dev" = {}
++# #"llvm21.runtime" = {}
++# #"python312.dev" = {}
++# #"rust.doc" = {}
++# #atk = {} # depends on glib which does not build
++# #benchmarks = {}
++# #binutils-gdb = {}
++# #book = {}
++# #cairo-demo = {} # linking errors
++# #classicube = {}
++# #cmake = {}
++# #cmatrix = {} # needs ncursesw now
++# #cookbook = {}
++# #cosmic-reader = {}
++# #cosmic-settings = {}
++# #cosmic-store = {}
++# #devilutionx = {}
++# #dynamic-example = {}
++# #fal
++# #fd = {} # ctrlc-3.1.1
++# #file = {}
++# #flycast = {}
++# #freeciv = {}
++# #freeglut = {}
++# #friar = {} # mio patch
++# #game-2048 = {} # rustc-serialize
++# #gawk = {} # langinfo.h
++# #gigalomania = {} # old recipe format
++# #gitoxide = {}
++# #goaccess = {}
++# #gstreamer = {} # conflict with thread local errno
++# #harfbuzz = {} # depends on glib which does not build
++# #helix = {}
++# #hello-redox = {}
++# #hematite = {} # needs crate patches for redox-unix
++# #hf = {}
++# #ibm-plex = {}
++# #iced = {}
++# #jansson = {} # needs config.sub update
++# #jq = {}
++# #libarchive = {}
++# #libatomic = {}
++# #libcosmic = {}
++# #libflac = {}
++# #libmodplug1 = {}
++# #libmpfr = {}
++# #libnettle = {}
++# #libogg = {}
++# #libpsl = {}
++# #libssh2 = {}
++# #libtool = {}
++# #liburcu = {}
++# #libuv = {}
++# #lua-compat-53 = {}
++# #luajit = {}
++# #luarocks = {}
++# #luv = {}
++# #mdp = {} # gcc hangs
++# #miniserve = {} # actix
++# #mpc = {}
++# #mupen64plus = {}
++# #ncdu = {} # multiple definitions of symbols
++# #newlib = {} # obsolete
++# #newlibtest = {} # obsolete
++# #noto-color-emoji = {}
++# #nushell = {} # needs cargo update
++# #openjk = {}
++# #openposixtestsuite = {}
++# #opentyrian = {}
++# #orbcalculator = {}
++# #ostest-bins = {}
++# #pango = {} # undefined references to std::__throw_system_error(int)
++# #pastel = {} # needs crate patches for redox-unix
++# #pathfinder = {} # servo-fontconfig
++# #pciids = {}
++# #pcre2 = {}
++# #pixman = {} # depends on glib which does not build
++# #pkgar = {} # uses virtual Cargo.toml, needs recipe update
++# #pls = {}
++# #pop-wallpapers = {}
++# #powerline = {} # dirs
++# #qemu = {} # can be built, but not working
++# #quakespasm = {}
++# #redox-posix-tests = {}
++# #redox-ssh = {} # does not compile
++# #retroarch = {} # OS_TLSIndex not declared
++# #rust-cairo = {} # linking errors
++# #rust-cairo-demo = {} # linking errors
++# #rvvm = {}
++# #schismtracker = {} # uses system includes
++# #sdl-player = {} # wctype_t
++# #sdl2-gfx = {}
++# #sm64ex = {}
++# #spacecadetpinball = {}
++# #twin-commander = {}
++# #ubuntu-wallpapers = {}
++# #unibilium = {}
++# #utf8proc = {}
++# #vice = {} # linker errors
++# #vvvvvv = {} # did not compile
++# #webrender = {} # unwind
++# #website = {}
++# #wesnoth = {}
++# #wget = {}
++# autoconf = {}
++# automake = {}
++# binutils = {}
++# bzip2 = {}
++# cairo = {}
++# cleye = {}
++# composer = {}
++# cosmic-text = {}
++# cpal = {}
++# dosbox = {}
++# duktape = {}
++# eduke32 = {}
++# exampled = {}
++# ffmpeg6 = {}
++# fontconfig = {}
++# freedoom = {}
++# freepats = {}
++# fribidi = {}
++# gcc13 = {}
++# gdbserver = {}
++# gdk-pixbuf = {}
++# gears = {}
++# generaluser-gs = {}
++# glib = {}
++# glutin = {}
++# gnu-binutils = {}
++# gnu-grep = {}
++# htop = {}
++# intel-one-mono = {}
++# lci = {}
++# libavif = {}
++# libc-bench = {}
++# libedit = {}
++# libgmp = {}
++# libicu = {}
++# libonig = {}
++# libsodium = {}
++# libuuid = {}
++# libwebp = {}
++# llvm21 = {}
++# lsd = {}
++# lua54 = {}
++# lz4 = {}
++# mednafen = {}
++# mesa = {}
++# mesa-glu = {}
++# mgba = {}
++# ncursesw = {}
++# neverball = {}
++# nginx = {}
++# onefetch = {}
++# openjazz = {}
++# openssh = {}
++# openssl3 = {}
++# openttd = {}
++# openttd-opengfx = {}
++# openttd-openmsx = {}
++# openttd-opensfx = {}
++# orbclient = {}
++# osdemo = {}
++# perg = {}
++# periodictable = {}
++# perl5 = {}
++# php84 = {}
++# pixelcannon = {}
++# pkg-config = {}
++# prboom = {}
++# procedural-wallpapers-rs = {}
++# python312 = {}
++# readline = {}
++# redox-fatfs = {}
++# redox-games = {}
++# relibc-tests = {}
++# relibc-tests-bins = {}
++# rodioplay = {}
++# rs-nes = {}
++# rsync = {}
++# rust = {}
++# rust64 = {}
++# rustual-boy = {}
++# scummvm = {}
++# sdl-gfx = {}
++# sdl1-image = {}
++# sdl1-mixer = {}
++# sdl1-ttf = {}
++# sdl2 = {}
++# sdl2-gears = {}
++# sdl2-image = {}
++# sdl2-mixer = {}
++# sdl2-ttf = {}
++# servo = {}
++# shellharden = {}
++# shellstorm = {}
++# simple-http-server = {}
++# sodium = {}
++# sopwith = {}
++# sqlite3 = {}
++# strace = {}
++# syobonaction = {}
++# timidity = {}
++# tokei = {}
++# ttf-hack = {}
++# vttest = {}
++# webkitgtk3 = {}
++# winit = {}
++# xxhash = {}
++# zoxide = {} # untested
++# zstd = {}
+diff --git a/config/riscv64gc/demo.toml b/config/riscv64gc/demo.toml
+new file mode 100644
+index 0000000..1f6e59b
+--- /dev/null
++++ b/config/riscv64gc/demo.toml
+@@ -0,0 +1,3 @@
++# Configuration for demonstration
++
++include = ["desktop.toml"]
+diff --git a/config/riscv64gc/desktop.toml b/config/riscv64gc/desktop.toml
+new file mode 100644
+index 0000000..f523e7c
+--- /dev/null
++++ b/config/riscv64gc/desktop.toml
+@@ -0,0 +1,15 @@
++# Default build system configuration
++
++include = ["../desktop.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++# filesystem_size = 1024
++
++# Package settings
++[packages]
++# example = {}
++netsurf = "ignore" # liborbital fails to link in due to mismatching float ABI
+diff --git a/config/riscv64gc/jeremy.toml b/config/riscv64gc/jeremy.toml
+new file mode 100644
+index 0000000..f3d8c0a
+--- /dev/null
++++ b/config/riscv64gc/jeremy.toml
+@@ -0,0 +1,3 @@
++# Configuration for Jeremy Soller
++
++include = ["desktop.toml"]
+diff --git a/config/server.toml b/config/server.toml
+new file mode 100644
+index 0000000..70b98d6
+--- /dev/null
++++ b/config/server.toml
+@@ -0,0 +1,21 @@
++# Server configuration
++
++include = ["minimal.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 512
++
++# Package settings
++[packages]
++bash = {}
++bottom = {}
++#contain = {} # needs to update dependencies
++curl = {}
++diffutils = {}
++findutils = {}
++git = {}
++installer = {}
++kibi = {}
++redoxfs = {}
+diff --git a/config/sys-build.toml b/config/sys-build.toml
+new file mode 100644
+index 0000000..9534edd
+--- /dev/null
++++ b/config/sys-build.toml
+@@ -0,0 +1,31 @@
++# Configuration for automated self-hosted system compilation testing
++
++include = ["server.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 10000
++
++# Package settings
++[packages]
++cookbook = {}
++bottom = "ignore"
++kibi = "ignore"
++
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 10_net
++ion /usr/lib/sys_build.ion
++"""
++
++[[files]]
++path = "/usr/lib/sys_build.ion"
++data = """
++#!/usr/bin/env ion
++export RUST_BACKTRACE=full
++cd /home/user/cookbook
++make prefix r.sys,--with-package-deps
++shutdown
++"""
+diff --git a/config/tests.toml b/config/tests.toml
+new file mode 100644
+index 0000000..eafbcbf
+--- /dev/null
++++ b/config/tests.toml
+@@ -0,0 +1,15 @@
++# Configuration for testing
++
++include = ["server.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 10000
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++redox-tests = {}
++benchmarks = {}
+diff --git a/config/wayland.toml b/config/wayland.toml
+new file mode 100644
+index 0000000..f750313
+--- /dev/null
++++ b/config/wayland.toml
+@@ -0,0 +1,99 @@
++# Wayland configuration
++
++include = ["desktop.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 2048
++
++# Package settings
++[packages]
++adwaita-icon-theme = {}
++bash = {}
++cosmic-app-library = {}
++cosmic-comp = {}
++gtk3 = {}
++libcosmic-wayland = {}
++libxcursor = {}
++iced-wayland = {}
++mesa = {}
++"pop-icon-theme.cursors" = {}
++smallvil = {}
++softbuffer-wayland = {}
++wayland-rs = {}
++#webkitgtk3 = {}
++winit-wayland = {}
++xkeyboard-config = {}
++
++# Overridden to launch wayland compositor instead of orblogin
++[[files]]
++path = "/usr/lib/init.d/20_orbital"
++data = """
++requires_weak 10_net
++notify audiod
++nowait BROWSER=/bin/netsurf-fb VT=3 orbital orbital-wayland
++"""
++
++[[files]]
++path = "/usr/bin/orbital-wayland"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++
++set -ex
++
++# Prepare environment
++unset DISPLAY
++export COSMIC_BACKEND=winit
++export HOME=/root
++export LD_DEBUG=all
++export RUST_BACKTRACE=full
++export RUST_LOG=debug
++export XCURSOR_THEME=Pop
++export XDG_RUNTIME_DIR=/tmp/run/user/0
++
++# Create XDG runtime directory
++#TODO: mkdir -p not working
++mkdir -p /tmp/run
++mkdir -p /tmp/run/user
++mkdir -p /tmp/run/user/0
++
++# Compile glib schemas
++glib-compile-schemas /usr/share/glib-2.0/schemas/
++
++# For cosmic-comp (more features)
++cosmic-comp wayland-session
++
++# For smallvil (easier to debug)
++#smallvil -c wayland-session&
++"""
++
++[[files]]
++path = "/usr/bin/wayland-session"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++
++set -ex
++
++#env G_MAIN_POLL_DEBUG=1 G_MESSAGES_DEBUG=all LD_DEBUG=all WEBKIT_DEBUG=all MiniBrowser&
++printenv
++#wayland-rs_simple_window
++#winit-wayland_window
++#softbuffer-wayland_animation
++#iced-wayland_sctk_lazy
++libcosmic-wayland_application
++#gtk3-widget-factory
++#cosmic-app-library run
++"""
++
++[[files]]
++path = "/etc/gtk-3.0/settings.ini"
++data = """
++[Settings]
++gtk-cursor-theme-name = "Pop"
++gtk-icon-theme-name = "Cosmic"
++"""
+diff --git a/config/x11.toml b/config/x11.toml
+new file mode 100644
+index 0000000..b74918c
+--- /dev/null
++++ b/config/x11.toml
+@@ -0,0 +1,161 @@
++# X11 configuration
++
++include = ["desktop.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 2048
++
++# Package settings
++[packages]
++adwaita-icon-theme = {}
++dbus = {}
++gtk3 = {}
++mate-common = {}
++mesa-demos-x11 = {}
++#webkitgtk3 = {} # not compiling
++#xfce4-panel = {}
++#xfwm4 = {}
++x11-full = {}
++zenity = {}
++
++[[files]]
++path = "/usr/lib/init.d/10_dbus"
++data = """
++requires_weak 10_net
++bash /usr/bin/start-dbus.sh
++"""
++
++[[files]]
++path = "/usr/bin/start-dbus.sh"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++export DBUS_DEBUG_OUTPUT=1
++#export DBUS_VERBOSE=1
++#export G_DBUS_DEBUG=all
++mkdir -p /var/lib/dbus
++dbus-uuidgen --ensure
++mkdir -p /run/dbus
++rm -f /run/dbus/pid
++dbus-daemon --system
++"""
++
++[[files]]
++path = "/usr/lib/init.d/10_xenv"
++data = """
++requires_weak 10_net
++glib-compile-schemas /usr/share/glib-2.0/schemas/
++"""
++
++# Overridden to launch X instead of orblogin
++[[files]]
++path = "/usr/lib/init.d/20_orbital"
++data = """
++requires_weak 10_dbus 10_xenv
++notify audiod
++nowait BROWSER=/bin/netsurf-fb VT=3 orbital orbital-x11
++"""
++
++[[files]]
++path = "/usr/bin/orbital-x11"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++
++set -ex
++
++# for ice authority and pixbuf
++export HOME=/home/root
++export XDG_DATA_DIRS=/usr/share
++
++# Generate config file
++WIDTH="$((0x$(grep FRAMEBUFFER_WIDTH /scheme/sys/env | cut -d '=' -f 2)))"
++HEIGHT="$((0x$(grep FRAMEBUFFER_HEIGHT /scheme/sys/env | cut -d '=' -f 2)))"
++mkdir -p /usr/share/X11/xorg.conf.d
++cat > /usr/share/X11/xorg.conf.d/orbital.conf <<EOF
++Section "Device"
++    Identifier  "Configured Video Device"
++    Driver      "dummy"
++    VideoRam 256000
++EndSection
++
++Section "Monitor"
++    Identifier  "Configured Monitor"
++    HorizSync 5.0 - 1000.0
++    VertRefresh 5.0 - 200.0
++    $(cvt "${WIDTH}" "${HEIGHT}")
++EndSection
++
++Section "Screen"
++    Identifier  "Default Screen"
++    Monitor     "Configured Monitor"
++    Device      "Configured Video Device"
++    DefaultDepth 24
++    SubSection "Display"
++    Depth 24
++    Modes "${WIDTH}x${HEIGHT}"
++    EndSubSection
++EndSection
++EOF
++
++# Launch X11 and session on display 0
++export DISPLAY=":0"
++X "${DISPLAY}" &
++sleep 1
++exec dbus-launch --exit-with-x11 orbital-x11-session
++"""
++
++[[files]]
++path = "/usr/bin/orbital-x11-session"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++
++set -ex
++
++xterm&
++sleep 1
++
++gdk-pixbuf-query-loaders --update-cache
++mate-session&
++"""
++
++
++# Override console config to set DISPLAY=:0
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 20_orbital
++nowait DISPLAY=:0 getty 2
++nowait DISPLAY=:0 getty /scheme/debug/no-preserve -J
++"""
++
++
++[[files]]
++path = "/usr/bin/browser"
++mode = 0o755
++data = """
++#!/usr/bin/env bash
++
++set -ex
++
++#export G_MAIN_POLL_DEBUG=1
++export G_MESSAGES_DEBUG=all
++#export GDK_DEBUG=all
++#export GTK_DEBUG=all
++export LD_DEBUG=all
++#export WEBKIT_DEBUG=all
++exec MiniBrowser --dark-mode --ignore-tls-errors "about:blank"
++"""
++
++[users.messagebus]
++uid = 100
++gid = 100
++name = "messagebus"
++home = "/nonexistent"
++shell = "/usr/bin/false"
++
+diff --git a/config/x86_64/ci.toml b/config/x86_64/ci.toml
+new file mode 100644
+index 0000000..23ce90a
+--- /dev/null
++++ b/config/x86_64/ci.toml
+@@ -0,0 +1,327 @@
++# The Redox build server configuration
++
++# General settings
++[general]
++# Do not prompt if settings are not defined
++prompt = false
++
++# Package settings
++[packages]
++
++# If you need to disable some broken package comment out instead of removal to not increase the maintenance cost
++#TODO: commented out recipes need to be built and tested inside of Redox to verify if they returned to work
++
++# Meta-packages below
++
++auto-test = {}
++dev-essential = {}
++dev-redox = {}
++llvm21-common = {}
++mate-common = {}
++redox-tests = {}
++x11-minimal = {}
++x11-full = {}
++
++# Normal packages below
++
++acid = {}
++adwaita-icon-theme = {}
++autoconf = {}
++automake = {}
++base = {}
++base-initfs = {}
++bash = {}
++bash-completion = {}
++binutils = {}
++bootloader = {}
++bottom = {}
++bzip2 = {}
++ca-certificates = {}
++cairo = {}
++cbindgen = {}
++cleye = {}
++composer = {}
++contain = {}
++coreutils = {}
++cosmic-edit = {}
++cosmic-files = {}
++cosmic-icons = {}
++cosmic-term = {}
++cosmic-text = {}
++cpal = {}
++curl = {}
++dash = {}
++dejavu = {}
++diffutils = {}
++dosbox = {}
++duktape = {}
++eduke32 = {}
++exampled = {}
++expat = {}
++extrautils = {}
++ffmpeg6 = {}
++findutils = {}
++fish-shell = {}
++fontconfig = {}
++freedoom = {}
++freefont = {}
++freepats = {}
++freetype2 = {}
++fribidi = {}
++gcc13 = {}
++gdbserver = {}
++gdk-pixbuf = {}
++gears = {}
++generaluser-gs = {}
++gettext = {}
++git = {}
++glib = {}
++glutin = {}
++gnu-binutils = {}
++gnu-grep = {}
++gnu-make = {}
++hicolor-icon-theme = {}
++htop = {}
++installer = {}
++installer-gui = {}
++intel-one-mono = {}
++ion = {}
++kernel = {}
++kibi = {}
++lci = {}
++libavif = {}
++libc-bench = {}
++libedit = {}
++libffi = {}
++libgcc = {}
++libgmp = {}
++libiconv = {}
++libicu = {}
++libjpeg = {}
++libogg = {}
++libonig = {}
++liborbital = {}
++libpng = {}
++libsodium = {}
++libstdcxx = {}
++libuuid = {}
++libvorbis = {}
++libwebp = {}
++libxkbcommon = {}
++libxcursor = {}
++libxml2 = {}
++llvm21 = {}
++lsd = {}
++lua54 = {}
++lz4 = {}
++mednafen = {}
++mesa = {}
++mesa-glu = {}
++mesa-demos-x11 = {}
++mgba = {}
++nano = {}
++nasm = {}
++ncurses = {}
++ncursesw = {}
++neovim = {}
++netdb = {}
++netsurf = {}
++netutils = {}
++neverball = {}
++nghttp2 = {}
++nginx = {}
++nodejs-21 = {}
++nushell = {}
++onefetch = {}
++openjazz = {}
++openssh = {}
++openssl1 = {}
++openssl3 = {}
++openttd = {}
++openttd-opengfx = {}
++openttd-openmsx = {}
++openttd-opensfx = {}
++orbclient = {}
++orbdata = {}
++orbital = {}
++orbterm = {}
++orbutils = {}
++os-test-bins = {}
++osdemo = {}
++patch = {}
++patchelf = {}
++pcre = {}
++perg = {}
++periodictable = {}
++perl5 = {}
++php84 = {}
++pixelcannon = {}
++pkg-config = {}
++pkgar = {}
++pkgutils = {}
++pls = {}
++pop-icon-theme = {}
++prboom = {}
++procedural-wallpapers-rs = {}
++python312 = {}
++readline = {}
++redox-fatfs = {}
++redox-games = {}
++redoxfs = {}
++relibc = {}
++relibc-tests = {}
++relibc-tests-bins = {}
++ripgrep = {}
++rodioplay = {}
++rs-nes = {}
++rsync = {}
++rust = {}
++rust64 = {}
++rustpython = {}
++rustual-boy = {}
++scummvm = {}
++sdl-gfx = {}
++sdl1 = {}
++sdl1-image = {}
++sdl1-mixer = {}
++sdl1-ttf = {}
++sdl2 = {}
++sdl2-gears = {}
++sdl2-image = {}
++sdl2-mixer = {}
++sdl2-ttf = {}
++sed = {}
++servo = {}
++shared-mime-info = {}
++shellharden = {}
++shellstorm = {}
++simple-http-server = {}
++smallvil = {}
++smith = {}
++sodium = {}
++softbuffer-wayland = {}
++sopwith = {}
++sqlite3 = {}
++strace = {}
++syobonaction = {}
++terminfo = {}
++timidity = {}
++tmux = {}
++tokei = {}
++ttf-hack = {}
++userutils = {}
++uutils = {}
++vim = {}
++vttest = {}
++wayland-rs = {}
++webkitgtk3 = {}
++winit = {}
++winit-wayland = {}
++xxhash = {}
++xz = {}
++zenity = {}
++zoxide = {}
++zsh = {}
++zlib = {}
++zstd = {}
++
++#"python312.dev" = {}
++#"rust.doc" = {}
++#atk = {} # depends on glib which does not build
++#benchmarks = {}
++#binutils-gdb = {}
++#book = {}
++#cairo-demo = {} # linking errors
++#classicube = {}
++#cmake = {}
++#cmatrix = {} # needs ncursesw now
++#cookbook = {}
++#cosmic-reader = {}
++#cosmic-settings = {}
++#cosmic-store = {}
++#devilutionx = {}
++#dynamic-example = {}
++#fal
++#fd = {} # ctrlc-3.1.1
++#file = {}
++#flycast = {}
++#freeciv = {}
++#freeglut = {}
++#friar = {} # mio patch
++#game-2048 = {} # rustc-serialize
++#gawk = {} # langinfo.h
++#gigalomania = {} # old recipe format
++#gitoxide = {}
++#goaccess = {}
++#gstreamer = {} # conflict with thread local errno
++#harfbuzz = {} # depends on glib which does not build
++#helix = {}
++#hello-redox = {}
++#hematite = {} # needs crate patches for redox-unix
++#hf = {}
++#ibm-plex = {}
++#iced = {}
++#jansson = {} # needs config.sub update
++#jq = {}
++#libarchive = {}
++#libatomic = {}
++#libcosmic = {}
++#libflac = {}
++#libmodplug1 = {}
++#libmpfr = {}
++#libnettle = {}
++#libogg = {}
++#libpsl = {}
++#libssh2 = {}
++#libtool = {}
++#liburcu = {}
++#libuv = {}
++#lua-compat-53 = {}
++#luajit = {}
++#luarocks = {}
++#luv = {}
++#mdp = {} # gcc hangs
++#miniserve = {} # actix
++#mpc = {}
++#mupen64plus = {}
++#ncdu = {} # multiple definitions of symbols
++#newlib = {} # obsolete
++#newlibtest = {} # obsolete
++#noto-color-emoji = {}
++#openjk = {}
++#openposixtestsuite = {}
++#opentyrian = {}
++#orbcalculator = {}
++#ostest-bins = {}
++#pango = {} # undefined references to std::__throw_system_error(int)
++#pastel = {} # needs crate patches for redox-unix
++#pathfinder = {} # servo-fontconfig
++#pciids = {}
++#pcre2 = {}
++#pixman = {} # depends on glib which does not build
++#pls = {}
++#pop-wallpapers = {}
++#powerline = {} # dirs
++#qemu = {} # can be built, but not working
++#quakespasm = {}
++#redox-posix-tests = {}
++#redox-ssh = {} # does not compile
++#retroarch = {} # OS_TLSIndex not declared
++#rust-cairo = {} # linking errors
++#rust-cairo-demo = {} # linking errors
++#rvvm = {}
++#schismtracker = {} # uses system includes
++#sdl-player = {} # wctype_t
++#sdl2-gfx = {}
++#sm64ex = {}
++#spacecadetpinball = {}
++#twin-commander = {}
++#ubuntu-wallpapers = {}
++#unibilium = {}
++#utf8proc = {}
++#vice = {} # linker errors
++#vvvvvv = {} # did not compile
++#webrender = {} # unwind
++#website = {}
++#wesnoth = {}
++#wget = {}
+diff --git a/config/x86_64/demo.toml b/config/x86_64/demo.toml
+new file mode 100644
+index 0000000..3fb4d53
+--- /dev/null
++++ b/config/x86_64/demo.toml
+@@ -0,0 +1,69 @@
++# Configuration for demonstration
++
++include = ["../desktop.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1536
++
++# Package settings
++[packages]
++# GUI Apps
++periodictable = {}
++
++# GUI Data
++intel-one-mono = {}
++
++# Shell Apps
++gnu-grep = {}
++htop = {}
++ripgrep = {}
++terminfo = {}
++vim = {}
++
++# Games
++dosbox = {}
++freedoom = {}
++neverball = {}
++prboom = {}
++redox-games = {}
++sopwith = {}
++syobonaction = {}
++
++# Demos
++nushell = {}
++orbclient = {}
++pixelcannon = {}
++rodioplay = {}
++gears = {}
++
++# MIDI
++freepats = {}
++
++[[files]]
++path = "/home/user/Welcome.txt"
++data = """
++##############################################################################
++#                                                                            #
++#                          Welcome to Red Bear OS!                           #
++#                                                                            #
++# Red Bear OS (RBOS) is a derivative of Redox, an operating system written   #
++# in Rust, a language with focus on safety and high performance. Redox,      #
++# following the microkernel design, aims to be secure, usable, and free.     #
++# Redox is inspired by previous kernels and operating systems, such as       #
++# SeL4, MINIX, Plan 9, and BSD.                                             #
++#                                                                            #
++# Red Bear OS _is not_ just a kernel, it's a full-featured Operating System, #
++# providing packages (memory allocator, file system, display manager, core   #
++# utilities, etc.) that together make up a functional and convenient         #
++# operating system. You can loosely think of it as the GNU or BSD ecosystem, #
++# but in a memory safe language and with modern technology.                  #
++#                                                                            #
++# The website can be found at https://github.com/vasilito/Red-Bear-OS-3.     #
++#                                                                            #
++# For things to try on Red Bear OS, please see                               #
++# https://doc.redox-os.org/book/ch02-06-trying-out-redox.html                #
++#                                                                            #
++##############################################################################
++"""
+diff --git a/config/x86_64/desktop-contain.toml b/config/x86_64/desktop-contain.toml
+new file mode 100644
+index 0000000..6fca0f1
+--- /dev/null
++++ b/config/x86_64/desktop-contain.toml
+@@ -0,0 +1,43 @@
++# Desktop configuration using the Contain sandbox
++
++include = ["../desktop.toml"]
++
++# Override the default settings here
++
++# General settings
++[general]
++# Filesystem size in MiB
++# filesystem_size = 1024
++
++# Package settings
++[packages]
++# example = {}
++
++# Override orbital init to use contain_orblogin
++[[files]]
++path = "/usr/lib/init.d/20_orbital"
++data = """
++requires_weak 10_net
++notify audiod
++nowait VT=3 orbital contain_orblogin launcher
++"""
++
++# Override console init to use contain
++[[files]]
++path = "/usr/lib/init.d/30_console"
++data = """
++requires_weak 20_orbital
++nowait getty --contain 2
++nowait getty --contain /scheme/debug/no-preserve -J
++"""
++
++[[files]]
++path = "/etc/contain.toml"
++data = """
++pass_schemes = ["rand", "null", "tcp", "udp", "thisproc", "pty", "orbital", "display.vesa"]
++sandbox_schemes = ["file"]
++files = ["file:/dev/null"]
++rofiles = ["file:/etc/passwd", "file:/etc/hostname", "file:/etc/localtime"]
++dirs = ["file:/tmp"]
++rodirs = ["file:/bin", "file:/ui"]
++"""
+diff --git a/config/x86_64/full.toml b/config/x86_64/full.toml
+new file mode 100644
+index 0000000..e50ede1
+--- /dev/null
++++ b/config/x86_64/full.toml
+@@ -0,0 +1,9 @@
++include = [ "../base.toml", "ci.toml" ]
++
++# General settings
++[general]
++filesystem_size = 8192
++
++# Package settings
++[packages]
++# example = {}
+\ No newline at end of file
+diff --git a/config/x86_64/jeremy.toml b/config/x86_64/jeremy.toml
+new file mode 100644
+index 0000000..a35940e
+--- /dev/null
++++ b/config/x86_64/jeremy.toml
+@@ -0,0 +1,100 @@
++# Configuration for Jeremy Soller
++
++include = ["demo.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 8192
++
++# Package settings
++[packages]
++# apps
++#boxedwine = {}
++cosmic-player = {}
++cosmic-reader = {}
++cosmic-settings = {}
++cosmic-store = {}
++cosmic-term = {}
++cosmic-text = {}
++#qemu = {} # not building
++schismtracker = {}
++servo = {}
++
++# cli
++cleye = {}
++ffmpeg6 = {}
++lua54 = {}
++nano = {}
++#nushell = {}
++perg = {}
++#relibc-tests = {}
++russh = {}
++sed = {}
++shellharden = {}
++xz = {}
++
++# demos
++#cairodemo = {}
++cmatrix = {}
++cpal = {}
++gears = {}
++glutin = {}
++#hematite = {} # not building
++iced = {}
++libcosmic = {}
++osdemo = {} # does not show anything
++#pathfinder = {} # not building
++procedural-wallpapers-rs = {}
++#rust-cairo = {}
++#rust-cairo-demo = {}
++sdl2-gears = {}
++vttest = {}
++#webrender = {}
++winit = {}
++
++# dev
++autoconf = {}
++automake = {}
++#cookbook = {}
++gcc13 = {}
++gnu-binutils = {}
++gnu-make = {}
++nasm = {}
++patch = {}
++pkg-config = {}
++rust = {}
++
++# games
++devilutionx = {}
++eduke32 = {}
++flycast = {}
++freeciv = {}
++gigalomania = {}
++love = {}
++mednafen = {}
++mgba = {}
++openjazz = {}
++openjk = {}
++openttd = {}
++openttd-opengfx = {}
++openttd-openmsx = {}
++openttd-opensfx = {}
++quakespasm = {}
++#retroarch = {} # need to package cores
++rs-nes = {} # need game for testing
++rust64 = {} # need roms
++rustual-boy = {} # need game for testing
++scummvm = {} # need game for testing
++sm64ex = {}
++#spacecadetpinball = {} # not building
++syobonaction = {}
++#vice = {} # broken on new toolchain
++#vvvvvv = {} # cannot find -lgcc_s
++
++# stuff
++generaluser-gs = {}
++jeremy = {}
++noto-color-emoji = {}
++timidity = {}
++ttf-hack = {}
+diff --git a/config/x86_64/redoxer.toml b/config/x86_64/redoxer.toml
+new file mode 100644
+index 0000000..a17c50c
+--- /dev/null
++++ b/config/x86_64/redoxer.toml
+@@ -0,0 +1,8 @@
++# Configuration used for building redoxer base image
++
++include = ["../redoxer.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1024
+diff --git a/config/x86_64/rustconf2025.toml b/config/x86_64/rustconf2025.toml
+new file mode 100644
+index 0000000..b9e74c0
+--- /dev/null
++++ b/config/x86_64/rustconf2025.toml
+@@ -0,0 +1,13 @@
++# Configuration for demonstration
++
++include = ["demo.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 1536
++
++# Package settings
++[packages]
++cosmic-reader = {}
++rustconf2025 = {}
+diff --git a/config/x86_64/server-demo.toml b/config/x86_64/server-demo.toml
+new file mode 100644
+index 0000000..6b76491
+--- /dev/null
++++ b/config/x86_64/server-demo.toml
+@@ -0,0 +1,311 @@
++# Configuration for server stack demonstration
++
++include = ["../server.toml"]
++
++# General settings
++[general]
++# Filesystem size in MiB
++filesystem_size = 4096
++
++# Package settings
++[packages]
++# Daemons
++openssh = {}
++nginx = {}
++rustysd = {}
++
++# Backends
++php84 = {}
++composer = {}
++luajit = {}
++python312 = {}
++# go = {}
++# zig = {}
++
++# Tools
++nano = {}
++neovim = {}
++rsync = {}
++vim = {}
++sqlite3 = {}
++# tmux = {}
++htop = {}
++
++# Content
++website = {}
++
++
++[[files]]
++path = "/usr/lib/init.d/98_keygen_sh"
++data = """
++requires_weak 10_net
++bash /root/keygen.sh
++"""
++
++[[files]]
++path = "/usr/lib/init.d/99_rustysd"
++data = """
++requires_weak 98_keygen_sh
++# Undocumented usage of rsdctl, pointing to notifications dir
++RSDCTL_ADDR=/var/run/rustysd/control.socket rustysd --conf /etc/rustysd
++"""
++
++[[files]]
++path = "/etc/rustysd/system/network-online.target"
++data = """
++[Unit]
++Description=The target after networks has online
++
++[Install]
++WantedBy=default.target
++"""
++
++[[files]]
++path = "/etc/rustysd/system/multi-user.target"
++data = """
++[Unit]
++Description=The target after user administrations has online
++
++[Install]
++WantedBy=default.target
++"""
++
++[[files]]
++path = "/etc/rustysd/system/nginx.service"
++data = """
++[Unit]
++Description=The nginx HTTP and reverse proxy server
++After=network-online.target
++
++[Service]
++Type=simple
++ExecStart=/usr/bin/nginx -g "daemon off;"
++
++[Install]
++WantedBy=multi-user.target
++"""
++
++
++[[files]]
++path = "/etc/rustysd/system/ssh.service"
++data = """
++[Unit]
++Description=OpenBSD Secure Shell server
++After=network-online.target
++
++[Service]
++Type=simple
++ExecStart=/usr/bin/sshd -D
++
++[Install]
++WantedBy=multi-user.target
++"""
++
++
++
++[[files]]
++path = "/etc/rustysd/system/php.service"
++data = """
++[Unit]
++Description=OpenBSD Secure Shell server
++After=network-online.target
++
++[Service]
++Type=simple
++# currently php-fpm not that quite work
++ExecStart=env PWD=/var/www/html php -S localhost:9000
++# ExecStart=/usr/bin/php-fpm --fpm-config /etc/php/84/php-fpm.conf  --nodaemonize
++
++[Install]
++WantedBy=multi-user.target
++"""
++
++[[files]]
++path = "/var/www/html/index.php"
++data = """
++<?php
++
++echo "Hello from PHP on Red Bear OS!";
++"""
++
++[[files]]
++path = "/var/www/html/phpinfo.php"
++data = """
++<?php phpinfo();
++"""
++
++
++[[files]]
++path = "/var/www/html/README"
++data = """
++This is a demonstration into PHP server.
++
++At the moment to run composer you have to run it like:
++> php /bin/composer install
++"""
++
++[[files]]
++postinstall = true
++data = ""
++path = "/etc/nginx/conf.d"
++directory = true
++
++[[files]]
++postinstall = true
++path = "/etc/nginx/nginx.conf"
++data = """
++user nginx;
++
++# currently nginx does a lot spin locking for some reason
++worker_processes 1;
++error_log /var/log/nginx/error.log;
++pid /var/run/nginx.pid;
++
++events {
++    worker_connections 1024;
++}
++http {
++    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
++                    '$status $body_bytes_sent "$http_referer" '
++                    '"$http_user_agent" "$http_x_forwarded_for"';
++    access_log /var/log/nginx/access.log main;
++
++    include       mime.types;
++    include       fastcgi.conf;
++    default_type  application/octet-stream;
++
++    include /etc/nginx/conf.d/*.conf;
++}
++"""
++
++[[files]]
++postinstall = true
++path = "/etc/nginx/conf.d/localhost.conf"
++data = """
++server {
++    listen       80;
++    server_name  localhost;
++    root   /usr/share/website;
++    absolute_redirect off;
++
++    location / {
++        index  index.html index.htm;
++    }
++}
++"""
++
++[[files]]
++postinstall = true
++path = "/etc/nginx/conf.d/php-www.conf"
++data = """
++server {
++    listen 8081;
++    server_name localhost;
++    root /var/www/html;
++
++    index index.php index.html index.htm;
++
++    location / {
++        try_files $uri $uri/ =404;
++    }
++
++    location ~ \\.php$ {
++# because we're not using PHP FPM (see rustysd php.service)
++#       include fastcgi_params;
++#       fastcgi_pass 127.0.0.1:9000;
++#       fastcgi_index index.php;
++#       fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
++        proxy_pass http://127.0.0.1:9000;
++    }
++}
++"""
++
++[[files]]
++postinstall = true
++path = "/etc/php/84/php-fpm.conf"
++data = """
++
++error_log=/var/log/php-fpm.log
++include=/etc/php/84/php-fpm.d/*.conf
++"""
++
++[[files]]
++postinstall = true
++path = "/etc/php/84/php-fpm.d/www.conf"
++data = """
++[www]
++user = user
++group = user
++listen = 127.0.0.1:9000
++pm = static
++pm.max_children = 1
++"""
++
++[[files]]
++postinstall = true
++path = "/etc/ssh/sshd_config"
++data = """
++Port 22
++AddressFamily inet
++AuthorizedKeysFile	.ssh/authorized_keys
++PermitRootLogin yes
++PasswordAuthentication yes
++PermitEmptyPasswords yes
++Subsystem	sftp	/usr/libexec/sftp-server
++"""
++
++[users.nobody]
++password = ""
++shell = "/usr/bin/ion" #TODO: nologin?
++
++[users.nginx]
++password = ""
++shell = "/usr/bin/ion" #TODO: nologin?
++
++[[files]]
++path = "/root/keygen.sh"
++data = """
++#!/usr/bin/env bash
++
++if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
++ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ""
++ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
++ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N ""
++fi
++"""
++
++[[files]]
++path = "/home/user/server.sh"
++data = """
++#!/usr/bin/env bash
++
++/bin/sshd -D &
++nginx -g "daemon off;" &
++php-fpm --nodaemonize &
++"""
++
++[[files]]
++path = "/home/user/Welcome.txt"
++data = """
++##############################################################################
++# Welcome to Red Bear OS Server Demo!
++#
++# This is a quick demonstration of Red Bear OS used as server stack.
++# At the moment we support SSH, NGINX, Python, PHP. There's more to come
++#
++# This server demo is insecure by design, we encourage you to get familiar into
++#   basics of server security if you wish to use this as a production server.
++#
++# There should be rustysd already running, if not, you can try start it manually
++# > sudo rustysd --conf /etc/rustysd
++#
++# You can also try running all daemons manually
++# > sudo bash server.sh
++#
++# The server will start port 22 (ssh), 80 (static web) and 8081 (php)
++# If you use the Red Bear OS build system, starting QEMU with `net=redir`
++#   should expose those port to 8022, 8080 and 8081.
++# Try logging in to console via SSH with `ssh user@localhost -p 8022`
++#
++##############################################################################
++"""

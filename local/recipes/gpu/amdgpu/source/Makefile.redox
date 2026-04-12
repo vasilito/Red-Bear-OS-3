@@ -1,0 +1,126 @@
+CC = x86_64-unknown-redox-gcc
+AR = x86_64-unknown-redox-ar
+
+AMDGPU_SRC ?= ../amdgpu-source/gpu/drm/amd
+TTM_SRC ?= ../amdgpu-source/gpu/drm/ttm
+AMDGPU_INCLUDES ?= ../amdgpu-source/include
+LINUX_KPI ?= ../../drivers/linux-kpi/src/c_headers
+
+CFLAGS ?= -D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
+	-DCONFIG_DRM_AMD_DC_FP -DCONFIG_DRM_AMD_ACP \
+	-I$(LINUX_KPI) \
+	-I. \
+	-I$(AMDGPU_INCLUDES) \
+	-I$(AMDGPU_INCLUDES)/drm \
+	-I$(AMDGPU_SRC)/include \
+	-I$(AMDGPU_SRC)/include/asic_reg \
+	-I$(AMDGPU_SRC)/display \
+	-I$(AMDGPU_SRC)/display/dc \
+	-I$(AMDGPU_SRC)/display/dc/dml \
+	-I$(AMDGPU_SRC)/display/dc/dcn20 \
+	-I$(AMDGPU_SRC)/display/dc/dcn21 \
+	-I$(AMDGPU_SRC)/display/dc/dcn30 \
+	-I$(AMDGPU_SRC)/display/dc/dcn301 \
+	-I$(AMDGPU_SRC)/display/dc/dcn31 \
+	-I$(AMDGPU_SRC)/display/dc/dcn32 \
+	-I$(AMDGPU_SRC)/display/dc/dcn35 \
+	-I$(AMDGPU_SRC)/display/dc/dml2 \
+	-I$(AMDGPU_SRC)/display/dmub \
+	-I$(AMDGPU_SRC)/display/modules \
+	-I$(AMDGPU_SRC)/display/modules/freesync \
+	-I$(AMDGPU_SRC)/display/modules/color \
+	-I$(AMDGPU_SRC)/display/modules/info_packet \
+	-I$(AMDGPU_SRC)/display/modules/power \
+	-I$(AMDGPU_SRC)/pm/swsmu \
+	-I$(AMDGPU_SRC)/pm/swsmu/inc \
+	-I$(AMDGPU_SRC)/pm/powerplay \
+	-I$(AMDGPU_SRC)/pm/powerplay/inc \
+	-I$(AMDGPU_SRC)/pm/powerplay/hwmgr \
+	-fPIC -O2 -Wall -Wno-unused-function -Wno-unused-variable \
+	-Wno-address-of-packed-member -Wno-initializer-overrides
+
+LDFLAGS ?= -shared
+LDLIBS ?= -lredox_driver_sys -llinux_kpi -lm -lpthread
+
+GLUE_OBJS := redox_stubs.o amdgpu_redox_main.o
+CORE_SRCS := \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_device.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_drv.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_i2c.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_atombios.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_atombios_crtc.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_bios.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_mode.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_display.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_fb.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_gem.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_object.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_gmc.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_mmhub.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_irq.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_ring.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_fence.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_ttm.c \
+	$(AMDGPU_SRC)/amdgpu/amdgpu_bo_list.c
+CORE_OBJS := $(patsubst %.c,%.o,$(notdir $(CORE_SRCS)))
+DISPLAY_SRCS := $(shell find $(AMDGPU_SRC)/display -name '*.c' ! -path '*/dml/*' ! -path '*/dml2/*')
+DISPLAY_OBJS := $(patsubst %.c,%.o,$(notdir $(DISPLAY_SRCS)))
+TTM_SRCS := $(shell find $(TTM_SRC) -name '*.c')
+TTM_OBJS := $(patsubst %.c,%.o,$(notdir $(TTM_SRCS)))
+
+ALL_OBJS := $(GLUE_OBJS) $(DISPLAY_OBJS) $(TTM_OBJS) $(CORE_OBJS)
+
+.PHONY: all clean check display core ttm
+
+all: libamdgpu_dc_redox.so
+
+ libamdgpu_dc_redox.so: $(GLUE_OBJS)
+	@set -e; \
+	success=0; failed=0; \
+	for src in $(DISPLAY_SRCS); do \
+		obj=$$(basename "$${src%.c}.o"); \
+		if $(CC) -c $(CFLAGS) "$$src" -o "$$obj"; then \
+			success=$$((success + 1)); \
+		else \
+			failed=$$((failed + 1)); \
+			echo "ERROR: failed to compile $$src"; \
+			exit 1; \
+		fi; \
+	done; \
+	for src in $(TTM_SRCS); do \
+		obj=$$(basename "$${src%.c}.o"); \
+		if $(CC) -c $(CFLAGS) "$$src" -o "$$obj"; then \
+			success=$$((success + 1)); \
+		else \
+			failed=$$((failed + 1)); \
+			echo "ERROR: failed to compile $$src"; \
+			exit 1; \
+		fi; \
+	done; \
+	for src in $(CORE_SRCS); do \
+		if [ -f "$$src" ]; then \
+			obj=$$(basename "$${src%.c}.o"); \
+			if $(CC) -c $(CFLAGS) "$$src" -o "$$obj"; then \
+				success=$$((success + 1)); \
+			else \
+				failed=$$((failed + 1)); \
+				echo "ERROR: failed to compile $$src"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done; \
+	echo "AMD DC: compiled $$success files successfully"; \
+	$(CC) $(LDFLAGS) -o $@ $$(find . -maxdepth 1 -name '*.o' -size +0c) $(LDLIBS)
+
+redox_stubs.o: redox_stubs.c redox_glue.h
+	$(CC) -c $(CFLAGS) $< -o $@
+
+amdgpu_redox_main.o: amdgpu_redox_main.c redox_glue.h
+	$(CC) -c $(CFLAGS) $< -o $@
+
+check: $(GLUE_OBJS)
+	$(CC) -fsyntax-only $(CFLAGS) amdgpu_redox_main.c
+	$(CC) -fsyntax-only $(CFLAGS) redox_stubs.c
+
+clean:
+	rm -f *.o libamdgpu_dc_redox.so

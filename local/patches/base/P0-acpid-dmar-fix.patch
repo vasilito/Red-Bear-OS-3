@@ -1,0 +1,19 @@
+diff --git a/drivers/acpid/src/acpi/dmar/mod.rs b/drivers/acpid/src/acpi/dmar/mod.rs
+--- a/drivers/acpid/src/acpi/dmar/mod.rs
++++ b/drivers/acpid/src/acpi/dmar/mod.rs
+@@ -475,8 +475,12 @@ impl<'sdt> Iterator for DmarRawIter<'sdt> {
+             .expect("expected a 2-byte slice to be convertible to [u8; 2]");
+ 
+-        let ty = u16::from_ne_bytes(type_bytes);
+-        let len = u16::from_ne_bytes(len_bytes);
++        let len = u16::from_ne_bytes(len_bytes) as usize;
++
++        if len < 4 {
++            return None;
++        }
++
++        let ty = u16::from_ne_bytes(type_bytes);
+ 
+-        let len = usize::try_from(len).expect("expected u16 to fit within usize");
+ 
+         if len > remainder.len() {

@@ -1,0 +1,8 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/lib/drivers/udev-shim" = "udev-shim"

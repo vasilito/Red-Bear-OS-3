@@ -1,0 +1,17 @@
+#TODO not compiled or tested
+# build instructions: https://gitlab.gnome.org/GNOME/json-glib/#build-and-installation
+[source]
+tar = "https://download.gnome.org/sources/json-glib/1.8/json-glib-1.8.0.tar.xz"
+[build]
+template = "meson"
+mesonflags = [
+    "-Dintrospection=false",
+    "-Ddocumentation=false",
+    "-Dgtk_doc=false",
+    "-Dtests=false",
+    "-Dconformance=false",
+    "-Dinstalled_tests=false",
+]
+dependencies = [
+    "glib",
+]

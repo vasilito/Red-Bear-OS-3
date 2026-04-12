@@ -1,0 +1,30 @@
+diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
+--- a/src/header/fcntl/mod.rs
++++ b/src/header/fcntl/mod.rs
+@@ -8,7 +8,8 @@
+     c_str::CStr,
+     error::ResultExt,
++    header::unistd::{close, dup},
+     platform::{
+         Pal, Sys,
+         types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
+     },
+ };
+@@ -74,5 +75,17 @@
+         _ => 0,
+     };
+ 
++    if cmd == F_DUPFD_CLOEXEC {
++        let new_fd = dup(fildes);
++        if new_fd < 0 {
++            return -1;
++        }
++        if unsafe { fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong) } < 0 {
++            let _ = close(new_fd);
++            return -1;
++        }
++        return new_fd;
++    }
++
+     Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
+ }

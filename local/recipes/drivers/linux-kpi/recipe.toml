@@ -1,0 +1,8 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = [
+    "redox-driver-sys",
+]

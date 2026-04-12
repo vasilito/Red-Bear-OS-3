@@ -1,0 +1,17 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+mkdir -p "${COOKBOOK_STAGE}/etc"
+mkdir -p "${COOKBOOK_STAGE}/usr/share/redbear"
+
+cp "${COOKBOOK_SOURCE}/os-release" "${COOKBOOK_STAGE}/usr/lib/os-release"
+cp "${COOKBOOK_SOURCE}/hostname" "${COOKBOOK_STAGE}/etc/hostname"
+cp "${COOKBOOK_SOURCE}/motd" "${COOKBOOK_STAGE}/etc/motd"
+cp "${COOKBOOK_SOURCE}/banner" "${COOKBOOK_STAGE}/usr/share/redbear/banner"
+
+ln -sf ../usr/lib/os-release "${COOKBOOK_STAGE}/etc/os-release"
+"""

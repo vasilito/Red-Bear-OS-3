@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "ext4-blockdev",
+    "ext4d",
+    "ext4-mkfs",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+rsext4 = "0.3"
+redox_syscall = "0.7.3"
+redox-scheme = "0.11.0"
+libredox = "0.1.13"
+redox-path = "0.3.0"
+log = "0.4"
+env_logger = "0.11"
+libc = "0.2"

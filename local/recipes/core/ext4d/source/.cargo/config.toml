@@ -1,0 +1,3 @@
+[build]
+target-dir = "target"
+# Target will be set by cookbook's COOKBOOK_TARGET

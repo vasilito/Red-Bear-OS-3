@@ -1,0 +1,605 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index e3c6700..b1d5d72 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -25,6 +25,7 @@ path = "src/lib.rs"
+ [dependencies]
+ anyhow = "1"
+ arg_parser = "0.1.0"
++ext4-blockdev = { path = "../../../../local/recipes/core/ext4d/source/ext4-blockdev", optional = true, default-features = false }
+ fatfs = { version = "0.3.0", optional = true }
+ fscommon = { version = "0.1.1", optional = true }
+ gpt = { version = "3.0.0", optional = true }
+@@ -36,6 +37,7 @@ rand = { version = "0.9", optional = true }
+ redox-pkg = { version = "0.3.1", features = ["indicatif"], optional = true }
+ redox_syscall = { version = "0.7", optional = true }
+ redoxfs = { version = "0.9", optional = true, default-features = false, features = ["std", "log"] }
++rsext4 = { version = "0.3", optional = true }
+ rust-argon2 = { version = "3", optional = true }
+ serde = "1"
+ serde_derive = "1.0"
+@@ -63,6 +65,7 @@ installer = [
+     "redox_syscall",
+     "redoxfs",
+     "ring",
++    "rsext4",
+     "rust-argon2",
+     "termion",
+     "uuid",
+diff --git a/src/bin/installer.rs b/src/bin/installer.rs
+index c3ce487..a3b9056 100644
+--- a/src/bin/installer.rs
++++ b/src/bin/installer.rs
+@@ -39,6 +39,7 @@ fn main() {
+         .add_opt("c", "config")
+         .add_opt("o", "output-config")
+         .add_opt("", "write-bootloader")
++        .add_opt("", "filesystem")
+         .add_flag(&["skip-partition"])
+         .add_flag(&["filesystem-size"])
+         .add_flag(&["r", "repo-binary"]) // TODO: Remove
+@@ -116,6 +117,9 @@ fn main() {
+         if parser.found("no-mount") {
+             config.general.no_mount = Some(true);
+         }
++        if let Some(fs_type) = parser.get_opt("filesystem") {
++            config.general.filesystem = Some(fs_type);
++        }
+         let write_bootloader = parser.get_opt("write-bootloader");
+         if write_bootloader.is_some() {
+             config.general.write_bootloader = write_bootloader;
+diff --git a/src/bin/installer_tui.rs b/src/bin/installer_tui.rs
+index 2739983..dd5d022 100644
+--- a/src/bin/installer_tui.rs
++++ b/src/bin/installer_tui.rs
+@@ -2,7 +2,9 @@ use anyhow::{anyhow, bail, Result};
+ use pkgar::{ext::EntryExt, PackageHead};
+ use pkgar_core::PackageSrc;
+ use pkgar_keys::PublicKeyFile;
+-use redox_installer::{try_fast_install, with_redoxfs_mount, with_whole_disk, Config, DiskOption};
++use redox_installer::{
++    try_fast_install, with_redoxfs_mount, with_whole_disk, Config, DiskOption, FilesystemType,
++};
+ use std::{
+     ffi::OsStr,
+     fs,
+@@ -316,6 +318,7 @@ fn main() {
+         bootloader_bios: &bootloader_bios,
+         bootloader_efi: &bootloader_efi,
+         password_opt: password_opt.as_ref().map(|x| x.as_bytes()),
++        filesystem_type: FilesystemType::RedoxFS,
+         efi_partition_size: None,
+         skip_partitions: false, // TODO?
+     };
+diff --git a/src/config/general.rs b/src/config/general.rs
+index 417ff2d..6bd0aa7 100644
+--- a/src/config/general.rs
++++ b/src/config/general.rs
+@@ -19,6 +19,8 @@ pub struct GeneralConfig {
+     /// Use AR to write files instead of FUSE-based mount
+     /// (bypasses FUSE, but slower and requires namespaced context such as "podman unshare")
+     pub no_mount: Option<bool>,
++    /// Filesystem type for the install target: "redoxfs" (default) or "ext4"
++    pub filesystem: Option<String>,
+ }
+ 
+ impl GeneralConfig {
+@@ -38,5 +40,8 @@ impl GeneralConfig {
+             self.write_bootloader = Some(write_bootloader);
+         }
+         self.no_mount = other.no_mount.or(self.no_mount);
++        if let Some(filesystem) = other.filesystem {
++            self.filesystem = Some(filesystem);
++        }
+     }
+ }
+diff --git a/src/installer.rs b/src/installer.rs
+index 4e077a9..a3b45f5 100644
+--- a/src/installer.rs
++++ b/src/installer.rs
+@@ -3,6 +3,13 @@ use anyhow::{bail, Result};
+ use pkg::Library;
+ use rand::{rngs::OsRng, TryRngCore};
+ use redoxfs::{unmount_path, Disk, DiskIo, FileSystem, BLOCK_SIZE};
++use rsext4::bmalloc::AbsoluteBN;
++use rsext4::{
++    chmod as ext4_chmod, chown as ext4_chown, create_symbol_link as ext4_create_symbol_link,
++    mkdir as ext4_mkdir, mkfile as ext4_mkfile, mkfs as ext4_mkfs, mount as ext4_mount,
++    umount as ext4_umount, BlockDevice, Ext4Error, Ext4FileSystem, Ext4Result, Ext4Timestamp,
++    Jbd2Dev,
++};
+ use termion::input::TermRead;
+ 
+ use crate::config::file::FileConfig;
+@@ -23,14 +30,104 @@ use std::{
+     time::{SystemTime, UNIX_EPOCH},
+ };
+ 
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum FilesystemType {
++    RedoxFS,
++    Ext4,
++}
++
+ pub struct DiskOption<'a> {
+     pub bootloader_bios: &'a [u8],
+     pub bootloader_efi: &'a [u8],
+     pub password_opt: Option<&'a [u8]>,
++    pub filesystem_type: FilesystemType,
+     pub efi_partition_size: Option<u32>, //MiB
+     pub skip_partitions: bool,
+ }
+ 
++struct Ext4SliceDisk<T> {
++    device: T,
++    total_blocks: u64,
++    block_size: u32,
++}
++
++impl<T> Ext4SliceDisk<T> {
++    fn new(device: T, size: u64, block_size: u32) -> Self {
++        Self {
++            device,
++            total_blocks: size / block_size as u64,
++            block_size,
++        }
++    }
++}
++
++impl<T> BlockDevice for Ext4SliceDisk<T>
++where
++    T: io::Read + Seek + Write,
++{
++    fn read(&mut self, buffer: &mut [u8], block_id: AbsoluteBN, count: u32) -> Ext4Result<()> {
++        let offset = block_id.raw() * self.block_size as u64;
++        let total = count as usize * self.block_size as usize;
++        if buffer.len() < total {
++            return Err(Ext4Error::buffer_too_small(buffer.len(), total));
++        }
++
++        self.device
++            .seek(SeekFrom::Start(offset))
++            .map_err(|_| Ext4Error::io())?;
++        self.device
++            .read_exact(&mut buffer[..total])
++            .map_err(|_| Ext4Error::io())?;
++        Ok(())
++    }
++
++    fn write(&mut self, buffer: &[u8], block_id: AbsoluteBN, count: u32) -> Ext4Result<()> {
++        let offset = block_id.raw() * self.block_size as u64;
++        let total = count as usize * self.block_size as usize;
++        if buffer.len() < total {
++            return Err(Ext4Error::buffer_too_small(buffer.len(), total));
++        }
++
++        self.device
++            .seek(SeekFrom::Start(offset))
++            .map_err(|_| Ext4Error::io())?;
++        self.device
++            .write_all(&buffer[..total])
++            .map_err(|_| Ext4Error::io())?;
++        Ok(())
++    }
++
++    fn open(&mut self) -> Ext4Result<()> {
++        Ok(())
++    }
++
++    fn close(&mut self) -> Ext4Result<()> {
++        Ok(())
++    }
++
++    fn total_blocks(&self) -> u64 {
++        self.total_blocks
++    }
++
++    fn current_time(&self) -> Ext4Result<Ext4Timestamp> {
++        let now = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .map_err(|_| Ext4Error::io())?;
++        Ok(Ext4Timestamp::new(
++            now.as_secs().try_into().map_err(|_| Ext4Error::io())?,
++            now.subsec_nanos(),
++        ))
++    }
++
++    fn block_size(&self) -> u32 {
++        self.block_size
++    }
++
++    fn flush(&mut self) -> Ext4Result<()> {
++        self.device.flush().map_err(|_| Ext4Error::io())
++    }
++}
++
+ fn get_target() -> String {
+     // TODO: Configurable from filesystem config?
+     env::var("TARGET").unwrap_or(
+@@ -360,6 +457,155 @@ fn decide_mount_path(mount_path: Option<&Path>) -> PathBuf {
+     mount_path
+ }
+ 
++fn ext4_error<E>(err: E) -> anyhow::Error
++where
++    E: std::fmt::Display,
++{
++    anyhow::anyhow!("{err}")
++}
++
++fn host_path_to_ext4_path(host_root: &Path, path: &Path) -> Result<String> {
++    let relative = path
++        .strip_prefix(host_root)
++        .with_context(|| format!("{} is outside {}", path.display(), host_root.display()))?;
++    let relative = relative
++        .to_str()
++        .with_context(|| format!("{} is not valid UTF-8", path.display()))?;
++
++    if relative.is_empty() {
++        Ok("/".to_string())
++    } else {
++        Ok(format!("/{relative}"))
++    }
++}
++
++fn apply_ext4_metadata<B: BlockDevice>(
++    metadata: &fs::Metadata,
++    ext4_path: &str,
++    disk: &mut Jbd2Dev<B>,
++    ext4: &mut Ext4FileSystem,
++) -> Result<()> {
++    use std::os::unix::fs::{MetadataExt, PermissionsExt};
++
++    ext4_chmod(
++        disk,
++        ext4,
++        ext4_path,
++        (metadata.permissions().mode() & 0o7777) as u16,
++    )
++    .map_err(ext4_error)?;
++    ext4_chown(
++        disk,
++        ext4,
++        ext4_path,
++        Some(metadata.uid()),
++        Some(metadata.gid()),
++    )
++    .map_err(ext4_error)?;
++    Ok(())
++}
++
++fn sync_host_dir_entries_to_ext4<B: BlockDevice>(
++    host_root: &Path,
++    dir: &Path,
++    disk: &mut Jbd2Dev<B>,
++    ext4: &mut Ext4FileSystem,
++    symlinks: &mut Vec<(String, String)>,
++) -> Result<()> {
++    for entry in fs::read_dir(dir)? {
++        let entry = entry?;
++        let path = entry.path();
++        let file_type = entry.file_type()?;
++        let metadata = fs::symlink_metadata(&path)?;
++        let ext4_path = host_path_to_ext4_path(host_root, &path)?;
++
++        if file_type.is_dir() {
++            ext4_mkdir(disk, ext4, &ext4_path).map_err(ext4_error)?;
++            apply_ext4_metadata(&metadata, &ext4_path, disk, ext4)?;
++            sync_host_dir_entries_to_ext4(host_root, &path, disk, ext4, symlinks)?;
++        } else if file_type.is_file() {
++            let data = fs::read(&path)
++                .with_context(|| format!("Reading staged file {}", path.display()))?;
++            ext4_mkfile(disk, ext4, &ext4_path, Some(&data), None).map_err(ext4_error)?;
++            apply_ext4_metadata(&metadata, &ext4_path, disk, ext4)?;
++        } else if file_type.is_symlink() {
++            let target = fs::read_link(&path)
++                .with_context(|| format!("Reading staged symlink {}", path.display()))?;
++            let target = target
++                .to_str()
++                .with_context(|| format!("{} has a non-UTF-8 symlink target", path.display()))?;
++            symlinks.push((target.to_string(), ext4_path));
++        }
++    }
++
++    Ok(())
++}
++
++fn sync_host_dir_to_ext4<B: BlockDevice>(
++    host_root: &Path,
++    disk: &mut Jbd2Dev<B>,
++    ext4: &mut Ext4FileSystem,
++) -> Result<()> {
++    let mut symlinks = Vec::new();
++    sync_host_dir_entries_to_ext4(host_root, host_root, disk, ext4, &mut symlinks)?;
++
++    for (target, link_path) in symlinks {
++        ext4_create_symbol_link(disk, ext4, &target, &link_path).map_err(ext4_error)?;
++    }
++
++    Ok(())
++}
++
++pub fn with_ext4_mount<B, T, F>(
++    mut disk: Jbd2Dev<B>,
++    mount_path: Option<&Path>,
++    callback: F,
++) -> Result<T>
++where
++    B: BlockDevice,
++    F: FnOnce(&Path) -> Result<T>,
++{
++    let mount_path = decide_mount_path(mount_path);
++
++    if !mount_path.exists() {
++        fs::create_dir(&mount_path)?;
++    }
++
++    let mut ext4 = match ext4_mount(&mut disk).map_err(ext4_error) {
++        Ok(ext4) => ext4,
++        Err(err) => {
++            if mount_path.exists() {
++                let _ = fs::remove_dir_all(&mount_path);
++            }
++            return Err(err);
++        }
++    };
++
++    let mut res = callback(&mount_path);
++
++    if res.is_ok() {
++        if let Err(err) = sync_host_dir_to_ext4(&mount_path, &mut disk, &mut ext4) {
++            res = Err(err);
++        }
++    }
++
++    if let Err(err) = ext4_umount(ext4, &mut disk).map_err(ext4_error) {
++        if res.is_ok() {
++            res = Err(err);
++        }
++    }
++
++    if mount_path.exists() {
++        if let Err(err) = fs::remove_dir_all(&mount_path) {
++            if res.is_ok() {
++                res = Err(err.into());
++            }
++        }
++    }
++
++    res
++}
++
+ pub fn with_redoxfs_mount<D, T, F>(
+     fs: FileSystem<D>,
+     mount_path: Option<&Path>,
+@@ -712,6 +958,184 @@ where
+     with_redoxfs(disk_redoxfs, disk_option.password_opt, callback)
+ }
+ 
++pub fn with_whole_disk_ext4<P, F, T>(
++    disk_path: P,
++    disk_option: &DiskOption,
++    callback: F,
++) -> Result<T>
++where
++    P: AsRef<Path>,
++    F: FnOnce(&Path) -> Result<T>,
++{
++    let target = get_target();
++
++    let bootloader_efi_name = match target.as_str() {
++        "aarch64-unknown-redox" => "BOOTAA64.EFI",
++        "i586-unknown-redox" | "i686-unknown-redox" => "BOOTIA32.EFI",
++        "x86_64-unknown-redox" => "BOOTX64.EFI",
++        "riscv64gc-unknown-redox" => "BOOTRISCV64.EFI",
++        _ => {
++            bail!("target '{target}' not supported");
++        }
++    };
++
++    eprintln!("Opening disk {}", disk_path.as_ref().display());
++
++    if disk_option.skip_partitions {
++        let disk_ext4 = Ext4SliceDisk::new(
++            DiskWrapper::open(disk_path.as_ref())?,
++            std::fs::metadata(disk_path.as_ref())?.len(),
++            rsext4::BLOCK_SIZE_U32,
++        );
++        let mut jbd = Jbd2Dev::initial_jbd2dev(0, disk_ext4, false);
++        eprintln!("Formatting whole disk as ext4");
++        ext4_mkfs(&mut jbd).map_err(ext4_error)?;
++        return with_ext4_mount(jbd, None, callback);
++    }
++
++    let mut disk_file = DiskWrapper::open(disk_path.as_ref())?;
++    let disk_size = disk_file.size();
++    let block_size = disk_file.block_size() as u64;
++
++    let gpt_block_size = match block_size {
++        512 => gpt::disk::LogicalBlockSize::Lb512,
++        _ => {
++            bail!("block size {block_size} not supported");
++        }
++    };
++
++    let gpt_reserved = 34 * 512;
++    let mibi = 1024 * 1024;
++
++    let bios_start = gpt_reserved / block_size;
++    let bios_end = (mibi / block_size) - 1;
++
++    let efi_start = bios_end + 1;
++    let efi_size = if let Some(size) = disk_option.efi_partition_size {
++        size as u64
++    } else {
++        1
++    };
++    let efi_end = efi_start + (efi_size * mibi / block_size) - 1;
++
++    let filesystem_start = efi_end + 1;
++    let filesystem_end = ((((disk_size - gpt_reserved) / mibi) * mibi) / block_size) - 1;
++
++    {
++        eprintln!(
++            "Write bootloader with size {:#x}",
++            disk_option.bootloader_bios.len()
++        );
++        disk_file.seek(SeekFrom::Start(0))?;
++        disk_file.write_all(&disk_option.bootloader_bios)?;
++
++        let mbr_blocks = ((disk_size + block_size - 1) / block_size) - 1;
++        eprintln!("Writing protective MBR with disk blocks {mbr_blocks:#x}");
++        gpt::mbr::ProtectiveMBR::with_lb_size(mbr_blocks as u32)
++            .update_conservative(&mut disk_file)?;
++
++        let mut gpt_disk = gpt::GptConfig::new()
++            .initialized(false)
++            .writable(true)
++            .logical_block_size(gpt_block_size)
++            .create_from_device(Box::new(&mut disk_file), None)?;
++
++        let mut partitions = BTreeMap::new();
++        let mut partition_id = 1;
++        partitions.insert(
++            partition_id,
++            gpt::partition::Partition {
++                part_type_guid: gpt::partition_types::BIOS,
++                part_guid: uuid::Uuid::new_v4(),
++                first_lba: bios_start,
++                last_lba: bios_end,
++                flags: 0,
++                name: "BIOS".to_string(),
++            },
++        );
++        partition_id += 1;
++
++        partitions.insert(
++            partition_id,
++            gpt::partition::Partition {
++                part_type_guid: gpt::partition_types::EFI,
++                part_guid: uuid::Uuid::new_v4(),
++                first_lba: efi_start,
++                last_lba: efi_end,
++                flags: 0,
++                name: "EFI".to_string(),
++            },
++        );
++        partition_id += 1;
++
++        partitions.insert(
++            partition_id,
++            gpt::partition::Partition {
++                part_type_guid: gpt::partition_types::LINUX_FS,
++                part_guid: uuid::Uuid::new_v4(),
++                first_lba: filesystem_start,
++                last_lba: filesystem_end,
++                flags: 0,
++                name: "REDOX".to_string(),
++            },
++        );
++
++        eprintln!("Writing GPT tables: {partitions:#?}");
++        gpt_disk.update_partitions(partitions)?;
++        gpt_disk.write()?;
++    }
++
++    {
++        let disk_efi_start = efi_start * block_size;
++        let disk_efi_end = (efi_end + 1) * block_size;
++        let mut disk_efi =
++            fscommon::StreamSlice::new(&mut disk_file, disk_efi_start, disk_efi_end)?;
++
++        eprintln!(
++            "Formatting EFI partition with size {:#x}",
++            disk_efi_end - disk_efi_start
++        );
++        fatfs::format_volume(&mut disk_efi, fatfs::FormatVolumeOptions::new())?;
++
++        eprintln!("Opening EFI partition");
++        let fs = fatfs::FileSystem::new(&mut disk_efi, fatfs::FsOptions::new())?;
++
++        eprintln!("Creating EFI directory");
++        let root_dir = fs.root_dir();
++        root_dir.create_dir("EFI")?;
++
++        eprintln!("Creating EFI/BOOT directory");
++        let efi_dir = root_dir.open_dir("EFI")?;
++        efi_dir.create_dir("BOOT")?;
++
++        eprintln!(
++            "Writing EFI/BOOT/{} file with size {:#x}",
++            bootloader_efi_name,
++            disk_option.bootloader_efi.len()
++        );
++        let boot_dir = efi_dir.open_dir("BOOT")?;
++        let mut file = boot_dir.create_file(bootloader_efi_name)?;
++        file.truncate()?;
++        file.write_all(&disk_option.bootloader_efi)?;
++    }
++
++    let disk_ext4_start = filesystem_start * block_size;
++    let disk_ext4_end = (filesystem_end + 1) * block_size;
++    eprintln!(
++        "Installing to ext4 partition with size {:#x}",
++        disk_ext4_end - disk_ext4_start
++    );
++
++    let disk_ext4 = Ext4SliceDisk::new(
++        fscommon::StreamSlice::new(&mut disk_file, disk_ext4_start, disk_ext4_end)?,
++        disk_ext4_end - disk_ext4_start,
++        rsext4::BLOCK_SIZE_U32,
++    );
++    let mut jbd = Jbd2Dev::initial_jbd2dev(0, disk_ext4, false);
++    ext4_mkfs(&mut jbd).map_err(ext4_error)?;
++    with_ext4_mount(jbd, None, callback)
++}
++
+ #[cfg(not(target_os = "redox"))]
+ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
+     _fs: &mut redoxfs::FileSystem<D>,
+@@ -827,24 +1251,34 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+         if let Some(write_bootloader) = &config.general.write_bootloader {
+             std::fs::write(write_bootloader, &bootloader_efi)?;
+         }
++        let filesystem_type = match config.general.filesystem.as_deref() {
++            Some("ext4") => FilesystemType::Ext4,
++            _ => FilesystemType::RedoxFS,
++        };
+         let disk_option = DiskOption {
+             bootloader_bios: &bootloader_bios,
+             bootloader_efi: &bootloader_efi,
+             password_opt: password_opt,
++            filesystem_type,
+             efi_partition_size: config.general.efi_partition_size,
+             skip_partitions: config.general.skip_partitions.unwrap_or(false),
+         };
+-        with_whole_disk(output, &disk_option, move |fs| {
+-            if config.general.no_mount.unwrap_or(false) {
+-                with_redoxfs_ar(fs, None, move |mount_path| {
+-                    install_dir(config, mount_path, cookbook)
+-                })
+-            } else {
+-                with_redoxfs_mount(fs, None, move |mount_path| {
+-                    install_dir(config, mount_path, cookbook)
+-                })
+-            }
+-        })
++        match filesystem_type {
++            FilesystemType::RedoxFS => with_whole_disk(output, &disk_option, move |fs| {
++                if config.general.no_mount.unwrap_or(false) {
++                    with_redoxfs_ar(fs, None, move |mount_path| {
++                        install_dir(config, mount_path, cookbook)
++                    })
++                } else {
++                    with_redoxfs_mount(fs, None, move |mount_path| {
++                        install_dir(config, mount_path, cookbook)
++                    })
++                }
++            }),
++            FilesystemType::Ext4 => with_whole_disk_ext4(output, &disk_option, move |mount_path| {
++                install_dir(config, mount_path, cookbook)
++            }),
++        }
+     }
+ }
+ 

@@ -1,0 +1,118 @@
+diff --git a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -100,5 +100,6 @@ pub mod sys_socket;
+ pub mod sys_stat;
+ pub mod sys_statvfs;
+ pub mod sys_time;
++pub mod sys_timerfd;
+ #[deprecated]
+ pub mod sys_timeb;
+diff --git a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
+new file mode 100644
+--- /dev/null
++++ b/src/header/sys_timerfd/cbindgen.toml
+@@ -0,0 +1,9 @@
++sys_includes = ["time.h"]
++include_guard = "_SYS_TIMERFD_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
+diff --git a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/sys_timerfd/mod.rs
+@@ -0,0 +1,89 @@
++//! `sys/timerfd.h` implementation.
++//!
++//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/timerfd_create.2.html>.
++
++use alloc::format;
++use core::{mem, slice};
++
++use crate::{
++    c_str::{CStr, CString},
++    error::{Errno, ResultExt},
++    header::{
++        bits_timespec::timespec,
++        errno::{EFAULT, EINVAL, EIO},
++        fcntl::{O_CLOEXEC, O_NONBLOCK, O_RDWR},
++    },
++    platform::{
++        Pal, Sys,
++        types::{c_int, clockid_t},
++    },
++};
++
++pub use crate::header::time::itimerspec;
++
++pub const TFD_CLOEXEC: c_int = 0x80000;
++pub const TFD_NONBLOCK: c_int = 0x800;
++pub const TFD_TIMER_ABSTIME: c_int = 0x1;
++
++fn read_exact(fd: c_int, buf: &mut [u8]) -> Result<(), Errno> {
++    match Sys::read(fd, buf)? {
++        n if n == buf.len() => Ok(()),
++        _ => Err(Errno(EIO)),
++    }
++}
++
++fn write_exact(fd: c_int, buf: &[u8]) -> Result<(), Errno> {
++    match Sys::write(fd, buf)? {
++        n if n == buf.len() => Ok(()),
++        _ => Err(Errno(EIO)),
++    }
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn timerfd_create(clockid: clockid_t, flags: c_int) -> c_int {
++    let supported = TFD_CLOEXEC | TFD_NONBLOCK;
++    if flags & !supported != 0 {
++        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
++    }
++
++    let mut oflag = O_RDWR;
++    if flags & TFD_CLOEXEC == TFD_CLOEXEC {
++        oflag |= O_CLOEXEC;
++    }
++    if flags & TFD_NONBLOCK == TFD_NONBLOCK {
++        oflag |= O_NONBLOCK;
++    }
++
++    let path = match CString::new(format!("/scheme/time/{clockid}")) {
++        Ok(path) => path,
++        Err(_) => return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno(),
++    };
++    Sys::open(CStr::borrow(&path), oflag, 0).or_minus_one_errno()
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn timerfd_settime(fd: c_int, flags: c_int, new: *const itimerspec, old: *mut itimerspec) -> c_int {
++    if flags & !TFD_TIMER_ABSTIME != 0 {
++        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
++    }
++    if new.is_null() {
++        return Err::<c_int, _>(Errno(EFAULT)).or_minus_one_errno();
++    }
++    if !old.is_null() && unsafe { timerfd_gettime(fd, old) } < 0 {
++        return -1;
++    }
++    let spec = unsafe { &*new };
++    let buf = unsafe { slice::from_raw_parts((&raw const spec.it_value).cast::<u8>(), mem::size_of::<timespec>()) };
++    write_exact(fd, buf).map(|()| 0).or_minus_one_errno()
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn timerfd_gettime(fd: c_int, curr: *mut itimerspec) -> c_int {
++    if curr.is_null() {
++        return Err::<c_int, _>(Errno(EFAULT)).or_minus_one_errno();
++    }
++    let curr = unsafe { &mut *curr };
++    curr.it_interval = timespec::default();
++    let buf = unsafe { slice::from_raw_parts_mut((&raw mut curr.it_value).cast::<u8>(), mem::size_of::<timespec>()) };
++    read_exact(fd, buf).map(|()| 0).or_minus_one_errno()
++}

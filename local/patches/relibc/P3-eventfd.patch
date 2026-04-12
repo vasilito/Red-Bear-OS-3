@@ -1,0 +1,118 @@
+diff --git a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -85,5 +85,6 @@
+ pub mod strings;
+ // TODO: stropts.h (deprecated)
+ pub mod sys_auxv;
+ pub mod sys_epoll;
++pub mod sys_eventfd;
+ pub mod sys_file;
+diff --git a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindgen.toml
+new file mode 100644
+--- /dev/null
++++ b/src/header/sys_eventfd/cbindgen.toml
+@@ -0,0 +1,9 @@
++sys_includes = ["stdint.h"]
++include_guard = "_SYS_EVENTFD_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
+diff --git a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/sys_eventfd/mod.rs
+@@ -0,0 +1,89 @@
++//! `sys/eventfd.h` implementation.
++//!
++//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/eventfd.2.html>.
++
++use core::{mem, slice};
++
++use crate::{
++    error::{Errno, ResultExt},
++    header::{
++        errno::{EFAULT, EINVAL, EIO},
++        fcntl::{O_CLOEXEC, O_NONBLOCK, O_RDWR},
++    },
++    platform::{
++        ERRNO, Pal, Sys,
++        types::{c_int, c_uint},
++    },
++};
++
++pub const EFD_CLOEXEC: c_int = 0x80000;
++pub const EFD_NONBLOCK: c_int = 0x800;
++pub const EFD_SEMAPHORE: c_int = 0x1;
++
++fn read_exact(fd: c_int, buf: &mut [u8]) -> Result<(), Errno> {
++    match Sys::read(fd, buf)? {
++        n if n == buf.len() => Ok(()),
++        _ => Err(Errno(EIO)),
++    }
++}
++
++fn write_exact(fd: c_int, buf: &[u8]) -> Result<(), Errno> {
++    match Sys::write(fd, buf)? {
++        n if n == buf.len() => Ok(()),
++        _ => Err(Errno(EIO)),
++    }
++}
++
++fn eventfd2_inner(initval: c_uint, flags: c_int) -> Result<c_int, Errno> {
++    let supported = EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE;
++    if flags & !supported != 0 {
++        return Err(Errno(EINVAL));
++    }
++
++    let mut oflag = O_RDWR;
++    if flags & EFD_CLOEXEC == EFD_CLOEXEC {
++        oflag |= O_CLOEXEC;
++    }
++    if flags & EFD_NONBLOCK == EFD_NONBLOCK {
++        oflag |= O_NONBLOCK;
++    }
++
++    let fd = Sys::open(c"/scheme/event".into(), oflag, 0)?;
++    if initval != 0 {
++        let value = u64::from(initval);
++        let buf = unsafe {
++            slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<u64>())
++        };
++        if let Err(err) = write_exact(fd, buf) {
++            let _ = Sys::close(fd);
++            return Err(err);
++        }
++    }
++    Ok(fd)
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn eventfd2(initval: c_uint, flags: c_int) -> c_int {
++    eventfd2_inner(initval, flags).or_minus_one_errno()
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn eventfd(initval: c_uint, flags: c_int) -> c_int {
++    eventfd2(initval, flags)
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn eventfd_read(fd: c_int, value: *mut u64) -> c_int {
++    if value.is_null() {
++        ERRNO.set(EFAULT);
++        return -1;
++    }
++    let buf = unsafe { slice::from_raw_parts_mut(value.cast::<u8>(), mem::size_of::<u64>()) };
++    read_exact(fd, buf).map(|()| 0).or_minus_one_errno()
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn eventfd_write(fd: c_int, value: u64) -> c_int {
++    let buf = unsafe { slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<u64>()) };
++    write_exact(fd, buf).map(|()| 0).or_minus_one_errno()
++}

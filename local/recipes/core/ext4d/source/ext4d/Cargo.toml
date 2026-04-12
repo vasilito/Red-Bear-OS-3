@@ -1,0 +1,25 @@
+[package]
+name = "ext4d"
+description = "ext4 filesystem scheme daemon for Redox OS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ext4d"
+path = "src/main.rs"
+
+[dependencies]
+ext4-blockdev = { path = "../ext4-blockdev" }
+rsext4.workspace = true
+redox_syscall.workspace = true
+redox-scheme.workspace = true
+libredox = { workspace = true, optional = true }
+redox-path = { workspace = true, optional = true }
+log.workspace = true
+env_logger = { workspace = true, optional = true }
+libc.workspace = true
+
+[features]
+default = ["redox"]
+redox = ["dep:libredox", "dep:redox-path", "ext4-blockdev/redox", "dep:env_logger"]

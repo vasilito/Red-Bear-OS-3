@@ -1,0 +1,140 @@
+diff --git a/src/header/stdio/mod.rs b/src/header/stdio/mod.rs
+--- a/src/header/stdio/mod.rs
++++ b/src/header/stdio/mod.rs
+@@ -46,4 +46,7 @@
+ pub use self::getdelim::*;
+ mod getdelim;
+ 
++pub use self::open_memstream::*;
++mod open_memstream;
++
+ mod ext;
+diff --git a/src/header/stdio/open_memstream.rs b/src/header/stdio/open_memstream.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/stdio/open_memstream.rs
+@@ -0,0 +1,124 @@
++use alloc::{boxed::Box, vec, vec::Vec};
++use core::ptr;
++
++use super::{
++    Buffer, FILE,
++    constants::{BUFSIZ, F_NORD},
++};
++use crate::{
++    error::{Errno, ResultExtPtrMut},
++    fs::File,
++    header::{
++        errno::{EFAULT, ENOMEM},
++        fcntl, pthread, stdlib, unistd,
++    },
++    io::{self, BufWriter, Write},
++    platform::{
++        ERRNO,
++        types::{c_char, size_t},
++    },
++};
++
++struct MemstreamWriter {
++    bufp: *mut *mut c_char,
++    sizep: *mut size_t,
++    current: *mut c_char,
++    buffer: Vec<u8>,
++}
++
++unsafe impl Send for MemstreamWriter {}
++
++impl MemstreamWriter {
++    fn new(bufp: *mut *mut c_char, sizep: *mut size_t) -> Self {
++        Self {
++            bufp,
++            sizep,
++            current: ptr::null_mut(),
++            buffer: Vec::new(),
++        }
++    }
++
++    fn sync_output(&mut self) -> io::Result<()> {
++        let size = self.buffer.len();
++        let alloc_size = size
++            .checked_add(1)
++            .ok_or_else(|| io::Error::from_raw_os_error(ENOMEM))?;
++
++        let raw = if self.current.is_null() {
++            unsafe { stdlib::malloc(alloc_size) }
++        } else {
++            unsafe { stdlib::realloc(self.current.cast(), alloc_size) }
++        };
++        if raw.is_null() {
++            return Err(io::Error::from_raw_os_error(ENOMEM));
++        }
++
++        let raw = raw.cast::<c_char>();
++        if size != 0 {
++            unsafe { ptr::copy_nonoverlapping(self.buffer.as_ptr(), raw.cast::<u8>(), size) };
++        }
++        unsafe {
++            *raw.add(size) = 0;
++            *self.bufp = raw;
++            *self.sizep = size;
++        }
++        self.current = raw;
++        Ok(())
++    }
++}
++
++impl Write for MemstreamWriter {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        self.buffer
++            .try_reserve(buf.len())
++            .map_err(|_| io::Error::from_raw_os_error(ENOMEM))?;
++        self.buffer.extend_from_slice(buf);
++        Ok(buf.len())
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        self.sync_output()
++    }
++}
++
++fn create_memstream(bufp: *mut *mut c_char, sizep: *mut size_t) -> Result<Box<FILE>, Errno> {
++    if bufp.is_null() || sizep.is_null() {
++        return Err(Errno(EFAULT));
++    }
++
++    unsafe {
++        *bufp = ptr::null_mut();
++        *sizep = 0;
++    }
++
++    let mut fds = [0; 2];
++    if unsafe { unistd::pipe2(fds.as_mut_ptr(), fcntl::O_CLOEXEC) } != 0 {
++        return Err(Errno(ERRNO.get()));
++    }
++    let _ = unistd::close(fds[0]);
++
++    let file = File::new(fds[1]);
++    let writer = Box::new(BufWriter::new(MemstreamWriter::new(bufp, sizep)));
++    let mutex_attr = pthread::RlctMutexAttr {
++        ty: pthread::PTHREAD_MUTEX_RECURSIVE,
++        ..Default::default()
++    };
++
++    Ok(Box::new(FILE {
++        lock: pthread::RlctMutex::new(&mutex_attr).unwrap(),
++        file,
++        flags: F_NORD,
++        read_buf: Buffer::Owned(vec![0; BUFSIZ as usize]),
++        read_pos: 0,
++        read_size: 0,
++        unget: Vec::new(),
++        writer,
++        pid: None,
++        orientation: 0,
++    }))
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut size_t) -> *mut FILE {
++    create_memstream(bufp, sizep).or_errno_null_mut()
++}

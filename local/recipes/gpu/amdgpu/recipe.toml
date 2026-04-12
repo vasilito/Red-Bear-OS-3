@@ -1,0 +1,141 @@
+# AMD GPU driver port for Redox OS — Phase P2: Display Core (modesetting only)
+# Scope: AMD DC modesetting, connector detection, EDID, CRTC programming.
+# Full amdgpu (acceleration, compute, video decode) is Phase P5.
+
+[source]
+# Local overlay recipe. The extracted Linux 7.0-rc7 AMDGPU tree lives next to this
+# recipe at ../amdgpu-source and is referenced by the custom build script below.
+path = "source"
+
+[build]
+template = "custom"
+dependencies = [
+    "redox-driver-sys",
+    "linux-kpi",
+    "firmware-loader",
+]
+script = """
+DYNAMIC_INIT
+
+# Paths
+AMD_ROOT="${COOKBOOK_SOURCE}/../amdgpu-source/gpu/drm/amd"
+AMD_SRC="${AMD_ROOT}"
+TTM_SRC="${COOKBOOK_SOURCE}/../amdgpu-source/gpu/drm/ttm"
+INCLUDES="${COOKBOOK_SOURCE}/../amdgpu-source/include"
+LINUX_KPI="${COOKBOOK_SYSROOT}/include/linux-kpi"
+REDOX_GLUE="${COOKBOOK_SOURCE}"
+TARGET_CC="${COOKBOOK_TARGET}-gcc"
+
+# Compiler flags for AMD driver
+export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
+    -DCONFIG_DRM_AMD_DC_FP -DCONFIG_DRM_AMD_ACP \
+    -I${LINUX_KPI} \
+    -I${REDOX_GLUE} \
+    -I${INCLUDES} \
+    -I${INCLUDES}/drm \
+    -I${AMD_SRC}/include \
+    -I${AMD_SRC}/include/asic_reg \
+    -I${AMD_SRC}/display \
+    -I${AMD_SRC}/display/dc \
+    -I${AMD_SRC}/display/dc/dml \
+    -I${AMD_SRC}/display/dc/dcn20 \
+    -I${AMD_SRC}/display/dc/dcn21 \
+    -I${AMD_SRC}/display/dc/dcn30 \
+    -I${AMD_SRC}/display/dc/dcn301 \
+    -I${AMD_SRC}/display/dc/dcn31 \
+    -I${AMD_SRC}/display/dc/dcn32 \
+    -I${AMD_SRC}/display/dc/dcn35 \
+    -I${AMD_SRC}/display/dc/dml2 \
+    -I${AMD_SRC}/display/dmub \
+    -I${AMD_SRC}/display/modules \
+    -I${AMD_SRC}/display/modules/freesync \
+    -I${AMD_SRC}/display/modules/color \
+    -I${AMD_SRC}/display/modules/info_packet \
+    -I${AMD_SRC}/display/modules/power \
+    -I${AMD_SRC}/pm/swsmu \
+    -I${AMD_SRC}/pm/swsmu/inc \
+    -I${AMD_SRC}/pm/powerplay \
+    -I${AMD_SRC}/pm/powerplay/inc \
+    -I${AMD_SRC}/pm/powerplay/hwmgr \
+    -fPIC -O2 -Wall -Wno-unused-function -Wno-unused-variable \
+    -Wno-address-of-packed-member -Wno-initializer-overrides"
+
+# Stage 1: Compile Redox glue code
+"${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/amdgpu_redox_main.c" -o amdgpu_redox_main.o
+"${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/redox_stubs.c" -o redox_stubs.o
+
+# Stage 2: Compile AMD Display Core (DC) — display pipeline only
+# Each file MUST compile. Any failure is a hard error.
+success=0
+failed=0
+find "${AMD_SRC}/display/" -name '*.c' | grep -v '/dml2/' | grep -v '/dml/' | while read -r src; do
+    obj=$(basename "${src%.c}.o")
+    if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
+        success=$((success + 1))
+    else
+        failed=$((failed + 1))
+        echo "ERROR: failed to compile $(basename $src)"
+        cat "${obj}.log"
+        exit 1
+    fi
+done
+echo "Stage 2: AMD DC compiled ${success} files, ${failed} failed"
+
+# Stage 3: Compile TTM memory manager
+success=0
+failed=0
+find "${TTM_SRC}/" -name '*.c' | while read -r src; do
+    obj=$(basename "${src%.c}.o")
+    if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
+        success=$((success + 1))
+    else
+        failed=$((failed + 1))
+        echo "ERROR: failed to compile $(basename $src)"
+        cat "${obj}.log"
+        exit 1
+    fi
+done
+echo "Stage 3: TTM compiled ${success} files, ${failed} failed"
+
+# Stage 4: Compile minimal amdgpu core (enough for display init)
+CORE_SRCS="amdgpu_device.c amdgpu_drv.c amdgpu_i2c.c amdgpu_atombios.c \
+    amdgpu_atombios_crtc.c amdgpu_bios.c amdgpu_mode.c amdgpu_display.c \
+    amdgpu_fb.c amdgpu_gem.c amdgpu_object.c amdgpu_gmc.c amdgpu_mmhub.c \
+    amdgpu_irq.c amdgpu_ring.c amdgpu_fence.c amdgpu_ttm.c amdgpu_bo_list.c"
+
+success=0
+failed=0
+for src_name in $CORE_SRCS; do
+    src="${AMD_SRC}/amdgpu/${src_name}"
+    if [ -f "$src" ]; then
+        obj="${src_name%.c}.o"
+        if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
+            success=$((success + 1))
+        else
+            failed=$((failed + 1))
+            echo "ERROR: failed to compile $src_name"
+            cat "${obj}.log"
+            exit 1
+        fi
+    fi
+done
+echo "Stage 4: amdgpu core compiled ${success} files, ${failed} failed"
+
+# Stage 5: Link into shared library
+OBJS=""
+for obj in $(find . -name '*.o' -size +0c); do
+    OBJS="$OBJS $obj"
+done
+if [ -z "$OBJS" ]; then
+    echo "ERROR: no object files compiled successfully"
+    exit 1
+fi
+"${TARGET_CC}" -shared -o libamdgpu_dc_redox.so $OBJS \
+    -lredox_driver_sys -llinux_kpi -lm -lpthread
+
+# Install
+mkdir -p "${COOKBOOK_STAGE}/usr/lib/redox/drivers"
+cp libamdgpu_dc_redox.so "${COOKBOOK_STAGE}/usr/lib/redox/drivers/"
+mkdir -p "${COOKBOOK_STAGE}/usr/include/amdgpu-redox"
+cp "${REDOX_GLUE}/redox_glue.h" "${COOKBOOK_STAGE}/usr/include/amdgpu-redox/"
+"""

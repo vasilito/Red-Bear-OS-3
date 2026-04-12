@@ -1,0 +1,10 @@
+[package]
+name = "udev-shim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+redox-scheme = "0.1"
+syscall = { package = "redox_syscall", version = "0.4" }
+log = { version = "0.4", features = ["std"] }
+thiserror = "2"

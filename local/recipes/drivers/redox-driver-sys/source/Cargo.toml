@@ -1,0 +1,29 @@
+[package]
+name = "redox-driver-sys"
+version = "0.1.0"
+edition = "2021"
+description = "Safe Rust wrappers for Redox OS scheme-based hardware access"
+
+[dependencies]
+libredox = "0.1.0"
+redox_syscall = { version = "0.7", features = ["std"] }
+log = "0.4"
+thiserror = "2"
+bitflags = "2"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+
+[features]
+default = []
+redox = []
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dev-dependencies]
+linux-kpi = { path = "../../linux-kpi/source" }
+
+[[test]]
+name = "smoke_test"
+harness = false
+required-features = ["redox"]

@@ -1,0 +1,765 @@
+diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
+--- a/src/acpi/madt/arch/x86.rs
++++ b/src/acpi/madt/arch/x86.rs
+@@ -1,154 +1,247 @@
+ use core::{
+     hint,
+     sync::atomic::{AtomicU8, Ordering},
+ };
+ 
+ use crate::{
+     arch::start::KernelArgsAp,
+     cpu_set::LogicalCpuId,
+     device::local_apic::the_local_apic,
+     memory::{
+         allocate_p2frame, Frame, KernelMapper, Page, PageFlags, PhysicalAddress, RmmA, RmmArch,
+         VirtualAddress, PAGE_SIZE,
+     },
+     start::kstart_ap,
+     AP_READY,
+ };
+ 
+ use super::{Madt, MadtEntry};
+ 
+ const TRAMPOLINE: usize = 0x8000;
+ static TRAMPOLINE_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/trampoline"));
+ 
+ pub(super) fn init(madt: Madt) {
+     let local_apic = unsafe { the_local_apic() };
+     let me = local_apic.id();
+ 
+     if local_apic.x2 {
+         debug!("    X2APIC {}", me.get());
+     } else {
+         debug!("    XAPIC {}: {:>08X}", me.get(), local_apic.address);
+     }
+ 
+     if cfg!(not(feature = "multi_core")) {
+         return;
+     }
+ 
+-    // Map trampoline
++    // Map trampoline writable and executable (trampoline page holds both code
++    // and AP argument data — AP writes ap_ready on the same page, so W^X is
++    // not possible without splitting code/data across pages).
+     let trampoline_frame = Frame::containing(PhysicalAddress::new(TRAMPOLINE));
+     let trampoline_page = Page::containing_address(VirtualAddress::new(TRAMPOLINE));
+     let (result, page_table_physaddr) = unsafe {
+-        //TODO: do not have writable and executable!
+         let mut mapper = KernelMapper::lock_rw();
+ 
+         let result = mapper
+             .map_phys(
+                 trampoline_page.start_address(),
+                 trampoline_frame.base(),
+-                PageFlags::new().execute(true).write(true),
++                PageFlags::new().write(true).execute(true),
+             )
+             .expect("failed to map trampoline");
+ 
+         (result, mapper.table().phys().data())
+     };
+     result.flush();
+ 
+     // Write trampoline, make sure TRAMPOLINE page is free for use
+     for (i, val) in TRAMPOLINE_DATA.iter().enumerate() {
+         unsafe {
+             (*((TRAMPOLINE as *mut u8).add(i) as *const AtomicU8)).store(*val, Ordering::SeqCst);
+         }
+     }
+ 
+     for madt_entry in madt.iter() {
+         debug!("      {:x?}", madt_entry);
+         if let MadtEntry::LocalApic(ap_local_apic) = madt_entry {
+             if u32::from(ap_local_apic.id) == me.get() {
+                 debug!("        This is my local APIC");
+             } else if ap_local_apic.flags & 1 == 1 {
+                 let cpu_id = LogicalCpuId::next();
+ 
+                 // Allocate a stack
+                 let stack_start = RmmA::phys_to_virt(
+                     allocate_p2frame(4)
+                         .expect("no more frames in acpi stack_start")
+                         .base(),
+                 )
+                 .data();
+                 let stack_end = stack_start + (PAGE_SIZE << 4);
+ 
+                 let pcr_ptr = crate::arch::gdt::allocate_and_init_pcr(cpu_id, stack_end);
+ 
+                 let idt_ptr = crate::arch::idt::allocate_and_init_idt(cpu_id);
+ 
+                 let args = KernelArgsAp {
+                     stack_end: stack_end as *mut u8,
+                     cpu_id,
+                     pcr_ptr,
+                     idt_ptr,
+                 };
+ 
+                 let ap_ready = (TRAMPOLINE + 8) as *mut u64;
+                 let ap_args_ptr = unsafe { ap_ready.add(1) };
+                 let ap_page_table = unsafe { ap_ready.add(2) };
+                 let ap_code = unsafe { ap_ready.add(3) };
+ 
+                 // Set the ap_ready to 0, volatile
+                 unsafe {
+                     ap_ready.write(0);
+                     ap_args_ptr.write(&args as *const _ as u64);
+                     ap_page_table.write(page_table_physaddr as u64);
+                     #[expect(clippy::fn_to_numeric_cast)]
+                     ap_code.write(kstart_ap as u64);
+ 
+                     // TODO: Is this necessary (this fence)?
+                     core::arch::asm!("");
+                 };
+                 AP_READY.store(false, Ordering::SeqCst);
+ 
+                 // Send INIT IPI
+                 {
+                     let mut icr = 0x4500;
+                     if local_apic.x2 {
+                         icr |= u64::from(ap_local_apic.id) << 32;
+                     } else {
+                         icr |= u64::from(ap_local_apic.id) << 56;
+                     }
+                     local_apic.set_icr(icr);
+                 }
+ 
+                 // Send START IPI
+                 {
+                     let ap_segment = (TRAMPOLINE >> 12) & 0xFF;
+                     let mut icr = 0x4600 | ap_segment as u64;
+ 
+                     if local_apic.x2 {
+                         icr |= u64::from(ap_local_apic.id) << 32;
+                     } else {
+                         icr |= u64::from(ap_local_apic.id) << 56;
+                     }
+ 
+                     local_apic.set_icr(icr);
+                 }
+ 
+                 // Wait for trampoline ready
+                 while unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } == 0 {
+                     hint::spin_loop();
+                 }
+                 while !AP_READY.load(Ordering::SeqCst) {
+                     hint::spin_loop();
+                 }
+ 
+                 RmmA::invalidate_all();
+             }
++        } else if let MadtEntry::LocalX2Apic(ap_x2apic) = madt_entry {
++            if ap_x2apic.x2apic_id == me.get() {
++                debug!("        This is my local x2APIC");
++            } else if ap_x2apic.flags & 1 == 1 {
++                let cpu_id = LogicalCpuId::next();
++
++                let stack_start = RmmA::phys_to_virt(
++                    allocate_p2frame(4)
++                        .expect("no more frames in acpi stack_start")
++                        .base(),
++                )
++                .data();
++                let stack_end = stack_start + (PAGE_SIZE << 4);
++
++                let pcr_ptr = crate::arch::gdt::allocate_and_init_pcr(cpu_id, stack_end);
++                let idt_ptr = crate::arch::idt::allocate_and_init_idt(cpu_id);
++
++                let args = KernelArgsAp {
++                    stack_end: stack_end as *mut u8,
++                    cpu_id,
++                    pcr_ptr,
++                    idt_ptr,
++                };
++
++                let ap_ready = (TRAMPOLINE + 8) as *mut u64;
++                let ap_args_ptr = unsafe { ap_ready.add(1) };
++                let ap_page_table = unsafe { ap_ready.add(2) };
++                let ap_code = unsafe { ap_ready.add(3) };
++
++                unsafe {
++                    ap_ready.write(0);
++                    ap_args_ptr.write(&args as *const _ as u64);
++                    ap_page_table.write(page_table_physaddr as u64);
++                    #[expect(clippy::fn_to_numeric_cast)]
++                    ap_code.write(kstart_ap as u64);
++                    core::arch::asm!("");
++                };
++                AP_READY.store(false, Ordering::SeqCst);
++
++                // Send INIT IPI (x2APIC always uses 32-bit APIC ID in bits 32-63)
++                {
++                    let mut icr = 0x4500u64;
++                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
++                    local_apic.set_icr(icr);
++                }
++
++                // Wait for INIT delivery (~10 μs de-assert window per Intel SDM)
++                for _ in 0..100_000 {
++                    hint::spin_loop();
++                }
++
++                // Send STARTUP IPI
++                {
++                    let ap_segment = (TRAMPOLINE >> 12) & 0xFF;
++                    let mut icr = 0x4600u64 | ap_segment as u64;
++                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
++                    local_apic.set_icr(icr);
++                }
++
++                // Wait ~200 μs, then send second STARTUP IPI per the universal
++                // startup algorithm.
++                for _ in 0..2_000_000 {
++                    hint::spin_loop();
++                }
++                {
++                    let ap_segment = (TRAMPOLINE >> 12) & 0xFF;
++                    let mut icr = 0x4600u64 | ap_segment as u64;
++                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
++                    local_apic.set_icr(icr);
++                }
++
++                let mut timeout = 100_000_000u32;
++                while unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } == 0 {
++                    hint::spin_loop();
++                    timeout -= 1;
++                    if timeout == 0 {
++                        debug!("x2APIC AP {} trampoline startup timed out", ap_x2apic.x2apic_id);
++                        break;
++                    }
++                }
++                let mut timeout = 100_000_000u32;
++                while !AP_READY.load(Ordering::SeqCst) {
++                    hint::spin_loop();
++                    timeout -= 1;
++                    if timeout == 0 {
++                        debug!("x2APIC AP {} kernel startup timed out", ap_x2apic.x2apic_id);
++                        break;
++                    }
++                }
++
++                RmmA::invalidate_all();
++            }
+         }
+     }
+ 
+     // Unmap trampoline
+     let (_frame, _, flush) = unsafe {
+         KernelMapper::lock_rw()
+             .unmap_phys(trampoline_page.start_address())
+             .expect("failed to unmap trampoline page")
+     };
+     flush.flush();
+ }
+diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
+--- a/src/acpi/madt/mod.rs
++++ b/src/acpi/madt/mod.rs
+@@ -27,214 +27,240 @@
+ pub fn madt() -> Option<&'static Madt> {
+     unsafe { &*MADT.get() }.as_ref()
+ }
+ pub const FLAG_PCAT: u32 = 1;
+ 
+ impl Madt {
+     pub fn init() {
+         let madt = Madt::new(find_one_sdt!("APIC"));
+ 
+         if let Some(madt) = madt {
+             // safe because no APs have been started yet.
+             unsafe { MADT.get().write(Some(madt)) };
+ 
+             debug!("  APIC: {:>08X}: {}", madt.local_address, madt.flags);
+ 
+             arch::init(madt);
+         }
+     }
+ 
+     pub fn new(sdt: &'static Sdt) -> Option<Madt> {
+         if &sdt.signature == b"APIC" && sdt.data_len() >= 8 {
+             //Not valid if no local address and flags
+             let local_address = unsafe { (sdt.data_address() as *const u32).read_unaligned() };
+             let flags = unsafe {
+                 (sdt.data_address() as *const u32)
+                     .offset(1)
+                     .read_unaligned()
+             };
+ 
+             Some(Madt {
+                 sdt,
+                 local_address,
+                 flags,
+             })
+         } else {
+             None
+         }
+     }
+ 
+     pub fn iter(&self) -> MadtIter {
+         MadtIter {
+             sdt: self.sdt,
+             i: 8, // Skip local controller address and flags
+         }
+     }
+ }
+ 
+ /// MADT Local APIC
+ #[derive(Clone, Copy, Debug)]
+ #[repr(C, packed)]
+ pub struct MadtLocalApic {
+     /// Processor ID
+     pub processor: u8,
+     /// Local APIC ID
+     pub id: u8,
+     /// Flags. 1 means that the processor is enabled
+     pub flags: u32,
+ }
+ 
+ /// MADT I/O APIC
+ #[derive(Clone, Copy, Debug)]
+ #[repr(C, packed)]
+ pub struct MadtIoApic {
+     /// I/O APIC ID
+     pub id: u8,
+     /// reserved
+     _reserved: u8,
+     /// I/O APIC address
+     pub address: u32,
+     /// Global system interrupt base
+     pub gsi_base: u32,
+ }
+ 
+ /// MADT Interrupt Source Override
+ #[derive(Clone, Copy, Debug)]
+ #[repr(C, packed)]
+ pub struct MadtIntSrcOverride {
+     /// Bus Source
+     pub bus_source: u8,
+     /// IRQ Source
+     pub irq_source: u8,
+     /// Global system interrupt base
+     pub gsi_base: u32,
+     /// Flags
+     pub flags: u16,
+ }
+ 
+ /// MADT GICC
+ #[derive(Clone, Copy, Debug)]
+ #[repr(C, packed)]
+ pub struct MadtGicc {
+     _reserved: u16,
+     pub cpu_interface_number: u32,
+     pub acpi_processor_uid: u32,
+     pub flags: u32,
+     pub parking_protocol_version: u32,
+     pub performance_interrupt_gsiv: u32,
+     pub parked_address: u64,
+     pub physical_base_address: u64,
+     pub gicv: u64,
+     pub gich: u64,
+     pub vgic_maintenance_interrupt: u32,
+     pub gicr_base_address: u64,
+     pub mpidr: u64,
+     pub processor_power_efficiency_class: u8,
+     _reserved2: u8,
+     pub spe_overflow_interrupt: u16,
+     //TODO: optional field introduced in ACPI 6.5: pub trbe_interrupt: u16,
+ }
+ 
+ /// MADT GICD
+ #[derive(Clone, Copy, Debug)]
+ #[repr(C, packed)]
+ pub struct MadtGicd {
+     _reserved: u16,
+     pub gic_id: u32,
+     pub physical_base_address: u64,
+     pub system_vector_base: u32,
+     pub gic_version: u8,
+     _reserved2: [u8; 3],
++}
++
++/// MADT Local x2APIC (entry type 0x9)
++/// Used by modern AMD and Intel platforms with APIC IDs >= 255.
++#[derive(Clone, Copy, Debug)]
++#[repr(C, packed)]
++pub struct MadtLocalX2Apic {
++    _reserved: u16,
++    pub x2apic_id: u32,
++    pub flags: u32,
++    pub processor_uid: u32,
+ }
+ 
+ /// MADT Entries
+ #[derive(Debug)]
+ #[allow(dead_code)]
+ pub enum MadtEntry {
+     LocalApic(&'static MadtLocalApic),
+     InvalidLocalApic(usize),
+     IoApic(&'static MadtIoApic),
+     InvalidIoApic(usize),
+     IntSrcOverride(&'static MadtIntSrcOverride),
+     InvalidIntSrcOverride(usize),
+     Gicc(&'static MadtGicc),
+     InvalidGicc(usize),
+     Gicd(&'static MadtGicd),
+     InvalidGicd(usize),
++    LocalX2Apic(&'static MadtLocalX2Apic),
++    InvalidLocalX2Apic(usize),
+     Unknown(u8),
+ }
+ 
+ pub struct MadtIter {
+     sdt: &'static Sdt,
+     i: usize,
+ }
+ 
+ impl Iterator for MadtIter {
+     type Item = MadtEntry;
+     fn next(&mut self) -> Option<Self::Item> {
+         if self.i + 1 < self.sdt.data_len() {
+             let entry_type = unsafe { *(self.sdt.data_address() as *const u8).add(self.i) };
+             let entry_len =
+                 unsafe { *(self.sdt.data_address() as *const u8).add(self.i + 1) } as usize;
+ 
++            if entry_len < 2 {
++                return None;
++            }
++
+             if self.i + entry_len <= self.sdt.data_len() {
+                 let item = match entry_type {
+                     0x0 => {
+                         if entry_len == size_of::<MadtLocalApic>() + 2 {
+                             MadtEntry::LocalApic(unsafe {
+                                 &*((self.sdt.data_address() + self.i + 2) as *const MadtLocalApic)
+                             })
+                         } else {
+                             MadtEntry::InvalidLocalApic(entry_len)
+                         }
+                     }
+                     0x1 => {
+                         if entry_len == size_of::<MadtIoApic>() + 2 {
+                             MadtEntry::IoApic(unsafe {
+                                 &*((self.sdt.data_address() + self.i + 2) as *const MadtIoApic)
+                             })
+                         } else {
+                             MadtEntry::InvalidIoApic(entry_len)
+                         }
+                     }
+                     0x2 => {
+                         if entry_len == size_of::<MadtIntSrcOverride>() + 2 {
+                             MadtEntry::IntSrcOverride(unsafe {
+                                 &*((self.sdt.data_address() + self.i + 2)
+                                     as *const MadtIntSrcOverride)
+                             })
+                         } else {
+                             MadtEntry::InvalidIntSrcOverride(entry_len)
+                         }
+                     }
+                     0xB => {
+                         if entry_len >= size_of::<MadtGicc>() + 2 {
+                             MadtEntry::Gicc(unsafe {
+                                 &*((self.sdt.data_address() + self.i + 2) as *const MadtGicc)
+                             })
+                         } else {
+                             MadtEntry::InvalidGicc(entry_len)
+                         }
+                     }
+                     0xC => {
+                         if entry_len >= size_of::<MadtGicd>() + 2 {
+                             MadtEntry::Gicd(unsafe {
+                                 &*((self.sdt.data_address() + self.i + 2) as *const MadtGicd)
+                             })
+                         } else {
+                             MadtEntry::InvalidGicd(entry_len)
+                         }
+                     }
++                    0x9 => {
++                        if entry_len == size_of::<MadtLocalX2Apic>() + 2 {
++                            MadtEntry::LocalX2Apic(unsafe {
++                                &*((self.sdt.data_address() + self.i + 2) as *const MadtLocalX2Apic)
++                            })
++                        } else {
++                            MadtEntry::InvalidLocalX2Apic(entry_len)
++                        }
++                    }
+                     _ => MadtEntry::Unknown(entry_type),
+                 };
+ 
+                 self.i += entry_len;
+ 
+                 Some(item)
+             } else {
+                 None
+             }
+         } else {
+             None
+         }
+     }
+ }
+diff --git a/src/arch/x86_shared/cpuid.rs b/src/arch/x86_shared/cpuid.rs
+--- a/src/arch/x86_shared/cpuid.rs
++++ b/src/arch/x86_shared/cpuid.rs
+@@ -1,29 +1,39 @@
+ use raw_cpuid::{CpuId, CpuIdResult, ExtendedFeatures, FeatureInfo};
+ 
++#[cfg(target_arch = "x86_64")]
+ pub fn cpuid() -> CpuId {
+-    // FIXME check for cpuid availability during early boot and error out if it doesn't exist.
+     CpuId::with_cpuid_fn(|a, c| {
+-        #[cfg(target_arch = "x86")]
++        let result = unsafe { core::arch::x86_64::__cpuid_count(a, c) };
++        CpuIdResult {
++            eax: result.eax,
++            ebx: result.ebx,
++            ecx: result.ecx,
++            edx: result.edx,
++        }
++    })
++}
++
++#[cfg(target_arch = "x86")]
++pub fn cpuid() -> CpuId {
++    CpuId::with_cpuid_fn(|a, c| {
+         let result = unsafe { core::arch::x86::__cpuid_count(a, c) };
+-        #[cfg(target_arch = "x86_64")]
+-        let result = unsafe { core::arch::x86_64::__cpuid_count(a, c) };
+         CpuIdResult {
+             eax: result.eax,
+             ebx: result.ebx,
+             ecx: result.ecx,
+             edx: result.edx,
+         }
+     })
+ }
+ 
+ #[cfg_attr(not(target_arch = "x86_64"), expect(dead_code))]
+ pub fn feature_info() -> FeatureInfo {
+     cpuid()
+         .get_feature_info()
+         .expect("x86_64 requires CPUID leaf=0x01 to be present")
+ }
+ 
+ #[cfg_attr(not(target_arch = "x86_64"), expect(dead_code))]
+ pub fn has_ext_feat(feat: impl FnOnce(ExtendedFeatures) -> bool) -> bool {
+     cpuid().get_extended_feature_info().is_some_and(feat)
+ }
+diff --git a/src/context/memory.rs b/src/context/memory.rs
+--- a/src/context/memory.rs
++++ b/src/context/memory.rs
+@@ -890,112 +890,128 @@
+             .range(..=page)
+             .next_back()
+             .filter(|(base, info)| (**base..base.next_by(info.page_count)).contains(&page))
+             .map(|(base, info)| (*base, info))
+     }
+ 
+     /// Returns an iterator over all grants that occupy some part of the
+     /// requested region
+     pub fn conflicts(&self, span: PageSpan) -> impl Iterator<Item = (Page, &'_ GrantInfo)> + '_ {
+         let start = self.contains(span.base);
+ 
+         // If there is a grant that contains the base page, start searching at the base of that
+         // grant, rather than the requested base here.
+         let start_span = start
+             .map(|(base, info)| PageSpan::new(base, info.page_count))
+             .unwrap_or(span);
+ 
+         self.inner
+             .range(start_span.base..)
+             .take_while(move |(base, info)| PageSpan::new(**base, info.page_count).intersects(span))
+             .map(|(base, info)| (*base, info))
+     }
+     // TODO: DEDUPLICATE CODE!
+     pub fn conflicts_mut(
+         &mut self,
+         span: PageSpan,
+     ) -> impl Iterator<Item = (Page, &'_ mut GrantInfo)> + '_ {
+         let start = self.contains(span.base);
+ 
+         // If there is a grant that contains the base page, start searching at the base of that
+         // grant, rather than the requested base here.
+         let start_span = start
+             .map(|(base, info)| PageSpan::new(base, info.page_count))
+             .unwrap_or(span);
+ 
+         self.inner
+             .range_mut(start_span.base..)
+             .take_while(move |(base, info)| PageSpan::new(**base, info.page_count).intersects(span))
+             .map(|(base, info)| (*base, info))
+     }
+-    /// Return a free region with the specified size
+-    // TODO: Alignment (x86_64: 4 KiB, 2 MiB, or 1 GiB).
++    /// Return a free region with the specified size, optionally aligned to a power-of-two
++    /// boundary (x86_64 supports 4 KiB, 2 MiB, or 1 GiB pages).
+     // TODO: Support finding grant close to a requested address?
+     pub fn find_free_near(
+         &self,
+         min: usize,
+         page_count: usize,
+         _near: Option<Page>,
+     ) -> Option<PageSpan> {
+-        // Get first available hole, but do reserve the page starting from zero as most compiled
+-        // languages cannot handle null pointers safely even if they point to valid memory. If an
+-        // application absolutely needs to map the 0th page, they will have to do so explicitly via
+-        // MAP_FIXED/MAP_FIXED_NOREPLACE.
+-        // TODO: Allow explicitly allocating guard pages? Perhaps using mprotect or mmap with
+-        // PROT_NONE?
++        self.find_free_near_aligned(min, page_count, _near, 0)
++    }
++    pub fn find_free_near_aligned(
++        &self,
++        min: usize,
++        page_count: usize,
++        _near: Option<Page>,
++        page_alignment: usize,
++    ) -> Option<PageSpan> {
++        let alignment = if page_alignment == 0 {
++            PAGE_SIZE
++        } else {
++            assert!(
++                page_alignment.is_power_of_two(),
++                "page_alignment must be a power of two"
++            );
++            page_alignment * PAGE_SIZE
++        };
+ 
+         let (hole_start, _hole_size) = self
+             .holes
+             .iter()
+             .skip_while(|(hole_offset, hole_size)| hole_offset.data() + **hole_size <= min)
+             .find(|(hole_offset, hole_size)| {
+-                let avail_size =
+-                    if hole_offset.data() <= min && min <= hole_offset.data() + **hole_size {
+-                        **hole_size - (min - hole_offset.data())
+-                    } else {
+-                        **hole_size
+-                    };
++                let base = cmp::max(hole_offset.data(), min);
++                let aligned_base = (base + alignment - 1) & !(alignment - 1);
++                let avail_size = if aligned_base <= hole_offset.data() + **hole_size {
++                    hole_offset.data() + **hole_size - aligned_base
++                } else {
++                    0
++                };
+                 page_count * PAGE_SIZE <= avail_size
+             })?;
+-        // Create new region
++
++        let base = cmp::max(hole_start.data(), min);
++        let aligned_base = (base + alignment - 1) & !(alignment - 1);
++
+         Some(PageSpan::new(
+-            Page::containing_address(VirtualAddress::new(cmp::max(hole_start.data(), min))),
++            Page::containing_address(VirtualAddress::new(aligned_base)),
+             page_count,
+         ))
+     }
+     pub fn find_free(&self, min: usize, page_count: usize) -> Option<PageSpan> {
+         self.find_free_near(min, page_count, None)
+     }
+     fn reserve(&mut self, base: Page, page_count: usize) {
+         let start_address = base.start_address();
+         let size = page_count * PAGE_SIZE;
+         let end_address = base.start_address().add(size);
+ 
+         let previous_hole = self.holes.range_mut(..start_address).next_back();
+ 
+         if let Some((hole_offset, hole_size)) = previous_hole {
+             let prev_hole_end = hole_offset.data() + *hole_size;
+ 
+             // Note that prev_hole_end cannot exactly equal start_address, since that would imply
+             // there is another grant at that position already, as it would otherwise have been
+             // larger.
+ 
+             if prev_hole_end > start_address.data() {
+                 // hole_offset must be below (but never equal to) the start address due to the
+                 // `..start_address()` limit; hence, all we have to do is to shrink the
+                 // previous offset.
+                 *hole_size = start_address.data() - hole_offset.data();
+             }
+             if prev_hole_end > end_address.data() {
+                 // The grant is splitting this hole in two, so insert the new one at the end.
+                 self.holes
+                     .insert(end_address, prev_hole_end - end_address.data());
+             }
+         }
+ 
+         // Next hole
+         if let Some(hole_size) = self.holes.remove(&start_address) {
+             let remainder = hole_size - size;
+             if remainder > 0 {
+                 self.holes.insert(end_address, remainder);
+             }
+         }
+diff --git a/src/arch/x86_shared/device/local_apic.rs b/src/arch/x86_shared/device/local_apic.rs
+--- a/src/arch/x86_shared/device/local_apic.rs
++++ b/src/arch/x86_shared/device/local_apic.rs
+@@ -100,61 +100,68 @@
+         }
+     }
+ 
+     pub fn id(&self) -> ApicId {
+         ApicId::new(if self.x2 {
+             unsafe { rdmsr(IA32_X2APIC_APICID) as u32 }
+         } else {
+             unsafe { self.read(0x20) }
+         })
+     }
+ 
+     pub fn version(&self) -> u32 {
+         if self.x2 {
+             unsafe { rdmsr(IA32_X2APIC_VERSION) as u32 }
+         } else {
+             unsafe { self.read(0x30) }
+         }
+     }
+ 
+     pub fn icr(&self) -> u64 {
+         if self.x2 {
+             unsafe { rdmsr(IA32_X2APIC_ICR) }
+         } else {
+             unsafe { ((self.read(0x310) as u64) << 32) | self.read(0x300) as u64 }
+         }
+     }
+ 
+     pub fn set_icr(&mut self, value: u64) {
+         if self.x2 {
+             unsafe {
++                const PENDING: u32 = 1 << 12;
++                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
++                    core::hint::spin_loop();
++                }
+                 wrmsr(IA32_X2APIC_ICR, value);
++                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
++                    core::hint::spin_loop();
++                }
+             }
+         } else {
+             unsafe {
+                 const PENDING: u32 = 1 << 12;
+                 while self.read(0x300) & PENDING == PENDING {
+                     core::hint::spin_loop();
+                 }
+                 self.write(0x310, (value >> 32) as u32);
+                 self.write(0x300, value as u32);
+                 while self.read(0x300) & PENDING == PENDING {
+                     core::hint::spin_loop();
+                 }
+             }
+         }
+     }
+ 
+     pub fn ipi(&mut self, apic_id: ApicId, kind: IpiKind) {
+         let shift = if self.x2 { 32 } else { 56 };
+         self.set_icr((u64::from(apic_id.get()) << shift) | 0x40 | kind as u64);
+     }
+     pub fn ipi_nmi(&mut self, apic_id: ApicId) {
+         let shift = if self.x2 { 32 } else { 56 };
+         self.set_icr((u64::from(apic_id.get()) << shift) | (1 << 14) | (0b100 << 8));
+     }
+ 
+     pub unsafe fn eoi(&mut self) {
+         unsafe {
+             if self.x2 {
+                 wrmsr(IA32_X2APIC_EOI, 0);
+             } else {

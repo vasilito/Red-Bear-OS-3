@@ -1,0 +1,41 @@
+diff --git a/src/acpi/rsdp.rs b/src/acpi/rsdp.rs
+index f10c5ac9..f3cf3175 100644
+--- a/src/acpi/rsdp.rs
++++ b/src/acpi/rsdp.rs
+@@ -17,9 +17,33 @@ pub struct Rsdp {
+ 
+ impl Rsdp {
+     pub unsafe fn get_rsdp(already_supplied_rsdp: Option<*const u8>) -> Option<Rsdp> {
+-        already_supplied_rsdp.map(|rsdp_ptr| {
+-            // TODO: Validate
+-            unsafe { *(rsdp_ptr as *const Rsdp) }
++        already_supplied_rsdp.and_then(|rsdp_ptr| {
++            let rsdp = unsafe { *(rsdp_ptr as *const Rsdp) };
++
++            // Validate signature "RSD PTR "
++            if &rsdp.signature != b"RSD PTR " {
++                return None;
++            }
++
++            // ACPI 1.0 checksum: sum of first 20 bytes must be zero
++            let bytes_v1 = unsafe { core::slice::from_raw_parts(rsdp_ptr, 20) };
++            if bytes_v1.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) != 0 {
++                return None;
++            }
++
++            // ACPI 2.0+ extended checksum: sum of entire table (length bytes) must be zero
++            if rsdp.revision >= 2 {
++                let full_len = rsdp._length as usize;
++                if full_len < 36 || full_len > 256 {
++                    return None;
++                }
++                let bytes_full = unsafe { core::slice::from_raw_parts(rsdp_ptr, full_len) };
++                if bytes_full.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) != 0 {
++                    return None;
++                }
++            }
++
++            Some(rsdp)
+         })
+     }
+ 

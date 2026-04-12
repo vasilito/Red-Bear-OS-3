@@ -1,0 +1,162 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index f014279..950afdc 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -855,19 +855,7 @@ dependencies = [
+ ]
+ 
+ [[package]]
+-name = "redox-pkg"
+-version = "0.3.1"
+-source = "git+https://gitlab.redox-os.org/redox-os/pkgutils.git#52f7930f8e6dfbe85efd115b3848ea802e1a56f0"
+-dependencies = [
+- "hex",
+- "serde",
+- "serde_derive",
+- "thiserror",
+- "toml",
+-]
+-
+-[[package]]
+-name = "redox_cookbook"
++name = "rbos_cookbook"
+ version = "0.1.0"
+ dependencies = [
+  "ansi-to-tui",
+@@ -892,6 +880,18 @@ dependencies = [
+  "walkdir",
+ ]
+ 
++[[package]]
++name = "redox-pkg"
++version = "0.3.1"
++source = "git+https://gitlab.redox-os.org/redox-os/pkgutils.git#52f7930f8e6dfbe85efd115b3848ea802e1a56f0"
++dependencies = [
++ "hex",
++ "serde",
++ "serde_derive",
++ "thiserror",
++ "toml",
++]
++
+ [[package]]
+ name = "redox_installer"
+ version = "0.2.42"
+diff --git a/Cargo.toml b/Cargo.toml
+index 54479d5..4d6e8e2 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,5 +1,5 @@
+ [package]
+-name = "redox_cookbook"
++name = "rbos_cookbook"
+ version = "0.1.0"
+ authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+ edition = "2024"
+@@ -8,7 +8,7 @@ default-run = "repo"
+ # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+ 
+ [[bin]]
+-name = "cookbook_redoxer"
++name = "cookbook_rbos_redoxer"
+ path = "src/bin/cookbook_redoxer.rs"
+ 
+ [[bin]]
+diff --git a/src/bin/repo.rs b/src/bin/repo.rs
+index 954bad4..709e63b 100644
+--- a/src/bin/repo.rs
++++ b/src/bin/repo.rs
+@@ -1549,8 +1549,15 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
+                     }
+                 };
+ 
+-                let end = cmp::min(panel_height + start, total_log_lines - 1);
++                let end = if total_log_lines == 0 {
++                    0
++                } else {
++                    cmp::min(panel_height + start, total_log_lines - 1)
++                };
+ 
++                if start >= end || log_text.is_empty() {
++                    vec![Line::from("No logs yet")]
++                } else {
+                 log_text[start..end]
+                     .iter()
+                     .map(|s| {
+@@ -1564,6 +1571,7 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
+                             .unwrap_or_else(|| Line::raw("--unrenderable line--"))
+                     })
+                     .collect()
++                }
+             } else {
+                 vec![Line::from("No logs yet")]
+             };
+diff --git a/src/cook/fetch.rs b/src/cook/fetch.rs
+index 50aab92..0f57c09 100644
+--- a/src/cook/fetch.rs
++++ b/src/cook/fetch.rs
+@@ -162,8 +162,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+             r
+         }
+         Some(SourceRecipe::Path { path }) => {
+-            let path = Path::new(&path);
+-            let cached = source_dir.is_dir() && modified_dir(path)? <= modified_dir(&source_dir)?;
++            let path = recipe_dir.join(path);
++            let cached = source_dir.is_dir() && modified_dir(&path)? <= modified_dir(&source_dir)?;
+             if !cached {
+                 log_to_pty!(
+                     logger,
+@@ -171,8 +171,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+                     path.display(),
+                     source_dir.display()
+                 );
+-                copy_dir_all(path, &source_dir).map_err(wrap_io_err!(
+-                    path,
++                copy_dir_all(&path, &source_dir).map_err(wrap_io_err!(
++                    &path,
+                     source_dir,
+                     "Copying source"
+                 ))?;
+diff --git a/src/staged_pkg.rs b/src/staged_pkg.rs
+index d7abbce..a32cf23 100644
+--- a/src/staged_pkg.rs
++++ b/src/staged_pkg.rs
+@@ -13,7 +13,9 @@ use pkg::{Package, PackageError, PackageName};
+ 
+ static RECIPE_PATHS: LazyLock<HashMap<PackageName, PathBuf>> = LazyLock::new(|| {
+     let mut recipe_paths = HashMap::new();
+-    for entry_res in ignore::Walk::new("recipes") {
++    let mut walker = ignore::WalkBuilder::new("recipes");
++    walker.follow_links(true);
++    for entry_res in walker.build() {
+         let Ok(entry) = entry_res else {
+             continue;
+         };
+diff --git a/src/web/html.rs b/src/web/html.rs
+index e7905fe..7907dbd 100644
+--- a/src/web/html.rs
++++ b/src/web/html.rs
+@@ -140,7 +140,7 @@ pub fn generate_html_pkg(
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-    <title>{name} - Redox OS Package</title>
++    <title>{name} - Red Bear OS Package</title>
+     <link rel="stylesheet" href="style.css">
+ </head>
+ <body>
+@@ -253,12 +253,12 @@ pub fn generate_html_index(
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-    <title>Redox Package Repository</title>
++    <title>Red Bear OS Package Repository</title>
+     <link rel="stylesheet" href="style.css">
+ </head>
+ <body>
+     <header class="index-header">
+-        <h1>Redox OS Package Repository</h1>
++        <h1>Red Bear OS Package Repository</h1>
+         <p class="description">Repository for <code>{target}</code></p>
+     </header>
+ 

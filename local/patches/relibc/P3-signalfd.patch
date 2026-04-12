@@ -1,0 +1,124 @@
+diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+--- a/src/header/signal/mod.rs
++++ b/src/header/signal/mod.rs
+@@ -27,9 +27,12 @@
+ #[cfg(target_os = "linux")]
+ #[path = "linux.rs"]
+ pub mod sys;
+ 
+ #[cfg(target_os = "redox")]
+ #[path = "redox.rs"]
+ pub mod sys;
+ 
++mod signalfd;
++pub use self::signalfd::*;
++
+ type SigSet = BitSet<[u64; 1]>;
+diff --git a/src/header/signal/signalfd.rs b/src/header/signal/signalfd.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/signal/signalfd.rs
+@@ -0,0 +1,103 @@
++use core::{mem, ptr};
++
++use crate::{
++    error::{Errno, ResultExt},
++    header::fcntl::{
++        FD_CLOEXEC, F_GETFL, F_SETFD, F_SETFL, O_CLOEXEC, O_NONBLOCK, O_RDWR, fcntl,
++    },
++    platform::{
++        ERRNO, Pal, Sys,
++        types::{c_int, c_ulonglong},
++    },
++};
++
++use super::{SIG_BLOCK, sigprocmask, sigset_t};
++
++pub const SFD_CLOEXEC: c_int = 0x80000;
++pub const SFD_NONBLOCK: c_int = 0x800;
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub struct signalfd_siginfo {
++    pub ssi_signo: u32,
++    pub ssi_errno: i32,
++    pub ssi_code: i32,
++    pub ssi_pid: u32,
++    pub ssi_uid: u32,
++    pub ssi_fd: i32,
++    pub ssi_tid: u32,
++    pub ssi_band: u32,
++    pub ssi_overrun: u32,
++    pub ssi_trapno: u32,
++    pub ssi_status: i32,
++    pub ssi_int: i32,
++    pub ssi_ptr: u64,
++    pub ssi_utime: u64,
++    pub ssi_stime: u64,
++    pub ssi_addr: u64,
++    pub ssi_addr_lsb: u16,
++    pub __pad2: u16,
++    pub ssi_syscall: i32,
++    pub ssi_call_addr: u64,
++    pub ssi_arch: u32,
++    pub __pad: [u8; 28],
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn _cbindgen_export_signalfd_siginfo(siginfo: signalfd_siginfo) {}
++
++fn signalfd4_inner(fd: c_int, mask: *const sigset_t, masksize: usize, flags: c_int) -> Result<c_int, Errno> {
++    let supported = SFD_CLOEXEC | SFD_NONBLOCK;
++    if flags & !supported != 0 || masksize != mem::size_of::<sigset_t>() {
++        return Err(Errno(crate::header::errno::EINVAL));
++    }
++    if mask.is_null() {
++        return Err(Errno(crate::header::errno::EFAULT));
++    }
++
++    let new_fd = if fd == -1 {
++        let mut oflag = O_RDWR;
++        if flags & SFD_CLOEXEC == SFD_CLOEXEC {
++            oflag |= O_CLOEXEC;
++        }
++        if flags & SFD_NONBLOCK == SFD_NONBLOCK {
++            oflag |= O_NONBLOCK;
++        }
++        Sys::open(c"/scheme/event".into(), oflag, 0)?
++    } else {
++        if flags & SFD_CLOEXEC == SFD_CLOEXEC
++            && unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC as c_ulonglong) } < 0
++        {
++            return Err(Errno(ERRNO.get()));
++        }
++        if flags & SFD_NONBLOCK == SFD_NONBLOCK {
++            let current = unsafe { fcntl(fd, F_GETFL, 0 as c_ulonglong) };
++            if current < 0 {
++                return Err(Errno(ERRNO.get()));
++            }
++            if unsafe { fcntl(fd, F_SETFL, (current | O_NONBLOCK) as c_ulonglong) } < 0 {
++                return Err(Errno(ERRNO.get()));
++            }
++        }
++        fd
++    };
++
++    if unsafe { sigprocmask(SIG_BLOCK, mask, ptr::null_mut()) } < 0 {
++        if fd == -1 {
++            let _ = Sys::close(new_fd);
++        }
++        return Err(Errno(ERRNO.get()));
++    }
++
++    Ok(new_fd)
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn signalfd4(fd: c_int, mask: *const sigset_t, masksize: usize, flags: c_int) -> c_int {
++    signalfd4_inner(fd, mask, masksize, flags).or_minus_one_errno()
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn signalfd(fd: c_int, mask: *const sigset_t, masksize: usize) -> c_int {
++    unsafe { signalfd4(fd, mask, masksize, 0) }
++}

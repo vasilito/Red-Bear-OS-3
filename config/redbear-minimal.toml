@@ -1,0 +1,20 @@
+# Red Bear OS Minimal Configuration
+# Console/Server variant with bare-metal driver support but no GUI
+#
+# Build: make all CONFIG_NAME=redbear-minimal
+
+include = ["minimal.toml"]
+
+[general]
+filesystem_size = 512
+
+[packages]
+# Red Bear OS branding
+redbear-release = {}
+
+# Firmware loading
+firmware-loader = {}
+
+# Input event handling
+evdevd = {}
+udev-shim = {}

@@ -1,0 +1,10 @@
+[source]
+# Local overlay recipe — source lives in source/, no git fetch needed.
+# When building via the overlay, cookbook uses the local source directly.
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/lib/drivers/firmware-loader" = "firmware-loader"

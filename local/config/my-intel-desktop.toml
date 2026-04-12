@@ -1,0 +1,58 @@
+# Intel Desktop Configuration
+# Builds on top of desktop config with Intel GPU support
+#
+# Phases completed:
+#   P1: redox-driver-sys, linux-kpi, firmware-loader
+#   P2: redox-drm, Intel i915 (modesetting only)
+
+include = ["desktop.toml"]
+
+[general]
+filesystem_size = 8196
+
+[packages]
+# Intel GPU driver stack — Phase 1 infrastructure
+redox-driver-sys = {}
+linux-kpi = {}
+firmware-loader = {}
+
+# Intel GPU — Phase 2: Display output
+redox-drm = {}
+
+# Input (Phase 3)
+evdevd = { path = "../../local/recipes/system/evdevd" }
+udev-shim = { path = "../../local/recipes/system/udev-shim" }
+
+# Wayland (Phase 4 — depends on P2+P3)
+# libwayland = {}
+# wayland-protocols = {}
+# smallvil = {}
+# mesa = {}
+# libdrm = {}
+
+[[files]]
+path = "/usr/firmware/i915"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/usr/lib/init.d/05_firmware"
+data = """
+requires_weak 00_drivers
+nowait firmware-loader
+"""
+
+[[files]]
+path = "/usr/lib/init.d/10_evdevd"
+data = """
+requires_weak 00_drivers
+nowait evdevd
+"""
+
+[[files]]
+path = "/usr/lib/init.d/11_udev"
+data = """
+requires_weak 00_drivers
+nowait udev-shim
+"""

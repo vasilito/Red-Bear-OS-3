@@ -1,0 +1,29 @@
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
+
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include <sys/types.h>
+
+typedef uint8_t  u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef int8_t  s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
+
+typedef u64 phys_addr_t;
+typedef u64 dma_addr_t;
+
+#define __iomem
+#define __user
+#define __force
+#define __must_check
+
+typedef unsigned int gfp_t;
+
+#endif

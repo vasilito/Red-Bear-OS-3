@@ -1,0 +1,14 @@
+# Red Bear OS Desktop Configuration
+# Mainline Redox desktop + Red Bear branding + ext4 filesystem support
+#
+# Build: make all CONFIG_NAME=redbear-desktop
+# Live:  make live CONFIG_NAME=redbear-desktop
+
+include = ["desktop.toml"]
+
+[general]
+filesystem_size = 10240
+
+[packages]
+# Red Bear OS branding (os-release, hostname, motd)
+redbear-release = {}

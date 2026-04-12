@@ -1,0 +1,33 @@
+diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+index 94a1eb17..3b376904 100644
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -25,6 +25,14 @@ use amlserde::{AmlSerde, AmlSerdeValue};
+ 
+ #[cfg(target_arch = "x86_64")]
+ pub mod dmar;
++#[cfg(target_arch = "x86_64")]
++use self::dmar::Dmar;
++#[cfg(target_arch = "x86_64")]
++pub mod ivrs;
++#[cfg(target_arch = "x86_64")]
++pub mod mcfg;
++#[cfg(target_arch = "x86_64")]
++use self::{ivrs::Ivrs, mcfg::Mcfg};
+ use crate::aml_physmem::{AmlPageCache, AmlPhysMemHandler};
+ 
+ /// The raw SDT header struct, as defined by the ACPI specification.
+@@ -458,7 +466,12 @@ impl AcpiContext {
+         }
+ 
+         Fadt::init(&mut this);
+-        //TODO (hangs on real hardware): Dmar::init(&this);
++        // DMAR (Intel VT-d) init — previously disabled due to iterator bug (type_bytes copied
++        // instead of len_bytes in DmarRawIter). Safe to call now: on AMD systems, no DMAR table
++        // exists and this returns early with a warning.
++        Dmar::init(&this);
++        mcfg::Mcfg::init(&this);
++        ivrs::Ivrs::init(&this);
+ 
+         this
+     }

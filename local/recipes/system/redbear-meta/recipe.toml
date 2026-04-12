@@ -1,0 +1,52 @@
+# Red Bear OS Meta Package
+# Umbrella package that depends on all Red Bear OS core components.
+# Installing this package pulls in the complete Red Bear OS stack.
+#
+# Components:
+#   - redbear-release: Branding and identity (os-release, hostname, motd)
+#   - redox-driver-sys: Safe Rust driver infrastructure crate
+#   - linux-kpi: Linux Kernel Programming Interface compatibility layer
+#   - firmware-loader: AMD/Intel GPU firmware loading daemon
+#   - redox-drm: DRM display driver (AMD + Intel)
+#   - evdevd: Event device daemon (input translation)
+#   - udev-shim: udev-compatible device enumeration shim
+
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+# Meta package — no compilation needed
+# All work is done by dependencies
+mkdir -p "${COOKBOOK_STAGE}/usr/share/doc/redbear-meta"
+cat > "${COOKBOOK_STAGE}/usr/share/doc/redbear-meta/README" << 'README'
+Red Bear OS Meta Package
+========================
+This package depends on all core Red Bear OS components.
+
+Installed components:
+  - redbear-release: OS branding and identity
+  - redox-driver-sys: Driver infrastructure
+  - linux-kpi: Linux kernel API compatibility
+  - firmware-loader: GPU firmware daemon
+  - redox-drm: DRM display driver (AMD + Intel)
+  - evdevd: Input event translation
+  - udev-shim: Device enumeration
+
+Build: make all CONFIG_NAME=redbear-desktop
+README
+"""
+
+[package]
+# These are cookbook-level dependencies — the build system
+# will ensure all of these are built and staged before this package
+dependencies = [
+    "redbear-release",
+    "redox-driver-sys",
+    "linux-kpi",
+    "firmware-loader",
+    "redox-drm",
+    "evdevd",
+    "udev-shim",
+]

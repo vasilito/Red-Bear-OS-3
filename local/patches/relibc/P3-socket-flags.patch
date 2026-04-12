@@ -1,0 +1,26 @@
+diff --git a/src/header/sys_socket/constants.rs b/src/header/sys_socket/constants.rs
+--- a/src/header/sys_socket/constants.rs
++++ b/src/header/sys_socket/constants.rs
+@@ -48,8 +48,9 @@ pub const MSG_OOB: c_int = 1;
+ pub const MSG_PEEK: c_int = 2;
+ pub const MSG_TRUNC: c_int = 32;
+ pub const MSG_DONTWAIT: c_int = 64;
+ pub const MSG_WAITALL: c_int = 256;
+ pub const MSG_CMSG_CLOEXEC: c_int = 0x40000000;
++pub const MSG_NOSIGNAL: c_int = 0x4000;
+ 
+ pub const IP_ADD_SOURCE_MEMBERSHIP: c_int = 70;
+ pub const IP_DROP_SOURCE_MEMBERSHIP: c_int = 71;
+diff --git a/src/header/sys_socket/mod.rs b/src/header/sys_socket/mod.rs
+--- a/src/header/sys_socket/mod.rs
++++ b/src/header/sys_socket/mod.rs
+@@ -330,7 +330,8 @@ pub unsafe extern "C" fn recvfrom(
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/recvmsg.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn recvmsg(socket: c_int, msg: *mut msghdr, flags: c_int) -> ssize_t {
+-    unsafe { Sys::recvmsg(socket, msg, flags) }
++    let flags = flags & !constants::MSG_NOSIGNAL;
++    unsafe { Sys::recvmsg(socket, msg, flags) }
+         .map(|r| r as ssize_t)
+         .or_minus_one_errno()
+ }

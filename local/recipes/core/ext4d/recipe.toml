@@ -1,0 +1,12 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+# Build and install ext4d scheme daemon
+COOKBOOK_CARGO_PATH=ext4d cookbook_cargo
+
+# Build and install ext4-mkfs tool
+COOKBOOK_CARGO_PATH=ext4-mkfs cookbook_cargo
+"""

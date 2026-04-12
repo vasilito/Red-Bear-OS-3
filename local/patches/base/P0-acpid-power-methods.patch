@@ -1,0 +1,66 @@
+diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -430,6 +430,62 @@
+                     .ok_or(AmlEvalError::SerializationError)
+             })
+             .flatten()
++    }
++
++    pub fn evaluate_acpi_method(
++        &mut self,
++        path: &str,
++        method: &str,
++        args: &[u64],
++    ) -> Result<Vec<u64>, AmlEvalError> {
++        let full_path = format!("{path}.{method}");
++        let aml_name = AmlName::from_str(&full_path).map_err(|_| AmlEvalError::DeserializationError)?;
++        let args = args
++            .iter()
++            .copied()
++            .map(AmlSerdeValue::Integer)
++            .collect::<Vec<_>>();
++
++        match self.aml_eval(aml_name, args)? {
++            AmlSerdeValue::Integer(value) => Ok(vec![value]),
++            AmlSerdeValue::Package { contents } => contents
++                .into_iter()
++                .map(|value| match value {
++                    AmlSerdeValue::Integer(value) => Ok(value),
++                    _ => Err(AmlEvalError::DeserializationError),
++                })
++                .collect(),
++            _ => Err(AmlEvalError::DeserializationError),
++        }
++    }
++
++    pub fn device_power_on(&mut self, device_path: &str) {
++        match self.evaluate_acpi_method(device_path, "_PS0", &[]) {
++            Ok(values) => {
++                log::debug!("{}._PS0 => {:?}", device_path, values);
++            }
++            Err(error) => {
++                log::warn!("Failed to power on {} with _PS0: {:?}", device_path, error);
++            }
++        }
++    }
++
++    pub fn device_power_off(&mut self, device_path: &str) {
++        match self.evaluate_acpi_method(device_path, "_PS3", &[]) {
++            Ok(values) => {
++                log::debug!("{}._PS3 => {:?}", device_path, values);
++            }
++            Err(error) => {
++                log::warn!("Failed to power off {} with _PS3: {:?}", device_path, error);
++            }
++        }
++    }
++
++    pub fn device_get_performance(&mut self, device_path: &str) -> Result<u64, AmlEvalError> {
++        self.evaluate_acpi_method(device_path, "_PPC", &[])?
++            .into_iter()
++            .next()
++            .ok_or(AmlEvalError::DeserializationError)
+     }
+ 
+     pub fn init(

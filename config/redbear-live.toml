@@ -1,0 +1,10 @@
+# Red Bear OS Live Configuration
+# Live ISO variant — boots into Red Bear OS Desktop from USB/DVD
+#
+# Build: make live CONFIG_NAME=redbear-live
+
+include = ["redbear-desktop.toml"]
+
+[general]
+# Larger filesystem for live image with more tools
+filesystem_size = 12288

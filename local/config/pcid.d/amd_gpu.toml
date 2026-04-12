@@ -1,0 +1,17 @@
+# PCID configuration for AMD GPU auto-detection
+# When pcid detects an AMD GPU (vendor 0x1002, class 0x03),
+# it launches redox-drm with the PCI device location.
+
+[[device]]
+vendor = 0x1002
+class = 0x03
+subclass = 0x00
+command = ["redox-drm"]
+args = ["$BUS", "$DEV", "$FUNC"]
+
+[[device]]
+vendor = 0x1002
+class = 0x03
+subclass = 0x02
+command = ["redox-drm"]
+args = ["$BUS", "$DEV", "$FUNC"]

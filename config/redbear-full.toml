@@ -1,0 +1,35 @@
+# Red Bear OS Full Configuration
+# Complete desktop + RBOS branding + ext4 + input drivers
+# Note: GPU drivers (redox-driver-sys, linux-kpi, redox-drm, amdgpu)
+# are not included because they need custom build templates.
+# Build them separately with: ./local/scripts/build-amd.sh
+#
+# Build: make all CONFIG_NAME=redbear-full
+# Live:  make live CONFIG_NAME=redbear-full
+
+include = ["desktop.toml"]
+
+[general]
+# 2GB filesystem — plenty for full desktop + headroom
+filesystem_size = 2048
+
+[packages]
+# Red Bear OS branding (os-release, hostname, motd)
+redbear-release = {}
+
+# ext4 filesystem support (our custom port)
+ext4d = {}
+
+# Firmware loading
+firmware-loader = {}
+
+# Input layer
+evdevd = {}
+udev-shim = {}
+
+# RBOS meta-package (dependencies, default config)
+redbear-meta = {}
+
+# Workaround: bash fails to cross-compile (upstream mkbuiltins.c issue)
+# ion (from minimal) is the default shell anyway
+bash = "ignore"

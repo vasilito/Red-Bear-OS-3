@@ -1,0 +1,15 @@
+#TODO make libwayland work
+[source]
+git = "https://github.com/jackpot51/smithay"
+branch = "redox"
+
+[build]
+template = "cargo"
+dependencies = [
+    "libffi",
+    "libwayland",
+    "libxkbcommon",
+]
+cargopackages = [
+    "smallvil"
+]

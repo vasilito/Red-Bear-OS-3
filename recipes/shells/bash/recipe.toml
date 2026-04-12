@@ -1,0 +1,24 @@
+[source]
+tar = "https://ftp.gnu.org/gnu/bash/bash-5.2.15.tar.gz"
+blake3 = "c1548e3f2a9b6de5296e18c28b3d2007985e647273e03f039efd3e489edaa41f"
+patches = [
+    "redox.patch"
+]
+
+[build]
+template = "custom"
+dependencies = [
+    "termcap",
+]
+script = """
+# compiled statically
+COOKBOOK_CONFIGURE_FLAGS+=(
+    bash_cv_func_sigsetjmp=no
+    bash_cv_getenv_redef=no
+    --enable-static-link # This ensures loadables are not built, which will fail
+)
+COOKBOOK_MAKE_JOBS=1 # workaround for parallel make bugs
+cookbook_configure
+ln -s "bash" "${COOKBOOK_STAGE}/usr/bin/sh"
+cp -r "${COOKBOOK_RECIPE}/etc" "${COOKBOOK_STAGE}/etc"
+"""

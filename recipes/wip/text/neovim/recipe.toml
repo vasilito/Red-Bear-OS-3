@@ -1,0 +1,57 @@
+#TODO working with workarounds on SIGCHLD
+#TODO no documentation
+[source]
+git = "https://github.com/neovim/neovim"
+rev = "v0.11.5"
+shallow_clone = true
+patches = [
+  "redox.patch"
+]
+
+[build]
+template = "custom"
+dependencies = [
+    "libiconv",
+    "libuv",
+    "luv",
+    "lpeg",
+    "tree-sitter",
+    "gettext",
+    "unibilium",
+    "utf8proc",
+]
+dev-dependencies = [
+  "host:luajit",
+  "host:neovim",
+]
+script = """
+DYNAMIC_INIT
+
+# the only official way to cross compile in future is via zig
+# https://github.com/neovim/neovim/issues/19579
+# the code path below is very hacky, and our zig support is poor yet
+
+COOKBOOK_CMAKE_FLAGS+=(-DLUA_GEN_PRG=luajit)
+export DEPS_BUILD_DIR=$COOKBOOK_SYSROOT/usr
+if [ "$TARGET" = "$COOKBOOK_HOST_TARGET" ]; then
+cookbook_cmake
+
+# needed to workaround bootstrapping process
+cp ./lib/libnlua0.so ${COOKBOOK_STAGE}/usr/lib/nvim/
+patchelf --replace-needed \
+  "${COOKBOOK_SYSROOT}/usr/lib/liblpeg.so" \
+  'liblpeg.so.1' ${COOKBOOK_STAGE}/usr/lib/nvim/libnlua0.so
+
+else
+
+# this is a very ugly workaround
+cookbook_cmake || true
+cp ${COOKBOOK_TOOLCHAIN}/usr/lib/nvim/libnlua0.so ./lib/libnlua0.so
+cookbook_cmake
+fi
+
+# Lpeg is absolute path https://github.com/neovim/neovim/issues/23395
+patchelf --replace-needed \
+  "${COOKBOOK_SYSROOT}/usr/lib/liblpeg.so" \
+  'liblpeg.so.1' ${COOKBOOK_STAGE}/usr/bin/nvim
+"""

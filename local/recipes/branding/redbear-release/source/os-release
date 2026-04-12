@@ -1,0 +1,13 @@
+PRETTY_NAME="Red Bear OS 0.1.0 (Denali)"
+NAME="Red Bear OS"
+VERSION_ID="0.1.0"
+VERSION="0.1.0 (Denali)"
+VERSION_CODENAME="denali"
+ID="redbear-os"
+ID_LIKE="redox-os"
+BUILD_ID="rolling"
+
+HOME_URL="https://github.com/vasilito/Red-Bear-OS-3/"
+DOCUMENTATION_URL="https://github.com/vasilito/Red-Bear-OS-3/blob/master/local/docs/"
+SUPPORT_URL="https://github.com/vasilito/Red-Bear-OS-3/issues"
+BUG_REPORT_URL="https://github.com/vasilito/Red-Bear-OS-3/issues"

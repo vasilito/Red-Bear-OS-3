@@ -1,0 +1,46 @@
+/build/
+/prefix/
+.config
+**/my_*
+
+.idea/
+.vs/
+.vscode/
+.devcontainer/
+
+/repo
+/web
+/cookbook.toml
+
+# Fetched source trees in mainline recipes (not our code in local/)
+# Matches recipes/<category>/<name>/source/ but NOT local/recipes/*/source/
+recipes/**/source
+recipes/**/source.tmp
+recipes/**/source-new
+recipes/**/source-old
+recipes/**/source.tar
+recipes/**/source.tar.tmp
+
+# Build artifacts — target/ dirs are everywhere
+target
+wget-log
+
+# Explicitly track our source code (safety net)
+!local/recipes/**/source/
+!local/recipes/**/source/**
+
+# Vendor source trees (fetched, not our code)
+**/amdgpu-source/
+
+# Compiled objects
+*.o
+*.so
+
+*.bin
+*.fw
+local/firmware/
+*.lock
+
+# Internal tooling
+.sisyphus/
+TASK_COMPLETION_SUMMARY.md

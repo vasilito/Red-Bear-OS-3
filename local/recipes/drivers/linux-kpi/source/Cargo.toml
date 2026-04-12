@@ -1,0 +1,17 @@
+[package]
+name = "linux-kpi"
+version = "0.1.0"
+edition = "2021"
+description = "Linux Kernel API compatibility layer for Redox OS (LinuxKPI-style)"
+license = "MIT"
+
+[dependencies]
+libredox = "0.1"
+redox_syscall = { version = "0.7", features = ["std"] }
+log = "0.4"
+thiserror = "2"
+lazy_static = "1.4"
+redox-driver-sys = { path = "../../redox-driver-sys/source" }
+
+[lib]
+crate-type = ["rlib", "staticlib"]

@@ -1,0 +1,5 @@
+#TODO: test again
+[source]
+tar = "https://github.com/c-ares/c-ares/releases/download/v1.34.6/c-ares-1.34.6.tar.gz"
+[build]
+template = "cmake"

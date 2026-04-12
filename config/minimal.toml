@@ -1,0 +1,26 @@
+# Minimal configuration
+
+include = ["base.toml"]
+
+# General settings
+[general]
+# Filesystem size in MiB
+filesystem_size = 196
+
+# Package settings
+[packages]
+ca-certificates = {}
+coreutils = {}
+extrautils = {}
+ion = {}
+pkgutils = {}
+kibi = {}
+
+[[files]]
+path = "/usr/lib/init.d/30_console"
+data = """
+requires_weak 10_net
+inputd -A 2
+nowait getty 2
+nowait getty /scheme/debug/no-preserve -J
+"""

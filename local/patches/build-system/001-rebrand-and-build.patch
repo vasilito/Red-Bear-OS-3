@@ -1,0 +1,866 @@
+diff --git a/Makefile b/Makefile
+index e9a4fb9..ddfeb94 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,23 +9,23 @@ all: $(BUILD)/harddrive.img
+ 
+ live:
+ 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
+-	-$(FUMOUNT) /tmp/redox_installer/ || true
+-	rm -f $(BUILD)/redox-live.iso
+-	$(MAKE) $(BUILD)/redox-live.iso
++	-$(FUMOUNT) /tmp/rbos_installer/ || true
++	rm -f $(BUILD)/rbos-live.iso
++	$(MAKE) $(BUILD)/rbos-live.iso
+ 
+-popsicle: $(BUILD)/redox-live.iso
+-	popsicle-gtk $(BUILD)/redox-live.iso
++popsicle: $(BUILD)/rbos-live.iso
++	popsicle-gtk $(BUILD)/rbos-live.iso
+ 
+ image:
+ 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
+-	-$(FUMOUNT) /tmp/redox_installer/ || true
+-	rm -f $(BUILD)/harddrive.img $(BUILD)/redox-live.iso
++	-$(FUMOUNT) /tmp/rbos_installer/ || true
++	rm -f $(BUILD)/harddrive.img $(BUILD)/rbos-live.iso
+ 	$(MAKE) all
+ 
+ rebuild:
+ 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
+-	-$(FUMOUNT) /tmp/redox_installer/ || true
+-	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/redox-live.iso
++	-$(FUMOUNT) /tmp/rbos_installer/ || true
++	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/rbos-live.iso
+ 	$(MAKE) all
+ 
+ # To tell that it's not safe
+@@ -44,7 +44,7 @@ else
+ ifneq ($(NOT_ON_PODMAN),1)
+ 	$(MAKE) repo_clean
+ 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
+-	-$(FUMOUNT) /tmp/redox_installer/ || true
++	-$(FUMOUNT) /tmp/rbos_installer/ || true
+ endif # NOT_ON_PODMAN
+ 	rm -rf repo
+ 	rm -rf $(BUILD) $(PREFIX)
+diff --git a/build.sh b/build.sh
+index 23f047a..7bd2e4a 100755
+--- a/build.sh
++++ b/build.sh
+@@ -36,7 +36,7 @@ usage()
+     echo "               config/ARCH/CONFIG.toml"
+     echo "               If you specify both CONFIG and FILESYSTEM_CONFIG, it is not"
+     echo "               necessary that they match, but it is recommended."
+-    echo "    Examples:  ./build.sh -c demo live - make build/x86_64/demo/redox-live.iso"
++    echo "    Examples:  ./build.sh -c demo live - make build/x86_64/demo/rbos-live.iso"
+     echo "               ./build.sh -6 qemu - make build/i686/desktop/harddrive.img and"
+     echo "                                    and run it in qemu"
+     echo "    NOTE:      If you do not change ARCH or CONFIG very often, edit mk/config.mk"
+diff --git a/mk/ci.mk b/mk/ci.mk
+index d80cc0a..ab467e3 100644
+--- a/mk/ci.mk
++++ b/mk/ci.mk
+@@ -17,12 +17,12 @@ ci-img: FORCE
+ 
+ # The name of the target must match the name of the filesystem config file
+ server desktop demo: FORCE
+-	rm -f "build/$(ARCH)/$@/harddrive.img" "build/$(ARCH)/$@/redox-live.iso"
++	rm -f "build/$(ARCH)/$@/harddrive.img" "build/$(ARCH)/$@/rbos-live.iso"
+ 	export $(CI_COOKBOOK_CONFIG) REPO_NONSTOP=0 && \
+-		$(MAKE) CONFIG_NAME=$@ build/$(ARCH)/$@/harddrive.img build/$(ARCH)/$@/redox-live.iso
++		$(MAKE) CONFIG_NAME=$@ build/$(ARCH)/$@/harddrive.img build/$(ARCH)/$@/rbos-live.iso
+ 	mkdir -p $(IMG_DIR)
+-	cp "build/$(ARCH)/$@/harddrive.img" "$(IMG_DIR)/redox_$(@)$(IMG_SEPARATOR)$(IMG_TAG)_harddrive.img"
+-	cp "build/$(ARCH)/$@/redox-live.iso" "$(IMG_DIR)/redox_$(@)$(IMG_SEPARATOR)$(IMG_TAG)_livedisk.iso"
++	cp "build/$(ARCH)/$@/harddrive.img" "$(IMG_DIR)/rbos_$(@)$(IMG_SEPARATOR)$(IMG_TAG)_harddrive.img"
++	cp "build/$(ARCH)/$@/rbos-live.iso" "$(IMG_DIR)/rbos_$(@)$(IMG_SEPARATOR)$(IMG_TAG)_livedisk.iso"
+ 
+ ci-os-test: FORCE
+ 	make CONFIG_NAME=os-test unmount
+diff --git a/mk/config.mk b/mk/config.mk
+index 0d84840..29f3bc9 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -5,7 +5,7 @@
+ HOST_ARCH?=$(shell uname -m)
+ 
+ # Configuration
+-## Architecture to build Redox for (aarch64, i586, or x86_64). Defaults to a host one
++## Architecture to build Red Bear OS for (aarch64, i586, or x86_64). Defaults to a host one
+ ARCH?=$(HOST_ARCH)
+ ## Sub-device type for aarch64 if needed
+ BOARD?=
+diff --git a/mk/depends.mk b/mk/depends.mk
+index 4d698c8..67c04d0 100644
+--- a/mk/depends.mk
++++ b/mk/depends.mk
+@@ -2,7 +2,7 @@
+ 
+ # Don't check for dependencies if you will be using Podman
+ ifneq ($(PODMAN_BUILD),1)
+-# Don't check for dependencies if you will be using Hosted Redox
++# Don't check for dependencies if you will be using Hosted Red Bear OS
+ ifneq ($(HOSTED_REDOX),1)
+ 
+ # don't check for Rust and Cargo if building on a Nix system
+diff --git a/mk/disk.mk b/mk/disk.mk
+index 9f64a17..a2bc62d 100644
+--- a/mk/disk.mk
++++ b/mk/disk.mk
+@@ -1,4 +1,4 @@
+-# Configuration file with the commands configuration of the Redox image
++# Configuration file with the commands configuration of the Red Bear OS image
+ 
+ $(BUILD)/harddrive.img: $(FSTOOLS) $(REPO_TAG)
+ ifeq ($(FSTOOLS_IN_PODMAN),1)
+@@ -17,7 +17,7 @@ else
+ 	mv $@.partial $@
+ endif
+ 
+-$(BUILD)/redox-live.iso: $(FSTOOLS) $(REPO_TAG) redox.ipxe
++$(BUILD)/rbos-live.iso: $(FSTOOLS) $(REPO_TAG) rbos.ipxe
+ ifeq ($(FSTOOLS_IN_PODMAN),1)
+ 	$(PODMAN_RUN) make $@
+ else
+@@ -31,7 +31,7 @@ else
+ 	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
+ 	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) --write-bootloader="$(BUILD)/bootloader-live.efi" --live $@.partial
+ 	mv $@.partial $@
+-	cp redox.ipxe $(BUILD)/redox.ipxe
++	cp rbos.ipxe $(BUILD)/rbos.ipxe
+ endif
+ 
+ $(BUILD)/filesystem.img: $(FSTOOLS) $(REPO_TAG)
+@@ -84,9 +84,9 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
+ 	$(PODMAN_RUN) make $@
+ else
+ 	@mkdir -p $(MOUNT_DIR)
+-	$(REDOXFS) $(BUILD)/redox-live.iso $(MOUNT_DIR)
++	$(REDOXFS) $(BUILD)/rbos-live.iso $(MOUNT_DIR)
+ 	@sleep 2
+-	@echo "\033[1;36;49mredox-live.iso mounted ($$(pgrep redoxfs))\033[0m"
++	@echo "\033[1;36;49mrbos-live.iso mounted ($$(pgrep redoxfs))\033[0m"
+ endif
+ 
+ unmount: FORCE
+diff --git a/mk/fstools.mk b/mk/fstools.mk
+index 9d0ef07..a6fbe59 100644
+--- a/mk/fstools.mk
++++ b/mk/fstools.mk
+@@ -1,4 +1,4 @@
+-# Configuration file for redox-installer, Cookbook and RedoxFS FUSE
++# Configuration file for the Red Bear OS installer, Cookbook and RedoxFS FUSE
+ 
+ fstools: $(FSTOOLS_TAG) $(FSTOOLS)
+ 
+diff --git a/mk/podman.mk b/mk/podman.mk
+index 814cec8..03f460d 100644
+--- a/mk/podman.mk
++++ b/mk/podman.mk
+@@ -2,7 +2,7 @@
+ 
+ # Configuration variables for running make in Podman
+ ## Tag the podman image $IMAGE_TAG
+-IMAGE_TAG?=redox-base
++IMAGE_TAG?=rbos-base
+ ## Working Directory in Podman
+ CONTAINER_WORKDIR?=/mnt/redox
+ 
+@@ -32,7 +32,7 @@ endif
+ PODMAN_HOME=$(ROOT)/build/podman
+ ## Podman command with its many arguments
+ PODMAN_VOLUMES=--volume $(ROOT):$(CONTAINER_WORKDIR)$(PODMAN_VOLUME_FLAG) --volume $(PODMAN_HOME):/root$(PODMAN_VOLUME_FLAG)
+-PODMAN_ENV=--env PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --env PODMAN_BUILD=0
++PODMAN_ENV=--env PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --env PODMAN_BUILD=0 --env LIBTOOLIZE=/usr/bin/libtoolize
+ PODMAN_CONFIG=--env ARCH=$(ARCH) --env BOARD=$(BOARD) --env CONFIG_NAME=$(CONFIG_NAME) --env FILESYSTEM_CONFIG=$(FILESYSTEM_CONFIG) --env PREFIX_BINARY=$(PREFIX_BINARY) \
+                --env CI=$(CI) --env COOKBOOK_MAKE_JOBS=$(COOKBOOK_MAKE_JOBS) --env COOKBOOK_LOGS=$(COOKBOOK_LOGS) --env COOKBOOK_VERBOSE=$(COOKBOOK_VERBOSE) --env COOKBOOK_COMPRESSED=$(COOKBOOK_COMPRESSED) \
+                --env REPO_APPSTREAM=$(REPO_APPSTREAM) --env REPO_BINARY=$(REPO_BINARY) --env REPO_NONSTOP=$(REPO_NONSTOP) --env REPO_OFFLINE=$(REPO_OFFLINE) --env TESTBIN=$(TESTBIN) \
+@@ -92,10 +92,10 @@ KERNEL_PATH_TARGET := $(ROOT)/$(KERNEL_PATH)/target/$(TARGET)
+ # TODO: make this work using `make debug.kernel` and remove this
+ kernel_debugger:
+ 	@echo "Building and running gdbgui container..."
+-	podman build -t redox-kernel-debug - < $(ROOT)/podman/redox-gdb-containerfile
+-	podman run --rm -p 5000:5000 -it --name redox-gdb \
++	podman build -t rbos-kernel-debug - < $(ROOT)/podman/redox-gdb-containerfile
++	podman run --rm -p 5000:5000 -it --name rbos-gdb \
+ 		-v "$(KERNEL_PATH_TARGET)/build/kernel.sym:/kernel.sym" \
+ 		-v "$(KERNEL_PATH_SOURCE)/src:/src" \
+-		redox-kernel-debug --gdb-cmd "gdb -ex 'set confirm off' \
++		rbos-kernel-debug --gdb-cmd "gdb -ex 'set confirm off' \
+ 			-ex 'add-symbol-file /kernel.sym' \
+ 			-ex 'target remote host.containers.internal:1234'"
+diff --git a/mk/qemu.mk b/mk/qemu.mk
+index 0b3aee4..98209ce 100644
+--- a/mk/qemu.mk
++++ b/mk/qemu.mk
+@@ -1,7 +1,7 @@
+ # Configuration file for QEMU
+ 
+ QEMU=qemu-system-$(QEMU_ARCH)
+-QEMUFLAGS=-d guest_errors -name "Redox OS $(ARCH)"
++QEMUFLAGS=-d guest_errors -name "Red Bear OS $(ARCH)"
+ netboot?=no
+ redoxer?=no
+ VGA_SUPPORTED=no
+@@ -158,7 +158,7 @@ ifneq ($(QEMU_KERNEL),)
+ endif
+ 
+ ifeq ($(live),yes)
+-	DISK=$(BUILD)/redox-live.iso
++	DISK=$(BUILD)/rbos-live.iso
+ else
+ 	DISK=$(BUILD)/harddrive.img
+ endif
+@@ -212,7 +212,7 @@ else
+ 
+ 	EXTRANETARGS=
+ 	ifeq ($(netboot),yes)
+-		EXTRANETARGS+=,tftp=$(BUILD),bootfile=redox.ipxe
++		EXTRANETARGS+=,tftp=$(BUILD),bootfile=rbos.ipxe
+ 		QEMUFLAGS+=-kernel /usr/lib/ipxe/ipxe-amd64.efi
+ 	endif
+ 
+diff --git a/mk/virtualbox.mk b/mk/virtualbox.mk
+index 414bf1f..704288a 100644
+--- a/mk/virtualbox.mk
++++ b/mk/virtualbox.mk
+@@ -2,43 +2,43 @@
+ 
+ virtualbox: $(BUILD)/harddrive.img
+ 	echo "Delete VM"
+-	-$(VBM) unregistervm Redox --delete; \
++	-$(VBM) unregistervm RedBearOS --delete; \
+ 	if [ $$? -ne 0 ]; \
+ 	then \
+-		if [ -d "$$HOME/VirtualBox VMs/Redox" ]; \
++		if [ -d "$$HOME/VirtualBox VMs/RedBearOS" ]; \
+ 		then \
+-			echo "Redox directory exists, deleting..."; \
+-			$(RM) -rf "$$HOME/VirtualBox VMs/Redox"; \
++			echo "RedBearOS directory exists, deleting..."; \
++			$(RM) -rf "$$HOME/VirtualBox VMs/RedBearOS"; \
+ 		fi \
+ 	fi
+ 	echo "Delete Disk"
+ 	-$(RM) harddrive.vdi
+ 	echo "Create VM"
+-	$(VBM) createvm --name Redox --register
++	$(VBM) createvm --name RedBearOS --register
+ 	echo "Set Configuration"
+-	$(VBM) modifyvm Redox --memory 2048
+-	$(VBM) modifyvm Redox --vram 32
++	$(VBM) modifyvm RedBearOS --memory 2048
++	$(VBM) modifyvm RedBearOS --vram 32
+ 	if [ "$(net)" != "no" ]; \
+ 	then \
+-		$(VBM) modifyvm Redox --nic1 nat; \
+-		$(VBM) modifyvm Redox --nictype1 82540EM; \
+-		$(VBM) modifyvm Redox --cableconnected1 on; \
+-		$(VBM) modifyvm Redox --nictrace1 on; \
+-		$(VBM) modifyvm Redox --nictracefile1 "$(ROOT)/$(BUILD)/network.pcap"; \
++		$(VBM) modifyvm RedBearOS --nic1 nat; \
++		$(VBM) modifyvm RedBearOS --nictype1 82540EM; \
++		$(VBM) modifyvm RedBearOS --cableconnected1 on; \
++		$(VBM) modifyvm RedBearOS --nictrace1 on; \
++		$(VBM) modifyvm RedBearOS --nictracefile1 "$(ROOT)/$(BUILD)/network.pcap"; \
+ 	fi
+-	$(VBM) modifyvm Redox --uart1 0x3F8 4
+-	$(VBM) modifyvm Redox --uartmode1 file "$(ROOT)/$(BUILD)/serial.log"
+-	$(VBM) modifyvm Redox --usb off # on
+-	$(VBM) modifyvm Redox --keyboard ps2
+-	$(VBM) modifyvm Redox --mouse ps2
+-	$(VBM) modifyvm Redox --audio-driver $(VB_AUDIO)
+-	$(VBM) modifyvm Redox --audiocontroller hda
+-	$(VBM) modifyvm Redox --audioout on
+-	$(VBM) modifyvm Redox --nestedpaging on
++	$(VBM) modifyvm RedBearOS --uart1 0x3F8 4
++	$(VBM) modifyvm RedBearOS --uartmode1 file "$(ROOT)/$(BUILD)/serial.log"
++	$(VBM) modifyvm RedBearOS --usb off # on
++	$(VBM) modifyvm RedBearOS --keyboard ps2
++	$(VBM) modifyvm RedBearOS --mouse ps2
++	$(VBM) modifyvm RedBearOS --audio-driver $(VB_AUDIO)
++	$(VBM) modifyvm RedBearOS --audiocontroller hda
++	$(VBM) modifyvm RedBearOS --audioout on
++	$(VBM) modifyvm RedBearOS --nestedpaging on
+ 	echo "Create Disk"
+ 	$(VBM) convertfromraw $< $(BUILD)/harddrive.vdi
+ 	echo "Attach Disk"
+-	$(VBM) storagectl Redox --name ATA --add sata --controller IntelAHCI --bootable on --portcount 1
+-	$(VBM) storageattach Redox --storagectl ATA --port 0 --device 0 --type hdd --medium $(BUILD)/harddrive.vdi
++	$(VBM) storagectl RedBearOS --name ATA --add sata --controller IntelAHCI --bootable on --portcount 1
++	$(VBM) storageattach RedBearOS --storagectl ATA --port 0 --device 0 --type hdd --medium $(BUILD)/harddrive.vdi
+ 	echo "Run VM"
+-	$(VBM) startvm Redox
++	$(VBM) startvm RedBearOS
+diff --git a/native_bootstrap.sh b/native_bootstrap.sh
+index 4b5411b..f0f3b25 100755
+--- a/native_bootstrap.sh
++++ b/native_bootstrap.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script is used to setup the Redox build system
++# This script is used to setup the Red Bear OS build system
+ # It installs Rustup, the recipe dependencies for cross-compilation
+ # and downloads the build system configuration files
+ 
+@@ -12,13 +12,13 @@ set -e
+ banner()
+ {
+     echo "|------------------------------------------|"
+-    echo "|----- Welcome to the Redox bootstrap -----|"
++    echo "|----- Welcome to the Red Bear OS bootstrap -----|"
+     echo "|------------------------------------------|"
+ }
+ 
+ ############################################################################
+ # This function takes care of installing a dependency via package manager of
+-# choice for building Redox on BSDs (macOS, FreeBSD, etc.).
++# choice for building Red Bear OS on BSDs (macOS, FreeBSD, etc.).
+ # @params:    $1 package manager
+ #             $2 package name
+ #             $3 binary name (optional)
+@@ -84,7 +84,7 @@ osx()
+ 
+ ############################################################################
+ # This function takes care of installing all dependencies using MacPorts for
+-# building Redox on macOS
++# building Red Bear OS on macOS
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ############################################################################
+ osx_macports()
+@@ -152,7 +152,7 @@ osx_macports()
+ 
+ ############################################################################
+ # This function takes care of installing all dependencies using Homebrew for
+-# building Redox on macOS
++# building Red Bear OS on macOS
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ############################################################################
+ osx_homebrew()
+@@ -219,7 +219,7 @@ osx_homebrew()
+ 
+ #######################################################################
+ # This function takes care of installing all dependencies using pkg for
+-# building Redox on FreeBSD
++# building Red Bear OS on FreeBSD
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ #######################################################################
+ freebsd()
+@@ -285,7 +285,7 @@ freebsd()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Arch Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ # 		$2 install non-interactively, boolean
+@@ -361,7 +361,7 @@ archLinux()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Debian-based Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ # 		$2 install non-interactively, boolean
+@@ -495,7 +495,7 @@ ubuntu()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Fedora Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ # 		$2 install non-interactively, boolean
+@@ -599,7 +599,7 @@ fedora()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # *SUSE Linux
+ ###############################################################################
+ suse()
+@@ -726,7 +726,7 @@ suse()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Gentoo Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -778,7 +778,7 @@ gentoo()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Solus
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -836,7 +836,7 @@ solus()
+ }
+ 
+ ###############################################################################
+-# Helper function to detect if we're running on Redox OS
++# Helper function to detect if we're running on Redox OS (upstream)
+ # This needs to be checked before FreeBSD since both use 'pkg' package manager
+ ###############################################################################
+ is_os_redox()
+@@ -845,13 +845,13 @@ is_os_redox()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
+-# Redox OS itself (bootstrapping Redox on Redox)
++# This function takes care of installing all dependencies for building Red Bear OS on
++# Redox OS itself (bootstrapping RBOS on Redox)
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+ redox()
+ {
+-    echo "Detected Redox OS"
++    echo "Detected Redox OS (host)"
+     
+     # Check if git is installed
+     if [ -z "$(which git)" ]; then
+@@ -914,7 +914,7 @@ redox()
+     done
+     
+     echo ""
+-    echo "Note: Building Redox on Redox itself is experimental."
++    echo "Note: Building Red Bear OS on Redox itself is experimental."
+     echo "Some dependencies may not be available yet in the Redox package repository."
+     echo "For the best build experience, consider using podman_bootstrap.sh on another system."
+ }
+@@ -925,7 +925,7 @@ redox()
+ usage()
+ {
+     echo "------------------------"
+-    echo "|Redox bootstrap script|"
++    echo "|Red Bear OS bootstrap script|"
+     echo "------------------------"
+     echo "Usage: ./native_bootstrap.sh"
+     echo "OPTIONS:"
+@@ -1068,10 +1068,10 @@ statusCheck()
+ ###########################################################################
+ boot()
+ {
+-    echo "Cloning gitlab repo..."
+-    git clone https://gitlab.redox-os.org/redox-os/redox.git --origin upstream
++    echo "Cloning RBOS repo..."
++    git clone https://github.com/vasilito/Red-Bear-OS-3.git --origin upstream
+     echo "Creating .config with PODMAN_BUILD=0"
+-    echo 'PODMAN_BUILD?=0' > redox/.config
++    echo 'PODMAN_BUILD?=0' > rbos/.config
+     echo "Cleaning up..."
+     rm native_bootstrap.sh
+     echo
+@@ -1083,8 +1083,8 @@ boot()
+     echo "** Be sure to update your path to include Rust - run the following command: **"
+     echo 'source $HOME/.cargo/env'
+     echo
+-    echo "Run the following commands to build Redox:"
+-    echo "cd redox"
++    echo "Run the following commands to build Red Bear OS:"
++    echo "cd rbos"
+     MAKE="make"
+     if [[ "$(uname)" == "FreeBSD" ]]; then
+         MAKE="gmake"
+@@ -1134,7 +1134,7 @@ banner
+ if [ "Darwin" == "$(uname -s)" ]; then
+     echo "Detected macOS!"
+ 
+-    echo "WARNING: Building Redox OS on MacOS is not recommended, please use podman_bootstrap.sh instead."
++    echo "WARNING: Building Red Bear OS on MacOS is not recommended, please use podman_bootstrap.sh instead."
+     echo "WARNING: Our toolchain is not designed to work on MacOS and it relies on FUSE which requires kernel extensions."
+     echo "WARNING: If you want to continue anyway, please wait for 3 seconds or cancel this script now!"
+     sleep 3
+@@ -1152,7 +1152,7 @@ if [ "Darwin" == "$(uname -s)" ]; then
+ else
+     # Here we will use package managers to determine which operating system the user is using.
+ 
+-    # Redox OS
++    # Redox OS (host)
+     if is_os_redox; then
+         redox "$emulator"
+     # SUSE and derivatives
+@@ -1189,4 +1189,4 @@ if [ "$dependenciesonly" = false ]; then
+     boot
+ fi
+ 
+-echo "Redox bootstrap complete!"
++echo "Red Bear OS bootstrap complete!"
+diff --git a/podman/redox-base-containerfile b/podman/redox-base-containerfile
+index 21b0ba1..82a27c5 100644
+--- a/podman/redox-base-containerfile
++++ b/podman/redox-base-containerfile
+@@ -31,6 +31,7 @@ RUN apt-get update \
+         help2man \
+         ipxe-qemu \
+         intltool \
++        libtool \
+         libaudiofile-dev \
+         libdbus-glib-1-dev-bin \
+         libfuse3-dev \
+diff --git a/podman_bootstrap.sh b/podman_bootstrap.sh
+index a13f969..24e391b 100755
+--- a/podman_bootstrap.sh
++++ b/podman_bootstrap.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script setup the Redox build system with Podman
++# This script setup the Red Bear OS build system with Podman
+ # It install the Podman dependencies for cross-compilation
+ # and download the build system configuration files
+ 
+@@ -12,14 +12,14 @@ set -e
+ banner()
+ {
+   echo "|------------------------------------------|"
+-  echo "|----- Welcome to the redox bootstrap -----|"
++  echo "|----- Welcome to the Red Bear OS bootstrap -----|"
+   echo "|-------- for building with Podman --------|"
+   echo "|------------------------------------------|"
+ }
+ 
+ ############################################################################
+ # This function takes care of installing a dependency via package manager of
+-# choice for building Redox on BSDs (macOS, FreeBSD, etc.).
++# choice for building Red Bear OS on BSDs (macOS, FreeBSD, etc.).
+ # @params:    $1 package manager
+ #             $2 package name
+ #             $3 binary name (optional)
+@@ -87,7 +87,7 @@ osx()
+ 
+ ###############################################################################
+ # This function takes care of installing all dependencies using MacPorts
+-# for building Redox on macOS
++# for building Red Bear OS on macOS
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+ osx_macports()
+@@ -115,7 +115,7 @@ osx_macports()
+ 
+ ###############################################################################
+ # This function takes care of installing all dependencies using Homebrew
+-# for building Redox on macOS
++# for building Red Bear OS on macOS
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+ osx_homebrew()
+@@ -143,7 +143,7 @@ osx_homebrew()
+ 
+ ###############################################################################
+ # This function takes care of installing all dependencies using pkg
+-# for building Redox on FreeBSD
++# for building Red Bear OS on FreeBSD
+ # @params:    $1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+ freebsd()
+@@ -171,7 +171,7 @@ freebsd()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Arch Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -199,7 +199,7 @@ archLinux()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Debian-based Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ # 		$2 the package manager to use
+@@ -243,7 +243,7 @@ ubuntu()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Fedora Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -287,7 +287,7 @@ fedora()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # *SUSE Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -383,7 +383,7 @@ suse()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Gentoo Linux
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -432,7 +432,7 @@ gentoo()
+ }
+ 
+ ###############################################################################
+-# This function takes care of installing all dependencies for building Redox on
++# This function takes care of installing all dependencies for building Red Bear OS on
+ # Solus
+ # @params:	$1 the emulator to install, "virtualbox" or "qemu"
+ ###############################################################################
+@@ -475,7 +475,7 @@ solus()
+ usage()
+ {
+     echo "------------------------"
+-    echo "|Redox bootstrap script|"
++    echo "|Red Bear OS bootstrap script|"
+     echo "------------------------"
+     echo "Usage: ./podman_bootstrap.sh"
+     echo "OPTIONS:"
+@@ -559,13 +559,13 @@ rustInstall()
+ ###########################################################################
+ boot()
+ {
+-    echo "Cloning gitlab repo..."
+-    git clone https://gitlab.redox-os.org/redox-os/redox.git --origin upstream
++    echo "Cloning RBOS repo..."
++    git clone https://github.com/vasilito/Red-Bear-OS-3.git --origin upstream
+     echo "Creating .config with PODMAN_BUILD=1"
+-    echo 'PODMAN_BUILD?=1' > redox/.config
++    echo 'PODMAN_BUILD?=1' > rbos/.config
+     if [[ "$(uname -m)" == "arm64" ]]; then
+         echo "Appending .config with ARCH=aarch64"
+-        echo 'ARCH=aarch64' >> redox/.config
++        echo 'ARCH=aarch64' >> rbos/.config
+     fi
+     echo "Cleaning up..."
+     rm podman_bootstrap.sh
+@@ -573,13 +573,13 @@ boot()
+     echo "---------------------------------------"
+     echo "Well it looks like you are ready to go!"
+     echo "---------------------------------------"
+-    echo "The file redox/.config was created with PODMAN_BUILD=1."
++    echo "The file rbos/.config was created with PODMAN_BUILD=1."
+     echo "If you need a much quicker installation, run: "
+-    echo "  echo REPO_BINARY=1 >> redox/.config"
++    echo "  echo REPO_BINARY=1 >> rbos/.config"
+     echo
+-    echo "Run the following commands to build Redox using Podman:"
++    echo "Run the following commands to build Red Bear OS using Podman:"
+     echo
+-    echo "cd redox"
++    echo "cd rbos"
+     MAKE="make"
+     if [[ "$(uname)" == "FreeBSD" ]]; then
+         MAKE="gmake"
+@@ -660,4 +660,4 @@ if [ "$dependenciesonly" = false ]; then
+     boot
+ fi
+ 
+-echo "Redox bootstrap complete!"
++echo "Red Bear OS bootstrap complete!"
+diff --git a/scripts/backtrace.sh b/scripts/backtrace.sh
+index 2124a5d..30178d2 100755
+--- a/scripts/backtrace.sh
++++ b/scripts/backtrace.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script allow the user to copy a Rust backtrace from Redox
++# This script allow the user to copy a Rust backtrace from Red Bear OS
+ # and retrieve the symbols
+ 
+ usage()
+diff --git a/scripts/changelog.sh b/scripts/changelog.sh
+index 5698121..51e6b8a 100755
+--- a/scripts/changelog.sh
++++ b/scripts/changelog.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script show the changelog of all Redox components
++# This script show the changelog of all Red Bear OS components
+ 
+ set -e
+ 
+diff --git a/scripts/dual-boot.sh b/scripts/dual-boot.sh
+index 400d7a1..32ffa3d 100755
+--- a/scripts/dual-boot.sh
++++ b/scripts/dual-boot.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script install Redox in the free space of your storage device
++# This script install Red Bear OS in the free space of your storage device
+ # and add a boot entry (if you are using the systemd-boot boot loader)
+ 
+ set -e
+@@ -9,7 +9,7 @@ if [ -n "$1" ]
+ then
+     DISK="$1"
+ else
+-    DISK=/dev/disk/by-partlabel/REDOX_INSTALL
++    DISK=/dev/disk/by-partlabel/RBOS_INSTALL
+ fi
+ 
+ if [ ! -b "${DISK}" ]
+@@ -37,16 +37,16 @@ fi
+ BOOTLOADER="recipes/core/bootloader/target/${ARCH}-unknown-redox/stage/usr/lib/boot/bootloader.efi"
+ set -x
+ sudo mkdir -pv "${ESP}/EFI" "${ESP}/loader/entries"
+-sudo cp -v "${BOOTLOADER}" "${ESP}/EFI/redox.efi"
+-sudo tee "${ESP}/loader/entries/redox.conf" <<EOF
+-title Redox OS
+-efi /EFI/redox.efi
++sudo cp -v "${BOOTLOADER}" "${ESP}/EFI/rbos.efi"
++sudo tee "${ESP}/loader/entries/rbos.conf" <<EOF
++title Red Bear OS
++efi /EFI/rbos.efi
+ EOF
+ set +x
+ 
+ sync
+ 
+-echo "Finished installing Redox OS dual boot"
++echo "Finished installing Red Bear OS dual boot"
+ echo ""
+-echo "To mount the RedoxFS partition, run:"
++echo "To mount the RBOS filesystem partition, run:"
+ echo "  ./scripts/mount-redoxfs.sh ${DISK}"
+diff --git a/scripts/include-recipes.sh b/scripts/include-recipes.sh
+index 0635ddf..a4bbe99 100755
+--- a/scripts/include-recipes.sh
++++ b/scripts/include-recipes.sh
+@@ -11,7 +11,7 @@ if [ -z "$*" ]
+ then
+     echo "Find matching recipes, and format for inclusion in config"
+     echo "Usage: $0 \"pattern\""
+-    echo "Must be run from 'redox' directory"
++    echo "Must be run from the RBOS build directory"
+     echo "e.g. $0 \"TODO.*error\""
+     exit 1
+ fi
+diff --git a/scripts/mount-redoxfs.sh b/scripts/mount-redoxfs.sh
+index 495d81f..fd04eac 100755
+--- a/scripts/mount-redoxfs.sh
++++ b/scripts/mount-redoxfs.sh
+@@ -2,28 +2,28 @@
+ 
+ set -e
+ 
+-MOUNT_POINT="/mnt/redoxfs"
++MOUNT_POINT="/mnt/rbos"
+ DISK_DEVICE=""
+ 
+ show_help() {
+     echo "Usage: $0 [options] <device>"
+     echo ""
+-    echo "Mount or unmount a RedoxFS partition"
++    echo "Mount or unmount a Red Bear OS filesystem partition"
+     echo ""
+     echo "Options:"
+-    echo "  -u, --unmount    Unmount the RedoxFS partition"
+-    echo "  -m, --mount-point PATH    Custom mount point (default: /mnt/redoxfs)"
++    echo "  -u, --unmount    Unmount the RBOS filesystem partition"
++    echo "  -m, --mount-point PATH    Custom mount point (default: /mnt/rbos)"
+     echo "  -h, --help       Show this help"
+     echo ""
+     echo "Examples:"
+     echo "  $0 /dev/sda3                    Mount /dev/sda3"
+     echo "  $0 -u                           Unmount from default location"
+-    echo "  $0 -m /mnt/my-redox /dev/sda3   Mount to custom location"
++    echo "  $0 -m /mnt/my-rbos /dev/sda3   Mount to custom location"
+ }
+ 
+ unmount_fs() {
+     if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
+-        echo "Unmounting RedoxFS from $MOUNT_POINT..."
++        echo "Unmounting RBOS filesystem from $MOUNT_POINT..."
+         fusermount -u "$MOUNT_POINT" || fusermount3 -u "$MOUNT_POINT"
+         echo "Successfully unmounted"
+     else
+@@ -93,7 +93,7 @@ if [ "$UNMOUNT" = true ]; then
+ fi
+ 
+ if [ -z "$DISK_DEVICE" ]; then
+-    DISK_DEVICE="/dev/disk/by-partlabel/REDOX_INSTALL"
++    DISK_DEVICE="/dev/disk/by-partlabel/RBOS_INSTALL"
+     if [ ! -b "$DISK_DEVICE" ]; then
+         echo "Error: No device specified and default partition not found"
+         echo ""
+@@ -114,6 +114,6 @@ mkdir -p "$MOUNT_POINT"
+ echo "Mounting $DISK_DEVICE to $MOUNT_POINT..."
+ "$REDOXFS_BIN" "$DISK_DEVICE" "$MOUNT_POINT"
+ 
+-echo "RedoxFS successfully mounted at $MOUNT_POINT"
++echo "RBOS filesystem successfully mounted at $MOUNT_POINT"
+ echo "To unmount, run: $0 -u"
+ 
+diff --git a/scripts/network-boot.sh b/scripts/network-boot.sh
+index 0b9c09d..6247719 100755
+--- a/scripts/network-boot.sh
++++ b/scripts/network-boot.sh
+@@ -9,7 +9,7 @@ set -ex
+ trap 'kill -HUP 0' EXIT
+ 
+ eval $(make setenv)
+-make "${BUILD}/redox-live.iso"
++make "${BUILD}/rbos-live.iso"
+ 
+ echo "Allowing packet forwarding"
+ echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+@@ -45,7 +45,7 @@ ARGS=(
+     "--dhcp-boot=tag:!ipxe,tag:efi-aarch64,ipxe-aarch64.efi"
+     # IPXE
+     "--dhcp-userclass=set:ipxe,iPXE"
+-    "--dhcp-boot=tag:ipxe,redox.ipxe"
++    "--dhcp-boot=tag:ipxe,rbos.ipxe"
+ )
+ 
+ sudo dnsmasq "${ARGS[@]}"&
+diff --git a/scripts/show-package.sh b/scripts/show-package.sh
+index 516f4ec..3445442 100755
+--- a/scripts/show-package.sh
++++ b/scripts/show-package.sh
+@@ -6,7 +6,7 @@ if [ -z "$*" ]
+ then
+     echo "Show the contents of the stage and sysroot folders in recipe(s)"
+     echo "Usage: $0 recipe1 ..."
+-    echo "Must be run from the 'redox' directory"
++    echo "Must be run from the RBOS build directory"
+     echo "e.g. $0 kernel"
+     exit 1
+ fi
+diff --git a/scripts/ventoy.sh b/scripts/ventoy.sh
+index e3ac3be..bf19405 100755
+--- a/scripts/ventoy.sh
++++ b/scripts/ventoy.sh
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env bash
+ 
+-# This script create and copy the Redox bootable image to an Ventoy-formatted device
++# This script create and copy the Red Bear OS bootable image to an Ventoy-formatted device
+ 
+ set -e
+ 
+@@ -24,9 +24,9 @@ for ARCH in "${ARCHS[@]}"
+ do
+     for CONFIG_NAME in "${CONFIGS[@]}"
+     do
+-        IMAGE="build/${ARCH}/${CONFIG_NAME}/redox-live.iso"
++        IMAGE="build/${ARCH}/${CONFIG_NAME}/rbos-live.iso"
+         make ARCH="${ARCH}" CONFIG_NAME="${CONFIG_NAME}" "${IMAGE}"
+-        cp -v "${IMAGE}" "${VENTOY}/redox-${CONFIG_NAME}-${ARCH}.iso"
++        cp -v "${IMAGE}" "${VENTOY}/rbos-${CONFIG_NAME}-${ARCH}.iso"
+     done
+ done
+ 

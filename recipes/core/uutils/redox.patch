@@ -1,0 +1,83 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 5f417bd42..b7b895a9c 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -326,6 +326,7 @@ feat_os_unix_redox = [
+   "feat_common_core",
+   #
+   "chmod",
++  "nproc",
+   "stat",
+   "uname",
+ ]
+diff --git a/src/uucore/src/lib/features/fs.rs b/src/uucore/src/lib/features/fs.rs
+index fd1f30303..c508f6b9b 100644
+--- a/src/uucore/src/lib/features/fs.rs
++++ b/src/uucore/src/lib/features/fs.rs
+@@ -13,7 +13,7 @@ use libc::{
+     S_IRUSR, S_ISGID, S_ISUID, S_ISVTX, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR,
+     mkfifo, mode_t,
+ };
+-#[cfg(all(unix, not(target_os = "redox")))]
++#[cfg(unix)]
+ pub use libc::{major, makedev, minor};
+ use std::collections::HashSet;
+ use std::collections::VecDeque;
+@@ -849,24 +849,6 @@ pub fn make_fifo(path: &Path) -> std::io::Result<()> {
+     }
+ }
+ 
+-// Redox's libc appears not to include the following utilities
+-
+-#[cfg(target_os = "redox")]
+-pub fn major(dev: libc::dev_t) -> libc::c_uint {
+-    (((dev >> 8) & 0xFFF) | ((dev >> 32) & 0xFFFFF000)) as _
+-}
+-
+-#[cfg(target_os = "redox")]
+-pub fn minor(dev: libc::dev_t) -> libc::c_uint {
+-    ((dev & 0xFF) | ((dev >> 12) & 0xFFFFF00)) as _
+-}
+-
+-#[cfg(target_os = "redox")]
+-pub fn makedev(maj: libc::c_uint, min: libc::c_uint) -> libc::dev_t {
+-    let [maj, min] = [maj as libc::dev_t, min as libc::dev_t];
+-    (min & 0xff) | ((maj & 0xfff) << 8) | ((min & !0xff) << 12) | ((maj & !0xfff) << 32)
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     // Note this useful idiom: importing names from outer (for mod tests) scope.
+diff --git a/src/uucore/src/lib/mods/locale.rs b/src/uucore/src/lib/mods/locale.rs
+index b670f8976..a4ff9f983 100644
+--- a/src/uucore/src/lib/mods/locale.rs
++++ b/src/uucore/src/lib/mods/locale.rs
+@@ -211,10 +211,11 @@ fn init_localization(
+         }
+     };
+ 
+-    LOCALIZER.with(|lock| {
++    // TODO: In aarch64 redox OS, this lock (once cell) is already initialized out of nothing
++    let _ = LOCALIZER.with(|lock| {
+         lock.set(loc)
+             .map_err(|_| LocalizationError::Bundle("Localizer already initialized".into()))
+-    })?;
++    });
+     Ok(())
+ }
+ 
+@@ -422,10 +423,12 @@ pub fn setup_localization(p: &str) -> Result<(), LocalizationError> {
+         let english_bundle = create_english_bundle_from_embedded(&default_locale, p)?;
+         let localizer = Localizer::new(english_bundle);
+ 
+-        LOCALIZER.with(|lock| {
++        // TODO: In aarch64 redox OS, this lock (once cell) is already initialized out of nothing
++        // TODO: When this code is used? Patching for keep sake
++        let _ = LOCALIZER.with(|lock| {
+             lock.set(localizer)
+                 .map_err(|_| LocalizationError::Bundle("Localizer already initialized".into()))
+-        })?;
++        });
+         Ok(())
+     }
+ }
