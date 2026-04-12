@@ -1,8 +1,8 @@
 diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
-index 2cf77631..1729884e 100644
+index 2cf77631..4203fec6 100644
 --- a/src/acpi/madt/arch/x86.rs
 +++ b/src/acpi/madt/arch/x86.rs
-@@ -34,16 +34,18 @@ pub(super) fn init(madt: Madt) {
+@@ -34,18 +34,19 @@
          return;
      }
  
@@ -13,6 +13,7 @@ index 2cf77631..1729884e 100644
      let trampoline_frame = Frame::containing(PhysicalAddress::new(TRAMPOLINE));
      let trampoline_page = Page::containing_address(VirtualAddress::new(TRAMPOLINE));
      let (result, page_table_physaddr) = unsafe {
+-        //TODO: do not have writable and executable!
          let mut mapper = KernelMapper::lock_rw();
  
          let result = mapper
@@ -23,12 +24,11 @@ index 2cf77631..1729884e 100644
 +                PageFlags::new().write(true).execute(true),
              )
              .expect("failed to map trampoline");
-@@ -139,6 +150,98 @@
-                     hint::spin_loop();
-                 }
  
-+                RmmA::invalidate_all();
-+            }
+@@ -141,6 +142,108 @@
+ 
+                 RmmA::invalidate_all();
+             }
 +        } else if let MadtEntry::LocalX2Apic(ap_x2apic) = madt_entry {
 +            if ap_x2apic.x2apic_id == me.get() {
 +                debug!("        This is my local x2APIC");
@@ -68,9 +68,15 @@ index 2cf77631..1729884e 100644
 +                };
 +                AP_READY.store(false, Ordering::SeqCst);
 +
++                // Same ICR delivery-mode bits are used by xAPIC and x2APIC; only the
++                // destination field encoding changes between the MMIO and MSR forms.
++                const ICR_INIT_ASSERT: u64 = 0x4500;
++                const ICR_STARTUP: u64 = 0x4600;
++
++                // ICR bits 10:8 = 0b101 (INIT), bit 14 = level assert.
 +                // Send INIT IPI (x2APIC always uses 32-bit APIC ID in bits 32-63)
 +                {
-+                    let mut icr = 0x4500u64;
++                    let mut icr = ICR_INIT_ASSERT;
 +                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
 +                    local_apic.set_icr(icr);
 +                }
@@ -80,10 +86,11 @@ index 2cf77631..1729884e 100644
 +                    hint::spin_loop();
 +                }
 +
++                // ICR bits 10:8 = 0b110 (STARTUP), bit 14 = level assert.
 +                // Send STARTUP IPI
 +                {
 +                    let ap_segment = (TRAMPOLINE >> 12) & 0xFF;
-+                    let mut icr = 0x4600u64 | ap_segment as u64;
++                    let mut icr = ICR_STARTUP | ap_segment as u64;
 +                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
 +                    local_apic.set_icr(icr);
 +                }
@@ -95,11 +102,14 @@ index 2cf77631..1729884e 100644
 +                }
 +                {
 +                    let ap_segment = (TRAMPOLINE >> 12) & 0xFF;
-+                    let mut icr = 0x4600u64 | ap_segment as u64;
++                    let mut icr = ICR_STARTUP | ap_segment as u64;
 +                    icr |= u64::from(ap_x2apic.x2apic_id) << 32;
 +                    local_apic.set_icr(icr);
 +                }
 +
++                // Known limitation: cpu_id and per-CPU bootstrap state are allocated
++                // before the timeout checks, so a timed-out AP still consumes a
++                // logical CPU slot until startup rollback/teardown is implemented.
 +                let mut timeout = 100_000_000u32;
 +                while unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } == 0 {
 +                    hint::spin_loop();
@@ -119,9 +129,11 @@ index 2cf77631..1729884e 100644
 +                    }
 +                }
 +
-                 RmmA::invalidate_all();
-             }
++                RmmA::invalidate_all();
++            }
          }
+     }
+ 
 diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
 index 3159b9c4..69f0f2d3 100644
 --- a/src/acpi/madt/mod.rs
@@ -296,10 +308,20 @@ index 69f0f2d3..abcdef12 100644
                      0x0 => {
 
 diff --git a/src/arch/x86_shared/device/local_apic.rs b/src/arch/x86_shared/device/local_apic.rs
-index xxxxxxxx..yyyyyyyy 100644
+index e17c4eeb..bfcc9a80 100644
 --- a/src/arch/x86_shared/device/local_apic.rs
 +++ b/src/arch/x86_shared/device/local_apic.rs
-@@ -127,7 +127,14 @@ impl LocalApic {
+@@ -103,8 +103,8 @@ impl LocalApic {
+     pub fn id(&self) -> ApicId {
+         ApicId::new(if self.x2 {
+             unsafe { rdmsr(IA32_X2APIC_APICID) as u32 }
+         } else {
+-            unsafe { self.read(0x20) }
++            unsafe { self.read(0x20) >> 24 }
+         })
+     }
+ 
+@@ -127,7 +127,14 @@
      pub fn set_icr(&mut self, value: u64) {
          if self.x2 {
              unsafe {
