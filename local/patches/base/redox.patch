@@ -1,5 +1,5 @@
 diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
-index 94a1eb17..3b376904 100644
+index 94a1eb17..c3a5bfdc 100644
 --- a/drivers/acpid/src/acpi.rs
 +++ b/drivers/acpid/src/acpi.rs
 @@ -25,6 +25,8 @@ use amlserde::{AmlSerde, AmlSerdeValue};
@@ -11,8 +11,97 @@ index 94a1eb17..3b376904 100644
  use crate::aml_physmem::{AmlPageCache, AmlPhysMemHandler};
  
  /// The raw SDT header struct, as defined by the ACPI specification.
-@@ -458,7 +460,10 @@ impl AcpiContext {
-          }
+@@ -379,6 +381,12 @@ pub struct AcpiContext {
+     tables: Vec<Sdt>,
+     dsdt: Option<Dsdt>,
+     fadt: Option<Fadt>,
++    pm1a_cnt_blk: u64,
++    pm1b_cnt_blk: u64,
++    slp_typa_s5: u8,
++    slp_typb_s5: u8,
++    reset_reg: Option<GenericAddress>,
++    reset_value: u8,
+ 
+     aml_symbols: RwLock<AmlSymbols>,
+ 
+@@ -424,6 +432,62 @@ impl AcpiContext {
+             .flatten()
+     }
+ 
++    pub fn evaluate_acpi_method(
++        &mut self,
++        path: &str,
++        method: &str,
++        args: &[u64],
++    ) -> Result<Vec<u64>, AmlEvalError> {
++        let full_path = format!("{path}.{method}");
++        let aml_name = AmlName::from_str(&full_path).map_err(|_| AmlEvalError::DeserializationError)?;
++        let args = args
++            .iter()
++            .copied()
++            .map(AmlSerdeValue::Integer)
++            .collect::<Vec<_>>();
++
++        match self.aml_eval(aml_name, args)? {
++            AmlSerdeValue::Integer(value) => Ok(vec![value]),
++            AmlSerdeValue::Package { contents } => contents
++                .into_iter()
++                .map(|value| match value {
++                    AmlSerdeValue::Integer(value) => Ok(value),
++                    _ => Err(AmlEvalError::DeserializationError),
++                })
++                .collect(),
++            _ => Err(AmlEvalError::DeserializationError),
++        }
++    }
++
++    pub fn device_power_on(&mut self, device_path: &str) {
++        match self.evaluate_acpi_method(device_path, "_PS0", &[]) {
++            Ok(values) => {
++                log::debug!("{}._PS0 => {:?}", device_path, values);
++            }
++            Err(error) => {
++                log::warn!("Failed to power on {} with _PS0: {:?}", device_path, error);
++            }
++        }
++    }
++
++    pub fn device_power_off(&mut self, device_path: &str) {
++        match self.evaluate_acpi_method(device_path, "_PS3", &[]) {
++            Ok(values) => {
++                log::debug!("{}._PS3 => {:?}", device_path, values);
++            }
++            Err(error) => {
++                log::warn!("Failed to power off {} with _PS3: {:?}", device_path, error);
++            }
++        }
++    }
++
++    pub fn device_get_performance(&mut self, device_path: &str) -> Result<u64, AmlEvalError> {
++        self.evaluate_acpi_method(device_path, "_PPC", &[])?
++            .into_iter()
++            .next()
++            .ok_or(AmlEvalError::DeserializationError)
++    }
++
+     pub fn init(
+         rxsdt_physaddrs: impl Iterator<Item = u64>,
+         ec: Vec<(RegionSpace, Box<dyn RegionHandler>)>,
+@@ -444,6 +508,12 @@ impl AcpiContext {
+             tables,
+             dsdt: None,
+             fadt: None,
++            pm1a_cnt_blk: 0,
++            pm1b_cnt_blk: 0,
++            slp_typa_s5: 0,
++            slp_typb_s5: 0,
++            reset_reg: None,
++            reset_value: 0,
+ 
+             // Temporary values
+             aml_symbols: RwLock::new(AmlSymbols::new(ec)),
+@@ -458,7 +528,10 @@ impl AcpiContext {
+         }
  
          Fadt::init(&mut this);
 -        //TODO (hangs on real hardware): Dmar::init(&this);
@@ -23,11 +112,343 @@ index 94a1eb17..3b376904 100644
  
          this
      }
+@@ -562,92 +635,83 @@ impl AcpiContext {
+         aml_symbols.symbol_cache = FxHashMap::default();
+     }
+ 
+-    /// Set Power State
+-    /// See https://uefi.org/sites/default/files/resources/ACPI_6_1.pdf
+-    /// - search for PM1a
+-    /// See https://forum.osdev.org/viewtopic.php?t=16990 for practical details
+-    pub fn set_global_s_state(&self, state: u8) {
+-        if state != 5 {
+-            return;
+-        }
+-        let fadt = match self.fadt() {
+-            Some(fadt) => fadt,
+-            None => {
+-                log::error!("Cannot set global S-state due to missing FADT.");
+-                return;
+-            }
+-        };
+-
+-        let port = fadt.pm1a_control_block as u16;
+-        let mut val = 1 << 13;
+-
+-        let aml_symbols = self.aml_symbols.read();
++    pub fn acpi_shutdown(&self) {
++        let pm1a_value = (u16::from(self.slp_typa_s5) << 10) | 0x2000;
++        let pm1b_value = (u16::from(self.slp_typb_s5) << 10) | 0x2000;
+ 
+-        let s5_aml_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
+-            Ok(aml_name) => aml_name,
+-            Err(error) => {
+-                log::error!("Could not build AmlName for \\_S5, {:?}", error);
++        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++        {
++            let Ok(pm1a_port) = u16::try_from(self.pm1a_cnt_blk) else {
++                log::error!("PM1a_CNT_BLK address is invalid: {:#X}", self.pm1a_cnt_blk);
+                 return;
+-            }
+-        };
++            };
+ 
+-        let s5 = match &aml_symbols.aml_context {
+-            Some(aml_context) => match aml_context.namespace.lock().get(s5_aml_name) {
+-                Ok(s5) => s5,
+-                Err(error) => {
+-                    log::error!("Cannot set S-state, missing \\_S5, {:?}", error);
+-                    return;
++            log::warn!(
++                "Shutdown with ACPI PM1a_CNT outw(0x{:X}, 0x{:X})",
++                pm1a_port,
++                pm1a_value
++            );
++            Pio::<u16>::new(pm1a_port).write(pm1a_value);
++
++            if self.pm1b_cnt_blk != 0 {
++                match u16::try_from(self.pm1b_cnt_blk) {
++                    Ok(pm1b_port) => {
++                        log::warn!(
++                            "Shutdown with ACPI PM1b_CNT outw(0x{:X}, 0x{:X})",
++                            pm1b_port,
++                            pm1b_value
++                        );
++                        Pio::<u16>::new(pm1b_port).write(pm1b_value);
++                    }
++                    Err(_) => {
++                        log::error!("PM1b_CNT_BLK address is invalid: {:#X}", self.pm1b_cnt_blk);
++                    }
+                 }
+-            },
+-            None => {
+-                log::error!("Cannot set S-state, AML context not initialized");
+-                return;
+             }
+-        };
++        }
+ 
+-        let package = match s5.deref() {
+-            acpi::aml::object::Object::Package(package) => package,
+-            _ => {
+-                log::error!("Cannot set S-state, \\_S5 is not a package");
+-                return;
+-            }
+-        };
++        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++        {
++            log::error!(
++                "Cannot shutdown with ACPI PM1_CNT writes on this architecture (PM1a={:#X}, PM1b={:#X})",
++                self.pm1a_cnt_blk,
++                self.pm1b_cnt_blk
++            );
++        }
++    }
+ 
+-        let slp_typa = match package[0].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typa is not an Integer");
+-                return;
++    pub fn acpi_reboot(&self) {
++        match self.reset_reg {
++            Some(reset_reg) => {
++                log::warn!(
++                    "Reboot with ACPI reset register {:?} value {:#X}",
++                    reset_reg,
++                    self.reset_value
++                );
++                reset_reg.write_u8(self.reset_value);
+             }
+-        };
+-        let slp_typb = match package[1].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typb is not an Integer");
+-                return;
++            None => {
++                log::error!("Cannot reboot with ACPI: no reset register present in FADT");
+             }
+-        };
+-
+-        log::trace!("Shutdown SLP_TYPa {:X}, SLP_TYPb {:X}", slp_typa, slp_typb);
+-        val |= slp_typa as u16;
+-
+-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-        {
+-            log::warn!("Shutdown with ACPI outw(0x{:X}, 0x{:X})", port, val);
+-            Pio::<u16>::new(port).write(val);
+         }
++    }
+ 
+-        // TODO: Handle SLP_TYPb
++    /// Set Power State
++    /// See https://uefi.org/sites/default/files/resources/ACPI_6_1.pdf
++    /// - search for PM1a
++    /// See https://forum.osdev.org/viewtopic.php?t=16990 for practical details
++    pub fn set_global_s_state(&self, state: u8) {
++        if state != 5 {
++            return;
++        }
+ 
+-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+-        {
+-            log::error!(
+-                "Cannot shutdown with ACPI outw(0x{:X}, 0x{:X}) on this architecture",
+-                port,
+-                val
+-            );
++        if self.fadt().is_none() {
++            log::error!("Cannot set global S-state due to missing FADT.");
++            return;
+         }
+ 
++        self.acpi_shutdown();
++
+         loop {
+             core::hint::spin_loop();
+         }
+@@ -707,7 +771,7 @@ unsafe impl plain::Plain for FadtStruct {}
+ 
+ #[repr(C, packed)]
+ #[derive(Clone, Copy, Debug, Default)]
+-pub struct GenericAddressStructure {
++pub struct GenericAddress {
+     address_space: u8,
+     bit_width: u8,
+     bit_offset: u8,
+@@ -715,11 +779,67 @@ pub struct GenericAddressStructure {
+     address: u64,
+ }
+ 
++impl GenericAddress {
++    pub fn is_empty(&self) -> bool {
++        self.address == 0
++    }
++
++    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++    pub fn write_u8(&self, value: u8) {
++        match self.address_space {
++            0 => {
++                let Ok(address) = usize::try_from(self.address) else {
++                    log::error!("Reset register physical address is invalid: {:#X}", self.address);
++                    return;
++                };
++                let page = address / PAGE_SIZE * PAGE_SIZE;
++                let offset = address % PAGE_SIZE;
++                let virt = unsafe {
++                    common::physmap(page, PAGE_SIZE, common::Prot::RW, common::MemoryType::default())
++                };
++
++                match virt {
++                    Ok(virt) => unsafe {
++                        (virt as *mut u8).add(offset).write_volatile(value);
++                        let _ = libredox::call::munmap(virt, PAGE_SIZE);
++                    },
++                    Err(error) => {
++                        log::error!("Failed to map ACPI reset register: {}", error);
++                    }
++                }
++            }
++            1 => match u16::try_from(self.address) {
++                Ok(port) => {
++                    Pio::<u8>::new(port).write(value);
++                }
++                Err(_) => {
++                    log::error!("Reset register I/O port is invalid: {:#X}", self.address);
++                }
++            },
++            address_space => {
++                log::warn!(
++                    "Unsupported ACPI reset register address space {} for {:?}",
++                    address_space,
++                    self
++                );
++            }
++        }
++    }
++
++    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++    pub fn write_u8(&self, _value: u8) {
++        log::error!(
++            "Cannot access ACPI reset register {:?} on this architecture",
++            self
++        );
++    }
++}
++
+ #[repr(C, packed)]
+ #[derive(Clone, Copy, Debug)]
+ pub struct FadtAcpi2Struct {
+     // 12 byte structure; see below for details
+-    pub reset_reg: GenericAddressStructure,
++    pub reset_reg: GenericAddress,
+ 
+     pub reset_value: u8,
+     reserved3: [u8; 3],
+@@ -728,14 +848,14 @@ pub struct FadtAcpi2Struct {
+     pub x_firmware_control: u64,
+     pub x_dsdt: u64,
+ 
+-    pub x_pm1a_event_block: GenericAddressStructure,
+-    pub x_pm1b_event_block: GenericAddressStructure,
+-    pub x_pm1a_control_block: GenericAddressStructure,
+-    pub x_pm1b_control_block: GenericAddressStructure,
+-    pub x_pm2_control_block: GenericAddressStructure,
+-    pub x_pm_timer_block: GenericAddressStructure,
+-    pub x_gpe0_block: GenericAddressStructure,
+-    pub x_gpe1_block: GenericAddressStructure,
++    pub x_pm1a_event_block: GenericAddress,
++    pub x_pm1b_event_block: GenericAddress,
++    pub x_pm1a_control_block: GenericAddress,
++    pub x_pm1b_control_block: GenericAddress,
++    pub x_pm2_control_block: GenericAddress,
++    pub x_pm_timer_block: GenericAddress,
++    pub x_gpe0_block: GenericAddress,
++    pub x_gpe1_block: GenericAddress,
+ }
+ unsafe impl plain::Plain for FadtAcpi2Struct {}
+ 
+@@ -793,9 +913,25 @@ impl Fadt {
+             None => usize::try_from(fadt.dsdt).expect("expected any given u32 to fit within usize"),
+         };
+ 
+-        log::debug!("FACP at {:X}", { dsdt_ptr });
++        let pm1a_evt_blk = u64::from(fadt.pm1a_event_block);
++        let pm1b_evt_blk = u64::from(fadt.pm1b_event_block);
++        let pm1a_cnt_blk = u64::from(fadt.pm1a_control_block);
++        let pm1b_cnt_blk = u64::from(fadt.pm1b_control_block);
++        let (reset_reg, reset_value) = match fadt.acpi_2_struct() {
++            Some(fadt2) if !fadt2.reset_reg.is_empty() => (Some(fadt2.reset_reg), fadt2.reset_value),
++            _ => (None, 0),
++        };
+ 
+-        let dsdt_sdt = match Sdt::load_from_physical(fadt.dsdt as usize) {
++        log::debug!("FACP at {:X}", { dsdt_ptr });
++        log::debug!(
++            "FADT power blocks: PM1a_EVT={:#X}, PM1b_EVT={:#X}, PM1a_CNT={:#X}, PM1b_CNT={:#X}",
++            pm1a_evt_blk,
++            pm1b_evt_blk,
++            pm1a_cnt_blk,
++            pm1b_cnt_blk
++        );
++
++        let dsdt_sdt = match Sdt::load_from_physical(dsdt_ptr) {
+             Ok(dsdt) => dsdt,
+             Err(error) => {
+                 log::error!("Failed to load DSDT: {}", error);
+@@ -803,8 +939,46 @@ impl Fadt {
+             }
+         };
+ 
++        let (slp_typa_s5, slp_typb_s5) = match AmlName::from_str("\\_S5") {
++            Ok(s5_name) => match context.aml_eval(s5_name, Vec::new()) {
++                Ok(AmlSerdeValue::Package { contents }) => match (contents.get(0), contents.get(1)) {
++                    (Some(AmlSerdeValue::Integer(slp_typa)), Some(AmlSerdeValue::Integer(slp_typb))) => {
++                        match (u8::try_from(*slp_typa), u8::try_from(*slp_typb)) {
++                            (Ok(slp_typa_s5), Ok(slp_typb_s5)) => (slp_typa_s5, slp_typb_s5),
++                            _ => {
++                                log::warn!("\\_S5 values do not fit in u8: {:?}", contents);
++                                (0, 0)
++                            }
++                        }
++                    }
++                    _ => {
++                        log::warn!("\\_S5 package did not contain two integers: {:?}", contents);
++                        (0, 0)
++                    }
++                },
++                Ok(value) => {
++                    log::warn!("\\_S5 returned unexpected AML value: {:?}", value);
++                    (0, 0)
++                }
++                Err(error) => {
++                    log::warn!("Failed to evaluate \\_S5: {:?}", error);
++                    (0, 0)
++                }
++            },
++            Err(error) => {
++                log::warn!("Could not build AmlName for \\_S5: {:?}", error);
++                (0, 0)
++            }
++        };
++
+         context.fadt = Some(fadt.clone());
+         context.dsdt = Some(Dsdt(dsdt_sdt.clone()));
++        context.pm1a_cnt_blk = pm1a_cnt_blk;
++        context.pm1b_cnt_blk = pm1b_cnt_blk;
++        context.slp_typa_s5 = slp_typa_s5;
++        context.slp_typb_s5 = slp_typb_s5;
++        context.reset_reg = reset_reg;
++        context.reset_value = reset_value;
+ 
+         context.tables.push(dsdt_sdt);
+     }
 diff --git a/drivers/acpid/src/acpi/dmar/mod.rs b/drivers/acpid/src/acpi/dmar/mod.rs
-index c42b379a..e4411261 100644
+index c42b379a..3024f58e 100644
 --- a/drivers/acpid/src/acpi/dmar/mod.rs
 +++ b/drivers/acpid/src/acpi/dmar/mod.rs
-@@ -471,15 +471,19 @@ impl<'sdt> Iterator for DmarRawIter<'sdt> {
+@@ -471,13 +471,17 @@ impl<'sdt> Iterator for DmarRawIter<'sdt> {
  
          let type_bytes = <[u8; 2]>::try_from(type_bytes)
              .expect("expected a 2-byte slice to be convertible to [u8; 2]");
@@ -37,10 +458,9 @@ index c42b379a..e4411261 100644
  
 -        let ty = u16::from_ne_bytes(type_bytes);
 -        let len = u16::from_ne_bytes(len_bytes);
--
--        let len = usize::try_from(len).expect("expected u16 to fit within usize");
 +        let len = u16::from_ne_bytes(len_bytes) as usize;
-+
+ 
+-        let len = usize::try_from(len).expect("expected u16 to fit within usize");
 +        // Validate minimum entry header size and prevent infinite loops
 +        if len < 4 || len > self.bytes.len() {
 +            return None;
@@ -50,5 +470,89 @@ index c42b379a..e4411261 100644
  
          if len > remainder.len() {
              log::warn!("DMAR remapping structure length was smaller than the remaining length of the table.");
-             return None;
-         }
+diff --git a/drivers/acpid/src/main.rs b/drivers/acpid/src/main.rs
+index 0933f638..d4b0f3d0 100644
+--- a/drivers/acpid/src/main.rs
++++ b/drivers/acpid/src/main.rs
+@@ -7,11 +7,14 @@ use std::sync::Arc;
+ use ::acpi::aml::op_region::{RegionHandler, RegionSpace};
+ use event::{EventFlags, RawEventQueue};
+ use redox_scheme::{
+-    scheme::{register_sync_scheme, SchemeState, SchemeSync},
++    scheme::{register_sync_scheme, Op, SchemeState, SchemeSync},
+     RequestKind, Response, SignalBehavior, Socket,
+ };
+ use syscall::{EAGAIN, EWOULDBLOCK};
+ 
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++use common::io::{Io, Pio};
++
+ mod acpi;
+ mod aml_physmem;
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+@@ -103,6 +106,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
+ 
+     let mut mounted = true;
++    let mut reboot_requested = false;
+     while mounted {
+         let Some(event) = event_queue
+             .next()
+@@ -130,7 +134,34 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+                 };
+                 match req.kind() {
+                     RequestKind::Call(call) => {
+-                        let response = call.handle_sync(&mut scheme, &mut state);
++                        let caller = call.caller();
++                        let op = match call.op() {
++                            Ok(op) => op,
++                            Err(call) => {
++                                let response = Response::new(
++                                    Err(syscall::Error::new(syscall::ENOSYS)),
++                                    call,
++                                );
++                                socket
++                                    .write_response(response, SignalBehavior::Restart)
++                                    .expect("acpid: failed to write response");
++                                continue;
++                            }
++                        };
++
++                        if let Op::OpenAt(openat) = &op {
++                            if openat.path().contains("reboot") {
++                                log::info!(
++                                    "Received reboot request from acpi scheme path: {}",
++                                    openat.path()
++                                );
++                                reboot_requested = true;
++                                mounted = false;
++                                break;
++                            }
++                        }
++
++                        let response = op.handle_sync(caller, &mut scheme, &mut state);
+                         socket
+                             .write_response(response, SignalBehavior::Restart)
+                             .expect("acpid: failed to write response");
+@@ -162,9 +193,19 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     drop(shutdown_pipe);
+     drop(event_queue);
+ 
+-    acpi_context.set_global_s_state(5);
++    if reboot_requested {
++        acpi_context.acpi_reboot();
++
++        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++        {
++            log::warn!("Falling back to keyboard controller reset.");
++            Pio::<u8>::new(0x64).write(0xFE);
++        }
++    } else {
++        acpi_context.set_global_s_state(5);
++    }
+ 
+-    unreachable!("System should have shut down before this is entered");
++    unreachable!("System should have shut down or rebooted before this is entered");
+ }
+ 
+ fn main() {
