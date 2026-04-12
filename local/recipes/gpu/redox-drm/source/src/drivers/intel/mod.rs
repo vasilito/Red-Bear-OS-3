@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use log::{debug, info, warn};
-use redox_driver_sys::irq::IrqHandle;
 use redox_driver_sys::memory::MmioRegion;
 use redox_driver_sys::pci::{PciBarInfo, PciDevice, PciDeviceInfo};
 
 use crate::driver::{DriverError, GpuDriver, Result};
+use crate::drivers::interrupt::InterruptHandle;
 use crate::gem::{GemHandle, GemManager};
 use crate::kms::connector::{synthetic_edid, Connector};
 use crate::kms::crtc::Crtc;
@@ -37,7 +37,7 @@ const RING_HEAD_OFFSET: usize = 0x34;
 pub struct IntelDriver {
     info: PciDeviceInfo,
     mmio: MmioRegion,
-    irq_handle: Mutex<Option<IrqHandle>>,
+    irq_handle: Mutex<Option<InterruptHandle>>,
     display: IntelDisplay,
     gem: Mutex<GemManager>,
     connectors: Mutex<Vec<Connector>>,
@@ -83,14 +83,11 @@ impl IntelDriver {
         let (connectors, encoders) = detect_display_topology(&display)?;
         let crtcs = build_crtcs(&display)?;
 
-        let irq_handle = match info.irq {
-            Some(irq) => Some(
-                IrqHandle::request(irq)
-                    .map_err(|e| DriverError::Io(format!("failed to request IRQ {irq}: {e}")))?,
-            ),
-            None => {
+        let irq_handle = match InterruptHandle::setup(&info, &mut device) {
+            Ok(handle) => Some(handle),
+            Err(e) => {
                 warn!(
-                    "redox-drm: Intel device {} has no IRQ assigned",
+                    "redox-drm: Intel device {} interrupt setup failed: {e}",
                     info.location
                 );
                 None
@@ -497,7 +494,7 @@ impl GpuDriver for IntelDriver {
             }
         };
 
-        if irq_event.is_none() {
+        if !irq_event {
             return Ok(None);
         }
 

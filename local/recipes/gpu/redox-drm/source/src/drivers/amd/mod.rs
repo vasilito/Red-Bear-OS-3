@@ -7,11 +7,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use log::{debug, info, warn};
-use redox_driver_sys::irq::IrqHandle;
 use redox_driver_sys::memory::MmioRegion;
 use redox_driver_sys::pci::{PciBarInfo, PciDevice, PciDeviceInfo};
 
 use crate::driver::{DriverError, GpuDriver, Result};
+use crate::drivers::interrupt::InterruptHandle;
 use crate::gem::{GemHandle, GemManager};
 use crate::kms::connector::{synthetic_edid, Connector};
 use crate::kms::crtc::Crtc;
@@ -51,7 +51,7 @@ pub enum IrqEvent {
 pub struct AmdDriver {
     info: PciDeviceInfo,
     mmio: MmioRegion,
-    irq_handle: Option<IrqHandle>,
+    irq_handle: Option<InterruptHandle>,
     display: DisplayCore,
     gem: Mutex<GemManager>,
     connectors: Mutex<Vec<Connector>>,
@@ -99,19 +99,23 @@ impl AmdDriver {
             }
         };
 
-        let irq_handle = match info.irq {
-            Some(irq) => Some(
-                IrqHandle::request(irq)
-                    .map_err(|e| DriverError::Io(format!("failed to request IRQ {irq}: {e}")))?,
-            ),
-            None => {
-                warn!(
-                    "redox-drm: AMD device {} has no IRQ assigned",
-                    info.location
-                );
-                None
-            }
-        };
+        display::set_pci_device_info(
+            info.vendor_id,
+            info.device_id,
+            info.revision,
+            info.irq.unwrap_or(0),
+            bar0.addr,
+            bar0.size,
+            bar2.as_ref().map(|b| b.addr).unwrap_or(0),
+            bar2.as_ref().map(|b| b.size).unwrap_or(0),
+        );
+
+        let irq_handle = Some(InterruptHandle::setup(&info, &mut device).map_err(|e| {
+            DriverError::Io(format!(
+                "failed to setup interrupt for {}: {e}",
+                info.location
+            ))
+        })?);
 
         let display = DisplayCore::with_framebuffer(mmio.as_ptr(), mmio.size(), fb_phys, fb_size)?;
         let (connectors, encoders) = detect_display_topology(&display)?;
@@ -558,7 +562,7 @@ impl GpuDriver for AmdDriver {
                     self.info.location,
                     crtc_id,
                     count,
-                    self.irq_handle.as_ref().map(IrqHandle::irq)
+                    self.irq_handle.as_ref().map(|h| h.irq())
                 );
                 Ok(Some((crtc_id, count)))
             }
@@ -567,7 +571,7 @@ impl GpuDriver for AmdDriver {
                     "redox-drm: handled AMD hotplug IRQ for {} connector {} irq={:?}",
                     self.info.location,
                     connector_id,
-                    self.irq_handle.as_ref().map(IrqHandle::irq)
+                    self.irq_handle.as_ref().map(|h| h.irq())
                 );
                 Ok(None)
             }
@@ -575,7 +579,7 @@ impl GpuDriver for AmdDriver {
                 debug!(
                     "redox-drm: handled AMD IRQ for {} with no decoded source irq={:?}",
                     self.info.location,
-                    self.irq_handle.as_ref().map(IrqHandle::irq)
+                    self.irq_handle.as_ref().map(|h| h.irq())
                 );
                 Ok(None)
             }

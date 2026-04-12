@@ -22,9 +22,6 @@ pub struct ConnectorInfoFFI {
 
 #[cfg(not(no_amdgpu_c))]
 unsafe extern "C" {
-    /// Full hardware initialization: sets MMIO base, FB aperture, PCI device.
-    /// Must be called before any other DC function — the C side depends on
-    /// globals populated here (g_mmio_base, g_fb_phys, etc.).
     #[link_name = "amdgpu_redox_init"]
     fn ffi_amdgpu_redox_init(
         mmio_base: *const u8,
@@ -40,9 +37,20 @@ unsafe extern "C" {
     #[link_name = "amdgpu_dc_set_crtc"]
     fn ffi_amdgpu_dc_set_crtc(crtc_id: i32, fb_addr: u64, width: u32, height: u32) -> i32;
 
-    /// Releases global state in the C layer.
     #[link_name = "amdgpu_redox_cleanup"]
     fn ffi_amdgpu_redox_cleanup();
+
+    #[link_name = "redox_pci_set_device_info"]
+    fn ffi_redox_pci_set_device_info(
+        vendor: u16,
+        device: u16,
+        revision: u8,
+        irq: u8,
+        bar0_addr: u64,
+        bar0_size: u64,
+        bar2_addr: u64,
+        bar2_size: u64,
+    );
 }
 
 #[cfg(no_amdgpu_c)]
@@ -92,6 +100,27 @@ fn amdgpu_dc_set_crtc(_crtc_id: i32, _fb_addr: u64, _width: u32, _height: u32) -
 fn amdgpu_dc_cleanup() {
     FALLBACK_MMIO_BASE.store(0, Ordering::Relaxed);
     FALLBACK_MMIO_SIZE.store(0, Ordering::Relaxed);
+}
+
+pub fn set_pci_device_info(
+    vendor: u16,
+    device: u16,
+    revision: u8,
+    irq: u32,
+    bar0_addr: u64,
+    bar0_size: u64,
+    bar2_addr: u64,
+    bar2_size: u64,
+) {
+    #[cfg(not(no_amdgpu_c))]
+    unsafe {
+        ffi_redox_pci_set_device_info(
+            vendor, device, revision, irq as u8, bar0_addr, bar0_size, bar2_addr, bar2_size,
+        );
+    }
+    let _ = (
+        vendor, device, revision, irq, bar0_addr, bar0_size, bar2_addr, bar2_size,
+    );
 }
 
 #[cfg(not(no_amdgpu_c))]

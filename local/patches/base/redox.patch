@@ -556,3 +556,116 @@ index 0933f638..d4b0f3d0 100644
  }
  
  fn main() {
+diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
+index ce55b33f..c06bdec4 100644
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -21,6 +21,7 @@ enum Handle {
+     TopLevel { entries: Vec<String> },
+     Access,
+     Device,
++    Config { addr: PciAddress },
+     Channel { addr: PciAddress, st: ChannelState },
+     SchemeRoot,
+ }
+@@ -30,14 +31,20 @@ struct HandleWrapper {
+ }
+ impl Handle {
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+     }
+     // TODO: capability rather than root
+     fn requires_root(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_scheme_root(&self) -> bool {
+         matches!(self, Self::SchemeRoot)
+@@ -153,6 +160,7 @@ impl SchemeSync for PciScheme {
+         let (len, mode) = match handle.inner {
+             Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
+             Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
++            Handle::Config { .. } => (256, MODE_CHR | 0o600),
+             Handle::Access | Handle::Channel { .. } => (0, MODE_CHR | 0o600),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+@@ -177,6 +185,18 @@ impl SchemeSync for PciScheme {
+         match handle.inner {
+             Handle::TopLevel { .. } => Err(Error::new(EISDIR)),
+             Handle::Device => Err(Error::new(EISDIR)),
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_read = buf.len().min(4 - byte_offset);
++
++                let dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let bytes = dword.to_le_bytes();
++                buf[..bytes_to_read]
++                    .copy_from_slice(&bytes[byte_offset..byte_offset + bytes_to_read]);
++                Ok(bytes_to_read)
++            }
+             Handle::Channel {
+                 addr: _,
+                 ref mut st,
+@@ -214,7 +234,9 @@ impl SchemeSync for PciScheme {
+                 return Ok(buf);
+             }
+             Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } => return Err(Error::new(ENOTDIR)),
++            Handle::Access | Handle::Config { .. } | Handle::Channel { .. } => {
++                return Err(Error::new(ENOTDIR));
++            }
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+ 
+@@ -244,6 +266,20 @@ impl SchemeSync for PciScheme {
+         }
+ 
+         match handle.inner {
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_write = buf.len().min(4 - byte_offset);
++
++                let mut dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let mut bytes = dword.to_le_bytes();
++                bytes[byte_offset..byte_offset + bytes_to_write]
++                    .copy_from_slice(&buf[..bytes_to_write]);
++                dword = u32::from_le_bytes(bytes);
++                unsafe { self.pcie.write(addr, dword_offset, dword) };
++                Ok(buf.len())
++            }
+             Handle::Channel { addr, ref mut st } => {
+                 Self::write_channel(&self.pcie, &mut self.tree, addr, st, buf)
+             }
+@@ -339,6 +375,10 @@ impl PciScheme {
+                     func.enabled = false;
+                 }
+             }
++            Some(HandleWrapper {
++                inner: Handle::Config { .. },
++                ..
++            }) => {}
+             _ => {}
+         }
+     }
+@@ -365,6 +405,7 @@ impl PciScheme {
+             let path = &after[1..];
+ 
+             match path {
++                "config" => Handle::Config { addr },
+                 "channel" => {
+                     if func.enabled {
+                         return Err(Error::new(ENOLCK));

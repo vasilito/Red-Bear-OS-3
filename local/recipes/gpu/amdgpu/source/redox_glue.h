@@ -218,6 +218,9 @@ struct pci_dev {
 };
 
 extern struct pci_dev *redox_pci_find_amd_gpu(void);
+extern void redox_pci_set_device_info(u16 vendor, u16 device, u8 revision,
+                                       u8 irq, u64 bar0_addr, u64 bar0_size,
+                                       u64 bar2_addr, u64 bar2_size);
 extern void redox_pci_dev_put(struct pci_dev *pdev);
 extern int redox_pci_enable_device(struct pci_dev *pdev);
 extern void redox_pci_set_master(struct pci_dev *pdev);

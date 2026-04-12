@@ -1,5 +1,6 @@
 pub mod amd;
 pub mod intel;
+pub mod interrupt;
 
 use std::collections::HashMap;
 use std::sync::Arc;

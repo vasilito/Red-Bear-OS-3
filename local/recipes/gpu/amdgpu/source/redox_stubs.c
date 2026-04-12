@@ -214,22 +214,50 @@ void redox_dma_free_coherent(size_t size, void *vaddr, dma_addr_t dma_handle)
     free(vaddr);
 }
 
+/*
+ * PCI device state — populated by the Rust side via redox_pci_set_device_info()
+ * before amdgpu_redox_init() is called.  redox_pci_find_amd_gpu() returns a
+ * pointer to this struct, or NULL if the device info has not been set yet.
+ */
+static struct pci_dev g_pci_dev;
+static int g_pci_dev_populated;
+
+void redox_pci_set_device_info(u16 vendor, u16 device, u8 revision,
+                                u8 irq, u64 bar0_addr, u64 bar0_size,
+                                u64 bar2_addr, u64 bar2_size)
+{
+    memset(&g_pci_dev, 0, sizeof(g_pci_dev));
+    g_pci_dev.vendor = vendor;
+    g_pci_dev.device = device;
+    g_pci_dev.revision = revision;
+    g_pci_dev.irq = irq;
+    g_pci_dev.resource_start[0] = (phys_addr_t)bar0_addr;
+    g_pci_dev.resource_len[0] = bar0_size;
+    g_pci_dev.resource_flags[0] = IORESOURCE_MEM;
+    g_pci_dev.resource_start[2] = (phys_addr_t)bar2_addr;
+    g_pci_dev.resource_len[2] = bar2_size;
+    g_pci_dev.resource_flags[2] = IORESOURCE_MEM;
+    g_pci_dev.driver_data = NULL;
+    g_pci_dev.mmio_base = NULL;
+    g_pci_dev.is_amdgpu = 1;
+    g_pci_dev_populated = 1;
+
+    printk("PCI device info set: vendor=%#06x device=%#06x rev=%#04x irq=%u "
+           "bar0=%#llx+%#llx bar2=%#llx+%#llx\n",
+           vendor, device, revision, irq,
+           (unsigned long long)bar0_addr, (unsigned long long)bar0_size,
+           (unsigned long long)bar2_addr, (unsigned long long)bar2_size);
+}
+
 struct pci_dev *redox_pci_find_amd_gpu(void)
 {
-    static struct pci_dev dev = {
-        .vendor = 0x1002,
-        .device = 0,
-        .revision = 0,
-        .irq = 0,
-        .resource_start = {0},
-        .resource_len = {0},
-        .resource_flags = {IORESOURCE_MEM, 0, 0, 0, 0, 0},
-        .driver_data = NULL,
-        .mmio_base = NULL,
-        .is_amdgpu = 1,
-    };
+    if (!g_pci_dev_populated) {
+        pr_err("redox_pci_find_amd_gpu: device info not set — "
+               "call redox_pci_set_device_info() first\n");
+        return NULL;
+    }
 
-    return &dev;
+    return &g_pci_dev;
 }
 
 void redox_pci_dev_put(struct pci_dev *pdev)
