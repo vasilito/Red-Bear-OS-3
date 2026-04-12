@@ -1,0 +1,67 @@
+diff --git a/src/subshell/common.c b/src/subshell/common.c
+--- a/src/subshell/common.c
++++ b/src/subshell/common.c
+@@ -95,6 +95,45 @@
+ #endif
+ #endif
+ 
++#ifdef __redox__
++static int
++mc_posix_openpt (int flags)
++{
++    (void) flags;
++    errno = ENOSYS;
++    return -1;
++}
++
++static int
++mc_grantpt (int fd)
++{
++    (void) fd;
++    errno = ENOSYS;
++    return -1;
++}
++
++static int
++mc_unlockpt (int fd)
++{
++    (void) fd;
++    errno = ENOSYS;
++    return -1;
++}
++
++static char *
++mc_ptsname (int fd)
++{
++    (void) fd;
++    errno = ENOSYS;
++    return NULL;
++}
++
++#define posix_openpt mc_posix_openpt
++#define grantpt mc_grantpt
++#define unlockpt mc_unlockpt
++#define ptsname mc_ptsname
++#endif
++
+ #include "lib/global.h"
+ 
+ #include "lib/fileloc.h"
+diff --git a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -24408,10 +24408,10 @@
+   fi
+ 
+   if test -z "$ac_list_mounted_fs"; then
+-    as_fn_error $? "could not determine how to read list of mounted file systems" "$LINENO" 5
+-    # FIXME -- no need to abort building the whole package
+-    # Can't build mountlist.c or anything that needs its functions
++    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: could not determine how to read list of mounted file systems" >&5
++printf "%s\n" "$as_me: WARNING: could not determine how to read list of mounted file systems" >&2; }
++    ac_list_mounted_fs=missing
+   fi
+ 
+   if test $ac_list_mounted_fs = found; then
+     gl_cv_list_mounted_fs=yes
+ 

@@ -1,0 +1,44 @@
+[source]
+tar = "https://ftp.osuosl.org/pub/midnightcommander/mc-4.8.33.tar.xz"
+patches = ["redox.patch"]
+
+[build]
+template = "custom"
+dependencies = [
+    "glib",
+    "ncursesw",
+]
+script = """
+DYNAMIC_INIT
+
+# Set pkg-config and include paths for glib
+export GLIB_CFLAGS="-I${COOKBOOK_SYSROOT}/usr/include/glib-2.0 -I${COOKBOOK_SYSROOT}/usr/lib/glib-2.0/include"
+export GLIB_LIBS="-lglib-2.0 -lgobject-2.0"
+export CFLAGS="${CFLAGS} -I${COOKBOOK_SYSROOT}/usr/include ${GLIB_CFLAGS}"
+export LIBS="${LIBS} -lintl"
+
+# Tell configure about sysroot headers. MC's ncurses probe resets CPPFLAGS from CFLAGS.
+export CPPFLAGS="-I${COOKBOOK_SYSROOT}/usr/include ${GLIB_CFLAGS}"
+
+# Redox lacks PTY and resolver interfaces expected by optional MC features.
+export ac_cv_func_posix_openpt=no
+export ac_cv_func_getpt=no
+export ac_cv_func_grantpt=no
+export ac_cv_func_unlockpt=no
+export ac_cv_func_ptsname=no
+export ac_cv_func_openpty=no
+export ac_cv_header_arpa_nameser_h=no
+export ac_cv_header_resolv_h=no
+
+# Configure with minimal features for initial port
+COOKBOOK_CONFIGURE_FLAGS+=(
+    --without-x
+    --without-gpm-mouse
+    --without-subshell
+    --disable-vfs-sftp
+    --disable-vfs-ftp
+    --with-screen=ncurses
+)
+
+cookbook_configure
+"""

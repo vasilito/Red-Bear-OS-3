@@ -17,6 +17,9 @@ filesystem_size = 2048
 # Red Bear OS branding (os-release, hostname, motd)
 redbear-release = {}
 
+# Terminal file manager (Midnight Commander port)
+mc = {}
+
 # ext4 filesystem support (our custom port)
 ext4d = {}
 

@@ -12,6 +12,9 @@ filesystem_size = 512
 # Red Bear OS branding
 redbear-release = {}
 
+# Terminal file manager
+mc = {}
+
 # Firmware loading
 firmware-loader = {}
 
