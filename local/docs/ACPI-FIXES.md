@@ -20,15 +20,15 @@ P0 ACPI work is **complete**. Kernel patch is 574 lines, base/acpid patch is 558
 | DSDT (Differentiated System Description Table) | Parsed by `acpi` crate AML interpreter | Working | Platform-specific device config via AML bytecode |
 | SSDT (Secondary System Description Table) | Parsed by `acpi` crate AML interpreter | Working | Secondary AML tables (hotplug, etc.) |
 | FACP/FADT | ✅ Full parse in acpid | ✅ Done | PM registers, reset register, sleep states, `\_S5` |
-| IVRS (AMD-Vi IOMMU) | Removed (broken stub) | Deferred to P2+ | Needs real AMD IOMMU implementation |
-| MCFG (PCI Express config space) | Removed (broken stub) | Deferred to P2+ | Handled by pcid instead |
+| IVRS (AMD-Vi IOMMU) | Removed (broken stub) | Deferred to P5+ | Needs real AMD IOMMU implementation |
+| MCFG (PCI Express config space) | Removed (broken stub) | ✅ Handled by pcid | pcid /config endpoint provides direct PCI config space access |
 | DBG2 (Debug port) | Not implemented | Low | Serial debug port discovery |
 | BGRT (Boot graphics) | Not implemented | Low | Boot logo preservation |
 | FPDT (Firmware perf data) | Not implemented | Low | Boot performance metrics |
 
-IVRS and MCFG were previously listed as "implemented" but the stubs were broken. They have
-been removed from acpid. IVRS needs a real AMD IOMMU driver (P2+ scope). MCFG is better
-handled by pcid discovering PCIe config space directly.
+IVRS was previously listed as "implemented" but the stub was broken. It has been removed
+from acpid. IVRS needs a real AMD IOMMU driver (P5+ scope). MCFG is now handled by
+pcid's /config endpoint (P1 complete) which provides direct PCI config space access.
 
 ## Implemented ACPI Tables
 

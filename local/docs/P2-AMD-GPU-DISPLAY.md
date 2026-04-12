@@ -25,7 +25,7 @@ DRM scheme daemon. Registers scheme:drm/card0.
 - GEM: buffer object create/mmap/close
 - Dispatches to AMD driver backend
 
-### amdgpu source (local/recipes/gpu/amdgpu-source/)
+### amdgpu C port (local/recipes/gpu/amdgpu/source/)
 AMD GPU driver source extracted from Linux 7.0-rc7:
 - drivers/gpu/drm/amd/ — full AMD driver (269k lines)
 - drivers/gpu/drm/ttm/ — TTM memory manager
@@ -38,11 +38,10 @@ Compiles AMD DC display code against linux-kpi headers with -D__redox__:
 - redox_glue.h — type compatibility, function stubs, macro replacements
 - redox_stubs.c — C implementations of Linux kernel API stubs
 - amdgpu_redox_main.c — daemon entry point replacing module_init
-- Makefile.redox — standalone build for development
 
 ## Build Integration
 
-Config: local/config/my-amd-desktop.toml
+Config: config/redbear-desktop.toml (includes desktop.toml + Red Bear GPU packages)
 - Includes redox-drm and amdgpu packages
 - filesystem_size = 8196 (8GB, needs space for firmware blobs)
 
@@ -89,9 +88,12 @@ pcid: local/config/pcid.d/amd_gpu.toml
 |------|---------|
 | local/recipes/gpu/redox-drm/ | DRM scheme daemon |
 | local/recipes/gpu/amdgpu/ | Build recipe + integration glue |
-| local/recipes/gpu/amdgpu-source/ | AMD driver source (from Linux 7.0-rc7) |
-| local/config/my-amd-desktop.toml | Build config |
-| local/config/pcid.d/amd_gpu.toml | PCI auto-detection |
+| local/recipes/gpu/amdgpu/source/ | AMD driver C port source (from Linux 7.0-rc7) |
+| config/redbear-desktop.toml | Build config |
+| local/config/pcid.d/amd_gpu.toml | PCI auto-detection (AMD) |
+| local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs | MSI-X/legacy interrupt abstraction |
+| local/config/pcid.d/intel_gpu.toml | Intel GPU PCI auto-detection |
+| local/patches/base/P0-pcid-config-endpoint.patch | pcid /config file endpoint |
 | local/scripts/build-amd.sh | Build wrapper |
 | local/scripts/test-amd-gpu.sh | Test script |
 
@@ -102,3 +104,25 @@ pcid: local/config/pcid.d/amd_gpu.toml
 | redox-driver-sys | ✅ | MmioRegion, PciDevice, IrqHandle, DmaBuffer |
 | linux-kpi | ✅ | C headers, FFI stubs (kmalloc, mutex, spinlock...) |
 | firmware-loader | ✅ | scheme:firmware daemon |
+
+## P1/P2 Changes Since Initial Implementation
+
+### pcid /config endpoint (T1)
+- Added `Config { addr: PciAddress }` handle to pcid scheme
+- Routes `/scheme/pci/{addr}/config` to raw PCI config space read/write
+- Enables redox-driver-sys PciDevice to access config space for MSI-X, BAR parsing
+
+### MSI-X interrupt support (T2-T4)
+- Created shared `InterruptHandle` enum in `redox-drm/src/drivers/interrupt.rs`
+- Tries MSI-X first (find capability → parse → map table → mask_all → enable → request_vector)
+- Falls back to legacy IRQ if MSI-X unavailable
+- Both AMD and Intel drivers use `InterruptHandle::setup()`
+
+### Dynamic PCI device info (T6)
+- Replaced hardcoded `redox_pci_find_amd_gpu()` stub with `redox_pci_set_device_info()`
+- Rust side passes real PciDeviceInfo (vendor, device, revision, IRQ, BAR0/BAR2) to C via FFI
+- C layer validates the struct is populated before `amdgpu_redox_init()` uses it
+
+### Intel GPU support (T4-T5)
+- Intel driver switched to shared `InterruptHandle` (MSI-X + legacy)
+- Added `local/config/pcid.d/intel_gpu.toml` for auto-detection (vendor 0x8086, class 0x03)

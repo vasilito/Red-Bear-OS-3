@@ -1,6 +1,6 @@
 # RED BEAR OS BUILD SYSTEM — PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-04-11 (AMD-first reassessment)
+**Generated:** 2026-04-12 (P1/P2 complete)
 **Toolchain:** Rust nightly-2025-10-03 (edition 2024)
 **Architecture:** Microkernel OS in Rust, ~38k files, ~294k LoC Rust
 **Target Hardware**: AMD64 bare metal, AMD GPU (RDNA2/RDNA3), then Intel
@@ -62,6 +62,7 @@ redox-master/
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
 | Display server | Orbital: `recipes/gui/orbital/` | Userspace scheme-based display server |
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
+| GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
 | Boot config | `config/*.toml` | TOML hierarchy, include-based |
 
 ## BUILD COMMANDS
@@ -222,15 +223,15 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
 | x2APIC/SMP | ✅ | Multi-core works |
 | IOMMU | ❌ | No AMD-Vi support |
-| AMD GPU | ❌ | Only VESA/GOP, no acceleration |
+| AMD GPU | 🚧 | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 
 ### Phased Roadmap
 
 | Phase | Duration | Delivers |
 |-------|----------|----------|
 | ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Complete — boots on modern AMD bare metal |
-| P1: Driver infrastructure | 8-12 weeks | redox-driver-sys + linux-kpi + firmware-loader |
-| P2: AMD GPU display | 12-16 weeks | redox-drm + AMD DC modesetting → scheme:drm |
+| ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
+| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | ✅ Complete — redox-drm + AMD DC port + Intel driver (compiles, no HW validation) |
 | P3: POSIX + input | 4-8 weeks | relibc gaps + evdevd (parallel with P1/P2) |
 | P4: Wayland compositor | 4-6 weeks | Smithay Redox backends |
 | P5: Full amdgpu | 16-24 weeks | Complete GPU driver via LinuxKPI (parallel) |
@@ -240,16 +241,17 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 
 ### Critical Path
 ```
-P0 (ACPI boot) ✅ DONE → P1 (driver infra) → P2 (AMD display) → P4 (Wayland) → P6 (KDE)
-                                              P3 (POSIX+input) ──┘
-                                              P5 (full amdgpu, parallel)
+P0 (ACPI boot) ✅ DONE → P1 (driver infra) ✅ DONE → P2 (AMD display) ✅ DONE → P4 (Wayland) → P6 (KDE)
+                                                          P3 (POSIX+input) ──────────────┘
+                                                          P5 (full amdgpu, parallel)
 ```
 
-### New Crates Needed
-1. `redox-driver-sys` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci
-2. `linux-kpi` — C headers translating Linux kernel APIs → redox-driver-sys
-3. `redox-drm` — DRM scheme daemon (AMD DC port)
-4. Firmware loader daemon — scheme:firmware for AMD GPU blobs
+### Custom Crates (P1/P2)
+1. `redox-driver-sys` — `local/recipes/drivers/redox-driver-sys/source/` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci
+2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys
+3. `redox-drm` — `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon (AMD + Intel drivers)
+4. `firmware-loader` — `local/recipes/system/firmware-loader/source/` — scheme:firmware for GPU blobs
+5. `amdgpu` — `local/recipes/gpu/amdgpu/source/` — AMD DC C port with linux-kpi compat
 
 All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 

@@ -22,9 +22,10 @@ Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a genera
 
 | Component | Status | Detail |
 |-----------|--------|--------|
-| AMD GPU driver (amdgpu) | 🚧 In progress | LinuxKPI compat layer + AMD DC modesetting |
+| AMD GPU driver (amdgpu) | ✅ Compiles | LinuxKPI compat + AMD DC modesetting + MSI-X (no HW validation) |
+| Intel GPU driver | ✅ Compiles | Display pipe modesetting + MSI-X (no HW validation) |
 | ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
-| ACPI for AMD bare metal | ⚠️ Partial | x2APIC, DMAR, IVRS, MCFG parsing |
+| ACPI for AMD bare metal | ✅ Complete | x2APIC, MADT, FADT shutdown/reboot, power methods |
 | Custom branding | ✅ | Boot identity, hostname, os-release |
 | POSIX gaps (relibc) | 🚧 In progress | eventfd, signalfd, timerfd, open_memstream |
 

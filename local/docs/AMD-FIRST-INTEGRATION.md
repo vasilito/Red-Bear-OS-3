@@ -23,11 +23,11 @@ the LinuxKPI compatibility approach — a clean Rust rewrite would take 5+ years
 |-----------|--------|--------|
 | UEFI boot | ✅ Works | x86_64 UEFI bootloader functional |
 | AMD CPUs | ✅ Works | AMD 32/64-bit supported, Ryzen Threadripper verified |
-| ACPI | ⚠️ Incomplete | Framework Laptop 16 crashes on unimplemented ACPI function |
+| ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | ❌ Missing | No VT-d or AMD-Vi support |
-| AMD GPU | ❌ Missing | Only VESA/GOP framebuffer, no acceleration |
+| AMD GPU | 🚧 In progress | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 | Wi-Fi/BT | ❌ Missing | No wireless support |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |
 
@@ -220,6 +220,57 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 - `modetest -M amd` shows connector info and modes
 - `modetest -M amd -s 0:1920x1080` sets mode and shows test pattern
 - Works on real AMD hardware (not just QEMU)
+
+---
+
+## P1/P2 IMPLEMENTATION STATUS (2026-04-12)
+
+### P1: Driver Infrastructure — COMPLETE (compiles)
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| redox-driver-sys | ✅ | `local/recipes/drivers/redox-driver-sys/source/` — PCI, IRQ (MSI-X), MMIO, DMA |
+| linux-kpi | ✅ | `local/recipes/drivers/linux-kpi/source/` — C compat headers + Rust shims |
+| firmware-loader | ✅ | `local/recipes/system/firmware-loader/source/` — scheme:firmware daemon |
+| pcid /config endpoint | ✅ | `local/patches/base/P0-pcid-config-endpoint.patch` — raw PCI config space via scheme:pci |
+| MSI-X interrupt support | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs` — shared MSI-X/legacy abstraction |
+| Intel pcid-spawner config | ✅ | `local/config/pcid.d/intel_gpu.toml` — auto-detect Intel GPUs |
+
+### P2: AMD GPU Display — COMPLETE (compiles, no HW validation)
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| redox-drm daemon | ✅ | `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon |
+| AMD driver (Rust) | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs` |
+| AMD DisplayCore (FFI) | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/display.rs` |
+| AMD PCI stubs (dynamic) | ✅ | `local/recipes/gpu/amdgpu/source/redox_stubs.c` — populated from Rust via FFI |
+| AMD DC init (C) | ✅ | `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` — modesetting, connector detect |
+| AMD glue headers | ✅ | `local/recipes/gpu/amdgpu/source/redox_glue.h` — Linux compat surface |
+| GTT manager | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/gtt.rs` |
+| Ring buffer | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/ring.rs` |
+| GEM buffer mgmt | ✅ | `local/recipes/gpu/redox-drm/source/src/gem.rs` |
+| DMA-BUF | ✅ | `local/recipes/gpu/redox-drm/source/src/dmabuf.rs` |
+| Intel driver | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs` + `display.rs` |
+
+### Build Verification
+
+All crates compile with `cargo check` (0 errors):
+- `redox-driver-sys` ✅
+- `linux-kpi` ✅
+- `redox-drm` ✅
+- `firmware-loader` ✅
+- `evdevd` ✅
+- `udev-shim` ✅
+- `ext4d` ✅
+
+### Next Steps (P2 → P3)
+
+P2 code compiles but has NOT been validated on real hardware. Remaining:
+1. Flash Red Bear OS image to USB, boot on AMD hardware with RDNA2/RDNA3 GPU
+2. Verify pcid exposes `/scheme/pci/{addr}/config` and MSI-X vectors allocate
+3. Verify redox-drm detects GPU, maps MMIO, initializes DC
+4. Test connector detection and modesetting via scheme:drm
+5. Begin P3 (POSIX gaps + evdevd) in parallel with hardware validation
 
 ---
 

@@ -71,13 +71,13 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── core/              ← ext4d (ext4 filesystem scheme daemon + mkfs tool)
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi
-│   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers)
+│   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
 │   │   ├── system/            ← evdevd, udev-shim, firmware-loader, redbear-meta
 │   │   ├── wayland/           ← Wayland compositor (Phase 4)
 │   │   └── kde/               ← KDE Plasma (Phase 6)
 │   ├── patches/
 │   │   ├── kernel/            ← Kernel patches (ACPI, x2APIC)
-│   │   ├── base/              ← Base patches (acpid fixes, power methods)
+│   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
 │   │   ├── relibc/            ← relibc patches (POSIX: eventfd, signalfd, timerfd)
 │   │   ├── bootloader/        ← Bootloader patches
 │   │   └── installer/         ← Installer patches (ext4 filesystem support)
@@ -224,7 +224,7 @@ local/Assets/
 | loading background.png | Boot splash | Convert to framebuffer-compatible format, display before orbital starts |
 | loading background.png | Login screen | Set as orblogin/orbital background |
 
-**Current status**: Assets are committed to git. Not yet integrated into the build — requires bootloader and display server changes (Phase 2+).
+**Current status**: Assets are committed to git. Not yet integrated into the build — requires bootloader and display server integration (P2 hardware validation).
 
 ## ANTI-PATTERNS
 
