@@ -337,3 +337,44 @@ index e17c4eeb..bfcc9a80 100644
              }
          } else {
              unsafe {
+
+diff --git a/src/acpi/sdt.rs b/src/acpi/sdt.rs
+index 83ff67da..f49b6212 100644
+--- a/src/acpi/sdt.rs
++++ b/src/acpi/sdt.rs
+@@ -24,4 +24,15 @@
+         let header_size = size_of::<Sdt>();
+         total_size.saturating_sub(header_size)
+     }
++
++    /// Validate that the sum of all bytes in this table is zero (ACPI spec requirement).
++    /// Returns false if the length is too small or the checksum doesn't match.
++    pub fn validate_checksum(&self) -> bool {
++        let len = self.length as usize;
++        if len < size_of::<Sdt>() {
++            return false;
++        }
++        let bytes = unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, len) };
++        bytes.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) == 0
++    }
+ }
+diff --git a/src/acpi/mod.rs b/src/acpi/mod.rs
+index 59e35265..80a40a01 100644
+--- a/src/acpi/mod.rs
++++ b/src/acpi/mod.rs
+@@ -137,6 +137,15 @@
+ 
+             for sdt_address in rxsdt.iter() {
+                 let sdt = &*(RmmA::phys_to_virt(sdt_address).data() as *const Sdt);
++
++                if !sdt.validate_checksum() {
++                    let sig = &sdt.signature;
++                    warn!(
++                        "ACPI table {:?} at {:#x} has invalid checksum",
++                        sig,
++                        sdt_address.data()
++                    );
++                }
+ 
+                 let signature = get_sdt_signature(sdt);
+                 if let Some(ref mut ptrs) = *(SDT_POINTERS.write()) {
