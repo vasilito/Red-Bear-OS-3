@@ -25,15 +25,31 @@ recipes/**/source.tar.tmp
 target
 wget-log
 
-# Explicitly track our source code (safety net)
-!local/recipes/**/source/
-!local/recipes/**/source/**
+# Explicitly track our OWN source code (recipes with path="source" where we wrote the code)
+# Only recipes under these categories contain our hand-written source:
+!local/recipes/branding/**/source/
+!local/recipes/branding/**/source/**
+!local/recipes/core/**/source/
+!local/recipes/core/**/source/**
+!local/recipes/drivers/**/source/
+!local/recipes/drivers/**/source/**
+!local/recipes/gpu/**/source/
+!local/recipes/gpu/**/source/**
+!local/recipes/system/**/source/
+!local/recipes/system/**/source/**
+!local/recipes/wayland/**/source/
+!local/recipes/wayland/**/source/**
+!local/recipes/kde/**/source/
+!local/recipes/kde/**/source/**
 
 # But not fetched tarballs or build artifacts inside local/
 local/recipes/**/source.tar
 local/recipes/**/source.tar.tmp
 local/recipes/**/target/
 local/recipes/**/build/
+
+# Fetched vendor source trees in local/recipes (not our code, just ports)
+local/recipes/tui/*/source/
 
 # Vendor source trees (fetched, not our code)
 **/amdgpu-source/
