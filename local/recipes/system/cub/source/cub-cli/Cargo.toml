@@ -1,0 +1,18 @@
+[package]
+name = "cub-cli"
+default-run = "cub"
+description = "Red Bear OS Package Builder CLI"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cub"
+path = "src/main.rs"
+
+[dependencies]
+cub-lib = { path = "../cub-lib" }
+redox-pkg = { path = "../../../../../../recipes/core/pkgutils/source/pkg-lib", default-features = false, features = ["indicatif"] }
+clap = { workspace = true }
+termion = "4.0.6"

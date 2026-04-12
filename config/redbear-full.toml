@@ -30,6 +30,9 @@ firmware-loader = {}
 evdevd = {}
 udev-shim = {}
 
+# Package builder (cub -S/-B/-G CLI)
+cub = {}
+
 # RBOS meta-package (dependencies, default config)
 redbear-meta = {}
 

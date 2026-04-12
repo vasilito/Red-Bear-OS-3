@@ -154,6 +154,7 @@ symlink "../../local/recipes/system/redbear-meta" "recipes/system/redbear-meta"
 symlink "../../local/recipes/system/udev-shim" "recipes/system/udev-shim"
 symlink "../../local/recipes/core/ext4d" "recipes/core/ext4d"
 symlink "../../local/recipes/tui/mc" "recipes/tui/mc"
+symlink "../../local/recipes/system/cub" "recipes/system/cub"
 status "Custom recipe symlinks ready"
 echo ""
 

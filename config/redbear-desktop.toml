@@ -15,3 +15,6 @@ redbear-release = {}
 
 # Terminal file manager (Midnight Commander port)
 mc = {}
+
+# Package builder (cub -S/-B/-G CLI)
+cub = {}

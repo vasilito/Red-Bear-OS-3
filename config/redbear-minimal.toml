@@ -15,6 +15,9 @@ redbear-release = {}
 # Terminal file manager
 mc = {}
 
+# Package builder
+cub = {}
+
 # Firmware loading
 firmware-loader = {}
 

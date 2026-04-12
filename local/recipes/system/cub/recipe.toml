@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+cargopath = "cub-cli"
+
+[package]
+dependencies = ["pkgutils"]
