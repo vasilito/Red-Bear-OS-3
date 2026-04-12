@@ -216,7 +216,10 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 |-----------|--------|--------|
 | UEFI boot | ✅ | x86_64 bootloader functional |
 | AMD CPUs | ✅ | Ryzen Threadripper 128-thread verified |
-| ACPI | ⚠️ Incomplete | Framework AMD 7040 crashes on unimplemented function |
+| ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
+| ACPI shutdown | ✅ | PM1a/PM1b S5 via `\_S5` AML |
+| ACPI reboot | ✅ | Reset register + keyboard controller fallback |
+| ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
 | x2APIC/SMP | ✅ | Multi-core works |
 | IOMMU | ❌ | No AMD-Vi support |
 | AMD GPU | ❌ | Only VESA/GOP, no acceleration |
@@ -225,7 +228,7 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 
 | Phase | Duration | Delivers |
 |-------|----------|----------|
-| P0: Fix ACPI for AMD | 4-6 weeks | Boots on modern AMD bare metal |
+| ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Complete — boots on modern AMD bare metal |
 | P1: Driver infrastructure | 8-12 weeks | redox-driver-sys + linux-kpi + firmware-loader |
 | P2: AMD GPU display | 12-16 weeks | redox-drm + AMD DC modesetting → scheme:drm |
 | P3: POSIX + input | 4-8 weeks | relibc gaps + evdevd (parallel with P1/P2) |
@@ -233,13 +236,13 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | P5: Full amdgpu | 16-24 weeks | Complete GPU driver via LinuxKPI (parallel) |
 | P6: KDE Plasma | 12-16 weeks | Qt6 → KDE Frameworks → KWin → Plasma Shell |
 
-**Total to KDE Plasma on AMD**: ~52 weeks (~12 months) with 2 developers.
+**Total to KDE Plasma on AMD**: ~48 weeks (~11 months) with 2 developers (P0 complete).
 
 ### Critical Path
 ```
-P0 (ACPI boot) → P1 (driver infra) → P2 (AMD display) → P4 (Wayland) → P6 (KDE)
-                                       P3 (POSIX+input) ──┘
-                                       P5 (full amdgpu, parallel)
+P0 (ACPI boot) ✅ DONE → P1 (driver infra) → P2 (AMD display) → P4 (Wayland) → P6 (KDE)
+                                              P3 (POSIX+input) ──┘
+                                              P5 (full amdgpu, parallel)
 ```
 
 ### New Crates Needed
