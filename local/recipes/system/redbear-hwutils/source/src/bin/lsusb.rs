@@ -1,8 +1,10 @@
+use std::fmt;
 use std::fs;
 use std::process;
+use std::str::FromStr;
 
 use redbear_hwutils::{describe_usb_device, parse_args};
-use xhcid_interface::{PortId, PortState, XhciClientHandle};
+use serde::Deserialize;
 
 const USAGE: &str = "Usage: lsusb\nList USB devices exposed by native usb.* schemes.";
 
@@ -25,6 +27,125 @@ struct UsbPortStateSummary {
     controller: String,
     port: PortId,
     state: PortState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct PortId {
+    root_hub_port_num: u8,
+    route_string: u32,
+}
+
+impl fmt::Display for PortId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.root_hub_port_num)?;
+        let mut route_string = self.route_string;
+        while route_string != 0 {
+            write!(f, ".{}", route_string & 0xF)?;
+            route_string >>= 4;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for PortId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut root_hub_port_num = 0;
+        let mut route_string = 0;
+
+        for (i, part) in s.split('.').enumerate() {
+            let value: u8 = part
+                .parse()
+                .map_err(|err| format!("failed to parse {:?}: {}", part, err))?;
+
+            if value == 0 {
+                return Err("zero is not a valid port ID component".to_string());
+            }
+
+            if i == 0 {
+                root_hub_port_num = value;
+                continue;
+            }
+
+            let depth = i - 1;
+            if depth >= 5 {
+                return Err("too many route string components".to_string());
+            }
+            if value & 0xF0 != 0 {
+                return Err(format!(
+                    "value {:?} is too large for route string component",
+                    value
+                ));
+            }
+            route_string |= u32::from(value) << (depth * 4);
+        }
+
+        if root_hub_port_num == 0 {
+            return Err("missing root hub port number".to_string());
+        }
+
+        Ok(Self {
+            root_hub_port_num,
+            route_string,
+        })
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PortState {
+    EnabledOrDisabled,
+    Default,
+    Addressed,
+    Configured,
+}
+
+impl PortState {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::EnabledOrDisabled => "enabled_or_disabled",
+            Self::Default => "default",
+            Self::Addressed => "addressed",
+            Self::Configured => "configured",
+        }
+    }
+}
+
+impl FromStr for PortState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "enabled_or_disabled" | "enabled/disabled" => Ok(Self::EnabledOrDisabled),
+            "default" => Ok(Self::Default),
+            "addressed" => Ok(Self::Addressed),
+            "configured" => Ok(Self::Configured),
+            _ => Err("read reserved port state".to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DevDesc {
+    usb: u16,
+    class: u8,
+    sub_class: u8,
+    protocol: u8,
+    vendor: u16,
+    product: u16,
+    manufacturer_str: Option<String>,
+    product_str: Option<String>,
+}
+
+impl DevDesc {
+    fn major_version(&self) -> u8 {
+        ((self.usb & 0xFF00) >> 8) as u8
+    }
+
+    fn minor_version(&self) -> u8 {
+        self.usb as u8
+    }
 }
 
 fn main() {
@@ -125,14 +246,9 @@ fn collect_usb_state() -> Result<(Vec<UsbDeviceSummary>, Vec<UsbPortStateSummary
                 continue;
             };
 
-            let handle = match XhciClientHandle::new(controller.to_string(), port) {
-                Ok(handle) => handle,
-                Err(_) => continue,
-            };
+            let state = read_port_state(controller, port).ok();
 
-            let state = handle.port_state().ok();
-
-            match handle.get_standard_descs() {
+            match read_standard_descs(controller, port) {
                 Ok(descriptors) => {
                     devices.push(UsbDeviceSummary {
                         controller: controller.to_string(),
@@ -166,4 +282,18 @@ fn collect_usb_state() -> Result<(Vec<UsbDeviceSummary>, Vec<UsbPortStateSummary
     }
 
     Ok((devices, fallback_ports))
+}
+
+fn read_port_state(controller: &str, port: PortId) -> Result<PortState, String> {
+    let state_path = format!("/scheme/{controller}/port{port}/state");
+    let raw = fs::read_to_string(&state_path)
+        .map_err(|err| format!("failed to read {state_path}: {err}"))?;
+    raw.parse()
+}
+
+fn read_standard_descs(controller: &str, port: PortId) -> Result<DevDesc, String> {
+    let descriptor_path = format!("/scheme/{controller}/port{port}/descriptors");
+    let raw = fs::read(&descriptor_path)
+        .map_err(|err| format!("failed to read {descriptor_path}: {err}"))?;
+    serde_json::from_slice(&raw).map_err(|err| format!("failed to parse {descriptor_path}: {err}"))
 }

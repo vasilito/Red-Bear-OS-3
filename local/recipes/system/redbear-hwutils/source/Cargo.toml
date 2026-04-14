@@ -12,4 +12,5 @@ name = "lsusb"
 path = "src/bin/lsusb.rs"
 
 [dependencies]
-xhcid = { path = "../../../../../recipes/core/base/source/drivers/usb/xhcid" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
