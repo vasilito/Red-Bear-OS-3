@@ -111,7 +111,13 @@ All drivers are **userspace daemons** that access hardware through:
 
 **Storage**: ided (IDE), ahcid (SATA), nvmed (NVMe), usbscsid (USB SCSI)
 
-**Network**: e1000d (Intel GigE), rtl8168d (Realtek), ixgbed (Intel 10G)
+**Network**: e1000d (Intel GigE), rtl8168d (Realtek 8168/8169/8125 path), ixgbed (Intel 10G), virtio-netd (VirtIO)
+
+The native wired stack in this tree is userspace end to end: `pcid-spawner` autoloads NIC daemons,
+drivers expose `network.*` schemes through `driver-network`, `smolnetd` provides the `ip`/`tcp`/
+`udp`/`icmp`/`netcfg` schemes, and `dhcpd` plus config files under `/etc/net/` supply runtime
+addressing. Red Bear additionally ships a small native `netctl` compatibility command for profile-
+driven wired setup.
 
 **Audio**: ac97d, ihdad (Intel HD Audio), sb16d (Sound Blaster)
 
@@ -179,17 +185,19 @@ Architectures: i586, x86_64, aarch64, riscv64gc.
 
 ### Known POSIX Gaps (blocking Wayland)
 
-These are the specific missing features found in libwayland's `redox.patch`:
+These were the specific missing features originally identified from libwayland's `redox.patch`.
+Today, most exist in-tree in relibc, but downstream Wayland consumers still carry compatibility
+patches, so this table is a current-state summary rather than an untouched historical claim.
 
 | Missing API | Used By | Status |
 |-------------|---------|--------|
-| `signalfd` / `SFD_CLOEXEC` | libwayland event loop | Not implemented |
-| `timerfd` / `TFD_CLOEXEC` / `TFD_TIMER_ABSTIME` | libwayland timers | Not implemented |
-| `eventfd` / `EFD_CLOEXEC` | libwayland server | Not implemented |
-| `F_DUPFD_CLOEXEC` | libwayland fd management | Not implemented |
-| `MSG_CMSG_CLOEXEC` | libwayland socket recv | Not implemented |
-| `MSG_NOSIGNAL` | libwayland connection | Not implemented |
-| `open_memstream` | libdrm, libwayland | Not implemented |
+| `signalfd` / `SFD_CLOEXEC` | libwayland event loop | Implemented in-tree; downstream libwayland still patched around usage |
+| `timerfd` / `TFD_CLOEXEC` / `TFD_TIMER_ABSTIME` | libwayland timers | Implemented in-tree; downstream libwayland still patched around usage |
+| `eventfd` / `EFD_CLOEXEC` | libwayland server | Implemented in-tree; downstream libwayland still patched around usage |
+| `F_DUPFD_CLOEXEC` | libwayland fd management | Implemented in-tree |
+| `MSG_CMSG_CLOEXEC` | libwayland socket recv | Implemented in-tree |
+| `MSG_NOSIGNAL` | libwayland connection | Implemented in-tree; downstream libwayland still omits flag |
+| `open_memstream` | libdrm, libwayland | Implemented in-tree; downstream libwayland still bypasses usage |
 
 ## 6. Build System (This Repository)
 
@@ -257,8 +265,8 @@ Config: `config/wayland.toml`
 
 ### Key Blockers for Wayland
 
-1. **relibc POSIX gaps** (signalfd, timerfd, eventfd, open_memstream)
+1. **Downstream Wayland compatibility patches remain** (`libwayland/redox.patch` still bypasses some interfaces even though relibc-side APIs now exist in-tree)
 2. **No GPU acceleration** (only software rendering)
-3. **No libinput** (requires evdev + udev)
-4. **No DRM/KMS** (libdrm has all GPU drivers disabled)
-5. **cosmic-comp**: missing keyboard input, performance issues
+3. **Input/runtime integration remains incomplete** (`evdevd`, `udev-shim`, and libinput exist, but compositor input is not fully validated)
+4. **DRM/KMS runtime validation remains incomplete** (`redox-drm` exists in-tree, but full Wayland/driver runtime integration is still open)
+5. **cosmic-comp**: keyboard/input integration and performance issues remain

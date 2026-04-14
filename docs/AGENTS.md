@@ -1,7 +1,8 @@
 # DOCS — ARCHITECTURE & INTEGRATION DOCUMENTATION
 
-7 comprehensive technical documents covering Redox architecture, gap analysis, and integration paths.
-For AMD-first integration, see `local/docs/AMD-FIRST-INTEGRATION.md`.
+7 technical documents covering Redox architecture, gap analysis, and integration paths.
+Some are now historical roadmap documents; check each file's top-level status note before treating it as current state.
+For current Red Bear OS status, also read `local/docs/AMD-FIRST-INTEGRATION.md` and `local/docs/QT6-PORT-STATUS.md`.
 
 ## STRUCTURE
 
@@ -22,8 +23,8 @@ docs/
 |----------|----------|-------------|
 | How does the kernel work? | 01 | §1 Microkernel, §2 Scheme System |
 | How do drivers access hardware? | 01 | §3 Driver Model, §6 Build System |
-| What's missing for Wayland? | 02 | Layer 1-4 gap matrix |
-| How to fix POSIX gaps? | 03 | §1 (signalfd, timerfd, eventfd implementations) |
+| What's missing for Wayland? | 02 | Status correction + ordered remaining gaps |
+| How to fix POSIX gaps? | 03 | Status correction + historical §1 notes |
 | How to build evdevd? | 03 | §2 (evdev input daemon architecture) |
 | How to build DRM/KMS? | 03 | §3 (drmd daemon, Intel driver) |
 | How to port a Wayland compositor? | 03 | §4 (Smithay Redox backends) |
@@ -38,7 +39,7 @@ docs/
 
 ## KEY NUMBERS
 
-- **POSIX gaps**: 7 APIs blocking libwayland (signalfd, timerfd, eventfd, F_DUPFD_CLOEXEC, MSG_CMSG_CLOEXEC, MSG_NOSIGNAL, open_memstream)
+- **POSIX gap story**: APIs now largely exist in-tree, but downstream Wayland consumers still carry compatibility patches
 - **Wayland recipes**: 21 in `recipes/wip/wayland/`
 - **KDE apps**: 9 WIP recipes in `recipes/wip/kde/`
 - **To Wayland compositor**: ~26 weeks (2 developers)

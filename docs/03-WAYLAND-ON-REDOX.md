@@ -8,11 +8,31 @@ Get a working Wayland compositor on Redox OS that can run KDE Plasma application
 
 - `config/wayland.toml` exists — launches `cosmic-comp` or `smallvil` via `orbital-wayland`
 - 21 Wayland recipes in `recipes/wip/wayland/` — most untested
-- `libwayland` 1.24.0 builds with `redox.patch` that stubs out 7 POSIX APIs
+- `libwayland` 1.24.0 now rebuilds with a much smaller `redox.patch`; the P3 POSIX path (`signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, `MSG_NOSIGNAL`) is back on the native path, and the remaining patch is down to Redox-specific build quirks
 - `smallvil` (Smithay) runs as basic compositor, performance poor
-- `cosmic-comp` builds but has no keyboard input (missing libinput)
+- `cosmic-comp` builds but still has no working keyboard input; the remaining issue is runtime/input integration, not simply the absence of a libinput recipe
 - `libdrm` builds with all GPU drivers disabled
 - Mesa uses OSMesa (software rendering only)
+- **evdevd** (`scheme:evdev`) provides Linux-compatible `/dev/input/eventX` interface
+- **udev-shim** (`scheme:udev`) provides udev-like device enumeration
+- **seatd** now builds for Redox and is wired into the KDE runtime config, but DRM-lease/runtime validation is still open
+- **redox-drm** (`scheme:drm`) provides DRM/KMS with AMD + Intel GPU support
+
+---
+
+## Status Correction (2026-04-14)
+
+This document is partly historical. The repo already contains substantial P3/P4 work in-tree,
+but the downstream Wayland stack is still not free of compatibility patches.
+
+What is actually true today:
+- relibc now contains in-tree implementations for `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, and `MSG_NOSIGNAL` support paths
+- the relibc module wiring plus the consumer-visible `signalfd` / `timerfd` / `eventfd` / `open_memstream` export path were fixed in this repo pass
+- `libwayland/redox.patch` has been reduced to residual Redox-specific build tweaks (`wayland-scanner` detection and `F_DUPFD_CLOEXEC` guard), so the old POSIX bypasses are no longer the main blocker
+- `evdevd`, `udev-shim`, and `redox-drm` exist in-tree, but full compositor/runtime validation remains open
+- `seatd` now also builds in-tree for Redox and is started by the KDE runtime config, but has not yet been validated end-to-end with the compositor/DRM path
+
+Read the step-by-step sections below as design history plus implementation notes, not as an exact current-state checklist.
 
 ---
 
@@ -20,8 +40,10 @@ Get a working Wayland compositor on Redox OS that can run KDE Plasma application
 
 ### What to implement
 
-These are the 7 APIs that libwayland's `redox.patch` removes. Each must be added
-to `relibc` (repo: https://gitlab.redox-os.org/redox-os/relibc).
+Historically these were the 7 APIs that `libwayland/redox.patch` worked around. They now exist
+in-tree in relibc, and this repo pass restored the full build-side path for `signalfd`, `timerfd`,
+`eventfd`, `open_memstream`, and the related message flags. The remaining work is no longer basic
+POSIX availability, but runtime validation of the full Wayland stack.
 
 #### 1.1 `signalfd` / `signalfd4`
 

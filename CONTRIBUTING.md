@@ -104,6 +104,13 @@ Since **Rust** is a relatively small and new language compared to others like C 
 
 Please follow our [Git style](https://doc.redox-os.org/book/creating-proper-pull-requests.html) for pull requests.
 
+For user-visible work, keep the root [`CHANGELOG.md`](CHANGELOG.md) current and refresh the
+README "What's New" section with the latest highlights so GitHub visitors can immediately see what
+changed.
+
+When a commit changes the visible system surface, supported hardware, build flow, shipped configs,
+or key docs, add a short user-facing changelog note in the same change.
+
 ## GitLab
 
 ### Identity

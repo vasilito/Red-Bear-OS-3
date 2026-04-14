@@ -232,18 +232,17 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Complete — boots on modern AMD bare metal |
 | ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
 | ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | ✅ Complete — redox-drm + AMD DC port + Intel driver (compiles, no HW validation) |
-| P3: POSIX + input | 4-8 weeks | relibc gaps + evdevd (parallel with P1/P2) |
-| P4: Wayland compositor | 4-6 weeks | Smithay Redox backends |
-| P5: Full amdgpu | 16-24 weeks | Complete GPU driver via LinuxKPI (parallel) |
-| P6: KDE Plasma | 12-16 weeks | Qt6 → KDE Frameworks → KWin → Plasma Shell |
+| ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — relibc gaps exported to downstream consumers, evdevd/udev-shim/libevdev/libinput/D-Bus build; runtime validation still open |
+| P4: Wayland compositor | 4-6 weeks | 🚧 Partial — libwayland/Qt6 Wayland/Mesa EGL+GBM+GLES2/Qt6 OpenGL now build, but compositor/runtime validation is still incomplete |
+| ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 DML2 config enabled, 63 DML source files in build, TTM compiled, libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
+| P6: KDE Plasma | 12-16 weeks | 🚧 In progress — Qt6 ✅, KF6 32/32 ✅, Mesa EGL/GBM/GLES2 ✅, kf6-kcmutils ✅, kf6-kwayland ✅, kdecoration ✅, KWin 🔄 building |
 
-**Total to KDE Plasma on AMD**: ~48 weeks (~11 months) with 2 developers (P0 complete).
+**Total to KDE Plasma on AMD**: ~48 weeks (~11 months) with 2 developers (P0-P2 complete; P3/P4 build-side substantially advanced, runtime still open).
 
 ### Critical Path
 ```
-P0 (ACPI boot) ✅ DONE → P1 (driver infra) ✅ DONE → P2 (AMD display) ✅ DONE → P4 (Wayland) → P6 (KDE)
-                                                          P3 (POSIX+input) ──────────────┘
-                                                          P5 (full amdgpu, parallel)
+P0 (ACPI boot) ✅ → P1 (driver infra) ✅ → P2 (AMD display) ✅ → P3 (POSIX+input, build-side) 🚧 → P4 (Wayland runtime) 🚧 → P6 (KDE)
+                                                                                    P5 (full amdgpu, parallel)
 ```
 
 ### Custom Crates (P1/P2)

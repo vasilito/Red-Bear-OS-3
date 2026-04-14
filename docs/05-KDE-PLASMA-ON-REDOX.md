@@ -1,5 +1,30 @@
 # 05 — KDE Plasma on Redox: Concrete Implementation Path
 
+> **Status note (2026-04-14):** This file mixes current status with older forward-looking porting
+> instructions. `config/redbear-kde.toml` already exists, the Qt6 stack is built, many KF6 recipes
+> exist under `local/recipes/kde/`, and the current gap is no longer "start KDE from scratch".
+> The real frontier is distinguishing true builds from shimmed/stubbed packages and then closing
+> the KWin / Plasma runtime path.
+
+## Current State Snapshot
+
+| Area | Current repo state |
+|---|---|
+| Qt6 | Built in-tree (`qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland`) |
+| KF6 | Mixed: many real builds, some still partial |
+| `config/redbear-kde.toml` | Present with KDE session launcher |
+| `kwin`, `plasma-workspace`, `plasma-desktop` | Recipes exist, still marked TODO |
+| `kirigami` | Stub-only package for dependency resolution |
+| `kf6-kio` | Heavy shim-based build recipe |
+| `kf6-kcmutils` | Stripped widget-only build recipe |
+| `libxcvt` | Now builds as a real package; no longer needs to stay in the KWin stub bucket |
+
+### What remains true from this document
+
+- KWin / Plasma assembly is still the main functional blocker.
+- Mesa/GBM/libinput/seatd integration still matters for a real session.
+- QML/QtQuick-heavy components remain riskier than the already-built widget/core stack.
+
 ## Goal
 
 Run KDE Plasma 6 desktop environment on Redox OS, starting with a minimal viable
@@ -8,15 +33,45 @@ desktop and expanding to full Plasma.
 ## Prerequisites (from docs 03 and 04)
 
 Before KDE work begins, these MUST be complete:
-- [x] relibc POSIX gaps fixed (signalfd, timerfd, eventfd, etc.)
-- [x] evdevd + libinput working
-- [x] DRM/KMS scheme working (at least Intel modesetting)
-- [x] Wayland compositor running (Smithay/smallvil)
-- [x] Mesa EGL + software OpenGL (already ported)
+- [~] relibc POSIX APIs now reach `libwayland` on the native build path, but runtime validation of the full Wayland base still blocks calling the prerequisite fully complete in practice
+- [x] evdevd compiled, libevdev built, libinput 1.30.2 built (comprehensive redox.patch)
+- [x] DRM/KMS scheme daemon compiled (redox-drm: 15+ ioctls, AMD+Intel drivers)
+- [x] Wayland: libwayland + wayland-protocols built
+- [x] Mesa: OSMesa + LLVMpipe software rendering (EGL platform_redox.c exists, Orbital-only)
+- [x] D-Bus 1.16.2 built for Redox
+- [x] Qt6: qtbase (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
+- [ ] Mesa EGL+GBM with LLVMpipe (platform_redox.c needs GBM extension — planned)
+- [ ] libdrm amdgpu+intel enablement (in progress)
 
 ## Three-Phase KDE Implementation
 
-### Phase KDE-A: Qt Foundation (2-3 months)
+### Phase KDE-A: Qt Foundation — ✅ COMPLETE
+
+Qt6 core stack fully built for x86_64-unknown-redox:
+
+| Module | Version | Status | Libraries |
+|--------|---------|--------|-----------|
+| qtbase | 6.11.0 | ✅ | Core, Gui, Widgets, Concurrent, Xml, DBus, WaylandClient |
+| qtdeclarative | 6.11.0 | ✅ | QML, QtQuick (JIT disabled) |
+| qtsvg | 6.11.0 | ✅ | Svg, SvgWidgets |
+| qtwayland | 6.11.0 | ✅ | WaylandClient (compositor disabled) |
+
+### Phase KDE-B: KF6 Frameworks — 🔄 IN PROGRESS (21/30+ built)
+
+Built: ecm, kcoreaddons, kwidgetsaddons, kconfig, ki18n, kcodecs, kguiaddons,
+kcolorscheme, kauth, kwindowsystem, knotifications, kjobwidgets, kconfigwidgets,
+karchive, sonnet, kcompletion, kitemviews, kitemmodels, solid
+
+Building: kdbusaddons, kcrash
+
+Recipes ready: kiconthemes, kservice, kpackage, kglobalaccel, kxmlgui, ktextwidgets,
+kio, kbookmarks, kdeclarative, kcmutils, kirigami, plasma-framework
+
+### Phase KDE-C: KDE Plasma Assembly — 📋 PLANNED
+
+Recipes created: kwin, plasma-workspace, plasma-desktop
+Config: config/redbear-kde.toml
+Blocked on: KF6 completion, Mesa EGL/GBM, libdrm amdgpu+intel
 
 **Goal**: A Qt application displays a window on the Redox Wayland compositor.
 

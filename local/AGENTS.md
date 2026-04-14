@@ -72,7 +72,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
-│   │   ├── system/            ← evdevd, udev-shim, firmware-loader, redbear-meta
+│   │   ├── system/            ← cub, evdevd, udev-shim, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-meta
 │   │   ├── wayland/           ← Wayland compositor (Phase 4)
 │   │   └── kde/               ← KDE Plasma (Phase 6)
 │   ├── patches/
@@ -249,15 +249,22 @@ redbear-live.toml
         │           └── minimal.toml
         │                 └── base.toml
         └── [packages] redbear-release, redox-driver-sys, linux-kpi,
-                       firmware-loader, redox-drm, evdevd, udev-shim,
-                       redbear-meta
+                       firmware-loader, redox-drm, cub, redbear-hwutils,
+                       redbear-netctl, evdevd, udev-shim, redbear-meta
         NOTE: ext4d is inherited from desktop.toml (mainline package)
+        NOTE: cub is included via redbear-desktop.toml and depends on the custom
+              recipe symlink (recipes/system/cub → local/recipes/system/cub) being
+              created by integrate-redbear.sh or apply-patches.sh before building.
+        NOTE: redbear-netctl provides a Redox-native `netctl` command with profiles
+              in /etc/netctl and a boot-time `netctl --boot` service.
+        NOTE: redbear-info is the canonical runtime integration report. Keep it updated when
+              Red Bear adds new tools, schemes, services, or hardware integration paths.
 
 redbear-minimal.toml
   └── minimal.toml (mainline)
         └── base.toml
-  └── [packages] redbear-release, redox-driver-sys, firmware-loader,
-                 evdevd, udev-shim
+  └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
+                 redox-driver-sys, firmware-loader, evdevd, udev-shim
 ```
 
 Config comparison:

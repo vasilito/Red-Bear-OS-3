@@ -3,6 +3,11 @@
 Technical documentation for forking Redox OS to include Wayland protocol support,
 KDE Plasma desktop environment, and a Linux driver compatibility layer.
 
+> **Status note (2026-04-14):** several documents below are historical implementation plans whose
+> original "missing / not started" language is now stale. The repo already contains substantial
+> Red Bear OS work under `local/`; use each document's top-level status notes together with
+> `local/docs/AMD-FIRST-INTEGRATION.md` and `local/docs/QT6-PORT-STATUS.md` for current state.
+
 ## Documents
 
 | # | Document | Description |
@@ -14,16 +19,19 @@ KDE Plasma desktop environment, and a Linux driver compatibility layer.
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Feasibility study and implementation plan for KDE Plasma |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
 
-## Current State Summary (as of Redox 0.9.0)
+## Current State Summary (as of 2026-04-14)
 
 - **Display server**: Orbital (custom, scheme-based) — works
-- **Wayland**: Experimental, WIP. Smallvil (Smithay) and cosmic-comp partially working.
-  libwayland patched with shimmed-out `signalfd`, `timerfd`, `eventfd`.
-- **X11**: Working via X.org dummy driver inside Orbital.
-- **Mesa**: Software-rendered only (LLVMpipe/OSMesa). No GPU acceleration.
-- **GPU drivers**: VESA framebuffer + VirtIO GPU only. Experimental Intel modesetting.
-- **KDE**: 19 app recipes in WIP, no KDE Plasma infrastructure.
-- **Linux driver compat**: None. Redox explicitly chose source-level porting over binary compat.
+- **Wayland**: libwayland + wayland-protocols built. Smallvil/cosmic-comp remain partial runtime experiments.
+- **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
+- **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
+- **KF6 Frameworks**: mixed state — many real builds, but some packages are still shimmed or stubbed.
+- **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
+- **GPU drivers**: redox-drm scheme daemon and AMD+Intel compile-oriented paths exist; hardware validation is still pending.
+- **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
+- **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, and RTL8125 is wired into the existing Realtek autoload path
+- **KDE**: `redbear-kde.toml` exists and the recipe tree is populated, but the runtime stack is still incomplete.
+- **Linux driver compat**: linux-kpi (31 C headers + 13 Rust FFI), redox-driver-sys, firmware-loader all compile.
 
 ## Quick Start
 

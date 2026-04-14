@@ -1,5 +1,23 @@
 # 04 — Linux Driver Compatibility Layer: Concrete Implementation Path
 
+> **Status note (2026-04-14):** This file is now partly historical design material. The repository
+> already contains `local/recipes/drivers/redox-driver-sys/`, `local/recipes/drivers/linux-kpi/`,
+> `local/recipes/system/firmware-loader/`, `local/recipes/gpu/redox-drm/`, and
+> `local/recipes/gpu/amdgpu/`. Treat the sections below as architecture rationale and porting notes,
+> not as an accurate statement that those components are still "not started".
+
+## Current State Snapshot
+
+| Component | Current repo state |
+|---|---|
+| `redox-driver-sys` | Present and compiling in `local/recipes/drivers/redox-driver-sys/` |
+| `linux-kpi` | Present and compiling in `local/recipes/drivers/linux-kpi/` |
+| `firmware-loader` | Present and compiling in `local/recipes/system/firmware-loader/` |
+| `redox-drm` | Present and compiling in `local/recipes/gpu/redox-drm/` |
+| Intel path | Compile-oriented, no hardware validation yet |
+| AMD path | Compile-oriented via `amdgpu` + AMD DC port, no hardware validation yet |
+| IOMMU | Partial — daemon now builds, hardware validation still TODO in `local/recipes/system/iommu/` |
+
 ## Goal
 
 Enable running Linux GPU drivers (amdgpu, i915, nouveau) on Redox OS with minimal

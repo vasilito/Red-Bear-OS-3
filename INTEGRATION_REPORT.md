@@ -4,6 +4,25 @@
 **Project**: Red Bear OS Build System (based on Redox OS)
 **Status**: Assessment Complete
 
+> **Status correction (2026-04-14):** This report is a historical assessment snapshot and is no
+> longer an accurate statement of current repository status. The repo now contains substantial work
+> that this report still describes as missing, including `redox-driver-sys`, `linux-kpi`,
+> `firmware-loader`, `redox-drm`, the AMD display path, the Qt6 stack, `config/redbear-kde.toml`,
+> and a large `local/recipes/kde/` tree.
+
+## Current Snapshot
+
+| Area | Current repo state |
+|---|---|
+| ACPI / bare-metal | Complete in-tree |
+| Driver infrastructure | Present and compiling in `local/recipes/drivers/` |
+| DRM / display | Present and compiling in `local/recipes/gpu/`; hardware validation still pending |
+| POSIX/input | Implemented in-tree with remaining validation work |
+| Wayland | Partial runtime path |
+| KDE | In progress with a mix of true builds and scaffolding |
+
+Read this file as historical context, not as the canonical current-state document.
+
 ---
 
 ## Executive Summary

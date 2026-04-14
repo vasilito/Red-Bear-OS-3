@@ -26,7 +26,7 @@ the LinuxKPI compatibility approach — a clean Rust rewrite would take 5+ years
 | ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
-| IOMMU | ❌ Missing | No VT-d or AMD-Vi support |
+| IOMMU | 🚧 Buildable, unvalidated | `iommu` daemon now builds, but no VT-d/AMD-Vi hardware validation yet |
 | AMD GPU | 🚧 In progress | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 | Wi-Fi/BT | ❌ Missing | No wireless support |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |

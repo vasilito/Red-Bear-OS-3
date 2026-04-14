@@ -7,6 +7,34 @@ This document maps the distance between current Redox OS 0.9.0 and three goals:
 2. **KDE Plasma desktop** → see [05-KDE-PLASMA-ON-REDOX.md](05-KDE-PLASMA-ON-REDOX.md)
 3. **Linux driver compatibility layer** → see [04-LINUX-DRIVER-COMPAT.md](04-LINUX-DRIVER-COMPAT.md)
 
+## Status Correction (2026-04-14)
+
+Most of this document is a historical roadmap and no longer reflects the repository's current state.
+Use the matrix below as the authoritative phase summary before reading the older milestone text.
+
+| Layer / Phase | Current repo state | Evidence |
+|---|---|---|
+| P0 ACPI / bare-metal boot | Complete in-tree | `local/docs/ACPI-FIXES.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch` |
+| P1 driver infrastructure | Complete in-tree, compile-oriented | `local/recipes/drivers/redox-driver-sys/`, `local/recipes/drivers/linux-kpi/`, `local/recipes/system/firmware-loader/` |
+| P2 DRM / AMD+Intel display | Complete in-tree, hardware validation pending | `local/docs/P2-AMD-GPU-DISPLAY.md`, `local/recipes/gpu/redox-drm/`, `local/recipes/gpu/amdgpu/` |
+| P3 POSIX + input | Implemented in-tree; consumer-visible `signalfd`/`timerfd`/`eventfd`/`open_memstream` header-export path fixed in this repo pass; runtime validation still pending | `recipes/core/relibc/source/src/header/`, `recipes/core/relibc/source/include/sys/signalfd.h`, `local/patches/relibc/`, `local/recipes/system/evdevd/`, `local/recipes/system/udev-shim/` |
+| P4 Wayland stack | Partially complete | `recipes/wip/wayland/`, `recipes/wip/libs/other/libinput/`, `recipes/wip/services/seatd/` |
+| P5 AMD acceleration / IOMMU | Partial | `local/recipes/gpu/amdgpu/`, `local/recipes/system/iommu/` (now buildable via surfaced recipe) |
+| P6 KDE Plasma | In progress with mixed real builds and stubs/shims | `config/redbear-kde.toml`, `local/recipes/kde/`, `local/docs/QT6-PORT-STATUS.md` |
+
+### Ordered Remaining Gaps
+
+1. **Validate the completed P3→P4 bridge in practice**: `libwayland` now rebuilds with `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, and `MSG_NOSIGNAL` restored, but compositor/runtime validation is still outstanding.
+2. **Complete P4 runtime path**: libinput/seatd/GBM/Wayland compositor integration is still incomplete even though the base libraries now build, `seatd` now builds for Redox, and the KDE runtime config now starts a seatd service.
+3. **Separate KDE real builds from scaffolding**: parts of the KDE stack are genuine builds, while others are shimmed or stubbed only to satisfy dependency resolution.
+4. **Hardware validation remains open** for AMD/Intel DRM and the IOMMU path, even though the IOMMU daemon now builds.
+
+### P7 Note
+
+The repository's tracked phase model currently stops at **P6**. What a user might call "P7"
+only appears here as later milestone-style work (for example M7/M8 below), not as a first-class
+implemented phase with its own config/recipe/doc boundary.
+
 ## Dependency Chain: Hardware → KDE Desktop
 
 ```
@@ -34,28 +62,28 @@ This document maps the distance between current Redox OS 0.9.0 and three goals:
 
 | API | Status | Where to implement | Effort |
 |-----|--------|--------------------|--------|
-| `signalfd`/`signalfd4` | **Missing** | `relibc/src/header/signal/mod.rs` + `signal/types.rs` | Medium |
-| `timerfd_create/settime/gettime` | **Missing** | `relibc/src/header/sys_timerfd/` (NEW directory) | Medium |
-| `eventfd`/`eventfd_read`/`eventfd_write` | **Missing** | `relibc/src/header/sys_eventfd/` (NEW directory) | Low |
-| `F_DUPFD_CLOEXEC` | **Missing** | `relibc/src/header/fcntl/mod.rs` (add constant) | Low |
-| `MSG_CMSG_CLOEXEC` | **Missing** | `relibc/src/header/sys_socket/mod.rs` | Low |
-| `MSG_NOSIGNAL` | **Missing** | `relibc/src/header/sys_socket/mod.rs` | Low |
-| `open_memstream` | **Missing** | `relibc/src/header/stdio/src.rs` | Low |
+| `signalfd`/`signalfd4` | **Implemented in-tree** | `relibc/src/header/signal/mod.rs` + `signal/signalfd.rs` | Runtime validation still needed |
+| `timerfd_create/settime/gettime` | **Implemented in-tree** | `relibc/src/header/sys_timerfd/` | Runtime validation still needed |
+| `eventfd`/`eventfd_read`/`eventfd_write` | **Implemented in-tree** | `relibc/src/header/sys_eventfd/` | Runtime validation still needed |
+| `F_DUPFD_CLOEXEC` | **Implemented in-tree** | `relibc/src/header/fcntl/mod.rs` | Verify against downstream consumers |
+| `MSG_CMSG_CLOEXEC` | **Implemented in-tree** | `relibc/src/header/sys_socket/mod.rs` | Verify against downstream consumers |
+| `MSG_NOSIGNAL` | **Implemented in-tree** | `relibc/src/header/sys_socket/mod.rs` | Verify against downstream consumers |
+| `open_memstream` | **Implemented in-tree** | `relibc/src/header/stdio/open_memstream.rs` | Verify against downstream consumers |
 | UDS + FD passing | **Done** | Already implemented | — |
 | `epoll` (event scheme) | **Done** | Redox `scheme:event` | — |
 | `mmap`/`mprotect` | **Done** | Kernel syscalls | — |
 | `fork`/`exec` | **Done** | Userspace via `thisproc:` scheme | — |
 
-**Proof of gap**: See `recipes/wip/wayland/libwayland/redox.patch` — all 7 missing APIs are stubbed there.
+**Current blocker**: The build-side relibc/libwayland bridge is now in place, but downstream Wayland still needs runtime validation and the wider compositor stack (`evdevd`/`seatd`/DRM/GBM) is still incomplete.
 
 ### Layer 2: GPU / Display Infrastructure
 
 | Component | Status | Where to implement | Concrete doc |
 |-----------|--------|--------------------|-------------|
-| DRM/KMS scheme | **Missing** | New daemon: `redox-drm` crate | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| DRM/KMS scheme | **Present in-tree** | `local/recipes/gpu/redox-drm/` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
 | GPU driver (Intel) | Experimental modeset only | `redox-drm/src/drivers/intel/` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
-| GEM buffers | **Missing** | `redox-drm/src/gem.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
-| DMA-BUF sharing | **Missing** | `redox-drm/src/dmabuf.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| GEM buffers | **Present in-tree** | `local/recipes/gpu/redox-drm/source/src/gem.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| DMA-BUF sharing | **Present in-tree** | `local/recipes/gpu/redox-drm/source/src/dmabuf.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
 | Mesa hardware backend | **Missing** | Mesa winsys for Redox DRM | [03 §3.4](03-WAYLAND-ON-REDOX.md) |
 | GPU OpenGL | Software only | Blocked on GPU driver | [04](04-LINUX-DRIVER-COMPAT.md) |
 
@@ -63,17 +91,17 @@ This document maps the distance between current Redox OS 0.9.0 and three goals:
 
 | Component | Status | Where to implement | Concrete doc |
 |-----------|--------|--------------------|-------------|
-| evdev daemon | **Missing** | New: `recipes/core/evdevd/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
-| udev shim | **Missing** | New: `recipes/wip/wayland/udev-shim/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
-| libinput | **Missing** | `recipes/wip/wayland/libinput/` (NEW) | [03 §2](03-WAYLAND-ON-REDOX.md) |
+| evdev daemon | **Present in-tree** | `local/recipes/system/evdevd/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
+| udev shim | **Present in-tree** | `local/recipes/system/udev-shim/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
+| libinput | **Present as WIP port** | `recipes/wip/libs/other/libinput/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
 | XKB layouts | **Done** | `xkeyboard-config` ported | — |
-| seatd | Recipe exists, untested | `recipes/wip/wayland/seatd/` | — |
+| seatd | Builds and is wired into KDE config, runtime unvalidated | `recipes/wip/services/seatd/`, `config/redbear-kde.toml` | — |
 
 ### Layer 4: Wayland Protocol
 
 | Component | Status | Recipe | Blocker |
 |-----------|--------|--------|---------|
-| libwayland | Patched, broken timers | `recipes/wip/wayland/libwayland/` | Layer 1 POSIX gaps |
+| libwayland | Patched, downstream compatibility workarounds remain | `recipes/wip/wayland/libwayland/` | Reduce/remove `redox.patch` and verify runtime behavior |
 | cosmic-comp | No keyboard input | `recipes/wip/wayland/cosmic-comp/` | Layer 3 libinput |
 | smallvil (Smithay) | Basic, slow | `recipes/wip/wayland/smallvil/` | Layer 2+3 for DRM+input |
 | wlroots/sway/hyprland | Not tested | `recipes/wip/wayland/wlroots/` | Layer 2+3 |
@@ -82,28 +110,28 @@ This document maps the distance between current Redox OS 0.9.0 and three goals:
 
 | Component | Status | Concrete doc |
 |-----------|--------|-------------|
-| Qt 6 | Not ported | [05 Phase KDE-A](05-KDE-PLASMA-ON-REDOX.md) |
-| KDE Frameworks | Not ported | [05 Phase KDE-B](05-KDE-PLASMA-ON-REDOX.md) |
-| KWin | Not ported | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
-| Plasma Shell | Not ported | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
+| Qt 6 | Ported in-tree | [05 Phase KDE-A](05-KDE-PLASMA-ON-REDOX.md) |
+| KDE Frameworks | Partially ported in-tree | [05 Phase KDE-B](05-KDE-PLASMA-ON-REDOX.md) |
+| KWin | Recipe exists, still incomplete | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
+| Plasma Shell | Recipe exists, still incomplete | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
 | D-Bus | **Ported** | `config/x11.toml` has it working |
 
 ### Layer 6: Linux Driver Compatibility
 
 | Component | Status | Concrete doc |
 |-----------|--------|-------------|
-| `redox-driver-sys` crate | Not started | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
-| `linux-kpi` C headers | Not started | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
-| i915 C driver port | Not started | [04 §4](04-LINUX-DRIVER-COMPAT.md) |
-| amdgpu C driver port | Not started | [04 §5](04-LINUX-DRIVER-COMPAT.md) |
+| `redox-driver-sys` crate | Present in-tree | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| `linux-kpi` C headers | Present in-tree | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| i915 C driver port | Not started as Linux C port | [04 §4](04-LINUX-DRIVER-COMPAT.md) |
+| amdgpu C driver port | Present in-tree, hardware validation pending | [04 §5](04-LINUX-DRIVER-COMPAT.md) |
 
 ---
 
 ## Concrete Roadmap with Milestones
 
 ### Milestone M1: "libwayland works natively" (2-4 weeks)
-- Implement 7 POSIX APIs in relibc (see Layer 1 table)
-- Remove `redox.patch` from libwayland recipe
+- Build-side part now substantially complete: relibc exports the needed consumer-visible POSIX headers/symbols and `libwayland` rebuilds with only residual Redox-specific build tweaks
+- Remaining work: runtime validation (`wayland-rs_simple_window`, compositor bring-up)
 - **Test**: `wayland-rs_simple_window` runs without crashes
 - **Delivers**: libwayland, wayland-protocols, libdrm all build natively
 
