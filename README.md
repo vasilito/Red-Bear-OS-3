@@ -26,6 +26,9 @@ Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a genera
 
 See [CHANGELOG.md](./CHANGELOG.md) for the running user-visible change log.
 
+The current public roadmap and execution model live in the
+[Red Bear OS Implementation Plan](./docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md).
+
 ## Current Phase Snapshot
 
 | Phase | Status | Notes |

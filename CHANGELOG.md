@@ -8,6 +8,7 @@ sync with the newest highlights.
 
 ## 2026-04-14
 
+- Added a canonical GitHub-visible Red Bear OS implementation plan under `docs/` and linked it from the main README and docs index.
 - Added a user-visible GitHub-facing "What's New" section to the root README and linked it to this running changelog.
 - Added a new `redbear-kde` configuration and documented current KDE bring-up status as in-progress rather than not started.
 - Refreshed top-level and docs status notes so historical roadmap documents no longer read as the current repo state.
