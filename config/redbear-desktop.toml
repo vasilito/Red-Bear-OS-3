@@ -4,7 +4,7 @@
 # Build: make all CONFIG_NAME=redbear-desktop
 # Live:  make live CONFIG_NAME=redbear-desktop
 
-include = ["desktop.toml"]
+include = ["desktop.toml", "redbear-netctl.toml"]
 
 [general]
 filesystem_size = 10240
@@ -24,52 +24,3 @@ mc = {}
 
 # Package builder (cub -S/-B/-G CLI)
 cub = {}
-
-[[files]]
-path = "/etc/netctl"
-data = ""
-directory = true
-mode = 0o755
-
-[[files]]
-path = "/etc/netctl/examples"
-data = ""
-directory = true
-mode = 0o755
-
-[[files]]
-path = "/etc/netctl/examples/wired-dhcp"
-data = """
-Description='Red Bear wired DHCP profile'
-Interface=eth0
-Connection=ethernet
-IP=dhcp
-"""
-
-[[files]]
-path = "/etc/netctl/examples/wired-static"
-data = """
-Description='Red Bear wired static profile'
-Interface=eth0
-Connection=ethernet
-IP=static
-Address=('192.168.1.10/24')
-Gateway='192.168.1.1'
-DNS=('1.1.1.1')
-"""
-
-[[files]]
-path = "/usr/lib/init.d/12_netctl.service"
-data = """
-[unit]
-description = "Network profile application"
-requires_weak = [
-    "10_smolnetd.service",
-    "10_dhcpd.service",
-]
-
-[service]
-cmd = "netctl"
-args = ["--boot"]
-type = "oneshot"
-"""

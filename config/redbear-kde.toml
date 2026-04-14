@@ -5,7 +5,7 @@
 # KDE Plasma 6 session with Wayland compositor
 # Requires: D-Bus, libinput, Mesa, Qt6, KF6, KWin, plasma-workspace
 
-include = ["desktop.toml"]
+include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
 [general]
 filesystem_size = 4096
@@ -107,74 +107,7 @@ data = ""
 directory = true
 mode = 0o755
 
-# ── Neutralize broken legacy scripts from upstream configs ─────────
-# base.toml uses "notify <service>" which is not a keyword in the legacy
-# script parser. Base source package ships proper .service/.target files.
-
-[[files]]
-path = "/usr/lib/init.d/00_base"
-data = ""
-
-[[files]]
-path = "/usr/lib/init.d/00_drivers"
-data = ""
-
-[[files]]
-path = "/usr/lib/init.d/10_net"
-data = ""
-
-[[files]]
-path = "/usr/lib/init.d/20_orbital"
-data = ""
-
-[[files]]
-path = "/usr/lib/init.d/30_console"
-data = ""
-
 # ── Red Bear OS custom services ─────────────────────────────────────
-
-[[files]]
-path = "/usr/lib/init.d/05_firmware-loader.service"
-data = """
-[unit]
-description = "Firmware loading scheme"
-requires_weak = [
-    "00_pcid-spawner.service",
-]
-
-[service]
-cmd = "firmware-loader"
-type = { scheme = "firmware" }
-"""
-
-[[files]]
-path = "/usr/lib/init.d/10_evdevd.service"
-data = """
-[unit]
-description = "Evdev input daemon"
-requires_weak = [
-    "00_pcid-spawner.service",
-]
-
-[service]
-cmd = "evdevd"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/11_udev.service"
-data = """
-[unit]
-description = "udev compatibility shim"
-requires_weak = [
-    "00_pcid-spawner.service",
-]
-
-[service]
-cmd = "udev-shim"
-type = { scheme = "udev" }
-"""
-
 [[files]]
 path = "/usr/lib/init.d/12_dbus.service"
 data = """
