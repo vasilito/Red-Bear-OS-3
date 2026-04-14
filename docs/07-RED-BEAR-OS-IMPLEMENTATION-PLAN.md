@@ -247,44 +247,92 @@ Drive the graphical stack through concrete milestones.
 
 - Support status is explicit and reproducible.
 
-## Development Phases
+## Execution Phases
 
-### Phase A — Structure
+### Phase 1 — Repository discipline and profile reproducibility
 
-- Repository rules
-- Profile definitions
+- Establish repository rules for Red Bear-specific work.
+- Make tracked profiles explicit.
+- Reduce duplicated profile wiring through shared config fragments.
+- Keep build helpers aligned with the tracked profile set.
 
-### Phase B — Minimal system
+**Primary targets**
+
+- `redbear-minimal`
+- `redbear-desktop`
+
+**Acceptance**
+
+- Profile composition is easier to audit.
+- Shared Red Bear service wiring is not copy-pasted across profile files.
+- Repository governance and support-language rules are documented.
+
+### Phase 2 — Minimal system baseline
 
 - Boot
 - Package management
 - VM networking
 
-### Phase C — Driver base
+**Acceptance**
+
+- `redbear-minimal` remains the primary reproducible validation baseline.
+
+### Phase 3 — Driver and runtime substrate
 
 - Shared driver layer
+- Firmware loading
+- Input/runtime service prerequisites
 
-### Phase D — Graphics
+**Acceptance**
 
-- Wayland
+- The driver/runtime substrate needed by graphics and desktop work is explicitly packaged and wired.
+
+### Phase 4 — Graphics and Wayland path
+
+- Wayland runtime path
 - Qt application bring-up
+- Profile-level graphics integration
 
-### Phase E — Networking
+**Acceptance**
 
-- Wired networking
+- At least one profile can carry a coherent graphical session path.
+
+### Phase 5 — Wired networking and desktop integration
+
+- Wired networking on real profiles
 - KDE-visible networking path
+- Session-level compatibility surfaces
 
-### Phase F — Desktop
+**Acceptance**
 
-- KDE session becomes usable
+- Wired networking works in at least one profile with documented limits.
 
-### Phase G — Hardware validation
+### Phase 6 — KDE session viability
+
+- KWin
+- Plasma shell
+- Session startup packaging
+
+**Acceptance**
+
+- KDE session launch is possible with documented limitations.
+
+### Phase 7 — Hardware validation and support labels
 
 - One fully validated profile
+- Support matrix and validation evidence
 
-### Phase H — Wi-Fi
+**Acceptance**
 
-- Experimental expansion
+- Support claims are explicit, reproducible, and tied to a profile.
+
+### Phase 8 — Wi-Fi expansion
+
+- Experimental Wi-Fi support for one chipset family first
+
+**Acceptance**
+
+- Wi-Fi work remains clearly marked as experimental until validated.
 
 ## Task Template
 
@@ -325,3 +373,5 @@ Progress should be measured by working profiles, not theoretical completeness.
 - [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md)
 - [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md)
 - [`local/docs/AMD-FIRST-INTEGRATION.md`](../local/docs/AMD-FIRST-INTEGRATION.md)
+- [`local/docs/repo-governance.md`](../local/docs/repo-governance.md)
+- [`local/docs/PROFILE-MATRIX.md`](../local/docs/PROFILE-MATRIX.md)

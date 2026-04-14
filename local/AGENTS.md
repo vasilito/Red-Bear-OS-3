@@ -260,9 +260,26 @@ redbear-live.toml
         NOTE: redbear-info is the canonical runtime integration report. Keep it updated when
               Red Bear adds new tools, schemes, services, or hardware integration paths.
 
+redbear-full.toml
+  └── desktop.toml (mainline)
+  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
+  └── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
+  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
+  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
+
+redbear-kde.toml
+  └── desktop.toml (mainline)
+  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
+  └── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
+  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
+  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
+
 redbear-minimal.toml
   └── minimal.toml (mainline)
         └── base.toml
+  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
+  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
+  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
   └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
                  redox-driver-sys, firmware-loader, evdevd, udev-shim
 ```
