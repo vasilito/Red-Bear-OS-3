@@ -76,6 +76,10 @@ base networking services have started.
   `list`, `enable`, `status`, and `start`.
 - `rtl8168d` type-checks with the RTL8125 autoload configuration in place.
 - relibc type-checks with the interface and header updates in place.
+- `./local/scripts/validate-vm-network-baseline.sh` verifies the repo-level VM boot chain for
+  `redbear-minimal`: `pcid-spawner` → `smolnetd` → `dhcpd` → `netctl --boot` → `wired-dhcp`.
+- `./local/scripts/test-vm-network-qemu.sh` launches a VirtIO-backed QEMU run for the same Phase 2
+  baseline and prints the in-guest validation commands to run.
 
 ## Remaining hardware validation
 
