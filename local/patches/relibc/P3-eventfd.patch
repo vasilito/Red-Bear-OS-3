@@ -1,13 +1,12 @@
 diff --git a/src/header/mod.rs b/src/header/mod.rs
 --- a/src/header/mod.rs
 +++ b/src/header/mod.rs
-@@ -85,5 +85,6 @@
- pub mod strings;
- // TODO: stropts.h (deprecated)
+@@ -88,6 +88,7 @@
  pub mod sys_auxv;
  pub mod sys_epoll;
 +pub mod sys_eventfd;
  pub mod sys_file;
+ pub mod sys_ioctl;
 diff --git a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindgen.toml
 new file mode 100644
 --- /dev/null

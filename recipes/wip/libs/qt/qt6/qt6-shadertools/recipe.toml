@@ -1,5 +1,34 @@
-#TODO not compiled or tested
+# qt6-shadertools provides qsb tool needed for Qt Quick shader compilation
 [source]
-tar = "https://download.qt.io/official_releases/qt/6.6/6.6.1/submodules/qtshadertools-everywhere-src-6.6.1.tar.xz"
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtshadertools-everywhere-src-6.11.0.tar.xz"
+
 [build]
-template = "configure"
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+mkdir -p "${COOKBOOK_BUILD}/host"
+env \
+    -u CPPFLAGS \
+    -u LDFLAGS \
+    -u PKG_CONFIG_ALLOW_CROSS \
+    -u PKG_CONFIG_PATH \
+    -u PKG_CONFIG_LIBDIR \
+    -u PKG_CONFIG_SYSROOT_DIR \
+    -u CFLAGS_x86_64_unknown_redox \
+    -u CXXFLAGS_x86_64_unknown_redox \
+    -u LDFLAGS_x86_64_unknown_redox \
+    cmake -S "${COOKBOOK_SOURCE}/tools/qsb" -B "${COOKBOOK_BUILD}/host" \
+    -DCMAKE_C_COMPILER=/usr/bin/cc \
+    -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -Wno-dev
+
+cmake --build "${COOKBOOK_BUILD}/host" -j"${COOKBOOK_MAKE_JOBS}"
+cmake --install "${COOKBOOK_BUILD}/host" --prefix "${HOST_BUILD}"
+"""

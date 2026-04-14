@@ -416,7 +416,7 @@ extern unsigned long usecs_to_jiffies(unsigned int usecs);
 #define CONFIG_DRM_AMD_DC_DCN 1
 #endif
 #ifndef CONFIG_DRM_AMD_DC_DML2
-#define CONFIG_DRM_AMD_DC_DML2 0
+#define CONFIG_DRM_AMD_DC_DML2 1
 #endif
 #ifndef CONFIG_DRM_AMD_DC_SMU
 #define CONFIG_DRM_AMD_DC_SMU 0

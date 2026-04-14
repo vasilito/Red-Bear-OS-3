@@ -1,5 +1,5 @@
 diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
-index 94a1eb17..c3a5bfdc 100644
+index 94a1eb17..3fd91156 100644
 --- a/drivers/acpid/src/acpi.rs
 +++ b/drivers/acpid/src/acpi.rs
 @@ -25,6 +25,8 @@ use amlserde::{AmlSerde, AmlSerdeValue};
@@ -24,7 +24,7 @@ index 94a1eb17..c3a5bfdc 100644
  
      aml_symbols: RwLock<AmlSymbols>,
  
-@@ -424,6 +432,62 @@ impl AcpiContext {
+@@ -424,6 +432,63 @@ impl AcpiContext {
              .flatten()
      }
  
@@ -35,7 +35,8 @@ index 94a1eb17..c3a5bfdc 100644
 +        args: &[u64],
 +    ) -> Result<Vec<u64>, AmlEvalError> {
 +        let full_path = format!("{path}.{method}");
-+        let aml_name = AmlName::from_str(&full_path).map_err(|_| AmlEvalError::DeserializationError)?;
++        let aml_name =
++            AmlName::from_str(&full_path).map_err(|_| AmlEvalError::DeserializationError)?;
 +        let args = args
 +            .iter()
 +            .copied()
@@ -87,7 +88,7 @@ index 94a1eb17..c3a5bfdc 100644
      pub fn init(
          rxsdt_physaddrs: impl Iterator<Item = u64>,
          ec: Vec<(RegionSpace, Box<dyn RegionHandler>)>,
-@@ -444,6 +508,12 @@ impl AcpiContext {
+@@ -444,6 +509,12 @@ impl AcpiContext {
              tables,
              dsdt: None,
              fadt: None,
@@ -100,7 +101,7 @@ index 94a1eb17..c3a5bfdc 100644
  
              // Temporary values
              aml_symbols: RwLock::new(AmlSymbols::new(ec)),
-@@ -458,7 +528,10 @@ impl AcpiContext {
+@@ -458,7 +529,10 @@ impl AcpiContext {
          }
  
          Fadt::init(&mut this);
@@ -112,7 +113,7 @@ index 94a1eb17..c3a5bfdc 100644
  
          this
      }
-@@ -562,92 +635,83 @@ impl AcpiContext {
+@@ -562,92 +636,83 @@ impl AcpiContext {
          aml_symbols.symbol_cache = FxHashMap::default();
      }
  
@@ -268,7 +269,7 @@ index 94a1eb17..c3a5bfdc 100644
          loop {
              core::hint::spin_loop();
          }
-@@ -707,7 +771,7 @@ unsafe impl plain::Plain for FadtStruct {}
+@@ -707,7 +772,7 @@ unsafe impl plain::Plain for FadtStruct {}
  
  #[repr(C, packed)]
  #[derive(Clone, Copy, Debug, Default)]
@@ -277,7 +278,7 @@ index 94a1eb17..c3a5bfdc 100644
      address_space: u8,
      bit_width: u8,
      bit_offset: u8,
-@@ -715,11 +779,67 @@ pub struct GenericAddressStructure {
+@@ -715,11 +780,77 @@ pub struct GenericAddressStructure {
      address: u64,
  }
  
@@ -290,14 +291,23 @@ index 94a1eb17..c3a5bfdc 100644
 +    pub fn write_u8(&self, value: u8) {
 +        match self.address_space {
 +            0 => {
-+                let Ok(address) = usize::try_from(self.address) else {
-+                    log::error!("Reset register physical address is invalid: {:#X}", self.address);
++                let address_val = self.address;
++                let Ok(address) = usize::try_from(address_val) else {
++                    log::error!(
++                        "Reset register physical address is invalid: {:#X}",
++                        address_val
++                    );
 +                    return;
 +                };
 +                let page = address / PAGE_SIZE * PAGE_SIZE;
 +                let offset = address % PAGE_SIZE;
 +                let virt = unsafe {
-+                    common::physmap(page, PAGE_SIZE, common::Prot::RW, common::MemoryType::default())
++                    common::physmap(
++                        page,
++                        PAGE_SIZE,
++                        common::Prot::RW,
++                        common::MemoryType::default(),
++                    )
 +                };
 +
 +                match virt {
@@ -315,7 +325,8 @@ index 94a1eb17..c3a5bfdc 100644
 +                    Pio::<u8>::new(port).write(value);
 +                }
 +                Err(_) => {
-+                    log::error!("Reset register I/O port is invalid: {:#X}", self.address);
++                    let address_val = self.address;
++                    log::error!("Reset register I/O port is invalid: {:#X}", address_val);
 +                }
 +            },
 +            address_space => {
@@ -346,7 +357,7 @@ index 94a1eb17..c3a5bfdc 100644
  
      pub reset_value: u8,
      reserved3: [u8; 3],
-@@ -728,14 +848,14 @@ pub struct FadtAcpi2Struct {
+@@ -728,14 +859,14 @@ pub struct FadtAcpi2Struct {
      pub x_firmware_control: u64,
      pub x_dsdt: u64,
  
@@ -369,7 +380,7 @@ index 94a1eb17..c3a5bfdc 100644
  }
  unsafe impl plain::Plain for FadtAcpi2Struct {}
  
-@@ -793,9 +913,25 @@ impl Fadt {
+@@ -793,9 +924,27 @@ impl Fadt {
              None => usize::try_from(fadt.dsdt).expect("expected any given u32 to fit within usize"),
          };
  
@@ -379,7 +390,9 @@ index 94a1eb17..c3a5bfdc 100644
 +        let pm1a_cnt_blk = u64::from(fadt.pm1a_control_block);
 +        let pm1b_cnt_blk = u64::from(fadt.pm1b_control_block);
 +        let (reset_reg, reset_value) = match fadt.acpi_2_struct() {
-+            Some(fadt2) if !fadt2.reset_reg.is_empty() => (Some(fadt2.reset_reg), fadt2.reset_value),
++            Some(fadt2) if !fadt2.reset_reg.is_empty() => {
++                (Some(fadt2.reset_reg), fadt2.reset_value)
++            }
 +            _ => (None, 0),
 +        };
  
@@ -397,22 +410,24 @@ index 94a1eb17..c3a5bfdc 100644
              Ok(dsdt) => dsdt,
              Err(error) => {
                  log::error!("Failed to load DSDT: {}", error);
-@@ -803,8 +939,46 @@ impl Fadt {
+@@ -803,8 +952,48 @@ impl Fadt {
              }
          };
  
 +        let (slp_typa_s5, slp_typb_s5) = match AmlName::from_str("\\_S5") {
 +            Ok(s5_name) => match context.aml_eval(s5_name, Vec::new()) {
-+                Ok(AmlSerdeValue::Package { contents }) => match (contents.get(0), contents.get(1)) {
-+                    (Some(AmlSerdeValue::Integer(slp_typa)), Some(AmlSerdeValue::Integer(slp_typb))) => {
-+                        match (u8::try_from(*slp_typa), u8::try_from(*slp_typb)) {
-+                            (Ok(slp_typa_s5), Ok(slp_typb_s5)) => (slp_typa_s5, slp_typb_s5),
-+                            _ => {
-+                                log::warn!("\\_S5 values do not fit in u8: {:?}", contents);
-+                                (0, 0)
-+                            }
++                Ok(AmlSerdeValue::Package { contents }) => match (contents.get(0), contents.get(1))
++                {
++                    (
++                        Some(AmlSerdeValue::Integer(slp_typa)),
++                        Some(AmlSerdeValue::Integer(slp_typb)),
++                    ) => match (u8::try_from(*slp_typa), u8::try_from(*slp_typb)) {
++                        (Ok(slp_typa_s5), Ok(slp_typb_s5)) => (slp_typa_s5, slp_typb_s5),
++                        _ => {
++                            log::warn!("\\_S5 values do not fit in u8: {:?}", contents);
++                            (0, 0)
 +                        }
-+                    }
++                    },
 +                    _ => {
 +                        log::warn!("\\_S5 package did not contain two integers: {:?}", contents);
 +                        (0, 0)
@@ -557,7 +572,7 @@ index 0933f638..d4b0f3d0 100644
  
  fn main() {
 diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
-index ce55b33f..c06bdec4 100644
+index c2caf804..95acdb57 100644
 --- a/drivers/pcid/src/scheme.rs
 +++ b/drivers/pcid/src/scheme.rs
 @@ -21,6 +21,7 @@ enum Handle {
@@ -591,7 +606,7 @@ index ce55b33f..c06bdec4 100644
      }
      fn is_scheme_root(&self) -> bool {
          matches!(self, Self::SchemeRoot)
-@@ -153,6 +160,7 @@ impl SchemeSync for PciScheme {
+@@ -132,6 +139,7 @@ impl SchemeSync for PciScheme {
          let (len, mode) = match handle.inner {
              Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
              Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
@@ -599,7 +614,7 @@ index ce55b33f..c06bdec4 100644
              Handle::Access | Handle::Channel { .. } => (0, MODE_CHR | 0o600),
              Handle::SchemeRoot => return Err(Error::new(EBADF)),
          };
-@@ -177,6 +185,18 @@ impl SchemeSync for PciScheme {
+@@ -156,6 +164,18 @@ impl SchemeSync for PciScheme {
          match handle.inner {
              Handle::TopLevel { .. } => Err(Error::new(EISDIR)),
              Handle::Device => Err(Error::new(EISDIR)),
@@ -618,7 +633,7 @@ index ce55b33f..c06bdec4 100644
              Handle::Channel {
                  addr: _,
                  ref mut st,
-@@ -214,7 +234,9 @@ impl SchemeSync for PciScheme {
+@@ -193,7 +213,9 @@ impl SchemeSync for PciScheme {
                  return Ok(buf);
              }
              Handle::Device => DEVICE_CONTENTS,
@@ -629,7 +644,7 @@ index ce55b33f..c06bdec4 100644
              Handle::SchemeRoot => return Err(Error::new(EBADF)),
          };
  
-@@ -244,6 +266,20 @@ impl SchemeSync for PciScheme {
+@@ -223,6 +245,20 @@ impl SchemeSync for PciScheme {
          }
  
          match handle.inner {
@@ -650,7 +665,7 @@ index ce55b33f..c06bdec4 100644
              Handle::Channel { addr, ref mut st } => {
                  Self::write_channel(&self.pcie, &mut self.tree, addr, st, buf)
              }
-@@ -339,6 +375,10 @@ impl PciScheme {
+@@ -318,6 +354,10 @@ impl PciScheme {
                      func.enabled = false;
                  }
              }
@@ -661,7 +676,7 @@ index ce55b33f..c06bdec4 100644
              _ => {}
          }
      }
-@@ -365,6 +405,7 @@ impl PciScheme {
+@@ -343,6 +383,7 @@ impl PciScheme {
              let path = &after[1..];
  
              match path {
@@ -669,3 +684,34 @@ index ce55b33f..c06bdec4 100644
                  "channel" => {
                      if func.enabled {
                          return Err(Error::new(ENOLCK));
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+index 670a5526..24ce3d68 100644
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -1,8 +1,8 @@
+ use std::collections::VecDeque;
+ 
+-use crate::InitConfig;
+ use crate::script::Command;
+ use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
++use crate::InitConfig;
+ 
+ pub struct Scheduler {
+     pending: VecDeque<Job>,
+@@ -96,14 +96,9 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+                 eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
+                 return;
+             }
+-            if config.log_debug {
+-                eprintln!(
+-                    "Starting {} ({})",
+-                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                    service.cmd,
+-                );
+-            }
++            eprintln!("init: starting {} ({:?})", service.cmd, &service.type_,);
+             service.spawn(&config.envs);
++            eprintln!("init: started {} done", service.cmd,);
+         }
+         UnitKind::Target {} => {
+             if config.log_debug {

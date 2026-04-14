@@ -1,0 +1,261 @@
+diff --git a/drivers/inputd/src/main.rs b/drivers/inputd/src/main.rs
+--- a/drivers/inputd/src/main.rs
++++ b/drivers/inputd/src/main.rs
+@@ -35,6 +35,9 @@
+ 
+ enum Handle {
+     Producer,
++    NamedProducer {
++        name: String,
++    },
+     Consumer {
+         events: EventFlags,
+         pending: Vec<u8>,
+@@ -58,9 +61,11 @@
+ 
+ struct InputScheme {
+     handles: BTreeMap<usize, Handle>,
++    devices: BTreeMap<String, u32>,
+ 
+     next_id: AtomicUsize,
+     next_vt_id: AtomicUsize,
++    next_device_id: AtomicUsize,
+ 
+     display: Option<String>,
+     vts: BTreeSet<usize>,
+@@ -73,13 +78,30 @@
+     has_new_events: bool,
+ }
+ 
++const RESERVED_DEVICE_NAMES: [&str; 7] = [
++    "producer",
++    "consumer",
++    "consumer_bootlog",
++    "events",
++    "handle",
++    "handle_early",
++    "control",
++];
++
++enum ProducerKind {
++    Legacy,
++    Named(String),
++}
++
+ impl InputScheme {
+     fn new() -> Self {
+         Self {
+             handles: BTreeMap::new(),
++            devices: BTreeMap::new(),
+ 
+             next_id: AtomicUsize::new(0),
+             next_vt_id: AtomicUsize::new(2), // VT 1 is reserved for the bootlog
++            next_device_id: AtomicUsize::new(0),
+ 
+             display: None,
+             vts: BTreeSet::new(),
+@@ -91,6 +113,46 @@
+             rshift: false,
+             has_new_events: false,
+         }
++    }
++
++    fn register_named_producer(&mut self, name: &str) -> syscall::Result<Handle> {
++        if name.is_empty() || RESERVED_DEVICE_NAMES.contains(&name) {
++            return Err(SysError::new(EINVAL));
++        }
++
++        if self.devices.contains_key(name) {
++            return Err(SysError::new(EEXIST));
++        }
++
++        let device_id = self.next_device_id.fetch_add(1, Ordering::SeqCst) as u32;
++        self.devices.insert(name.to_owned(), device_id);
++        Ok(Handle::NamedProducer {
++            name: name.to_owned(),
++        })
++    }
++
++    fn route_legacy_consumer_events(&mut self, buf: &[u8]) {
++        if let Some(active_vt) = self.active_vt {
++            for handle in self.handles.values_mut() {
++                match handle {
++                    Handle::Consumer {
++                        pending,
++                        notified,
++                        vt,
++                        ..
++                    } if *vt == active_vt => {
++                        pending.extend_from_slice(buf);
++                        *notified = false;
++                    }
++                    _ => continue,
++                }
++            }
++        }
++    }
++
++    fn route_named_producer_events(&mut self, _name: &str, _buf: &[u8]) {
++        // DeviceConsumer routing is added in a follow-up patch. Named producers already share the
++        // legacy consumer path, so existing callers continue to receive these events.
+     }
+ 
+     fn switch_vt(&mut self, new_active: usize) {
+@@ -175,7 +237,13 @@
+         let command = path_parts.next().ok_or(SysError::new(EINVAL))?;
+ 
+         let handle_ty = match command {
+-            "producer" => Handle::Producer,
++            "producer" => match path_parts.next() {
++                None => Handle::Producer,
++                Some(name) if !name.is_empty() && path_parts.next().is_none() => {
++                    self.register_named_producer(name)?
++                }
++                _ => return Err(SysError::new(EINVAL)),
++            },
+             "consumer" => {
+                 let vt = self.next_vt_id.fetch_add(1, Ordering::Relaxed);
+                 self.vts.insert(vt);
+@@ -338,7 +406,7 @@
+                 }
+             }
+ 
+-            Handle::Producer => {
++            Handle::Producer | Handle::NamedProducer { .. } => {
+                 log::error!("producer tried to read");
+                 return Err(SysError::new(EINVAL));
+             }
+@@ -360,9 +428,7 @@
+     ) -> syscall::Result<usize> {
+         self.has_new_events = true;
+ 
+-        let handle = self.handles.get_mut(&id).ok_or(SysError::new(EINVAL))?;
+-
+-        match handle {
++        let producer_kind = match self.handles.get(&id).ok_or(SysError::new(EINVAL))? {
+             Handle::Control => {
+                 if buf.len() != size_of::<ControlEvent>() {
+                     log::error!("control tried to write incorrectly sized command");
+@@ -391,9 +457,10 @@
+                 log::error!("display tried to write");
+                 return Err(SysError::new(EINVAL));
+             }
+-            Handle::Producer => {}
++            Handle::Producer => ProducerKind::Legacy,
++            Handle::NamedProducer { name } => ProducerKind::Named(name.clone()),
+             Handle::SchemeRoot => return Err(SysError::new(EBADF)),
+-        }
++        };
+ 
+         if buf.len() == 1 && buf[0] > 0xf4 {
+             return Ok(1);
+@@ -445,9 +512,6 @@
+             }
+         }
+ 
+-        let handle = self.handles.get_mut(&id).ok_or(SysError::new(EINVAL))?;
+-        assert!(matches!(handle, Handle::Producer));
+-
+         let buf = unsafe {
+             core::slice::from_raw_parts(
+                 (events.as_ptr()) as *const u8,
+@@ -455,26 +519,11 @@
+             )
+         };
+ 
+-        if let Some(active_vt) = self.active_vt {
+-            for handle in self.handles.values_mut() {
+-                match handle {
+-                    Handle::Consumer {
+-                        pending,
+-                        notified,
+-                        vt,
+-                        ..
+-                    } => {
+-                        if *vt != active_vt {
+-                            continue;
+-                        }
+-
+-                        pending.extend_from_slice(buf);
+-                        *notified = false;
+-                    }
+-                    _ => continue,
+-                }
+-            }
+-        }
++        if let ProducerKind::Named(name) = &producer_kind {
++            self.route_named_producer_events(name, buf);
++        }
++
++        self.route_legacy_consumer_events(buf);
+ 
+         Ok(buf.len())
+     }
+@@ -506,7 +555,7 @@
+                 *notified = false;
+                 Ok(EventFlags::empty())
+             }
+-            Handle::Producer | Handle::Control => {
++            Handle::Producer | Handle::NamedProducer { .. } | Handle::Control => {
+                 log::error!("producer or control tried to use an event queue");
+                 Err(SysError::new(EINVAL))
+             }
+@@ -515,9 +564,15 @@
+     }
+ 
+     fn on_close(&mut self, id: usize) {
+-        let handle = self.handles.remove(&id).unwrap();
++        let Some(handle) = self.handles.remove(&id) else {
++            log::warn!("received close for unknown input handle {id}");
++            return;
++        };
+ 
+         match handle {
++            Handle::NamedProducer { name } => {
++                self.devices.remove(&name);
++            }
+             Handle::Consumer { vt, .. } => {
+                 self.vts.remove(&vt);
+                 if self.active_vt == Some(vt) {
+diff --git a/drivers/inputd/src/lib.rs b/drivers/inputd/src/lib.rs
+--- a/drivers/inputd/src/lib.rs
++++ b/drivers/inputd/src/lib.rs
+@@ -197,6 +197,38 @@
+     pub vt: usize,
+ }
+ 
++/// Handle for opening a named producer on the input scheme.
++/// Opens /scheme/input/producer/{name}
++pub struct NamedProducerHandle {
++    fd: File,
++}
++
++impl NamedProducerHandle {
++    pub fn new(name: &str) -> io::Result<Self> {
++        if name.is_empty() {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "input producer name must not be empty",
++            ));
++        }
++
++        if name.contains('/') {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "input producer name must not contain '/'",
++            ));
++        }
++
++        let path = format!("/scheme/input/producer/{name}");
++        File::open(path).map(|fd| Self { fd })
++    }
++
++    pub fn write_event(&mut self, event: &orbclient::Event) -> io::Result<()> {
++        self.fd.write(unsafe { any_as_u8_slice(event) })?;
++        Ok(())
++    }
++}
++
+ pub struct ProducerHandle(File);
+ 
+ impl ProducerHandle {

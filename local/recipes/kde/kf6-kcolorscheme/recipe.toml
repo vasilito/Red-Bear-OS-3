@@ -1,0 +1,53 @@
+#TODO: KColorScheme — color scheme management. Depends on qtbase, kf6-kconfig, kf6-kcoreaddons, kf6-ki18n, kf6-kguiaddons.
+[source]
+tar = "https://invent.kde.org/frameworks/kcolorscheme/-/archive/v6.10.0/kcolorscheme-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "kf6-extra-cmake-modules",
+    "kf6-kconfig",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kguiaddons",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/find_package(Qt6.*Gui)/a find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""

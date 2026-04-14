@@ -1,0 +1,81 @@
+#TODO: KCrash — crash handler, backtrace generation. OpenGL deps disabled for software rendering.
+[source]
+tar = "https://invent.kde.org/frameworks/kcrash/-/archive/v6.10.0/kcrash-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+]
+script = '''
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+STUB_OPENGL_DIR="${COOKBOOK_SYSROOT}/lib/cmake/Qt6OpenGL"
+mkdir -p "${STUB_OPENGL_DIR}"
+cat > "${STUB_OPENGL_DIR}/Qt6OpenGLConfig.cmake" << 'OPENGLEOF'
+set(Qt6OpenGL_FOUND ON)
+set(Qt6OpenGL_VERSION "6.6.0")
+OPENGLEOF
+cat > "${STUB_OPENGL_DIR}/Qt6OpenGLConfigVersion.cmake" << 'OPENGLEOF'
+set(PACKAGE_VERSION "6.6.0")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+OPENGLEOF
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+if [ -d "${COOKBOOK_SYSROOT}/usr/plugins" ] && [ ! -e "${COOKBOOK_SYSROOT}/plugins" ]; then
+    ln -s "usr/plugins" "${COOKBOOK_SYSROOT}/plugins"
+fi
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i "s/^ki18n_install(po)/#ki18n_install(po)/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i "/find_package(Qt6.*Widgets)/a find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i "s/find_package(Qt6.*REQUIRED Core Gui) OpenGL)/find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED Core Gui)/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i "s/target_link_libraries(KF6Crash PRIVATE Qt6::Gui Qt6::OpenGL/target_link_libraries(KF6Crash PRIVATE Qt6::Gui/" "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i "s/find_package(Qt6Test.*REQUIRED)/#find_package(Qt6Test REQUIRED)/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+KCRASH_SRC="${COOKBOOK_SOURCE}/src/kcrash.cpp"
+sed -i '/^QString glRenderer()/,/^}$/c\
+QString glRenderer()\
+{\
+    return QString();\
+}' "${KCRASH_SRC}"
+
+if ! grep -q "sys/wait.h" "${COOKBOOK_SOURCE}/src/kcrash.cpp"; then
+    printf "%s\n" "#include <sys/resource.h>" "#include <sys/wait.h>" > /tmp/wait_h.txt
+    sed -i "\\/<sys.resource.h>/{
+        r /tmp/wait_h.txt
+        d
+    }" "${COOKBOOK_SOURCE}/src/kcrash.cpp"
+fi
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DWITH_X11=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+'''

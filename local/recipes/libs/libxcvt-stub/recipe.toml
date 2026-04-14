@@ -1,0 +1,56 @@
+#TODO: libxcvt stub — provides libxcvt pkgconfig for KWin linking
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/include"
+mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+
+cat > "${COOKBOOK_STAGE}/usr/include/libxcvt.h" << 'EOF'
+#pragma once
+#include <stdint.h>
+#include <stddef.h>
+struct libxcvt_mode {
+    uint32_t hdisplay;
+    uint32_t vdisplay;
+    uint32_t dotclock;
+    uint32_t hsync_start;
+    uint32_t hsync_end;
+    uint32_t htotal;
+    uint32_t vsync_start;
+    uint32_t vsync_end;
+    uint32_t vtotal;
+    uint32_t hskew;
+    uint32_t vscan;
+    uint32_t vrefresh;
+    uint32_t flags;
+    uint32_t type;
+};
+struct libxcvt_mode *libxcvt_generate_mode(int hdisplay, int vdisplay, float vrefresh, bool reduced, bool interlaced) __attribute__((weak));
+void libxcvt_mode_list_free(struct libxcvt_mode **modes) __attribute__((weak));
+EOF
+
+cat > stub_xcvt.c << 'CEOF'
+struct libxcvt_mode *libxcvt_generate_mode(int h, int v, float r, _Bool red, _Bool inter) { (void)h; (void)v; (void)r; (void)red; (void)inter; return 0; }
+void libxcvt_mode_list_free(struct libxcvt_mode **m) { (void)m; }
+CEOF
+
+x86_64-unknown-redox-gcc -shared -fPIC -o "${COOKBOOK_STAGE}/usr/lib/libxcvt.so" stub_xcvt.c
+
+cat > "${COOKBOOK_STAGE}/usr/lib/pkgconfig/libxcvt.pc" << 'EOF'
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libxcvt
+Description: libxcvt stub for Redox
+Version: 0.1.3
+Libs: -L${libdir} -lxcvt
+Cflags: -I${includedir}
+EOF
+"""

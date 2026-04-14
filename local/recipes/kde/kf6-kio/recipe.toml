@@ -1,0 +1,677 @@
+#TODO: KIO — file I/O abstraction, network transparency, job system. Core KDE framework.
+[source]
+tar = "https://invent.kde.org/frameworks/kio/-/archive/v6.10.0/kio-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-kconfig",
+    "kf6-ki18n",
+    "kf6-kjobwidgets",
+    "kf6-kservice",
+    "kf6-kbookmarks",
+    "kf6-kcompletion",
+    "kf6-kwidgetsaddons",
+    "kf6-kwindowsystem",
+    "kf6-kiconthemes",
+    "kf6-kitemviews",
+    "kf6-kxmlgui",
+    "kf6-knotifications",
+    "kf6-kcrash",
+    "kf6-solid",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+mkdir -p "${HOST_BUILD}/bin"
+for tool in moc rcc uic qdbuscpp2xml qdbusxml2cpp wayland-scanner; do
+    if [ -f "/usr/bin/${tool}" ] && [ ! -e "${HOST_BUILD}/bin/${tool}" ]; then
+        ln -sf "/usr/bin/${tool}" "${HOST_BUILD}/bin/${tool}"
+    fi
+done
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Network" ]; then
+    cat > "${COOKBOOK_SYSROOT}/include/QHostAddress" <<'EOF'
+#pragma once
+
+#include <QDataStream>
+#include <QMetaType>
+#include <QString>
+
+class QHostAddress
+{
+public:
+    enum NetworkLayerProtocol {
+        UnknownNetworkLayerProtocol = -1,
+        AnyIPProtocol,
+        IPv4Protocol,
+        IPv6Protocol,
+    };
+
+    QHostAddress() = default;
+    explicit QHostAddress(const QString &address)
+        : m_address(address)
+    {
+    }
+
+    QString toString() const
+    {
+        return m_address;
+    }
+
+    NetworkLayerProtocol protocol() const
+    {
+        return AnyIPProtocol;
+    }
+
+private:
+    QString m_address;
+
+    friend QDataStream &operator<<(QDataStream &stream, const QHostAddress &address)
+    {
+        stream << address.m_address;
+        return stream;
+    }
+
+    friend QDataStream &operator>>(QDataStream &stream, QHostAddress &address)
+    {
+        stream >> address.m_address;
+        return stream;
+    }
+};
+
+Q_DECLARE_METATYPE(QHostAddress)
+EOF
+
+    cat > "${COOKBOOK_SYSROOT}/include/QHostInfo" <<'EOF'
+#pragma once
+
+#include <QList>
+#include <QMetaType>
+#include <QString>
+
+#include <QHostAddress>
+
+class QHostInfo
+{
+public:
+    enum HostInfoError {
+        NoError = 0,
+        HostNotFound = 1,
+        UnknownError = 2,
+    };
+
+    QHostInfo() = default;
+    explicit QHostInfo(const QString &hostName)
+        : m_hostName(hostName)
+    {
+    }
+
+    static QString localHostName()
+    {
+        return QStringLiteral("redox");
+    }
+
+    void setHostName(const QString &hostName)
+    {
+        m_hostName = hostName;
+    }
+
+    QString hostName() const
+    {
+        return m_hostName;
+    }
+
+    void setAddresses(const QList<QHostAddress> &addresses)
+    {
+        m_addresses = addresses;
+    }
+
+    QList<QHostAddress> addresses() const
+    {
+        return m_addresses;
+    }
+
+    void setError(HostInfoError error)
+    {
+        m_error = error;
+    }
+
+    HostInfoError error() const
+    {
+        return m_error;
+    }
+
+    void setErrorString(const QString &errorString)
+    {
+        m_errorString = errorString;
+    }
+
+    QString errorString() const
+    {
+        return m_errorString;
+    }
+
+private:
+    QString m_hostName;
+    QList<QHostAddress> m_addresses;
+    HostInfoError m_error = UnknownError;
+    QString m_errorString;
+};
+
+Q_DECLARE_METATYPE(QHostInfo)
+EOF
+
+    cat > "${COOKBOOK_SYSROOT}/include/QLocalSocket" <<'EOF'
+#pragma once
+
+#include <QByteArray>
+#include <QIODevice>
+#include <QString>
+
+#include <cstring>
+
+class QLocalSocket : public QIODevice
+{
+public:
+    enum LocalSocketState {
+        UnconnectedState,
+        ConnectingState,
+        ConnectedState,
+        ClosingState,
+    };
+
+    enum LocalSocketError {
+        ConnectionRefusedError,
+        PeerClosedError,
+        ServerNotFoundError,
+        SocketAccessError,
+        SocketResourceError,
+        SocketTimeoutError,
+        DatagramTooLargeError,
+        ConnectionError,
+        UnsupportedSocketOperationError,
+        OperationError,
+        UnknownSocketError,
+    };
+
+    explicit QLocalSocket(QObject *parent = nullptr)
+        : QIODevice(parent)
+    {
+    }
+
+    void connectToServer(const QString &)
+    {
+        m_state = UnconnectedState;
+        m_errorString = QStringLiteral("QtNetwork disabled on Redox");
+        setOpenMode(ReadWrite);
+    }
+
+    void setReadBufferSize(qint64 size)
+    {
+        m_readBufferSize = size;
+    }
+
+    LocalSocketState state() const
+    {
+        return m_state;
+    }
+
+    LocalSocketError error() const
+    {
+        return m_error;
+    }
+
+    QString errorString() const
+    {
+        return m_errorString;
+    }
+
+    qint64 bytesAvailable() const override
+    {
+        return m_buffer.size() + QIODevice::bytesAvailable();
+    }
+
+    bool waitForReadyRead(int) override
+    {
+        return false;
+    }
+
+    bool waitForBytesWritten(int) override
+    {
+        return true;
+    }
+
+Q_SIGNALS:
+    void disconnected();
+
+protected:
+    qint64 readData(char *data, qint64 maxSize) override
+    {
+        const qint64 toRead = qMin<qint64>(maxSize, m_buffer.size());
+        if (toRead <= 0) {
+            return -1;
+        }
+        memcpy(data, m_buffer.constData(), static_cast<size_t>(toRead));
+        m_buffer.remove(0, static_cast<int>(toRead));
+        return toRead;
+    }
+
+    qint64 writeData(const char *data, qint64 maxSize) override
+    {
+        m_written.append(data, static_cast<int>(maxSize));
+        return maxSize;
+    }
+
+private:
+    QByteArray m_buffer;
+    QByteArray m_written;
+    qint64 m_readBufferSize = 0;
+    LocalSocketState m_state = UnconnectedState;
+    LocalSocketError m_error = ConnectionError;
+    QString m_errorString;
+};
+EOF
+
+    cat > "${COOKBOOK_SYSROOT}/include/QLocalServer" <<'EOF'
+#pragma once
+
+#include <QObject>
+#include <QString>
+
+class QLocalSocket;
+
+class QLocalServer : public QObject
+{
+public:
+    explicit QLocalServer(QObject *parent = nullptr)
+        : QObject(parent)
+    {
+    }
+
+    bool listen(const QString &name)
+    {
+        m_name = name;
+        return false;
+    }
+
+    QString errorString() const
+    {
+        return QStringLiteral("QtNetwork disabled on Redox");
+    }
+
+    QLocalSocket *nextPendingConnection()
+    {
+        return nullptr;
+    }
+
+Q_SIGNALS:
+    void newConnection();
+
+private:
+    QString m_name;
+};
+EOF
+
+    python3 - <<'PY'
+from pathlib import Path
+import os
+
+source = Path(os.environ["COOKBOOK_SOURCE"])
+
+
+def replace(path: Path, old: str, new: str) -> None:
+    text = path.read_text()
+    if old in text:
+        path.write_text(text.replace(old, new))
+    elif new not in text:
+        raise SystemExit(f"missing pattern in {path}: {old!r}")
+
+
+replace(
+    source / "CMakeLists.txt",
+    "find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED Widgets Network Concurrent Xml Test)",
+    "find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED Widgets Concurrent Xml)",
+)
+
+replace(
+    source / "CMakeLists.txt",
+    "find_package(LibMount REQUIRED)",
+    "find_package(LibMount)",
+)
+
+replace(
+    source / "CMakeLists.txt",
+    '''if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    find_package(LibMount)
+    set(HAVE_LIB_MOUNT ${LibMount_FOUND})
+endif()''',
+    '''if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND NOT REDOX)
+    find_package(LibMount)
+    set(HAVE_LIB_MOUNT ${LibMount_FOUND})
+endif()''',
+)
+
+replace(
+    source / "KF6KIOConfig.cmake.in",
+    '''find_dependency(Qt6Network "@REQUIRED_QT_VERSION@")''',
+    '''find_dependency(Qt6Concurrent "@REQUIRED_QT_VERSION@")
+find_dependency(Qt6Xml "@REQUIRED_QT_VERSION@")''',
+)
+
+replace(
+    source / "src/CMakeLists.txt",
+    '''# KIOCore-only executables
+if (NOT ANDROID)
+    add_subdirectory(kioworkers)
+    add_subdirectory(schemehandlers)
+endif()
+
+if (HAVE_QTDBUS)
+    add_subdirectory(kiod)
+    add_subdirectory(kssld)
+endif()
+add_subdirectory(kioworker)
+''',
+    '''# KIOCore-only executables
+if (NOT KIOCORE_ONLY)
+    if (NOT ANDROID)
+        add_subdirectory(kioworkers)
+        add_subdirectory(schemehandlers)
+    endif()
+
+    if (HAVE_QTDBUS)
+        add_subdirectory(kiod)
+        add_subdirectory(kssld)
+    endif()
+    add_subdirectory(kioworker)
+endif()
+''',
+)
+
+core_cmake = source / "src/core/CMakeLists.txt"
+core_text = core_cmake.read_text()
+for line in [
+    "  hostinfo.cpp\\n",
+    "  ksslcertificatemanager.cpp\\n",
+    " Qt6::Network\\n",
+]:
+    core_text = core_text.replace(line, "")
+core_cmake.write_text(core_text)
+
+replace(
+    source / "src/core/askuseractioninterface.h",
+    "#include <QSsl>\\n\\n",
+    "",
+)
+
+replace(
+    source / "src/core/slavebase.h",
+    "#include <QByteArray>\\n#include <QHostInfo>\\n#include <QSsl>\\n\\n#include <memory>\\n\\nclass KConfigGroup;\\nclass KRemoteEncoding;\\nclass QUrl;\\n",
+    "#include <QByteArray>\\n\\n#include <memory>\\n\\nclass KConfigGroup;\\nclass KRemoteEncoding;\\nclass QHostInfo;\\nclass QUrl;\\n",
+)
+
+replace(
+    source / "src/core/slavebase.cpp",
+    "#include <QMap>\\n#include <QSsl>\\n#include <QtGlobal>\\n",
+    "#include <QMap>\\n#include <QHostInfo>\\n#include <QtGlobal>\\n",
+)
+
+replace(
+    source / "src/core/workerinterface_p.h",
+    "#include <QHostInfo>\\n#include <QObject>\\n",
+    "#include <QObject>\\n",
+)
+
+replace(
+    source / "src/core/workerinterface_p.h",
+    "private Q_SLOTS:\\n    void slotHostInfo(const QHostInfo &info);\\n\\nprotected:\\n",
+    "protected:\\n",
+)
+
+replace(
+    source / "src/core/workerinterface.cpp",
+    '''#include "connection_p.h"\n#include "kiocoredebug.h"\n''',
+    '''#include "connection_p.h"\n#include "kiocoredebug.h"\n\n#include <QHostInfo>\n''',
+)
+
+replace(
+    source / "src/core/workerinterface.cpp",
+    '''    case MSG_HOST_INFO_REQ: {
+        QString hostName;
+        stream >> hostName;
+        HostInfo::lookupHost(hostName, this, SLOT(slotHostInfo(QHostInfo)));
+        break;
+    }
+''',
+    '''    case MSG_HOST_INFO_REQ: {
+        QString hostName;
+        stream >> hostName;
+        QByteArray replyData;
+        QDataStream replyStream(&replyData, QIODevice::WriteOnly);
+        replyStream << hostName << QList<QHostAddress>() << int(QHostInfo::UnknownError) << QStringLiteral("Host lookup unavailable on Redox");
+        m_connection->send(CMD_HOST_INFO, replyData);
+        break;
+    }
+''',
+)
+
+replace(
+    source / "src/core/workerinterface.cpp",
+    '''
+void WorkerInterface::slotHostInfo(const QHostInfo &info)
+{
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream << info.hostName() << info.addresses() << info.error() << info.errorString();
+    m_connection->send(CMD_HOST_INFO, data);
+}
+
+''',
+    "\\n",
+)
+
+replace(
+    source / "src/core/ksslerroruidata_p.h",
+    "#include <QSslCertificate>\\n#include <QSslError>\\n#include <QString>\\n",
+    "#include <QString>\\n",
+)
+
+replace(
+    source / "src/core/ksslerroruidata_p.h",
+    '''    QList<QSslCertificate> certificateChain;
+    QList<QSslError> sslErrors; // parallel list to certificateChain
+    QString ip;
+''',
+    '''    QString ip;
+''',
+)
+
+replace(
+    source / "src/core/ksslerroruidata.cpp",
+    "#include <QHostAddress>\\n#include <QNetworkReply>\\n#include <QSslCipher>\\n\\n",
+    "",
+)
+
+replace(
+    source / "src/core/ksslerroruidata.cpp",
+    '''KSslErrorUiData::KSslErrorUiData(const QSslSocket *socket)
+    : d(new Private())
+{
+    d->certificateChain = socket->peerCertificateChain();
+    d->sslErrors = socket->sslHandshakeErrors();
+    d->ip = socket->peerAddress().toString();
+    d->host = socket->peerName();
+    if (socket->isEncrypted()) {
+        d->sslProtocol = socket->sessionCipher().protocolString();
+    }
+    d->cipher = socket->sessionCipher().name();
+    d->usedBits = socket->sessionCipher().usedBits();
+    d->bits = socket->sessionCipher().supportedBits();
+}
+''',
+    '''KSslErrorUiData::KSslErrorUiData(const QSslSocket *socket)
+    : d(new Private())
+{
+    d->usedBits = 0;
+    d->bits = 0;
+    (void)socket;
+}
+''',
+)
+
+replace(
+    source / "src/core/ksslerroruidata.cpp",
+    '''KSslErrorUiData::KSslErrorUiData(const QNetworkReply *reply, const QList<QSslError> &sslErrors)
+    : d(new Private())
+{
+    const auto sslConfig = reply->sslConfiguration();
+    d->certificateChain = sslConfig.peerCertificateChain();
+    d->sslErrors = sslErrors;
+    d->host = reply->request().url().host();
+    d->sslProtocol = sslConfig.sessionCipher().protocolString();
+    d->cipher = sslConfig.sessionCipher().name();
+    d->usedBits = sslConfig.sessionCipher().usedBits();
+    d->bits = sslConfig.sessionCipher().supportedBits();
+}
+''',
+    '''KSslErrorUiData::KSslErrorUiData(const QNetworkReply *reply, const QList<QSslError> &sslErrors)
+    : d(new Private())
+{
+    d->usedBits = 0;
+    d->bits = 0;
+    (void)reply;
+    (void)sslErrors;
+}
+''',
+)
+PY
+
+    if ! grep -q '^#include <QHostInfo>$' "${COOKBOOK_SOURCE}/src/core/workerinterface.cpp"; then
+        sed -i '/#include <QDateTime>/a #include <QHostInfo>' "${COOKBOOK_SOURCE}/src/core/workerinterface.cpp"
+    fi
+
+    cat > "${COOKBOOK_SOURCE}/src/core/connectionbackend.cpp" <<'EOF'
+/*
+    This file is part of the KDE libraries
+    SPDX-FileCopyrightText: 2000 Stephan Kulow <coolo@kde.org>
+    SPDX-FileCopyrightText: 2000 David Faure <coolo@kde.org>
+    SPDX-FileCopyrightText: 2007 Thiago Macieira <thiago@kde.org>
+    SPDX-FileCopyrightText: 2024 Harald Sitter <sitter@kde.org>
+
+    SPDX-License-Identifier: LGPL-2.0-or-later
+*/
+
+#include "connectionbackend_p.h"
+
+#include <KLocalizedString>
+
+using namespace KIO;
+
+ConnectionBackend::ConnectionBackend(QObject *parent)
+    : QObject(parent)
+    , state(Idle)
+    , socket(nullptr)
+    , localServer(nullptr)
+    , signalEmitted(false)
+{
+}
+
+ConnectionBackend::~ConnectionBackend() = default;
+
+void ConnectionBackend::setSuspended(bool enable)
+{
+    (void)enable;
+}
+
+bool ConnectionBackend::connectToRemote(const QUrl &url)
+{
+    (void)url;
+    errorString = i18n("Local IPC is unavailable on Redox without QtNetwork");
+    state = Idle;
+    return false;
+}
+
+ConnectionBackend::ConnectionResult ConnectionBackend::listenForRemote()
+{
+    state = Idle;
+    errorString = i18n("Local IPC is unavailable on Redox without QtNetwork");
+    return {false, errorString};
+}
+
+bool ConnectionBackend::waitForIncomingTask(int ms)
+{
+    (void)ms;
+    return false;
+}
+
+bool ConnectionBackend::sendCommand(int cmd, const QByteArray &data) const
+{
+    (void)cmd;
+    (void)data;
+    return false;
+}
+
+ConnectionBackend *ConnectionBackend::nextPendingConnection()
+{
+    return nullptr;
+}
+
+void ConnectionBackend::socketReadyRead()
+{
+}
+
+void ConnectionBackend::socketDisconnected()
+{
+    state = Idle;
+    Q_EMIT disconnected();
+}
+EOF
+fi
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/find_package(Qt6.*Widgets)/a find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DQT_SKIP_AUTO_PLUGIN_INCLUSION=ON \
+    -DKIOCORE_ONLY=ON \
+    -DBUILD_WITH_QML=OFF \
+    -DUSE_DBUS=OFF \
+    -DWITH_X11=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""

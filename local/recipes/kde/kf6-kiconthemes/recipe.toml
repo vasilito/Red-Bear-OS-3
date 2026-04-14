@@ -1,0 +1,81 @@
+#TODO: KIconThemes — icon theme management. Needs kf6-karchive for icon loading.
+[source]
+tar = "https://invent.kde.org/frameworks/kiconthemes/-/archive/v6.10.0/kiconthemes-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "qtsvg",
+    "kf6-extra-cmake-modules",
+    "kf6-kconfig",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kwidgetsaddons",
+    "kf6-kcolorscheme",
+    "kf6-kguiaddons",
+    "kf6-karchive",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/find_package(Qt6Widgets/a find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/add_subdirectory(qml)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/add_subdirectory(qml)/s/^/#/' "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i '/find_package(Qt6.*Qml Quick)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/if (KICONTHEMES_USE_QTQUICK)/if (FALSE)/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/set(KICONTHEMES_USE_QTQUICK ON)/set(KICONTHEMES_USE_QTQUICK OFF)/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/set(USE_BreezeIcons_DEFAULT ON)/set(USE_BreezeIcons_DEFAULT OFF)/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+SYSROOT_LIB="${SYSROOT}/lib"
+find "${SYSROOT}/lib/cmake/Qt6Svg" -name '*.cmake' -exec sed -i \
+    "s|/usr/lib|${SYSROOT_LIB}|g" {} + 2>/dev/null || true
+mkdir -p "${SYSROOT}/usr/lib"
+for lib in "${SYSROOT}/lib/libQt6Svg"*; do
+    [ -f "${lib}" ] || continue
+    libname=$(basename "${lib}")
+    if [ ! -e "${SYSROOT}/usr/lib/${libname}" ]; then
+        ln -sf "../lib/${libname}" "${SYSROOT}/usr/lib/${libname}"
+    fi
+done
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DCMAKE_INSTALL_RPATH="${COOKBOOK_SYSROOT}/lib" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DBUILD_WITH_QML=OFF \
+    -DUSE_DBUS=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""

@@ -1,14 +1,15 @@
-#TODO: Requires sys/signalfd.h SFD_CLOEXEC, sys/timerfd.h TFD_CLOEXEC
-#TODO: F_DUPFD_CLOEXEC, MSG_CMSG_CLOEXEC, MSG_NOSIGNAL TFD_TIMER_ABSTIME
+#TODO: Requires Redox compatibility patching for missing Linux header paths and
+# some POSIX/Linux-only flags during cross-builds.
+# redox.patch restores the Redox compatibility stubs plus Meson scanner detection.
 [source]
 tar = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz"
 patches = [
-    #FIXME: This patch is just a shim. Remove this patch
     "redox.patch"
 ]
 [build]
 template = "meson"
 dependencies = [
+    "relibc",
     "libffi",
     "expat",
     "libxml2",

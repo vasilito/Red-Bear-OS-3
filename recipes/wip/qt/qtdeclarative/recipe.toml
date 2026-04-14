@@ -1,0 +1,176 @@
+#TODO: Qt6 QML/QtQuick — cross-compiled for Redox. Needs qtbase with Wayland.
+# Provides: libQt6Qml, libQt6Quick, libQt6QuickWidgets, libQt6QmlModels, etc.
+# Also builds QML host tools (qmlcachegen, qmllint) for cross-compilation.
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtdeclarative-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+DECL_HOST="${COOKBOOK_ROOT}/build/qt-declarative-host"
+
+# ============================================================
+# Step 1: Build qtdeclarative host tools (qmlcachegen, qmllint)
+# These link against qtbase's host Qt6Core.
+# Install into the same prefix as qtbase host tools so
+# QT_HOST_PATH finds both qtbase and qtdeclarative tools.
+# ============================================================
+if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ]; then
+    echo "=== Building qtdeclarative host tools ==="
+    mkdir -p "${DECL_HOST}"
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake -S "${COOKBOOK_SOURCE}" -B "${DECL_HOST}" \
+        -DCMAKE_C_COMPILER=/usr/bin/cc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
+        -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+        -DQT_BUILD_EXAMPLES=OFF \
+        -DQT_BUILD_TESTS=OFF \
+        -DQT_GENERATE_SBOM=OFF \
+        -Wno-dev
+    cmake --build "${DECL_HOST}" -j"${COOKBOOK_MAKE_JOBS}"
+    cmake --install "${DECL_HOST}" --prefix "${HOST_BUILD}"
+fi
+
+# ============================================================
+# Step 2: Cross-compile qtdeclarative for Redox
+# ============================================================
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} → usr/
+# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}
+# which resolve to sysroot/{plugins,mkspecs,metatypes,modules} — missing the usr/ layer.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+# Patch masm/CheckedArithmetic.h: add missing ArithmeticOperations<unsigned, long>
+# specialization for LP64 (sizeof(long) != sizeof(int)). The existing code only
+# handles <unsigned, int> but GCC instantiates <unsigned, long> on x86_64.
+CHECKED="${COOKBOOK_SOURCE}/src/3rdparty/masm/wtf/CheckedArithmetic.h"
+if ! grep -q 'ArithmeticOperations<unsigned, long, ResultType, false, true>' "${CHECKED}" 2>/dev/null; then
+PATCHF="${COOKBOOK_BUILD}/arithm_patch.h"
+mkdir -p "${COOKBOOK_BUILD}"
+printf '%s\n' \
+    "template <typename ResultType> struct ArithmeticOperations<unsigned, long, ResultType, false, true> {" \
+    "    static inline bool add(unsigned lhs, long rhs, ResultType& result) WARN_UNUSED_RETURN" \
+    "    {" \
+    "        int64_t temp = static_cast<int64_t>(lhs) + static_cast<int64_t>(rhs);" \
+    "        if (temp < std::numeric_limits<ResultType>::min()) return false;" \
+    "        if (temp > std::numeric_limits<ResultType>::max()) return false;" \
+    "        result = static_cast<ResultType>(temp);" \
+    "        return true;" \
+    "    }" \
+    "    static inline bool sub(unsigned lhs, long rhs, ResultType& result) WARN_UNUSED_RETURN" \
+    "    {" \
+    "        int64_t temp = static_cast<int64_t>(lhs) - static_cast<int64_t>(rhs);" \
+    "        if (temp < std::numeric_limits<ResultType>::min()) return false;" \
+    "        if (temp > std::numeric_limits<ResultType>::max()) return false;" \
+    "        result = static_cast<ResultType>(temp);" \
+    "        return true;" \
+    "    }" \
+    "    static inline bool multiply(unsigned lhs, long rhs, ResultType& result) WARN_UNUSED_RETURN" \
+    "    {" \
+    "        int64_t temp = static_cast<int64_t>(lhs) * static_cast<int64_t>(rhs);" \
+    "        if (temp < std::numeric_limits<ResultType>::min()) return false;" \
+    "        if (temp > std::numeric_limits<ResultType>::max()) return false;" \
+    "        result = static_cast<ResultType>(temp);" \
+    "        return true;" \
+    "    }" \
+    "    static inline bool equals(unsigned lhs, long rhs)" \
+    "    {" \
+    "        return static_cast<int64_t>(lhs) == static_cast<int64_t>(rhs);" \
+    "    }" \
+    "};" > "${PATCHF}"
+LINE=$(grep -n "ArithmeticOperations<int, unsigned, ResultType>::equals" "${CHECKED}" | head -1 | cut -d: -f1)
+INSERT=$((LINE + 3))
+sed -i "${INSERT}r ${PATCHF}" "${CHECKED}"
+fi
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+-DQT_GENERATE_SBOM=OFF \
+-DQT_FEATURE_qml_jit=OFF \
+-DQT_FEATURE_ssl=OFF \
+    -DQT_FEATURE_network=OFF \
+    -DQT_FEATURE_localserver=OFF \
+    -DQT_FEATURE_http=OFF \
+    -DQT_FEATURE_udpsocket=OFF \
+    -DQT_FEATURE_dnslookup=OFF \
+    -DQT_FEATURE_networkinterface=OFF \
+    -DQT_FEATURE_networkproxy=OFF \
+    -DQT_FEATURE_socks5=OFF \
+    -DQT_FEATURE_networkdiskcache=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+
+# ============================================================
+# Step 3: Stage everything
+# ============================================================
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -a "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -a "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+if [ -d "qml" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/qml"
+    cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
+fi
+
+# RPATH cleanup
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+
+# CMake export fixup: replace build-tree paths with /usr
+BUILD_DIR="${COOKBOOK_BUILD}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+"""

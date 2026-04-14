@@ -1,6 +1,5 @@
-diff -ruwN source-old/include/drm/drm.h source/include/drm/drm.h
---- source-old/include/drm/drm.h	2025-06-08 06:27:53.000000000 -0600
-+++ source/include/drm/drm.h	2025-10-30 17:17:33.654234959 -0600
+--- source-old/include/drm/drm.h
++++ source/include/drm/drm.h
 @@ -44,7 +44,11 @@
  #else /* One of the BSDs */
  
@@ -13,9 +12,8 @@ diff -ruwN source-old/include/drm/drm.h source/include/drm/drm.h
  #include <sys/types.h>
  typedef int8_t   __s8;
  typedef uint8_t  __u8;
-diff -ruwN source-old/xf86drm.c source/xf86drm.c
---- source-old/xf86drm.c	2025-06-08 06:27:53.000000000 -0600
-+++ source/xf86drm.c	2025-10-30 17:18:58.374958567 -0600
+--- source-old/xf86drm.c
++++ source/xf86drm.c
 @@ -57,6 +57,19 @@
  #ifdef MAJOR_IN_SYSMACROS
  #include <sys/sysmacros.h>
@@ -66,9 +64,121 @@ diff -ruwN source-old/xf86drm.c source/xf86drm.c
  
      switch (tile_version) {
      case AMD_FMT_MOD_TILE_VER_GFX9:
-diff -ruwN source-old/xf86drm.h source/xf86drm.h
---- source-old/xf86drm.h	2025-06-08 06:27:53.000000000 -0600
-+++ source/xf86drm.h	2025-10-30 17:17:33.655115281 -0600
+@@ -823,6 +846,21 @@
+     return NULL;
+ }
+ 
++static int drmGetNodePath(char *buf, size_t buf_len, int type, int minor)
++{
++    const char *dev_name = drmGetDeviceName(type);
++
++#if defined(__redox__)
++    if (type == DRM_NODE_RENDER)
++        return snprintf(buf, buf_len, "%s/" DRM_RENDER_MINOR_NAME, DRM_DIR_NAME);
++#endif
++
++    if (!dev_name)
++        return -1;
++
++    return snprintf(buf, buf_len, dev_name, DRM_DIR_NAME, minor);
++}
++
+ /**
+  * Open the DRM device, creating it if necessary.
+  *
+@@ -839,7 +877,6 @@
+ static int drmOpenDevice(dev_t dev, int minor, int type)
+ {
+     stat_t          st;
+-    const char      *dev_name = drmGetDeviceName(type);
+     char            buf[DRM_NODE_NAME_MAX];
+     int             fd;
+     mode_t          devmode = DRM_DEV_MODE, serv_mode;
+@@ -850,10 +887,8 @@
+     gid_t           group   = DRM_DEV_GID;
+ #endif
+ 
+-    if (!dev_name)
++    if (drmGetNodePath(buf, sizeof(buf), type, minor) < 0)
+         return -EINVAL;
+-
+-    sprintf(buf, dev_name, DRM_DIR_NAME, minor);
+     drmMsg("drmOpenDevice: node name is %s\n", buf);
+ 
+     if (drm_server_info && drm_server_info->get_perms) {
+@@ -958,15 +993,13 @@
+ {
+     int  fd;
+     char buf[DRM_NODE_NAME_MAX];
+-    const char *dev_name = drmGetDeviceName(type);
+ 
+     if (create)
+         return drmOpenDevice(makedev(DRM_MAJOR, minor), minor, type);
+ 
+-    if (!dev_name)
++    if (drmGetNodePath(buf, sizeof(buf), type, minor) < 0)
+         return -EINVAL;
+ 
+-    sprintf(buf, dev_name, DRM_DIR_NAME, minor);
+     if ((fd = open(buf, O_RDWR | O_CLOEXEC)) >= 0)
+         return fd;
+     return -errno;
+@@ -3306,7 +3339,8 @@
+     d = sbuf.st_rdev;
+ 
+     for (i = 0; i < DRM_MAX_MINOR; i++) {
+-        snprintf(name, sizeof name, DRM_DEV_NAME, DRM_DIR_NAME, i);
++        if (drmGetNodePath(name, sizeof(name), DRM_NODE_PRIMARY, i) < 0)
++            return NULL;
+         if (stat(name, &sbuf) == 0 && sbuf.st_rdev == d)
+             break;
+     }
+@@ -3495,7 +3529,6 @@
+ #else
+     struct stat sbuf;
+     char buf[PATH_MAX + 1];
+-    const char *dev_name = drmGetDeviceName(type);
+     unsigned int maj, min;
+     int n;
+ 
+@@ -3508,10 +3541,9 @@
+     if (!drmNodeIsDRM(maj, min) || !S_ISCHR(sbuf.st_mode))
+         return NULL;
+ 
+-    if (!dev_name)
++    n = drmGetNodePath(buf, sizeof(buf), type, min);
++    if (n < 0)
+         return NULL;
+-
+-    n = snprintf(buf, sizeof(buf), dev_name, DRM_DIR_NAME, min);
+     if (n == -1 || n >= sizeof(buf))
+         return NULL;
+ 
+@@ -4877,7 +4909,6 @@
+ #else
+     struct stat      sbuf;
+     char             node[PATH_MAX + 1];
+-    const char      *dev_name;
+     int              node_type;
+     int              maj, min, n;
+ 
+@@ -4894,12 +4925,8 @@
+     if (node_type == -1)
+         return NULL;
+ 
+-    dev_name = drmGetDeviceName(node_type);
+-    if (!dev_name)
+-        return NULL;
+-
+-    n = snprintf(node, PATH_MAX, dev_name, DRM_DIR_NAME, min);
+-    if (n == -1 || n >= PATH_MAX)
++    n = drmGetNodePath(node, sizeof(node), node_type, min);
++    if (n < 0 || n >= PATH_MAX)
+       return NULL;
+ 
+     return strdup(node);
+--- source-old/xf86drm.h
++++ source/xf86drm.h
 @@ -47,7 +47,7 @@
  #define DRM_MAX_MINOR   64 /* deprecated */
  #endif
@@ -78,3 +188,16 @@ diff -ruwN source-old/xf86drm.h source/xf86drm.h
  
  #define DRM_IOCTL_NR(n)		_IOC_NR(n)
  #define DRM_IOC_VOID		_IOC_NONE
+@@ -81,6 +81,12 @@
+ #define DRM_PRIMARY_MINOR_NAME  "drm"
+ #define DRM_CONTROL_MINOR_NAME  "drmC" /* deprecated */
+ #define DRM_RENDER_MINOR_NAME   "drmR"
++#elif defined(__redox__)
++#define DRM_DIR_NAME  "/scheme/drm"
++#define DRM_PRIMARY_MINOR_NAME  "card"
++#define DRM_CONTROL_MINOR_NAME  "controlD" /* deprecated */
++#define DRM_RENDER_MINOR_NAME   "renderD"
++#define DRM_PROC_NAME "/proc/dri/" /* For backward Linux compatibility */
+ #else
+ #define DRM_DIR_NAME  "/dev/dri"
+ #define DRM_PRIMARY_MINOR_NAME  "card"

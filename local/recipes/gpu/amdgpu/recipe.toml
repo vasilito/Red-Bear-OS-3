@@ -1,6 +1,6 @@
-# AMD GPU driver port for Redox OS — Phase P2: Display Core (modesetting only)
-# Scope: AMD DC modesetting, connector detection, EDID, CRTC programming.
-# Full amdgpu (acceleration, compute, video decode) is Phase P5.
+# AMD GPU driver port for Redox OS — Phase P2+P5: Display Core + DML2 + TTM
+# Scope: AMD DC modesetting, DML2 display modeling, TTM memory manager, connector detection.
+# Full acceleration (compute, video decode) requires Mesa radeonsi backend.
 
 [source]
 # Local overlay recipe. The extracted Linux 7.0-rc7 AMDGPU tree lives next to this
@@ -26,8 +26,9 @@ LINUX_KPI="${COOKBOOK_SYSROOT}/include/linux-kpi"
 REDOX_GLUE="${COOKBOOK_SOURCE}"
 TARGET_CC="${COOKBOOK_TARGET}-gcc"
 
-# Compiler flags for AMD driver
+# Compiler flags for AMD driver — DML2 enabled
 export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
+    -DCONFIG_DRM_AMD_DC_DML2=1 \
     -DCONFIG_DRM_AMD_DC_FP -DCONFIG_DRM_AMD_ACP \
     -I${LINUX_KPI} \
     -I${REDOX_GLUE} \
@@ -38,6 +39,8 @@ export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC 
     -I${AMD_SRC}/display \
     -I${AMD_SRC}/display/dc \
     -I${AMD_SRC}/display/dc/dml \
+    -I${AMD_SRC}/display/dc/dml2_0 \
+    -I${AMD_SRC}/display/dc/dml2_0/dml21 \
     -I${AMD_SRC}/display/dc/dcn20 \
     -I${AMD_SRC}/display/dc/dcn21 \
     -I${AMD_SRC}/display/dc/dcn30 \
@@ -45,7 +48,6 @@ export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC 
     -I${AMD_SRC}/display/dc/dcn31 \
     -I${AMD_SRC}/display/dc/dcn32 \
     -I${AMD_SRC}/display/dc/dcn35 \
-    -I${AMD_SRC}/display/dc/dml2 \
     -I${AMD_SRC}/display/dmub \
     -I${AMD_SRC}/display/modules \
     -I${AMD_SRC}/display/modules/freesync \
@@ -64,11 +66,11 @@ export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC 
 "${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/amdgpu_redox_main.c" -o amdgpu_redox_main.o
 "${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/redox_stubs.c" -o redox_stubs.o
 
-# Stage 2: Compile AMD Display Core (DC) — display pipeline only
+# Stage 2: Compile AMD Display Core (DC) — all display sources including DML/DML2
 # Each file MUST compile. Any failure is a hard error.
 success=0
 failed=0
-find "${AMD_SRC}/display/" -name '*.c' | grep -v '/dml2/' | grep -v '/dml/' | while read -r src; do
+find "${AMD_SRC}/display/" -name '*.c' | while read -r src; do
     obj=$(basename "${src%.c}.o")
     if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
         success=$((success + 1))

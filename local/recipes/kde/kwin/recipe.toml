@@ -1,0 +1,191 @@
+#TODO: KWin Wayland compositor — DRM backend → scheme:drm, libinput → via evdevd, session → seatd
+# Stub deps remaining: libepoxy-stub, libudev-stub, lcms2-stub, libdisplay-info-stub
+# provide INTERFACE IMPORTED cmake targets so KWin links without real implementations.
+[source]
+tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "qtwayland",
+    "qtsvg",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-kconfig",
+    "kf6-kconfigwidgets",
+    "kf6-kcolorscheme",
+    "kf6-kcrash",
+    "kf6-kglobalaccel",
+    "kf6-ki18n",
+    "kf6-kiconthemes",
+    "kf6-kidletime",
+    "kf6-knotifications",
+    "kf6-kpackage",
+    "kf6-kservice",
+    "kf6-kwidgetsaddons",
+    "kf6-kwindowsystem",
+    "kf6-kxmlgui",
+    "kf6-kauth",
+    "kirigami",
+    "kf6-kio",
+    "kf6-kdeclarative",
+    "kf6-kcmutils",
+    "kf6-kwayland",
+    "kdecoration",
+    "libwayland",
+    "wayland-protocols",
+    "plasma-wayland-protocols",
+    "mesa",
+    "libdrm",
+    "libinput",
+    "libxkbcommon",
+    "dbus",
+    "freetype2",
+    "fontconfig",
+    "libxcvt",
+    "libepoxy-stub",
+    "libudev-stub",
+    "lcms2-stub",
+    "libdisplay-info-stub",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+CML="${COOKBOOK_SOURCE}/CMakeLists.txt"
+HOST_SCANNER_BUILD="${COOKBOOK_ROOT}/build/kwin-host-tools"
+QTWAYLANDSCANNER_KDE_EXECUTABLE="${HOST_SCANNER_BUILD}/qtwaylandscanner_kde"
+HOST_KCONFIG_BUILD="${COOKBOOK_ROOT}/build/kconfig-host-tools"
+HOST_KCONFIG_SOURCE="${COOKBOOK_ROOT}/local/recipes/kde/kf6-kconfig/source"
+HOST_KCONFIG_EXECUTABLE="${HOST_KCONFIG_BUILD}/bin/kconfig_compiler_kf6"
+
+mkdir -p "${HOST_BUILD}/bin"
+for tool in moc rcc uic qdbuscpp2xml qdbusxml2cpp wayland-scanner; do
+    [ -f "/usr/bin/$tool" ] && [ ! -e "${HOST_BUILD}/bin/$tool" ] && ln -sf "/usr/bin/$tool" "${HOST_BUILD}/bin/$tool"
+done
+
+rm -rf "${HOST_SCANNER_BUILD}"
+mkdir -p "${HOST_SCANNER_BUILD}"
+env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
+    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
+    cmake -S "${COOKBOOK_SOURCE}/src/wayland/tools" \
+    -B "${HOST_SCANNER_BUILD}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+    -DECM_DIR="${COOKBOOK_SYSROOT}/share/ECM/cmake" \
+    -DKF6_MIN_VERSION=6.10.0 \
+    -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+    -DQT_MAJOR_VERSION=6
+env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
+    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
+    cmake --build "${HOST_SCANNER_BUILD}" -j"${COOKBOOK_MAKE_JOBS}"
+
+rm -rf "${HOST_KCONFIG_BUILD}"
+mkdir -p "${HOST_KCONFIG_BUILD}"
+env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
+    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
+    cmake -S "${HOST_KCONFIG_SOURCE}" \
+    -B "${HOST_KCONFIG_BUILD}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+    -DECM_DIR="${COOKBOOK_SYSROOT}/share/ECM/cmake" \
+    -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+    -DKCONFIG_USE_GUI=OFF \
+    -DKCONFIG_USE_QML=OFF \
+    -DUSE_DBUS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF
+env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
+    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
+    cmake --build "${HOST_KCONFIG_BUILD}" --target kconfig_compiler -j"${COOKBOOK_MAKE_JOBS}"
+
+mkdir -p "${COOKBOOK_SYSROOT}/lib/libexec/kf6" "${COOKBOOK_SYSROOT}/usr/lib/libexec/kf6"
+cp "${HOST_KCONFIG_EXECUTABLE}" "${COOKBOOK_SYSROOT}/lib/libexec/kf6/kconfig_compiler_kf6"
+cp "${HOST_KCONFIG_EXECUTABLE}" "${COOKBOOK_SYSROOT}/usr/lib/libexec/kf6/kconfig_compiler_kf6"
+
+for d in plugins mkspecs metatypes modules; do
+    if [ ! -e "${COOKBOOK_SYSROOT}/${d}" ] && [ -d "${COOKBOOK_SYSROOT}/usr/${d}" ]; then
+        ln -sf "usr/${d}" "${COOKBOOK_SYSROOT}/${d}"
+    fi
+done
+
+if [ ! -e "${COOKBOOK_SYSROOT}/bin/wayland-scanner" ] || [ -f "${COOKBOOK_SYSROOT}/bin/wayland-scanner" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/bin"
+    rm -f "${COOKBOOK_SYSROOT}/bin/wayland-scanner"
+    ln -sf "/usr/bin/wayland-scanner" "${COOKBOOK_SYSROOT}/bin/wayland-scanner"
+fi
+
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/CMakeLists.txt" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/config-kwin.h.cmake" \
+    "${COOKBOOK_SOURCE}/src/config-kwin.h.cmake"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/CMakeLists.txt" \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/plugins/CMakeLists.txt" \
+    "${COOKBOOK_SOURCE}/src/plugins/CMakeLists.txt"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/main.cpp" \
+    "${COOKBOOK_SOURCE}/src/main.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/compositor_wayland.cpp" \
+    "${COOKBOOK_SOURCE}/src/compositor_wayland.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/outline.cpp" \
+    "${COOKBOOK_SOURCE}/src/outline.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/osd.cpp" \
+    "${COOKBOOK_SOURCE}/src/osd.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/effect/effectloader.cpp" \
+    "${COOKBOOK_SOURCE}/src/effect/effectloader.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/effect/effecthandler.cpp" \
+    "${COOKBOOK_SOURCE}/src/effect/effecthandler.cpp"
+cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/scripting/scripting.cpp" \
+    "${COOKBOOK_SOURCE}/src/scripting/scripting.cpp"
+
+find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' {} ";"
+find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' {} ";"
+sed -i 's/^add_subdirectory(killer)/# add_subdirectory(killer)/' "${COOKBOOK_SOURCE}/src/helpers/CMakeLists.txt"
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
+    -DQTWAYLANDSCANNER_KDE_EXECUTABLE="${QTWAYLANDSCANNER_KDE_EXECUTABLE}" \
+    -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
+    -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
+    -DWaylandProtocols_DATADIR="${COOKBOOK_SYSROOT}/share/wayland-protocols" \
+    -DPLASMA_WAYLAND_PROTOCOLS_DIR="${COOKBOOK_SYSROOT}/share/plasma-wayland-protocols" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DKWIN_BUILD_DECORATIONS=OFF \
+    -DKWIN_BUILD_KCMS=OFF \
+    -DKWIN_BUILD_SCREENLOCKING=OFF \
+    -DKWIN_BUILD_TABBOX=OFF \
+    -DKWIN_BUILD_EFFECTS=OFF \
+    -DKWIN_BUILD_RUNNING_IN_KDE=OFF \
+    -DKWIN_BUILD_X11=OFF \
+    -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
+    -DKWIN_BUILD_RUNNERS=OFF \
+    -DKWIN_BUILD_NOTIFICATIONS=OFF \
+    -DKWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF \
+    -DKWIN_BUILD_SCREENLOCKER=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -DQT_SKIP_AUTO_PLUGIN_INCLUSION=ON \
+    -DQT_NO_PRIVATE_MODULE_WARNING=ON \
+    -DBUILD_WITH_QML=OFF \
+    -DUSE_DBUS=OFF \
+    -Wno-dev
+
+mkdir -p src
+touch src/kwineffects_interface.moc
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+find "${COOKBOOK_STAGE}" -name '*.so*' -exec patchelf --remove-rpath {} ";" 2>/dev/null || true
+"""

@@ -2,4 +2,16 @@
 path = "source"
 
 [build]
-template = "cargo"
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+
+cargo build --lib --target "${TARGET}"
+
+cp "${COOKBOOK_SOURCE}/target/${TARGET}/debug/libredox_driver_sys.a" \
+   "${COOKBOOK_STAGE}/usr/lib/libredox_driver_sys.a"
+cp "${COOKBOOK_SOURCE}/target/${TARGET}/debug/libredox_driver_sys.rlib" \
+   "${COOKBOOK_STAGE}/usr/lib/libredox_driver_sys.rlib"
+"""

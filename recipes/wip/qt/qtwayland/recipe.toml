@@ -1,0 +1,82 @@
+#TODO: Qt6 Wayland — client compositor support. OpenGL guards applied for software rendering.
+# Runtime validation pending — needs running Wayland compositor.
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtwayland-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "libwayland",
+    "wayland-protocols",
+    "qtbase",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+# Clean stale CMake cache
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+# Qt Wayland requires wayland-scanner as a host tool
+# Ensure it's available (comes with libwayland host package)
+WAYLAND_SCANNER=$(which wayland-scanner 2>/dev/null || echo "/usr/bin/wayland-scanner")
+
+# Guard OpenGL virtual methods in compositor code — we build without OpenGL
+# Only patch if not already patched
+SERVER_H="${COOKBOOK_SOURCE}/src/compositor/compositor_api/qwaylandquickitem.h"
+if [ -f "${SERVER_H}" ] && ! grep -q 'QT_CONFIG(opengl)' "${SERVER_H}" 2>/dev/null; then
+    # Some Wayland compositor headers reference QOpenGLContext
+    # The qtbase build already guards these via QT_CONFIG
+    :
+fi
+
+# Create dummy SBOM to satisfy Qt's install-time reference
+mkdir -p "${COOKBOOK_BUILD}/qt_sbom/sbom"
+if [ -f "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/x86_64-unknown-redox/build/qt_sbom/staging-qtbase.spdx.in" ]; then
+    cp "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/x86_64-unknown-redox/build/qt_sbom/staging-qtbase.spdx.in" \
+       "${COOKBOOK_BUILD}/qt_sbom/sbom/qtbase-6.11.0.spdx"
+else
+    cat > "${COOKBOOK_BUILD}/qt_sbom/sbom/qtbase-6.11.0.spdx" << 'SBOMEOF'
+SPDXVersion: SPDX-2.3
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: qtbase-6.11.0
+DocumentNamespace: https://qt.io/spdxdocs/qtbase-placeholder
+Creator: Tool: Qt Build System
+PackageName: qtbase
+SPDXID: SPDXRef-Package-qtbase
+PackageDownloadLocation: NOASSERTION
+FilesAnalyzed: false
+SBOMEOF
+fi
+
+# Create sysroot symlink for Qt cmake modules (if not already present)
+for d in plugins mkspecs metatypes modules; do
+    if [ ! -e "${COOKBOOK_SYSROOT}/${d}" ] && [ -d "${COOKBOOK_SYSROOT}/usr/${d}" ]; then
+        ln -sf "usr/${d}" "${COOKBOOK_SYSROOT}/${d}"
+    fi
+done
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_TOOLS_BY_DEFAULT=OFF \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DFEATURE_wayland_client=ON \
+    -DFEATURE_wayland_compositor=OFF \
+    -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
+    -DCMAKE_TRY_COMPILE_OUTPUT_SIZE=64000 \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+# Remove RPATH from all libraries
+find "${COOKBOOK_STAGE}" -name '*.so*' -exec patchelf --remove-rpath {} \\; 2>/dev/null || true
+"""

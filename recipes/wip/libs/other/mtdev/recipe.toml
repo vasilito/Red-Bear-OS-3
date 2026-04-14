@@ -1,0 +1,6 @@
+#TODO: multitouch protocol translation — optional for basic mouse/keyboard
+[source]
+tar = "https://bitmath.org/code/mtdev/mtdev-1.1.7.tar.bz2"
+
+[build]
+template = "configure"

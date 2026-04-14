@@ -1,7 +1,8 @@
-#TODO not compiled or tested
-# build instructions: https://wayland.freedesktop.org/libinput/doc/latest/building.html#building
+#TODO: needs libevdev working; udev integration is disabled so the compositor owns device discovery
 [source]
 tar = "https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.30.2/libinput-1.30.2.tar.bz2"
+patches = ["redox.patch"]
+
 [build]
 template = "meson"
 mesonflags = [
@@ -9,8 +10,9 @@ mesonflags = [
     "-Dmtdev=false",
     "-Ddebug-gui=false",
     "-Dtests=false",
+    "-Dudev=false",
+    "-Ddocumentation=false",
 ]
 dependencies = [
-    "eudev",
     "libevdev",
 ]

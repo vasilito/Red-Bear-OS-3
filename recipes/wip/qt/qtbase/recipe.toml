@@ -1,0 +1,318 @@
+#TODO: Qt6 base — qtbase compiled with Core+Concurrent+Xml+Gui+Widgets+DBus. Runtime validation pending.
+# Scope: software rendering (no EGL/OpenGL), no Network/SQL/PrintSupport/TestLib.
+# Re-enable path: see local/docs/QT6-PORT-STATUS.md
+# Redox platform detection and syscall adaptations in redox.patch
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtbase-everywhere-src-6.11.0.tar.xz"
+patches = ["redox.patch"]
+
+[build]
+template = "custom"
+dependencies = [
+    "glib",
+    "pcre2",
+    "zlib",
+    "libwayland",
+    "dbus",
+    "mesa",
+]
+script = """
+DYNAMIC_INIT
+
+# ============================================================
+# Step 1: Build Qt host tools (moc, rcc, uic) on the host
+# These are needed for cross-compilation — Qt6 generates code
+# with these tools during the target build.
+# ============================================================
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+if [ ! -f "${HOST_BUILD}/bin/moc" ]; then
+    echo "=== Building Qt host tools ==="
+    mkdir -p "${HOST_BUILD}"
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake -S "${COOKBOOK_SOURCE}" -B "${HOST_BUILD}" \
+        -DCMAKE_C_COMPILER=/usr/bin/cc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+        -DCMAKE_ASM_COMPILER=/usr/bin/cc \
+        -DCMAKE_AR=/usr/bin/ar \
+        -DCMAKE_RANLIB=/usr/bin/ranlib \
+        -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
+        -DCMAKE_STRIP=/usr/bin/strip \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DQT_BUILD_EXAMPLES=OFF \
+        -DQT_BUILD_TESTS=OFF \
+        -DFEATURE_glib=OFF \
+        -DFEATURE_gui=OFF \
+        -DFEATURE_widgets=OFF \
+        -DFEATURE_opengl=OFF \
+    -DFEATURE_network=OFF \
+        -DFEATURE_dbus=ON \
+    -DFEATURE_openssl=OFF \
+    -DFEATURE_sql=OFF \
+    -DFEATURE_testlib=OFF \
+    -DFEATURE_xml=OFF \
+    -DFEATURE_wayland=ON \
+    -DFEATURE_qtwaylandscanner=ON \
+    -Wno-dev
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake --build "${HOST_BUILD}" --target host_tools -j"${COOKBOOK_MAKE_JOBS}"
+fi
+
+# ============================================================
+# Step 2: Cross-compile qtbase for Redox (Phase 1: QtCore)
+# ============================================================
+
+# Safety: clean stale CMake cache from previous attempts
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+# Also clean any stale cache in source directory from previous builds
+rm -f "${COOKBOOK_SOURCE}/CMakeCache.txt"
+rm -rf "${COOKBOOK_SOURCE}/CMakeFiles"
+
+# Provide sys/statfs.h wrapper — relibc only has sys/statvfs.h.
+# qstorageinfo_linux.cpp (compiled when LINUX=1 in CMake) includes sys/statfs.h.
+# Alias statfs → statvfs so it compiles against relibc's POSIX API.
+mkdir -p "${COOKBOOK_SYSROOT}/include/sys"
+if [ ! -f "${COOKBOOK_SYSROOT}/include/sys/statfs.h" ]; then
+    cat > "${COOKBOOK_SYSROOT}/include/sys/statfs.h" << 'STATFS_EOF'
+#ifndef _SYS_STATFS_H
+#define _SYS_STATFS_H
+/* Redox: relibc provides statvfs (POSIX), not Linux statfs.
+   Provide a compatibility shim so Linux-targeted code compiles. */
+#include <sys/statvfs.h>
+typedef struct statvfs statfs;
+#define statfs statvfs
+#define f_flags f_flag
+#endif /* _SYS_STATFS_H */
+STATFS_EOF
+fi
+
+# relibc lacks resolv.h (DNS resolver). QtNetwork includes it unconditionally on Unix.
+# Provide an empty stub — DNS resolution won't work but basic socket networking will.
+if [ ! -f "${COOKBOOK_SYSROOT}/include/resolv.h" ]; then
+    touch "${COOKBOOK_SYSROOT}/include/resolv.h"
+fi
+
+# Ensure private forwarding headers exist for Unix-specific includes
+# syncqt may not generate these for unknown platforms like Redox
+mkdir -p "${COOKBOOK_SOURCE}/src/corelib/QtCore/private"
+for hdr in qcore_unix_p.h qeventdispatcher_unix_p.h qtimerinfo_unix_p.h; do
+    target="${COOKBOOK_SOURCE}/src/corelib/QtCore/private/${hdr}"
+    if [ ! -f "${target}" ] && [ -f "${COOKBOOK_SOURCE}/src/corelib/kernel/${hdr}" ]; then
+        sed 's|kernel/|../kernel/|' "${COOKBOOK_SOURCE}/src/corelib/private/${hdr}" > "${target}"
+    fi
+done
+
+# Patch CMakeLists.txt: Redox uses POSIX statvfs, not Linux statfs.
+# Exclude qstorageinfo_linux.cpp, include qstorageinfo_unix.cpp instead.
+awk '
+/^qt_internal_extend_target\\(Core CONDITION LINUX AND NOT ANDROID AND NOT VXWORKS/ {
+    sub(/LINUX AND NOT ANDROID AND NOT VXWORKS/, "LINUX AND NOT REDOX AND NOT ANDROID AND NOT VXWORKS")
+}
+/qstorageinfo_linux\\.cpp/ { found_linux = 1 }
+found_linux && /^)$/ {
+    print; print ""
+    print "# Redox: POSIX statvfs, not Linux statfs"
+    print "qt_internal_extend_target(Core CONDITION REDOX"
+    print "    SOURCES"
+    print "        io/qstandardpaths_unix.cpp"
+    print "        io/qstorageinfo_unix.cpp"
+    print ")"
+    found_linux = 0; next
+}
+{ print }
+' "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt" > "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp"
+mv "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt"
+
+# Disable QtNetwork — relibc lacks resolv.h, in6_pktinfo, SIOCGIF* ioctls.
+# Will be re-enabled when POSIX networking gaps are filled in relibc.
+sed -i 's/^    add_subdirectory(network)/    # add_subdirectory(network) # disabled for Redox/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
+# Disable TUIO touch plugin — depends on QtNetwork which is disabled
+sed -i 's/^    add_subdirectory(tuiotouch)/    # add_subdirectory(tuiotouch) # disabled for Redox (needs Network)/' \
+    "${COOKBOOK_SOURCE}/src/plugins/generic/CMakeLists.txt"
+
+# QtGui needs the float16 shims — copy to gui dir and append to first SOURCES line
+cp "${COOKBOOK_SOURCE}/src/corelib/global/qt_float16_shims.c" \
+    "${COOKBOOK_SOURCE}/src/gui/painting/qt_float16_shims.c"
+awk '/^    SOURCES$/ && !done { print; print "        painting/qt_float16_shims.c"; done=1; next } { print }' \
+    "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt" > "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt.tmp"
+mv "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt"
+
+# relibc's elf.h defines ELFMAG0-3 and SELFMAG but not ELFMAG string constant.
+# Patch qelfparser_p.cpp (the only file using ELFMAG) to define it.
+QELF="${COOKBOOK_SOURCE}/src/corelib/plugin/qelfparser_p.cpp"
+if ! grep -q '#define ELFMAG' "${QELF}" 2>/dev/null; then
+    { printf '#ifndef ELFMAG\n'; printf '#define ELFMAG "\\177ELF"\n'; printf '#endif\n\n'; cat "${QELF}"; } > "${QELF}.tmp"
+    mv "${QELF}.tmp" "${QELF}"
+fi
+
+# Patch Wayland client buffer integration: guard OpenGL-only virtual functions
+# with QT_CONFIG(opengl). Without OpenGL, QPlatformOpenGLContext is not defined.
+# This allows Wayland client to build with software rendering (shared memory).
+BUFI="${COOKBOOK_SOURCE}/src/plugins/platforms/wayland/hardwareintegration/qwaylandclientbufferintegration_p.h"
+awk '
+/createPlatformOpenGLContext.*QPlatformOpenGLContext/ && !done1 {
+    print "#if QT_CONFIG(opengl)"; print; print "#endif /* QT_CONFIG(opengl) */"; done1=1; next
+}
+/nativeResourceForContext.*QPlatformOpenGLContext/ && !done2 {
+    print "#if QT_CONFIG(opengl)"; print; print "#endif /* QT_CONFIG(opengl) */"; done2=1; next
+}
+{ print }
+' "${BUFI}" > "${BUFI}.tmp"
+mv "${BUFI}.tmp" "${BUFI}"
+
+# qtypes.h uses static_assert (C11 macro from <assert.h>) but forkfd_qt.c (C file)
+# includes qglobal→qtypes before assert.h. Add the include guard for C mode.
+QTYPES="${COOKBOOK_SOURCE}/src/corelib/global/qtypes.h"
+if ! grep -q 'assert.h' "${QTYPES}" 2>/dev/null; then
+    awk '/#ifndef __cplusplus/ { print; print "#include <assert.h>"; next } { print }' \
+        "${QTYPES}" > "${QTYPES}.tmp"
+    mv "${QTYPES}.tmp" "${QTYPES}"
+fi
+
+# qprocess_unix.cpp needs sys/ioctl.h (for FIONREAD) but doesn't include it
+QP="${COOKBOOK_SOURCE}/src/corelib/io/qprocess_unix.cpp"
+if ! grep -q 'sys/ioctl.h' "${QP}" 2>/dev/null; then
+    awk '/#include <unistd.h>/ { print; print "#include <sys/ioctl.h>"; next } { print }' \
+        "${QP}" > "${QP}.tmp"
+    mv "${QP}.tmp" "${QP}"
+fi
+
+# Compile waitid() stub into sysroot lib — relibc lacks waitid() (unimplemented).
+# Qt's forkfd.c (QProcess backend) calls waitid(P_PID, ...) for child readiness.
+# The -1 return means "no children ready" — safe for process spawning via fork+exec.
+x86_64-unknown-redox-gcc -c -O2 -o "${COOKBOOK_SYSROOT}/lib/redox_waitid.o" \
+    "${COOKBOOK_ROOT}/local/recipes/qt/redox_waitid.c"
+x86_64-unknown-redox-ar rcs "${COOKBOOK_SYSROOT}/lib/libredox_waitid.a" \
+    "${COOKBOOK_SYSROOT}/lib/redox_waitid.o"
+
+# Also add waitid() declaration to sys/wait.h so forkfd.c sees it
+WAIT_H="${COOKBOOK_SYSROOT}/include/sys/wait.h"
+if [ -f "${WAIT_H}" ] && ! grep -q 'waitid.*siginfo_t' "${WAIT_H}" 2>/dev/null; then
+    awk '/^#endif/ { print "/* Redox: waitid() declaration */"; print "int waitid(int,int,siginfo_t*,int);" } { print }' \
+        "${WAIT_H}" > "${WAIT_H}.tmp"
+    mv "${WAIT_H}.tmp" "${WAIT_H}"
+fi
+
+# Inject waitid.o into Qt's Core library sources so it links into libQt6Core
+CORE_CMAKE="${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt"
+if ! grep -q 'redox_waitid' "${CORE_CMAKE}" 2>/dev/null; then
+    WAIT_O="${COOKBOOK_SYSROOT}/lib/redox_waitid.o"
+    awk '/target_sources\\(Core/ && !done { print; print "    '"${WAIT_O}"'"; done=1; next } { print }' \
+        "${CORE_CMAKE}" > "${CORE_CMAKE}.tmp"
+    mv "${CORE_CMAKE}.tmp" "${CORE_CMAKE}"
+fi
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_TOOLS_BY_DEFAULT=OFF \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DFEATURE_androiddeployqt=OFF \
+    -DFEATURE_gui=ON \
+    -DFEATURE_widgets=ON \
+    -DFEATURE_opengl=ON \
+    -DINPUT_opengl=es2 \
+    -DFEATURE_qmake=OFF \
+    -DFEATURE_qtwaylandscanner=ON \
+    -DFEATURE_egl=ON \
+    -DFEATURE_openssl=OFF \
+    -DFEATURE_dbus=ON \
+    -DFEATURE_wayland=ON \
+    -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
+    -DFEATURE_wasmdeployqt=OFF \
+    -DFEATURE_xcb=OFF \
+    -DFEATURE_xlib=OFF \
+    -DFEATURE_vulkan=OFF \
+     -DFEATURE_process=ON \
+     -DFEATURE_sharedmemory=OFF \
+    -DFEATURE_systemsemaphore=OFF \
+    -DFEATURE_testlib=OFF \
+    -DFEATURE_sql=OFF \
+    -DFEATURE_printsupport=OFF \
+    -DFEATURE_system_zlib=ON \
+    -DFEATURE_system_pcre2=OFF \
+    -DFEATURE_system_doubleconversion=OFF \
+    -DFEATURE_system_harfbuzz=OFF \
+    -DFEATURE_libjpeg=OFF \
+    -DFEATURE_libpng=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+
+# Qt's top-level install script expects a hashed export path under CMakeFiles/Export,
+# but on this Redox cross-build the generated file only exists at lib/cmake/Qt6/Qt6Targets.cmake.
+# Materialize the expected export file before install so cmake --install can proceed normally.
+python3 - <<'PY'
+from pathlib import Path
+import shutil
+
+install_script = Path("cmake_install.cmake")
+generated = Path("lib/cmake/Qt6/Qt6Targets.cmake")
+
+if install_script.exists() and generated.exists():
+    for line in install_script.read_text().splitlines():
+        marker = 'CMakeFiles/Export/'
+        suffix = '/Qt6Targets.cmake'
+        if marker in line and suffix in line and 'FILES "' in line:
+            expected = Path(line.split('FILES "', 1)[1].rsplit('"', 1)[0])
+            expected.parent.mkdir(parents=True, exist_ok=True)
+            if not expected.exists():
+                shutil.copy2(generated, expected)
+            break
+PY
+
+# cmake --install handles: libs, headers, cmake files, metatypes, mkspecs, plugins, pri files
+# It generates relocatable cmake files (using relative paths) which downstream modules need.
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+# Supplemental: ensure library symlinks (cmake install sometimes misses .so symlinks)
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+# Plugin path fix: cmake target files reference ${_IMPORT_PREFIX}/plugins/...
+# but cmake --install puts plugins at ${prefix}/plugins/ = stage/usr/plugins/.
+# The cookbook copies stage/usr/* to sysroot/, so:
+#   stage/usr/lib/    → sysroot/lib/     (cmake files: sysroot/lib/cmake/Qt6Gui/)
+#   stage/usr/plugins/ → sysroot/usr/plugins/  (actual files)
+# _IMPORT_PREFIX resolves to sysroot/ (parent of lib/cmake/Qt6Gui/), so cmake
+# looks for sysroot/plugins/... but files are at sysroot/usr/plugins/...
+# Fix: also stage plugins without the usr/ prefix so cookbook puts them at sysroot/plugins/.
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/plugins"
+    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${COOKBOOK_STAGE}/plugins/" 2>/dev/null || true
+fi
+
+# RPATH cleanup
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+"""

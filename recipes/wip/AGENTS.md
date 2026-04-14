@@ -39,27 +39,26 @@ recipes/wip/
 
 | Task | Location |
 |------|----------|
-| Fix Wayland build | `wayland/libwayland/redox.patch` — stubs 7 POSIX APIs |
+| Fix Wayland build | `wayland/libwayland/redox.patch` — still carries POSIX compatibility workarounds |
 | Add Wayland compositor | `wayland/<name>/recipe.toml` — use `dependencies = ["libwayland"]` |
 | Fix cosmic-comp | `wayland/cosmic-comp/` — missing libinput causes no keyboard |
 | Work on smallvil | `wayland/smallvil/` — Smithay-based, already running |
 | Port a KDE app | Copy existing recipe pattern, add `#TODO` header |
-| Add Qt port | Create `wip/qt/qtbase/recipe.toml` (not yet started) |
+| Add Qt port | Prefer the newer `local/recipes/qt/` / `local/recipes/kde/` work over this older note |
 
 ## WAYLAND STATUS
 
-- **libwayland**: Builds with redox.patch stubbing 7 POSIX APIs
+- **libwayland**: Builds with `redox.patch`; several POSIX-dependent code paths are still commented out there
 - **cosmic-comp**: Partially working, no keyboard input (missing libinput)
 - **smallvil**: Basic compositor running, poor performance
 - **wlroots/sway/hyprland**: Not compiled or tested
 - **xwayland**: Partially patched
-- **Blockers**: POSIX gaps (M1), evdevd input (M2), DRM/KMS (M3)
+- **Blockers**: downstream Wayland patch reduction, libinput/runtime input validation, DRM/KMS hardware/runtime validation
 
 ## KDE STATUS
 
-- 9 app recipes exist but all blocked on Qt6 + KDE Frameworks
-- No qtbase recipe yet (Phase KDE-A prerequisite)
-- See `docs/05-KDE-PLASMA-ON-REDOX.md` for full 3-phase plan
+- Older WIP KDE app notes here are stale relative to `local/recipes/kde/` and `config/redbear-kde.toml`
+- See `docs/05-KDE-PLASMA-ON-REDOX.md` top-level status note plus `local/docs/QT6-PORT-STATUS.md` for current state
 
 ## CONVENTIONS
 

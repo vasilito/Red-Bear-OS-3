@@ -1,0 +1,60 @@
+#TODO: lcms2 stub — provides lcms2::lcms2 cmake target for KWin linking
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/include"
+mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake/lcms2"
+
+cat > "${COOKBOOK_STAGE}/usr/include/lcms2.h" << 'EOF'
+#pragma once
+#include <stddef.h>
+#include <stdint.h>
+typedef void* cmsHPROFILE;
+typedef void* cmsHTRANSFORM;
+cmsHPROFILE cmsOpenProfileFromMem(const void *mem, size_t size) __attribute__((weak));
+void cmsCloseProfile(cmsHPROFILE hProfile) __attribute__((weak));
+cmsHTRANSFORM cmsCreateTransform(cmsHPROFILE input, uint32_t inType, cmsHPROFILE output, uint32_t outType, uint32_t intent, uint32_t flags) __attribute__((weak));
+void cmsDeleteTransform(cmsHTRANSFORM hTransform) __attribute__((weak));
+void cmsDoTransform(cmsHTRANSFORM hTransform, const void *in, void *out, unsigned int size) __attribute__((weak));
+cmsHPROFILE cmsCreate_sRGBProfile(void) __attribute__((weak));
+cmsHPROFILE cmsOpenProfileFromFile(const char *path, const char *mode) __attribute__((weak));
+uint32_t cmsGetProfileInfo(cmsHPROFILE hProfile, uint32_t info, const char *lang, const char *country, char *buffer, uint32_t buffer_size) __attribute__((weak));
+EOF
+
+cat > stub_lcms2.c << 'CEOF'
+#include <stddef.h>
+
+void *cmsOpenProfileFromMem(const void *m, size_t s) { (void)m; (void)s; return 0; }
+void cmsCloseProfile(void *p) { (void)p; }
+void *cmsCreateTransform(void *i, unsigned int it, void *o, unsigned int ot, unsigned int u, unsigned int f) { (void)i; (void)it; (void)o; (void)ot; (void)u; (void)f; return 0; }
+void cmsDeleteTransform(void *t) { (void)t; }
+void cmsDoTransform(void *t, const void *i, void *o, unsigned int s) { (void)t; (void)i; (void)o; (void)s; }
+void *cmsCreate_sRGBProfile(void) { return 0; }
+void *cmsOpenProfileFromFile(const char *p, const char *m) { (void)p; (void)m; return 0; }
+unsigned int cmsGetProfileInfo(void *h, unsigned int i, const char *l, const char *c, char *b, unsigned int s) { (void)h; (void)i; (void)l; (void)c; (void)b; (void)s; return 0; }
+CEOF
+
+x86_64-unknown-redox-gcc -shared -fPIC -o "${COOKBOOK_STAGE}/usr/lib/liblcms2.so" stub_lcms2.c
+
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/lcms2/lcms2Config.cmake" << 'EOF'
+if(NOT TARGET lcms2::lcms2)
+    add_library(lcms2::lcms2 SHARED IMPORTED)
+    set_target_properties(lcms2::lcms2 PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../../../lib/liblcms2.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../../include"
+    )
+endif()
+set(lcms2_FOUND TRUE)
+set(lcms2_VERSION "2.15")
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/lcms2/lcms2ConfigVersion.cmake" << 'EOF'
+set(PACKAGE_VERSION "2.15")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOF
+"""

@@ -1,0 +1,6 @@
+if (KWIN_BUILD_X11_BACKEND)
+    add_subdirectory(standalone)
+endif()
+if (X11_XCB_FOUND)
+    add_subdirectory(windowed)
+endif()

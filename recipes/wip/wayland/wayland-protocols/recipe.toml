@@ -1,7 +1,26 @@
 [source]
-tar = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.32/downloads/wayland-protocols-1.32.tar.xz"
+tar = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.38/downloads/wayland-protocols-1.38.tar.xz"
+
 [build]
-template = "meson"
-mesonflags = [
-    "-Dtests=false"
-]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+python3 - <<'PY' "${COOKBOOK_SOURCE}/meson.build"
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '''dep_scanner = dependency('wayland-scanner', version: '>=1.20.0', native: true, fallback: 'wayland')
+prog_scanner = find_program(dep_scanner.get_variable(pkgconfig: 'wayland_scanner', internal: 'wayland_scanner'))'''
+new = "prog_scanner = find_program('/usr/bin/wayland-scanner', native: true)"
+if old in text:
+    text = text.replace(old, new)
+
+text = text.replace("if dep_scanner.version().version_compare('>=1.22.90')", "if true")
+path.write_text(text)
+PY
+
+cookbook_meson -Dtests=false
+"""

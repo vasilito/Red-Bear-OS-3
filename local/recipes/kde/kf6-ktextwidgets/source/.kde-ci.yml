@@ -1,0 +1,14 @@
+Dependencies:
+- 'on': ['@all']
+  'require':
+    'frameworks/extra-cmake-modules': '@same'
+    'frameworks/kcompletion' : '@same'
+    'frameworks/kconfig' : '@same'
+    'frameworks/ki18n' : '@same'
+    'frameworks/kwidgetsaddons' : '@same'
+    'frameworks/sonnet' : '@same'
+    'frameworks/kcolorscheme' : '@same'
+
+Options:
+  test-before-installing: True
+  require-passing-tests-on: [ 'Linux', 'FreeBSD', 'Windows' ]

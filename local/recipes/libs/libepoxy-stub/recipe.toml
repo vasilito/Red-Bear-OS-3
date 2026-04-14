@@ -1,0 +1,66 @@
+#TODO: libepoxy stub — provides epoxy::epoxy cmake target for KWin linking
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/include/epoxy"
+mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake/epoxy"
+
+cat > "${COOKBOOK_STAGE}/usr/include/epoxy/egl.h" << 'EOF'
+#pragma once
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+static inline int epoxy_egl_extension_supported(const char *ext) { (void)ext; return 0; }
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/include/epoxy/gl.h" << 'EOF'
+#pragma once
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+static inline int epoxy_gl_version(void) { return 20; }
+static inline int epoxy_has_gl_extension(const char *ext) { (void)ext; return 0; }
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/include/epoxy/glx.h" << 'EOF'
+#pragma once
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/include/epoxy/gl_generated.h" << 'EOF'
+#pragma once
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/include/epoxy/egl_generated.h" << 'EOF'
+#pragma once
+EOF
+
+cat > stub_epoxy.c << 'CEOF'
+int epoxy_egl_extensions_string(void) { return 0; }
+int epoxy_has_egl_extension(const char *ext) { (void)ext; return 0; }
+int epoxy_gl_version(void) { return 20; }
+int epoxy_has_gl_extension(const char *ext) { (void)ext; return 0; }
+int epoxy_glx_version(void) { return 0; }
+int epoxy_has_glx_extension(const char *ext) { (void)ext; return 0; }
+CEOF
+
+x86_64-unknown-redox-gcc -shared -fPIC -o "${COOKBOOK_STAGE}/usr/lib/libepoxy.so" stub_epoxy.c
+
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/epoxy/epoxyConfig.cmake" << 'EOF'
+if(NOT TARGET epoxy::epoxy)
+    add_library(epoxy::epoxy SHARED IMPORTED)
+    set_target_properties(epoxy::epoxy PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libepoxy.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../../include"
+    )
+endif()
+set(epoxy_FOUND TRUE)
+EOF
+
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/epoxy/epoxyConfigVersion.cmake" << 'EOF'
+set(PACKAGE_VERSION "1.5.10")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOF
+"""

@@ -1,0 +1,86 @@
+#TODO: Qt6 SVG module — needed for KDE icon themes (SVG rendering via QtGui).
+# Provides: libQt6Svg, libQt6SvgWidgets (QtSvgWidgets plugin)
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+# Sysroot path fix: same as qtdeclarative — cookbook only symlinks
+# sysroot/{bin,include,lib,share} but Qt6 cmake targets reference
+# ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6Svg" -name '*.cmake' -exec sed -i \
+    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+mkdir -p "${SYSROOT}/include"
+cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+mkdir -p "${SYSROOT}/lib/cmake/Qt6Svg"
+cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6Svg/"* "${SYSROOT}/lib/cmake/Qt6Svg/" 2>/dev/null || true
+mkdir -p "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+"""
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtsvg-everywhere-src-6.11.0.tar.xz"

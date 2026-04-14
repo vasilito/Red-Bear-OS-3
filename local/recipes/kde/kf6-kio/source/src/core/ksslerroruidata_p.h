@@ -1,0 +1,31 @@
+/*
+    This file is part of the KDE libraries
+    SPDX-FileCopyrightText: 2009 Andreas Hartmetz <ahartmetz@gmail.com>
+
+    SPDX-License-Identifier: LGPL-2.0-or-later
+*/
+
+#ifndef KSSLERRORUIDATA_P_H
+#define KSSLERRORUIDATA_P_H
+
+#include "ksslerroruidata.h"
+
+#include <QString>
+
+class Q_DECL_HIDDEN KSslErrorUiData::Private
+{
+public:
+    static const KSslErrorUiData::Private *get(const KSslErrorUiData *uiData)
+    {
+        return uiData->d.get();
+    }
+
+    QString ip;
+    QString host;
+    QString sslProtocol;
+    QString cipher;
+    int usedBits;
+    int bits;
+};
+
+#endif // KSSLERRORUIDATA_P_H

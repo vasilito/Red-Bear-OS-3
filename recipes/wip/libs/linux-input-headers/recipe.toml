@@ -1,0 +1,54 @@
+#TODO: Consider generating from kernel headers or evdevd types instead of manual defines
+[source]
+tar = "https://www.freedesktop.org/software/libevdev/libevdev-1.13.2.tar.xz"
+
+[build]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/include/linux"
+
+# Copy input headers from libevdev's bundled copy
+cp "${COOKBOOK_SOURCE}/include/linux/linux/input.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+cp "${COOKBOOK_SOURCE}/include/linux/linux/input-event-codes.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+
+# Create linux/types.h with __u* / __s* type aliases (input.h requires it)
+cat > "${COOKBOOK_STAGE}/usr/include/linux/types.h" << 'EOF'
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
+#include <stdint.h>
+#include <sys/types.h>
+typedef uint8_t  __u8;
+typedef uint16_t __u16;
+typedef uint32_t __u32;
+typedef uint64_t __u64;
+typedef int8_t   __s8;
+typedef int16_t  __s16;
+typedef int32_t  __s32;
+typedef int64_t  __s64;
+#endif
+EOF
+
+# Patch input.h: replace #include <linux/types.h> with our linux/types.h
+# Also remove #include <sys/ioctl.h> (relibc has ioctl via sys/ioctl.h)
+# And add _CNT macros
+sed -i 's|#include <linux/types.h>|#include <linux/types.h>\\n#include <sys/ioctl.h>|' "${COOKBOOK_STAGE}/usr/include/linux/input.h" 2>/dev/null || true
+
+# Append _CNT array-size macros
+cat >> "${COOKBOOK_STAGE}/usr/include/linux/input.h" << 'EOF'
+
+#define EV_CNT			(EV_MAX + 1)
+#define INPUT_PROP_CNT		(INPUT_PROP_MAX + 1)
+#define KEY_CNT			(KEY_MAX + 1)
+#define SYN_CNT			(SYN_MAX + 1)
+#define REL_CNT			(REL_MAX + 1)
+#define ABS_CNT			(ABS_MAX + 1)
+#define MSC_CNT			(MSC_MAX + 1)
+#define SW_CNT			(SW_MAX + 1)
+#define LED_CNT			(LED_MAX + 1)
+#define REP_CNT			(REP_MAX + 1)
+#define SND_CNT			(SND_MAX + 1)
+#define FF_CNT			(FF_MAX + 1)
+EOF
+"""

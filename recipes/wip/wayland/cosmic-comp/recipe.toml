@@ -1,4 +1,4 @@
-#TODO: performance issues, no keyboard input
+#TODO: performance issues, needs libinput runtime validation with evdevd
 [source]
 git = "https://github.com/jackpot51/cosmic-comp"
 branch = "redox"
@@ -7,7 +7,8 @@ branch = "redox"
 template = "custom"
 dependencies = [
     "libffi",
-    #TODO: requires evdev and some udev implementation: "libinput",
+    "libevdev",
+    "libinput",
     "libwayland",
     "libxkbcommon",
     "mesa",

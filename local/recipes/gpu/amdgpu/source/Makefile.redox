@@ -7,6 +7,7 @@ AMDGPU_INCLUDES ?= ../amdgpu-source/include
 LINUX_KPI ?= ../../drivers/linux-kpi/src/c_headers
 
 CFLAGS ?= -D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
+	-DCONFIG_DRM_AMD_DC_DML2=1 \
 	-DCONFIG_DRM_AMD_DC_FP -DCONFIG_DRM_AMD_ACP \
 	-I$(LINUX_KPI) \
 	-I. \
@@ -24,7 +25,8 @@ CFLAGS ?= -D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
 	-I$(AMDGPU_SRC)/display/dc/dcn31 \
 	-I$(AMDGPU_SRC)/display/dc/dcn32 \
 	-I$(AMDGPU_SRC)/display/dc/dcn35 \
-	-I$(AMDGPU_SRC)/display/dc/dml2 \
+	-I$(AMDGPU_SRC)/display/dc/dml2_0 \
+	-I$(AMDGPU_SRC)/display/dc/dml2_0/dml21 \
 	-I$(AMDGPU_SRC)/display/dmub \
 	-I$(AMDGPU_SRC)/display/modules \
 	-I$(AMDGPU_SRC)/display/modules/freesync \
@@ -63,7 +65,7 @@ CORE_SRCS := \
 	$(AMDGPU_SRC)/amdgpu/amdgpu_ttm.c \
 	$(AMDGPU_SRC)/amdgpu/amdgpu_bo_list.c
 CORE_OBJS := $(patsubst %.c,%.o,$(notdir $(CORE_SRCS)))
-DISPLAY_SRCS := $(shell find $(AMDGPU_SRC)/display -name '*.c' ! -path '*/dml/*' ! -path '*/dml2/*')
+DISPLAY_SRCS := $(shell find $(AMDGPU_SRC)/display -name '*.c')
 DISPLAY_OBJS := $(patsubst %.c,%.o,$(notdir $(DISPLAY_SRCS)))
 TTM_SRCS := $(shell find $(TTM_SRC) -name '*.c')
 TTM_OBJS := $(patsubst %.c,%.o,$(notdir $(TTM_SRCS)))

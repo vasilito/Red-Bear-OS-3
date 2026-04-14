@@ -113,6 +113,7 @@ pub struct PciCapability {
 }
 
 pub const PCI_CAP_ID_MSI: u8 = 0x05;
+pub const PCI_CAP_ID_ATS: u8 = 0x0B;
 pub const PCI_CAP_ID_MSIX: u8 = 0x11;
 pub const PCI_CAP_ID_PCIE: u8 = 0x10;
 pub const PCI_CAP_ID_POWER: u8 = 0x01;

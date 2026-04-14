@@ -1,0 +1,15 @@
+#TODO: seatd Redox backend — needs redox-drm scheme for DRM lease
+# seatd provides a seat management daemon used by Wayland compositors
+[source]
+tar = "https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.1.tar.gz"
+
+[build]
+template = "meson"
+mesonflags = [
+    "-Dlibseat-seatd=enabled",
+    "-Dlibseat-builtin=disabled",
+    "-Dlibseat-logind=disabled",
+    "-Dserver=enabled",
+    "-Dexamples=disabled",
+    "-Dman-pages=disabled",
+]

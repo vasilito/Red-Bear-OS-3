@@ -6,7 +6,7 @@ patches = ["redox.patch"]
 [build]
 template = "meson"
 mesonflags = [
-    "-Damdgpu=disabled",
+    "-Damdgpu=enabled",
     "-Dintel=disabled",
     "-Dnouveau=disabled",
     "-Dradeon=disabled",

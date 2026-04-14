@@ -1,0 +1,467 @@
+diff -ruwN source-old/cmake/QtPlatformSupport.cmake source/cmake/QtPlatformSupport.cmake
+--- source-old/cmake/QtPlatformSupport.cmake	2024-12-02 05:39:06.000000000 +0000
++++ source/cmake/QtPlatformSupport.cmake	2026-04-13 00:00:00.000000000 +0000
+@@ -55,8 +55,20 @@
+     set(NETBSD 0)
+ endif()
+ 
++# REDOX is set by the Redox toolchain file (redox-toolchain.cmake) as CACHE INTERNAL.
++# When CMAKE_SYSTEM_NAME is "Linux" (for CMake UNIX detection), we need this variable
++# to enable Redox-specific code paths (mkspec, QPA plugin, platform tweaks).
++# Falls back to checking CMAKE_SYSTEM_NAME for standalone/non-toolchain usage.
++if(NOT DEFINED REDOX)
++    if(CMAKE_SYSTEM_NAME STREQUAL "Redox")
++        set(REDOX 1)
++    else()
++        set(REDOX 0)
++    endif()
++endif()
++
+ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten" OR EMSCRIPTEN)
+     set(WASM 1)
+ else()
+     set(WASM 0)
+ endif()
+ diff -ruwN source-old/cmake/QtMkspecHelpers.cmake source/cmake/QtMkspecHelpers.cmake
+--- source-old/cmake/QtMkspecHelpers.cmake	2024-12-02 05:39:06.000000000 +0000
++++ source/cmake/QtMkspecHelpers.cmake	2026-04-13 00:00:00.000000000 +0000
+@@ -46,4 +46,8 @@
+         endif()
++    elseif(REDOX)
++        if(GCC)
++            set(QT_DEFAULT_MKSPEC redox-g++)
++        endif()
+     elseif(LINUX)
+         if(GCC)
+             set(QT_DEFAULT_MKSPEC linux-g++)
+diff -ruwN /dev/null source/mkspecs/redox-g++/qmake.conf
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/mkspecs/redox-g++/qmake.conf	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,14 @@
++#
++# qmake configuration for redox-g++
++#
++
++MAKEFILE_GENERATOR      = UNIX
++QMAKE_PLATFORM         += redox
++CONFIG                 += incremental
++QMAKE_INCREMENTAL_STYLE = sublib
++
++include(../common/unix.conf)
++include(../common/gcc-base-unix.conf)
++include(../common/g++-unix.conf)
++
++load(qt_config)
+diff -ruwN /dev/null source/mkspecs/redox-g++/qplatformdefs.h
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/mkspecs/redox-g++/qplatformdefs.h	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,27 @@
++// Copyright (C) 2026 Red Bear OS contributors
++// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++
++#ifndef QPLATFORMDEFS_H
++#define QPLATFORMDEFS_H
++
++#include "qglobal.h"
++
++#include <unistd.h>
++
++#include <dirent.h>
++#include <fcntl.h>
++
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++
++#ifndef O_LARGEFILE
++#  define O_LARGEFILE 0
++#endif
++
++#include "../common/posix/qplatformdefs.h"
++
++#define QT_SNPRINTF ::snprintf
++#define QT_VSNPRINTF ::vsnprintf
++
++#endif // QPLATFORMDEFS_H
+diff -ruwN /dev/null source/src/corelib/private/qcore_unix_p.h
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/corelib/private/qcore_unix_p.h	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++
++#include "../kernel/qcore_unix_p.h"
++
+diff -ruwN /dev/null source/src/corelib/private/qeventdispatcher_unix_p.h
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/corelib/private/qeventdispatcher_unix_p.h	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++
++#include "../kernel/qeventdispatcher_unix_p.h"
++
+diff -ruwN /dev/null source/src/corelib/private/qtimerinfo_unix_p.h
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/corelib/private/qtimerinfo_unix_p.h	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++
++#include "../kernel/qtimerinfo_unix_p.h"
++
+diff -ruwN source-old/src/corelib/global/qsystemdetection.h source/src/corelib/global/qsystemdetection.h
+--- source-old/src/corelib/global/qsystemdetection.h	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/global/qsystemdetection.h	2026-04-13 00:00:00.000000000 +0000
+@@ -30,6 +30,7 @@
+      HURD     - GNU Hurd
+      QNX      - QNX [has variants]
+      QNX6     - QNX RTP 6.1
++     REDOX    - Redox OS
+      LYNX     - LynxOS
+      BSD4     - Any BSD 4.4 system
+      UNIX     - Any UNIX BSD/SYSV system
+@@ -123,6 +124,8 @@
+ #  define Q_OS_VXWORKS
+ #elif defined(__HAIKU__)
+ #  define Q_OS_HAIKU
++#elif defined(__redox__)
++#  define Q_OS_REDOX
+ #elif defined(__MAKEDEPEND__)
+ #else
+ #  error "Qt has not been ported to this OS - see http://www.qt-project.org/"
+diff -ruwN source-old/src/corelib/kernel/qcore_unix_p.h source/src/corelib/kernel/qcore_unix_p.h
+--- source-old/src/corelib/kernel/qcore_unix_p.h	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/kernel/qcore_unix_p.h	2026-04-13 00:00:00.000000000 +0000
+@@ -243,9 +243,15 @@
+ #ifdef AT_FDCWD
+ static inline int qt_safe_openat(int dfd, const char *pathname, int flags, mode_t mode = 0777)
+ {
+     // everyone already has O_CLOEXEC
+     int fd;
++#ifdef Q_OS_REDOX
++    if (dfd != AT_FDCWD)
++        return -1;
++    QT_EINTR_LOOP(fd, QT_OPEN(pathname, flags | O_CLOEXEC, mode));
++#else
+     QT_EINTR_LOOP(fd, openat(dfd, pathname, flags | O_CLOEXEC, mode));
++#endif
+     return fd;
+ }
+ #endif
+diff -ruwN source-old/src/gui/CMakeLists.txt source/src/gui/CMakeLists.txt
+--- source-old/src/gui/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
++++ source/src/gui/CMakeLists.txt	2026-04-13 00:00:00.000000000 +0000
+@@ -20,6 +20,8 @@
+         set(_default_platform "eglfs")
+     elseif(HAIKU)
+         set(_default_platform "haiku")
++    elseif(REDOX)
++        set(_default_platform "redox")
+     elseif(WASM)
+         set(_default_platform "wasm")
+     else()
+diff -ruwN source-old/src/plugins/platforms/CMakeLists.txt source/src/plugins/platforms/CMakeLists.txt
+--- source-old/src/plugins/platforms/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
++++ source/src/plugins/platforms/CMakeLists.txt	2026-04-13 00:00:00.000000000 +0000
+@@ -22,6 +22,9 @@
+ if(QNX)
+     add_subdirectory(qnx)
+ endif()
++if(REDOX)
++    add_subdirectory(redox)
++endif()
+ if(QT_FEATURE_eglfs)
+     add_subdirectory(eglfs)
+     add_subdirectory(minimalegl)
+diff -ruwN /dev/null source/src/plugins/platforms/redox/CMakeLists.txt
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/plugins/platforms/redox/CMakeLists.txt	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,14 @@
++# SPDX-License-Identifier: BSD-3-Clause
++
++qt_internal_add_plugin(QRedoxIntegrationPlugin
++    OUTPUT_NAME qredox
++    PLUGIN_TYPE platforms
++    DEFAULT_IF "redox" IN_LIST QT_QPA_PLATFORMS
++    SOURCES
++        main.cpp
++    LIBRARIES
++        Qt::Core
++        Qt::CorePrivate
++        Qt::Gui
++        Qt::GuiPrivate
++)
+diff -ruwN /dev/null source/src/plugins/platforms/redox/main.cpp
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/plugins/platforms/redox/main.cpp	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++
++#include <qpa/qplatformintegrationfactory_p.h>
++#include <qpa/qplatformintegrationplugin.h>
++
++QT_BEGIN_NAMESPACE
++
++class QRedoxIntegrationPlugin : public QPlatformIntegrationPlugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID QPlatformIntegrationFactoryInterface_iid FILE "redox.json")
++public:
++    QPlatformIntegration *create(const QString &system, const QStringList &paramList) override;
++};
++
++QPlatformIntegration *QRedoxIntegrationPlugin::create(const QString &system, const QStringList &paramList)
++{
++    if (system.compare(QStringLiteral("redox"), Qt::CaseInsensitive) != 0)
++        return nullptr;
++
++    int argc = 0;
++    char **argv = nullptr;
++    return QPlatformIntegrationFactory::create(QStringLiteral("wayland"), paramList, argc, argv);
++}
++
++QT_END_NAMESPACE
++
++#include "main.moc"
+diff -ruwN /dev/null source/src/plugins/platforms/redox/redox.json
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/plugins/platforms/redox/redox.json	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,3 @@
++{
++    "Keys": [ "redox" ]
++}
+diff -ruwN source-old/src/3rdparty/sha3/brg_endian.h source/src/3rdparty/sha3/brg_endian.h
+--- source-old/src/3rdparty/sha3/brg_endian.h	2024-12-02 05:39:06.000000000 +0000
++++ source/src/3rdparty/sha3/brg_endian.h	2026-04-13 00:00:00.000000000 +0000
+@@ -45,6 +45,8 @@
+ #  if !defined( __MINGW32__ ) && !defined( _AIX ) && !defined(Q_OS_QNX)
+ #    include <endian.h>
+-#    if !defined( __BEOS__ ) && !defined(Q_OS_RTEMS) && !defined(Q_OS_VXWORKS)
++#    if defined(__redox__)
++      /* Redox: byteswap.h not in relibc, bswap from endian.h suffices */
++#    elif !defined( __BEOS__ ) && !defined(Q_OS_RTEMS) && !defined(Q_OS_VXWORKS)
+ #      include <byteswap.h>
+ #    endif
+ #  endif
+diff -ruwN source-old/src/corelib/io/qstorageinfo_unix.cpp source/src/corelib/io/qstorageinfo_unix.cpp
+--- source-old/src/corelib/io/qstorageinfo_unix.cpp	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/io/qstorageinfo_unix.cpp	2026-04-13 00:00:00.000000000 +0000
+@@ -51,7 +51,13 @@
+ #  if !defined(_STATFS_F_FLAGS) && !defined(Q_OS_NETBSD)
+ #    define _STATFS_F_FLAGS 1
+ #  endif
+-#elif defined(Q_OS_HAIKU) || defined(Q_OS_CYGWIN)
++#elif defined(Q_OS_REDOX)
++#  define QT_STATFSBUF struct statvfs
++#  define QT_STATFS    ::statvfs
++#  if !defined(ST_RDONLY)
++#    define ST_RDONLY 1
++#  endif
++#elif defined(Q_OS_HAIKU) || defined(Q_OS_CYGWIN)
+ #  define QT_STATFSBUF struct statvfs
+ #  define QT_STATFS    ::statvfs
+ #else
+diff -ruwN source-old/src/corelib/io/qfilesystemengine_unix.cpp source/src/corelib/io/qfilesystemengine_unix.cpp
+--- source-old/src/corelib/io/qfilesystemengine_unix.cpp	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/io/qfilesystemengine_unix.cpp	2026-04-13 00:00:00.000000000 +0000
+@@ -28,4 +28,21 @@
+ #include <errno.h>
+ 
++#ifdef Q_OS_REDOX
++// relibc does not provide unlinkat/linkat yet (POSIX.1-2008 *at functions).
++// Provide inline stubs that work for AT_FDCWD only - sufficient for
++// FreeDesktop trash operations in this file.
++#include <fcntl.h>
++static inline int unlinkat(int dirfd, const char *pathname, int flags)
++{
++    if (dirfd != AT_FDCWD || flags != 0) { errno = ENOTSUP; return -1; }
++    return unlink(pathname);
++}
++static inline int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags)
++{
++    if (olddirfd != AT_FDCWD || newdirfd != AT_FDCWD || flags != 0) { errno = ENOTSUP; return -1; }
++    return link(oldpath, newpath);
++}
++#endif
++
+ #include <chrono>
+ #include <memory> // for std::unique_ptr
+diff -ruwN /dev/null source/src/corelib/global/qt_float16_shims.c
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ source/src/corelib/global/qt_float16_shims.c	2026-04-13 00:00:00.000000000 +0000
+@@ -0,0 +1,167 @@
++/*
++ * IEEE 754 half-precision soft-float conversion shims for Redox OS
++ *
++ * These compiler runtime functions (__truncsfhf2, __extendhfsf2, etc.) are
++ * normally provided by libgcc or compiler-rt. The Redox cross-toolchain
++ * (x86_64-unknown-redox-gcc, GCC 13.2.0) does not include them because
++ * x86_64 has no native half-precision support (no AVX512FP16).
++ *
++ * Qt6's qfloat16.cpp triggers the compiler to emit calls to these functions.
++ * We provide them here so QtCore links successfully.
++ *
++ * Format: IEEE 754 binary16 (half): 1 sign + 5 exp (bias 15) + 10 mantissa
++ *         IEEE 754 binary32 (float): 1 sign + 8 exp (bias 127) + 23 mantissa
++ *
++ * SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
++ */
++
++typedef unsigned short uint16_t;
++typedef unsigned int   uint32_t;
++
++/* --- float16 -> float32 --- */
++float __extendhfsf2(uint16_t h)
++{
++    uint32_t sign = (h >> 15) & 1;
++    uint32_t exp  = (h >> 10) & 0x1f;
++    uint32_t frac = h & 0x3ff;
++    uint32_t bits;
++
++    if (exp == 0) {
++        if (frac == 0) {
++            /* +/- zero */
++            bits = sign << 31;
++        } else {
++            /* Denormalized half: normalize it */
++            exp = 1;
++            while (!(frac & 0x400)) {
++                frac <<= 1;
++                exp--;
++            }
++            frac &= 0x3ff;
++            bits = (sign << 31) | ((exp + 127 - 15) << 23) | (frac << 13);
++        }
++    } else if (exp == 0x1f) {
++        /* Inf or NaN */
++        bits = (sign << 31) | (0xffu << 23) | (frac << 13);
++    } else {
++        /* Normalized */
++        bits = (sign << 31) | ((exp + 127 - 15) << 23) | (frac << 13);
++    }
++
++    union { uint32_t i; float f; } u;
++    u.i = bits;
++    return u.f;
++}
++
++/* --- float32 -> float16 --- */
++uint16_t __truncsfhf2(float f)
++{
++    union { uint32_t i; float f; } u;
++    u.f = f;
++    uint32_t bits = u.i;
++
++    uint32_t sign = (bits >> 31) & 1;
++    int exp  = ((bits >> 23) & 0xff) - 127;
++    uint32_t frac = bits & 0x7fffff;
++
++    /* Handle zero / denormal float input */
++    if (((bits >> 23) & 0xff) == 0) {
++        if (frac == 0) return (uint16_t)(sign << 15);
++        /* Normalize denormal float */
++        while (!(frac & 0x400000)) {
++            frac <<= 1;
++            exp--;
++        }
++        frac &= 0x3fffff;
++    }
++
++    exp += 15;  /* rebias to half-precision */
++
++    if (exp <= 0) {
++        /* Underflow: return +/- zero */
++        return (uint16_t)(sign << 15);
++    }
++    if (exp >= 0x1f) {
++        /* Overflow: return +/- inf */
++        return (uint16_t)((sign << 15) | 0x7c00);
++    }
++
++    /* Round to nearest even: add 0x1000 (half of the gap between half-prec
++       representable values at the LSB position in the 23-bit mantissa). */
++    frac = (frac + 0x1000) >> 13;
++
++    /* Mantissa overflow from rounding */
++    if (frac & 0x400) {
++        frac = 0;
++        exp++;
++        if (exp >= 0x1f)
++            return (uint16_t)((sign << 15) | 0x7c00);
++    }
++
++    return (uint16_t)((sign << 15) | (exp << 10) | frac);
++}
++
++/* --- float16 -> float64 --- */
++double __extendhfdf2(uint16_t h)
++{
++    /* Go through float32 — float has more than enough precision for half */
++    float f = __extendhfsf2(h);
++    return (double)f;
++}
++
++/* --- float64 -> float16 --- */
++uint16_t __truncdfhf2(double d)
++{
++    /* Double -> float -> half: no meaningful precision loss for half output */
++    return __truncsfhf2((float)d);
++}
++
++/* --- long double -> float16 --- */
++uint16_t __truncxfhf2(long double ld)
++{
++    return __truncsfhf2((float)ld);
++}
++
++/* --- half-precision comparisons --- */
++int __eqhf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa == fb;
++}
++int __nehf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa != fb;
++}
++int __lthf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa < fb ? -1 : (fa == fb ? 0 : 1);
++}
++int __lehf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa <= fb ? 0 : 1;
++}
++int __gthf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa > fb ? 1 : (fa == fb ? 0 : -1);
++}
++int __gehf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa >= fb ? 0 : -1;
++}
++int __unordhf2(uint16_t a, uint16_t b)
++{
++    float fa = __extendhfsf2(a);
++    float fb = __extendhfsf2(b);
++    return fa != fa || fb != fb;
++}
+diff -ruwN source-old/src/corelib/CMakeLists.txt source/src/corelib/CMakeLists.txt
+--- source-old/src/corelib/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/CMakeLists.txt	2026-04-13 00:00:00.000000000 +0000
+@@ -61,6 +61,7 @@
+         global/qfloat16.cpp global/qfloat16.h
++        global/qt_float16_shims.c
+         global/qforeach.h
+         global/qfunctionpointer.h
+         global/qgettid_p.h
+         global/qglobal.cpp global/qglobal.h global/qglobal_p.h

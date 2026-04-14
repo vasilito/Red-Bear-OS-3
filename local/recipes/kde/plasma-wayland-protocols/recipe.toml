@@ -1,0 +1,47 @@
+#TODO: Plasma Wayland Protocols — XML protocol definitions used by kwayland/KWin.
+[source]
+tar = "https://invent.kde.org/libraries/plasma-wayland-protocols/-/archive/v1.16.0/plasma-wayland-protocols-v1.16.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "kf6-extra-cmake-modules",
+]
+script = """
+DYNAMIC_INIT
+
+# plasma-wayland-protocols is a cmake/data-only package — just install the XML protocol files.
+# The kwayland build uses PLASMA_WAYLAND_PROTOCOLS_DIR to find them.
+
+mkdir -p "${COOKBOOK_STAGE}/usr/share/plasma-wayland-protocols"
+
+# Copy all protocol XMLs from source
+for xml in "${COOKBOOK_SOURCE}/src/protocols/"*.xml; do
+    [ -f "$xml" ] || continue
+    cp -v "$xml" "${COOKBOOK_STAGE}/usr/share/plasma-wayland-protocols/"
+done
+
+# Create symlinks for naming mismatches — kwayland expects certain basenames
+# org-kde-plasma-virtual-desktop.xml → plasma-virtual-desktop.xml
+cd "${COOKBOOK_STAGE}/usr/share/plasma-wayland-protocols"
+[ -f "org-kde-plasma-virtual-desktop.xml" ] && [ ! -e "plasma-virtual-desktop.xml" ] && \\
+    ln -sf "org-kde-plasma-virtual-desktop.xml" "plasma-virtual-desktop.xml"
+
+# Install cmake config so find_package(PlasmaWaylandProtocols) works
+mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake/PlasmaWaylandProtocols"
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/PlasmaWaylandProtocols/PlasmaWaylandProtocolsConfig.cmake" << 'EOF'
+set(PLASMA_WAYLAND_PROTOCOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../share/plasma-wayland-protocols")
+EOF
+cat > "${COOKBOOK_STAGE}/usr/lib/cmake/PlasmaWaylandProtocols/PlasmaWaylandProtocolsConfigVersion.cmake" << 'EOF'
+set(PACKAGE_VERSION "1.16.0")
+if(PACKAGE_FIND_VERSION VERSION_GREATER PACKAGE_VERSION)
+  set(PACKAGE_VERSION_COMPATIBLE FALSE)
+else()
+  set(PACKAGE_VERSION_COMPATIBLE TRUE)
+endif()
+
+if(PACKAGE_FIND_VERSION VERSION_EQUAL PACKAGE_VERSION)
+  set(PACKAGE_VERSION_EXACT TRUE)
+endif()
+EOF
+"""

@@ -1,0 +1,450 @@
+diff --git a/drivers/inputd/src/main.rs b/drivers/inputd/src/main.rs
+--- a/drivers/inputd/src/main.rs
++++ b/drivers/inputd/src/main.rs
+@@ -17,7 +17,7 @@
+ use std::mem::transmute;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+ 
+-use inputd::{ControlEvent, VtEvent, VtEventKind};
++use inputd::{ControlEvent, HotplugEventHeader, VtEvent, VtEventKind};
+ 
+ use libredox::errno::ESTALE;
+ use redox_scheme::scheme::{SchemeState, SchemeSync};
+@@ -47,6 +47,17 @@
+         notified: bool,
+         vt: usize,
+     },
++    DeviceConsumer {
++        device_name: String,
++        events: EventFlags,
++        pending: Vec<u8>,
++        notified: bool,
++    },
++    HotplugEvents {
++        events: EventFlags,
++        pending: Vec<u8>,
++        notified: bool,
++    },
+     Display {
+         events: EventFlags,
+         pending: Vec<VtEvent>,
+@@ -88,6 +99,9 @@
+     "control",
+ ];
+ 
++const DEVICE_ADD: u32 = 1;
++const DEVICE_REMOVE: u32 = 2;
++
+ enum ProducerKind {
+     Legacy,
+     Named(String),
+@@ -116,7 +130,7 @@
+     }
+ 
+     fn register_named_producer(&mut self, name: &str) -> syscall::Result<Handle> {
+-        if name.is_empty() || RESERVED_DEVICE_NAMES.contains(&name) {
++        if name.is_empty() || name.contains('/') || RESERVED_DEVICE_NAMES.contains(&name) {
+             return Err(SysError::new(EINVAL));
+         }
+ 
+@@ -126,11 +140,57 @@
+ 
+         let device_id = self.next_device_id.fetch_add(1, Ordering::SeqCst) as u32;
+         self.devices.insert(name.to_owned(), device_id);
++        self.queue_hotplug_event(DEVICE_ADD, device_id, name)?;
+         Ok(Handle::NamedProducer {
+             name: name.to_owned(),
+         })
+     }
+ 
++    fn drain_pending_bytes(pending: &mut Vec<u8>, buf: &mut [u8]) -> usize {
++        let copy = core::cmp::min(pending.len(), buf.len());
++
++        for (i, byte) in pending.drain(..copy).enumerate() {
++            buf[i] = byte;
++        }
++
++        copy
++    }
++
++    fn queue_hotplug_event(
++        &mut self,
++        kind: u32,
++        device_id: u32,
++        name: &str,
++    ) -> syscall::Result<()> {
++        let name_len = u32::try_from(name.len()).map_err(|_| SysError::new(EINVAL))?;
++        let header = HotplugEventHeader {
++            kind,
++            device_id,
++            name_len,
++            _reserved: 0,
++        };
++        let header_bytes = unsafe {
++            core::slice::from_raw_parts(
++                (&header as *const HotplugEventHeader).cast::<u8>(),
++                size_of::<HotplugEventHeader>(),
++            )
++        };
++
++        for handle in self.handles.values_mut() {
++            if let Handle::HotplugEvents {
++                pending, notified, ..
++            } = handle
++            {
++                pending.extend_from_slice(header_bytes);
++                pending.extend_from_slice(name.as_bytes());
++                *notified = false;
++            }
++        }
++
++        self.has_new_events = true;
++        Ok(())
++    }
++
+     fn route_legacy_consumer_events(&mut self, buf: &[u8]) {
+         if let Some(active_vt) = self.active_vt {
+             for handle in self.handles.values_mut() {
+@@ -150,9 +210,21 @@
+         }
+     }
+ 
+-    fn route_named_producer_events(&mut self, _name: &str, _buf: &[u8]) {
+-        // DeviceConsumer routing is added in a follow-up patch. Named producers already share the
+-        // legacy consumer path, so existing callers continue to receive these events.
++    fn route_named_producer_events(&mut self, name: &str, buf: &[u8]) {
++        for handle in self.handles.values_mut() {
++            match handle {
++                Handle::DeviceConsumer {
++                    device_name,
++                    pending,
++                    notified,
++                    ..
++                } if device_name == name => {
++                    pending.extend_from_slice(buf);
++                    *notified = false;
++                }
++                _ => continue,
++            }
++        }
+     }
+ 
+     fn switch_vt(&mut self, new_active: usize) {
+@@ -324,7 +396,24 @@
+                     is_earlyfb: command == "handle_early",
+                 }
+             }
++            "events" if path_parts.next().is_none() => Handle::HotplugEvents {
++                events: EventFlags::empty(),
++                pending: Vec::new(),
++                notified: false,
++            },
+             "control" => Handle::Control,
++            device_name
++                if !device_name.is_empty()
++                    && !RESERVED_DEVICE_NAMES.contains(&device_name)
++                    && path_parts.next().is_none() =>
++            {
++                Handle::DeviceConsumer {
++                    device_name: device_name.to_owned(),
++                    events: EventFlags::empty(),
++                    pending: Vec::new(),
++                    notified: false,
++                }
++            }
+ 
+             _ => {
+                 log::error!("invalid path '{path}'");
+@@ -380,13 +469,11 @@
+                     return Err(SysError::new(ESTALE));
+                 }
+ 
+-                let copy = core::cmp::min(pending.len(), buf.len());
+-
+-                for (i, byte) in pending.drain(..copy).enumerate() {
+-                    buf[i] = byte;
+-                }
++                Ok(Self::drain_pending_bytes(pending, buf))
++            }
+ 
+-                Ok(copy)
++            Handle::DeviceConsumer { pending, .. } | Handle::HotplugEvents { pending, .. } => {
++                Ok(Self::drain_pending_bytes(pending, buf))
+             }
+ 
+             Handle::Display { pending, .. } => {
+@@ -453,6 +540,10 @@
+                 log::error!("consumer tried to write");
+                 return Err(SysError::new(EINVAL));
+             }
++            Handle::DeviceConsumer { .. } | Handle::HotplugEvents { .. } => {
++                log::error!("consumer or hotplug handle tried to write");
++                return Err(SysError::new(EINVAL));
++            }
+             Handle::Display { .. } => {
+                 log::error!("display tried to write");
+                 return Err(SysError::new(EINVAL));
+@@ -541,6 +632,16 @@
+                 ref mut events,
+                 ref mut notified,
+                 ..
++            }
++            | Handle::DeviceConsumer {
++                ref mut events,
++                ref mut notified,
++                ..
++            }
++            | Handle::HotplugEvents {
++                ref mut events,
++                ref mut notified,
++                ..
+             } => {
+                 *events = flags;
+                 *notified = false;
+@@ -571,7 +672,12 @@
+ 
+         match handle {
+             Handle::NamedProducer { name } => {
+-                self.devices.remove(&name);
++                if let Some(device_id) = self.devices.remove(&name) {
++                    self.queue_hotplug_event(DEVICE_REMOVE, device_id, &name)
++                        .unwrap_or_else(|err| {
++                            log::error!("failed to queue removal hotplug event for {name}: {err}");
++                        });
++                }
+             }
+             Handle::Consumer { vt, .. } => {
+                 self.vts.remove(&vt);
+@@ -658,6 +764,28 @@
+                     socket_file.write_response(
+                         Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
+                         SignalBehavior::Restart,
++                    )?;
++
++                    *notified = true;
++                }
++                Handle::DeviceConsumer {
++                    events,
++                    pending,
++                    ref mut notified,
++                    ..
++                }
++                | Handle::HotplugEvents {
++                    events,
++                    pending,
++                    ref mut notified,
++                } => {
++                    if pending.is_empty() || *notified || !events.contains(EventFlags::EVENT_READ) {
++                        continue;
++                    }
++
++                    socket_file.write_response(
++                        Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
++                        SignalBehavior::Restart,
+                     )?;
+ 
+                     *notified = true;
+diff --git a/drivers/inputd/src/lib.rs b/drivers/inputd/src/lib.rs
+--- a/drivers/inputd/src/lib.rs
++++ b/drivers/inputd/src/lib.rs
+@@ -1,5 +1,5 @@
+ use std::fs::{File, OpenOptions};
+-use std::io::{self, Read, Write};
++use std::io::{self, ErrorKind, Read, Write};
+ use std::mem::size_of;
+ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
+ use std::os::unix::fs::OpenOptionsExt;
+@@ -31,6 +31,24 @@
+     slice::from_raw_parts_mut((p as *mut T) as *mut u8, size_of::<T>())
+ }
+ 
++fn validate_input_name(kind: &str, name: &str) -> io::Result<()> {
++    if name.is_empty() {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!("input {kind} name must not be empty"),
++        ));
++    }
++
++    if name.contains('/') {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!("input {kind} name must not contain '/'"),
++        ));
++    }
++
++    Ok(())
++}
++
+ pub struct ConsumerHandle(File);
+ 
+ pub enum ConsumerHandleEvent<'a> {
+@@ -197,6 +215,22 @@
+     pub vt: usize,
+ }
+ 
++#[derive(Debug, Clone, Copy)]
++#[repr(C)]
++pub struct HotplugEventHeader {
++    pub kind: u32,
++    pub device_id: u32,
++    pub name_len: u32,
++    pub _reserved: u32,
++}
++
++#[derive(Debug, Clone)]
++pub struct HotplugEvent {
++    pub kind: u32,
++    pub device_id: u32,
++    pub name: String,
++}
++
+ /// Handle for opening a named producer on the input scheme.
+ /// Opens /scheme/input/producer/{name}
+ pub struct NamedProducerHandle {
+@@ -205,19 +239,7 @@
+ 
+ impl NamedProducerHandle {
+     pub fn new(name: &str) -> io::Result<Self> {
+-        if name.is_empty() {
+-            return Err(io::Error::new(
+-                io::ErrorKind::InvalidInput,
+-                "input producer name must not be empty",
+-            ));
+-        }
+-
+-        if name.contains('/') {
+-            return Err(io::Error::new(
+-                io::ErrorKind::InvalidInput,
+-                "input producer name must not contain '/'",
+-            ));
+-        }
++        validate_input_name("producer", name)?;
+ 
+         let path = format!("/scheme/input/producer/{name}");
+         File::open(path).map(|fd| Self { fd })
+@@ -229,6 +251,124 @@
+     }
+ }
+ 
++pub struct DeviceConsumerHandle {
++    fd: File,
++}
++
++impl DeviceConsumerHandle {
++    pub fn new(device_name: &str) -> io::Result<Self> {
++        validate_input_name("device", device_name)?;
++
++        let fd = OpenOptions::new()
++            .read(true)
++            .custom_flags(O_NONBLOCK as i32)
++            .open(format!("/scheme/input/{device_name}"))?;
++
++        Ok(Self { fd })
++    }
++
++    pub fn event_handle(&self) -> BorrowedFd<'_> {
++        self.fd.as_fd()
++    }
++
++    pub fn read_event(&mut self) -> io::Result<Option<orbclient::Event>> {
++        let mut raw = [0_u8; size_of::<orbclient::Event>()];
++
++        match self.fd.read(&mut raw) {
++            Ok(0) => Ok(None),
++            Ok(read) => {
++                assert_eq!(read, raw.len());
++                Ok(Some(unsafe {
++                    core::ptr::read_unaligned(raw.as_ptr().cast::<orbclient::Event>())
++                }))
++            }
++            Err(err) if err.kind() == ErrorKind::WouldBlock => Ok(None),
++            Err(err) => Err(err),
++        }
++    }
++}
++
++pub struct HotplugHandle {
++    fd: File,
++    partial: Vec<u8>,
++}
++
++impl HotplugHandle {
++    pub fn new() -> io::Result<Self> {
++        let fd = OpenOptions::new()
++            .read(true)
++            .custom_flags(O_NONBLOCK as i32)
++            .open("/scheme/input/events")?;
++
++        Ok(Self {
++            fd,
++            partial: Vec::new(),
++        })
++    }
++
++    pub fn event_handle(&self) -> BorrowedFd<'_> {
++        self.fd.as_fd()
++    }
++
++    pub fn read_event(&mut self) -> io::Result<Option<HotplugEvent>> {
++        let mut buf = [0_u8; 1024];
++
++        loop {
++            if let Some(event) = Self::try_parse_event(&mut self.partial)? {
++                return Ok(Some(event));
++            }
++
++            match self.fd.read(&mut buf) {
++                Ok(0) => return Ok(None),
++                Ok(read) => self.partial.extend_from_slice(&buf[..read]),
++                Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(None),
++                Err(err) => return Err(err),
++            }
++        }
++    }
++
++    fn try_parse_event(partial: &mut Vec<u8>) -> io::Result<Option<HotplugEvent>> {
++        if partial.len() < size_of::<HotplugEventHeader>() {
++            return Ok(None);
++        }
++
++        let header =
++            unsafe { core::ptr::read_unaligned(partial.as_ptr().cast::<HotplugEventHeader>()) };
++        let name_len = usize::try_from(header.name_len).map_err(|_| {
++            io::Error::new(
++                io::ErrorKind::InvalidData,
++                "invalid input hotplug name length",
++            )
++        })?;
++        let total_len = size_of::<HotplugEventHeader>()
++            .checked_add(name_len)
++            .ok_or_else(|| {
++                io::Error::new(io::ErrorKind::InvalidData, "input hotplug event too large")
++            })?;
++
++        if partial.len() < total_len {
++            return Ok(None);
++        }
++
++        let name = std::str::from_utf8(&partial[size_of::<HotplugEventHeader>()..total_len])
++            .map_err(|_| {
++                io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "input hotplug name is not UTF-8",
++                )
++            })?
++            .to_owned();
++
++        partial.drain(..total_len);
++
++        Ok(Some(HotplugEvent {
++            kind: header.kind,
++            device_id: header.device_id,
++            name,
++        }))
++    }
++}
++
+ pub struct ProducerHandle(File);
+ 
+ impl ProducerHandle {

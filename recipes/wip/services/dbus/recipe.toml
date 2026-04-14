@@ -1,3 +1,4 @@
+#TODO: validate runtime (dbus-daemon --system + dbus-launch for session bus)
 [source]
 tar = "https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz"
 blake3 = "b1d1f22858a8f04665e5dca29d194f892620f00fd3e3f4e89dd208e78868436e"
@@ -8,16 +9,17 @@ patches = [
 [build]
 dependencies = [
     "expat",
-    "libpthread-stubs",
-    "libx11",
-    "libxau",
-    "libxcb",
-    "x11proto",
 ]
 template = "meson"
 mesonflags = [
-    #TODO: why does this require Linux?
     "-Depoll=enabled",
-    "-Dx11_autolaunch=enabled",
+    "-Dx11_autolaunch=disabled",
+    "-Dsystemd=disabled",
+    "-Dlaunchd=disabled",
     "-Dverbose_mode=true",
+    "-Dasserts=false",
+    "-Dchecks=false",
+    "-Dxml_docs=disabled",
+    "-Dducktype_docs=disabled",
+    "-Ddoxygen_docs=disabled",
 ]

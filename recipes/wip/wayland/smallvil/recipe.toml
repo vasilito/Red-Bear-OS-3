@@ -1,4 +1,4 @@
-#TODO make libwayland work
+#TODO: libwayland native build done, needs libinput for full input support
 [source]
 git = "https://github.com/jackpot51/smithay"
 branch = "redox"
@@ -6,7 +6,9 @@ branch = "redox"
 [build]
 template = "cargo"
 dependencies = [
+    "libevdev",
     "libffi",
+    "libinput",
     "libwayland",
     "libxkbcommon",
 ]

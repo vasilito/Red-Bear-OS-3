@@ -1,0 +1,67 @@
+#TODO: Kirigami — QtQuick lightweight UI framework. QML-heavy but required by KDE Plasma.
+[source]
+tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kconfig",
+    "kf6-kguiaddons",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+STAGE="${COOKBOOK_STAGE}/usr"
+mkdir -p "${STAGE}/lib/cmake/KF6Kirigami"
+mkdir -p "${STAGE}/lib/cmake/KF6Kirigami2"
+
+cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfig.cmake" << 'EOFCFG'
+add_library(KF6::Kirigami INTERFACE)
+EOFCFG
+
+cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfigVersion.cmake" << 'EOFVER'
+set(PACKAGE_VERSION "6.10.0")
+set(PACKAGE_VERSIONCompatible TRUE)
+EOFVER
+
+cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiTargets.cmake" << 'EOFTGT'
+add_library(KF6::Kirigami INTERFACE)
+EOFTGT
+
+cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2Config.cmake" << 'EOFCFG2'
+add_library(KF6::Kirigami2 INTERFACE)
+EOFCFG2
+
+cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2ConfigVersion.cmake" << 'EOFVER2'
+set(PACKAGE_VERSION "6.10.0")
+set(PACKAGE_VERSIONCompatible TRUE)
+EOFVER2
+
+mkdir -p "${STAGE}/lib"
+echo "/* dummy */" > "${STAGE}/lib/libKirigami.a"
+
+mkdir -p "${STAGE}/share/ECM/kde-modules"
+cat > "${STAGE}/share/ECM/kde-modules/KDEFrameworkCompilerSettings.cmake" << 'EOFKDE'
+macro(kde_configure_git_pre_commit_hook)
+endmacro()
+macro(ecm_set_disabled_deprecation_versions)
+endmacro()
+EOFKDE
+
+echo "=== Kirigami stub installation complete ==="
+echo "Note: Kirigami is QML-based and cannot be built on Redox without Qt6Quick."
+echo "Dummy cmake configs installed for dependency resolution."
+"""

@@ -1,0 +1,146 @@
+diff -ruwN source-old/meson.build source/meson.build
+--- source-old/meson.build	2025-04-26 00:00:00.000000000 +0000
++++ source/meson.build	2026-04-13 00:00:00.000000000 +0000
+@@ -33,8 +33,13 @@
+ pkgconfig = import('pkgconfig')
+ dep_lm = cc.find_library('m')
+ dep_rt = cc.find_library('rt')
+ 
+-input_h = dir_root / 'include' / 'linux' / host_machine.system() / 'input.h'
+-input_event_codes_h = dir_root / 'include' / 'linux' / host_machine.system() / 'input-event-codes.h'
++linux_input_system = host_machine.system()
++if linux_input_system == 'redox'
++	linux_input_system = 'linux'
++endif
++
++input_h = dir_root / 'include' / 'linux' / linux_input_system / 'input.h'
++input_event_codes_h = dir_root / 'include' / 'linux' / linux_input_system / 'input-event-codes.h'
+ 
+ # event-names.h
+ make_event_names = find_program('libevdev/make-event-names.py')
+diff -ruwN source-old/include/linux/input.h source/include/linux/input.h
+--- source-old/include/linux/input.h	2025-04-26 00:00:00.000000000 +0000
++++ source/include/linux/input.h	2026-04-13 00:00:00.000000000 +0000
+@@ -1,5 +1,5 @@
+-#ifdef __linux__
++#if defined(__linux__) || defined(__redox__)
+ #include "linux/input.h"
+ #elif __FreeBSD__
+ #include "freebsd/input.h"
+ #endif
+diff -ruwN source-old/include/linux/uinput.h source/include/linux/uinput.h
+--- source-old/include/linux/uinput.h	2025-04-26 00:00:00.000000000 +0000
++++ source/include/linux/uinput.h	2026-04-13 00:00:00.000000000 +0000
+@@ -1,5 +1,5 @@
+-#ifdef __linux__
++#if defined(__linux__) || defined(__redox__)
+ #include "linux/uinput.h"
+ #elif __FreeBSD__
+ #include "freebsd/uinput.h"
+ #endif
+diff -ruwN source-old/libevdev/libevdev-uinput.c source/libevdev/libevdev-uinput.c
+--- source-old/libevdev/libevdev-uinput.c	2025-04-26 00:00:00.000000000 +0000
++++ source/libevdev/libevdev-uinput.c	2026-04-13 00:00:00.000000000 +0000
+@@ -4,23 +4,88 @@
+  */
+ 
+ #include "config.h"
+-#include <dirent.h>
+ #include <errno.h>
++#include <time.h>
++
++#include "libevdev-int.h"
++#include "libevdev-uinput-int.h"
++#include "libevdev-uinput.h"
++
++#ifdef __redox__
++
++#include <stdlib.h>
++#include <unistd.h>
++
++LIBEVDEV_EXPORT int
++libevdev_uinput_get_fd(const struct libevdev_uinput *uinput_dev)
++{
++	return uinput_dev->fd;
++}
++
++LIBEVDEV_EXPORT int
++libevdev_uinput_create_from_device(const struct libevdev *dev,
++				       int fd,
++				       struct libevdev_uinput **uinput_dev)
++{
++	(void)dev;
++	(void)fd;
++	(void)uinput_dev;
++
++	return -ENOSYS;
++}
++
++LIBEVDEV_EXPORT void
++libevdev_uinput_destroy(struct libevdev_uinput *uinput_dev)
++{
++	if (!uinput_dev)
++		return;
++
++	if (uinput_dev->fd >= 0 && uinput_dev->fd_is_managed)
++		close(uinput_dev->fd);
++
++	free(uinput_dev->syspath);
++	free(uinput_dev->devnode);
++	free(uinput_dev->name);
++	free(uinput_dev);
++}
++
++LIBEVDEV_EXPORT const char*
++libevdev_uinput_get_syspath(struct libevdev_uinput *uinput_dev)
++{
++	return uinput_dev->syspath;
++}
++
++LIBEVDEV_EXPORT const char*
++libevdev_uinput_get_devnode(struct libevdev_uinput *uinput_dev)
++{
++	return uinput_dev->devnode;
++}
++
++LIBEVDEV_EXPORT int
++libevdev_uinput_write_event(const struct libevdev_uinput *uinput_dev,
++				    unsigned int type,
++				    unsigned int code,
++				    int value)
++{
++	(void)uinput_dev;
++	(void)type;
++	(void)code;
++	(void)value;
++
++	return -ENOSYS;
++}
++
++#else
++
++#include <dirent.h>
+ #include <fcntl.h>
+ #include <linux/uinput.h>
+ #include <poll.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <sys/stat.h>
+-#include <time.h>
+ #include <unistd.h>
+-
+-#include "libevdev-int.h"
+-#include "libevdev-uinput-int.h"
+-#include "libevdev-uinput.h"
+-#include "libevdev-util.h"
+-#include "libevdev.h"
+ 
+ #ifndef UINPUT_IOCTL_BASE
+ #define UINPUT_IOCTL_BASE       'U'
+ #endif
+@@ -489,3 +554,5 @@
+ 
+ 	return rc < 0 ? -errno : 0;
+ }
++
++#endif

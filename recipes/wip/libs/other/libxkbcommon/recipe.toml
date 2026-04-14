@@ -1,4 +1,4 @@
-#TODO: promote
+#TODO: needs xkeyboard-config data installed; Wayland helper tools stay disabled for now
 [source]
 tar = "https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz"
 blake3 = "5001ca0b8562feeef2010bf16c05657e3875fda3ed5fdedbf48b9135e5cdfcbc"
@@ -7,10 +7,10 @@ blake3 = "5001ca0b8562feeef2010bf16c05657e3875fda3ed5fdedbf48b9135e5cdfcbc"
 template = "meson"
 mesonflags = [
     "-Denable-wayland=false",
-    "-Denable-x11=false"
+    "-Denable-x11=false",
+    "-Denable-tools=false",
 ]
 dependencies = [
     "libxml2",
-    "xz",
-    "zlib",
+    "xkeyboard-config",
 ]

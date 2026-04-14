@@ -1,0 +1,53 @@
+#TODO: Sonnet — spell checking framework. Depends on qtbase, kf6-ki18n, kf6-extra-cmake-modules.
+[source]
+tar = "https://invent.kde.org/frameworks/sonnet/-/archive/v6.10.0/sonnet-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "kf6-extra-cmake-modules",
+    "kf6-ki18n",
+    "kf6-kcompletion",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DSONNET_USE_QML=OFF \
+    -DSONNET_NO_BACKENDS=ON \
+    -DBUILD_DESIGNERPLUGIN=OFF \
+    -DUSE_DBUS=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""

@@ -1,19 +1,15 @@
 diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
 --- a/src/header/signal/mod.rs
 +++ b/src/header/signal/mod.rs
-@@ -27,9 +27,12 @@
- #[cfg(target_os = "linux")]
- #[path = "linux.rs"]
- pub mod sys;
- 
- #[cfg(target_os = "redox")]
- #[path = "redox.rs"]
+@@ -33,6 +33,10 @@
  pub mod sys;
  
 +mod signalfd;
 +pub use self::signalfd::*;
 +
  type SigSet = BitSet<[u64; 1]>;
+ 
+ pub(crate) const SIG_DFL: usize = 0;
 diff --git a/src/header/signal/signalfd.rs b/src/header/signal/signalfd.rs
 new file mode 100644
 --- /dev/null

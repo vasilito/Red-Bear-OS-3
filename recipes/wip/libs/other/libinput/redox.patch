@@ -1,0 +1,577 @@
+diff -ruN -x '*.orig' -x '*.rej' source-old/include/linux/input.h source/include/linux/input.h
+--- source-old/include/linux/input.h	2026-02-24 04:13:42.000000000 +0000
++++ source/include/linux/input.h	2026-04-13 23:39:02.335147621 +0100
+@@ -2,4 +2,6 @@
+ #include "linux/input.h"
+ #elif __FreeBSD__
+ #include "freebsd/input.h"
++#else
++#include "linux/input.h"
+ #endif
+diff -ruN -x '*.orig' -x '*.rej' source-old/libudev.h source/libudev.h
+--- source-old/libudev.h	1970-01-01 00:00:00.000000000 +0000
++++ source/libudev.h	2026-04-13 23:39:02.335248158 +0100
+@@ -0,0 +1,65 @@
++#ifndef LIBINPUT_LIBUDEV_SHIM_H
++#define LIBINPUT_LIBUDEV_SHIM_H
++
++#include <sys/types.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct udev;
++struct udev_device;
++struct udev_enumerate;
++struct udev_list_entry;
++struct udev_monitor;
++
++struct udev *udev_new(void);
++struct udev *udev_ref(struct udev *udev);
++struct udev *udev_unref(struct udev *udev);
++
++struct udev *udev_device_get_udev(struct udev_device *udev_device);
++struct udev_device *udev_device_new_from_devnum(struct udev *udev, char type, dev_t devnum);
++struct udev_device *udev_device_new_from_syspath(struct udev *udev, const char *syspath);
++struct udev_device *udev_device_ref(struct udev_device *udev_device);
++struct udev_device *udev_device_unref(struct udev_device *udev_device);
++const char *udev_device_get_action(struct udev_device *udev_device);
++const char *udev_device_get_devnode(struct udev_device *udev_device);
++int udev_device_get_is_initialized(struct udev_device *udev_device);
++struct udev_device *udev_device_get_parent(struct udev_device *udev_device);
++struct udev_device *udev_device_get_parent_with_subsystem_devtype(struct udev_device *udev_device,
++								  const char *subsystem,
++								  const char *devtype);
++struct udev_list_entry *udev_device_get_properties_list_entry(struct udev_device *udev_device);
++const char *udev_device_get_property_value(struct udev_device *udev_device, const char *key);
++const char *udev_device_get_sysname(struct udev_device *udev_device);
++const char *udev_device_get_syspath(struct udev_device *udev_device);
++
++struct udev_enumerate *udev_enumerate_new(struct udev *udev);
++struct udev_enumerate *udev_enumerate_unref(struct udev_enumerate *udev_enumerate);
++int udev_enumerate_add_match_subsystem(struct udev_enumerate *udev_enumerate,
++					 const char *subsystem);
++struct udev_list_entry *udev_enumerate_get_list_entry(struct udev_enumerate *udev_enumerate);
++int udev_enumerate_scan_devices(struct udev_enumerate *udev_enumerate);
++
++const char *udev_list_entry_get_name(struct udev_list_entry *list_entry);
++struct udev_list_entry *udev_list_entry_get_next(struct udev_list_entry *list_entry);
++const char *udev_list_entry_get_value(struct udev_list_entry *list_entry);
++
++#define udev_list_entry_foreach(list_entry, first_entry) \
++	for ((list_entry) = (first_entry); (list_entry) != NULL; \
++	     (list_entry) = udev_list_entry_get_next(list_entry))
++
++struct udev_monitor *udev_monitor_new_from_netlink(struct udev *udev, const char *name);
++struct udev_monitor *udev_monitor_unref(struct udev_monitor *udev_monitor);
++int udev_monitor_enable_receiving(struct udev_monitor *udev_monitor);
++int udev_monitor_filter_add_match_subsystem_devtype(struct udev_monitor *udev_monitor,
++						    const char *subsystem,
++						    const char *devtype);
++int udev_monitor_get_fd(struct udev_monitor *udev_monitor);
++struct udev_device *udev_monitor_receive_device(struct udev_monitor *udev_monitor);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff -ruN -x '*.orig' -x '*.rej' source-old/meson.build source/meson.build
+--- source-old/meson.build	2026-02-24 04:13:42.000000000 +0000
++++ source/meson.build	2026-04-13 23:39:02.335340571 +0100
+@@ -116,7 +116,7 @@
+ 	config_h.set('HAVE_VERSIONSORT', '1')
+ endif
+ 
+-if cc.get_define('SYS_pidfd_open', prefix: '#include <sys/syscall.h>') != ''
++if cc.has_header('sys/syscall.h') and cc.get_define('SYS_pidfd_open', prefix: '#include <sys/syscall.h>') != ''
+ 	config_h.set('HAVE_PIDFD_OPEN', '1')
+ endif
+ 
+@@ -162,7 +162,13 @@
+ 
+ # Dependencies
+ pkgconfig = import('pkgconfig')
+-dep_udev = dependency('libudev')
++have_udev = get_option('udev')
++if have_udev
++	config_h.set('HAVE_UDEV', 1)
++	dep_udev = dependency('libudev')
++else
++	dep_udev = declare_dependency()
++endif
+ dep_libevdev = dependency('libevdev', version: '>= 1.10.0')
+ 
+ dep_lm = cc.find_library('m', required : false)
+@@ -228,6 +234,7 @@
+ 
+ ############ udev bits ############
+ 
++if have_udev
+ executable('libinput-device-group',
+ 	   'udev/libinput-device-group.c',
+ 	   dependencies : [dep_udev, dep_libwacom],
+@@ -272,13 +279,15 @@
+ 					   output : '90-libinput-fuzz-override-litest.rules',
+ 					   configuration : litest_udev_rules_config)
+ 
++endif
++
+ ############ Check for leftover udev rules ########
+ 
+ # This test should be defined first so we don't waste time testing anything
+ # else if we're about to fail anyway. ninja test will execute tests in the
+ # order of them defined in meson.build
+ 
+-if get_option('tests')
++if have_udev and get_option('tests')
+ 	test('leftover-rules',
+ 	     find_program('test/check-leftover-udev-rules.sh'),
+ 	     is_parallel : false,
+@@ -351,6 +360,9 @@
+ 	'src/util-strings.c',
+ 	'src/util-prop-parsers.c',
+ ]
++if not have_udev
++	src_libinput_util += ['src/libudev-stub.c']
++endif
+ libinput_util = static_library('libinput-util',
+ 			       src_libinput_util,
+ 			       dependencies : [dep_udev, dep_libevdev, dep_libwacom],
+@@ -491,6 +503,10 @@
+ dep_libinput = declare_dependency(
+ 		link_with : lib_libinput,
+ 		dependencies : deps_libinput)
++pkgconfig_requires_private = []
++if have_udev
++	pkgconfig_requires_private += dep_udev
++endif
+ 
+ meson.override_dependency('libinput', dep_libinput)
+ 
+@@ -500,7 +516,7 @@
+ 	description : 'Input device library',
+ 	version : meson.project_version(),
+ 	libraries : lib_libinput,
+-	requires_private : dep_udev,
++	requires_private : pkgconfig_requires_private,
+ 	variables : [
+ 		'plugindir=${libdir}/libinput/plugins'
+ 	]
+@@ -537,6 +553,7 @@
+ dep_libinput_util_libinput = declare_dependency(link_with : libinput_util_libinput)
+ 
+ ############ tools ############
++if host_machine.system() != 'redox'
+ libinput_tool_path = dir_libexec
+ config_h.set_quoted('LIBINPUT_TOOL_PATH', libinput_tool_path)
+ tools_shared_sources = [ 'tools/shared.c' ]
+@@ -838,6 +855,7 @@
+ 	   install_tag : 'tests',
+ 	   install : true,
+ 	   )
++endif
+ 
+ # This is the test suite runner, we allow disabling that one because of
+ # dependencies
+diff -ruN -x '*.orig' -x '*.rej' source-old/meson_options.txt source/meson_options.txt
+--- source-old/meson_options.txt	2026-02-24 04:13:42.000000000 +0000
++++ source/meson_options.txt	2026-04-13 23:39:02.335794827 +0100
+@@ -2,6 +2,10 @@
+        type: 'string',
+        value: '',
+        description: 'udev base directory [default=$prefix/lib/udev]')
++option('udev',
++       type: 'boolean',
++       value: true,
++       description: 'Enable libudev integration (default=true)')
+ option('epoll-dir',
+        type: 'string',
+        value: '',
+diff -ruN -x '*.orig' -x '*.rej' source-old/src/libinput.h source/src/libinput.h
+--- source-old/src/libinput.h	2026-02-24 04:13:42.000000000 +0000
++++ source/src/libinput.h	2026-04-13 23:39:02.336213628 +0100
+@@ -29,11 +29,13 @@
+ extern "C" {
+ #endif
+ 
+-#include <libudev.h>
+ #include <stdarg.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ 
++struct udev;
++struct udev_device;
++
+ #define LIBINPUT_ATTRIBUTE_PRINTF(_format, _args) \
+ 	__attribute__ ((format (printf, _format, _args)))
+ #define LIBINPUT_ATTRIBUTE_DEPRECATED __attribute__ ((deprecated))
+diff -ruN -x '*.orig' -x '*.rej' source-old/src/libudev-stub.c source/src/libudev-stub.c
+--- source-old/src/libudev-stub.c	1970-01-01 00:00:00.000000000 +0000
++++ source/src/libudev-stub.c	2026-04-13 23:39:02.336745169 +0100
+@@ -0,0 +1,227 @@
++#include <stddef.h>
++
++#include <libudev.h>
++
++struct udev *
++udev_new(void)
++{
++	return NULL;
++}
++
++struct udev *
++udev_ref(struct udev *udev)
++{
++	return udev;
++}
++
++struct udev *
++udev_unref(struct udev *udev)
++{
++	return udev;
++}
++
++struct udev *
++udev_device_get_udev(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++struct udev_device *
++udev_device_new_from_devnum(struct udev *udev, char type, dev_t devnum)
++{
++	(void)udev;
++	(void)type;
++	(void)devnum;
++	return NULL;
++}
++
++struct udev_device *
++udev_device_new_from_syspath(struct udev *udev, const char *syspath)
++{
++	(void)udev;
++	(void)syspath;
++	return NULL;
++}
++
++struct udev_device *
++udev_device_ref(struct udev_device *udev_device)
++{
++	return udev_device;
++}
++
++struct udev_device *
++udev_device_unref(struct udev_device *udev_device)
++{
++	return udev_device;
++}
++
++const char *
++udev_device_get_action(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++const char *
++udev_device_get_devnode(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++int
++udev_device_get_is_initialized(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return 0;
++}
++
++struct udev_device *
++udev_device_get_parent(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++struct udev_device *
++udev_device_get_parent_with_subsystem_devtype(struct udev_device *udev_device,
++					      const char *subsystem,
++					      const char *devtype)
++{
++	(void)udev_device;
++	(void)subsystem;
++	(void)devtype;
++	return NULL;
++}
++
++struct udev_list_entry *
++udev_device_get_properties_list_entry(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++const char *
++udev_device_get_property_value(struct udev_device *udev_device, const char *key)
++{
++	(void)udev_device;
++	(void)key;
++	return NULL;
++}
++
++const char *
++udev_device_get_sysname(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++const char *
++udev_device_get_syspath(struct udev_device *udev_device)
++{
++	(void)udev_device;
++	return NULL;
++}
++
++struct udev_enumerate *
++udev_enumerate_new(struct udev *udev)
++{
++	(void)udev;
++	return NULL;
++}
++
++struct udev_enumerate *
++udev_enumerate_unref(struct udev_enumerate *udev_enumerate)
++{
++	return udev_enumerate;
++}
++
++int
++udev_enumerate_add_match_subsystem(struct udev_enumerate *udev_enumerate, const char *subsystem)
++{
++	(void)udev_enumerate;
++	(void)subsystem;
++	return 0;
++}
++
++struct udev_list_entry *
++udev_enumerate_get_list_entry(struct udev_enumerate *udev_enumerate)
++{
++	(void)udev_enumerate;
++	return NULL;
++}
++
++int
++udev_enumerate_scan_devices(struct udev_enumerate *udev_enumerate)
++{
++	(void)udev_enumerate;
++	return 0;
++}
++
++const char *
++udev_list_entry_get_name(struct udev_list_entry *list_entry)
++{
++	(void)list_entry;
++	return NULL;
++}
++
++struct udev_list_entry *
++udev_list_entry_get_next(struct udev_list_entry *list_entry)
++{
++	(void)list_entry;
++	return NULL;
++}
++
++const char *
++udev_list_entry_get_value(struct udev_list_entry *list_entry)
++{
++	(void)list_entry;
++	return NULL;
++}
++
++struct udev_monitor *
++udev_monitor_new_from_netlink(struct udev *udev, const char *name)
++{
++	(void)udev;
++	(void)name;
++	return NULL;
++}
++
++struct udev_monitor *
++udev_monitor_unref(struct udev_monitor *udev_monitor)
++{
++	return udev_monitor;
++}
++
++int
++udev_monitor_enable_receiving(struct udev_monitor *udev_monitor)
++{
++	(void)udev_monitor;
++	return -1;
++}
++
++int
++udev_monitor_filter_add_match_subsystem_devtype(struct udev_monitor *udev_monitor,
++						const char *subsystem,
++						const char *devtype)
++{
++	(void)udev_monitor;
++	(void)subsystem;
++	(void)devtype;
++	return 0;
++}
++
++int
++udev_monitor_get_fd(struct udev_monitor *udev_monitor)
++{
++	(void)udev_monitor;
++	return -1;
++}
++
++struct udev_device *
++udev_monitor_receive_device(struct udev_monitor *udev_monitor)
++{
++	(void)udev_monitor;
++	return NULL;
++}
+diff -ruN -x '*.orig' -x '*.rej' source-old/src/timer.c source/src/timer.c
+--- source-old/src/timer.c	2026-02-24 04:13:42.000000000 +0000
++++ source/src/timer.c	2026-04-13 23:39:02.336885230 +0100
+@@ -26,9 +26,19 @@
+ #include <assert.h>
+ #include <errno.h>
+ #include <string.h>
+-#include <sys/timerfd.h>
+ #include <unistd.h>
+ 
++#if defined(__has_include)
++#if __has_include(<sys/timerfd.h>)
++#include <sys/timerfd.h>
++#define LIBINPUT_HAVE_TIMERFD 1
++#endif
++#endif
++
++#ifndef LIBINPUT_HAVE_TIMERFD
++#define LIBINPUT_HAVE_TIMERFD 0
++#endif
++
+ #include "libinput-private.h"
+ #include "timer.h"
+ 
+@@ -63,9 +73,7 @@
+ static void
+ libinput_timer_arm_timer_fd(struct libinput *libinput)
+ {
+-	int r;
+ 	struct libinput_timer *timer;
+-	struct itimerspec its = { { 0, 0 }, { 0, 0 } };
+ 	uint64_t earliest_expire = UINT64_MAX;
+ 
+ 	list_for_each(timer, &libinput->timer.list, link) {
+@@ -73,6 +81,12 @@
+ 			earliest_expire = timer->expire;
+ 	}
+ 
++	libinput->timer.next_expiry = earliest_expire;
++
++#if LIBINPUT_HAVE_TIMERFD
++	int r;
++	struct itimerspec its = { { 0, 0 }, { 0, 0 } };
++
+ 	if (earliest_expire != UINT64_MAX) {
+ 		its.it_value.tv_sec = earliest_expire / ms2us(1000);
+ 		its.it_value.tv_nsec = (earliest_expire % ms2us(1000)) * 1000;
+@@ -83,8 +97,7 @@
+ 		log_error(libinput,
+ 			  "timer: timerfd_settime error: %s\n",
+ 			  strerror(errno));
+-
+-	libinput->timer.next_expiry = earliest_expire;
++#endif
+ }
+ 
+ void
+@@ -170,6 +183,7 @@
+ static void
+ libinput_timer_dispatch(void *data)
+ {
++	#if LIBINPUT_HAVE_TIMERFD
+ 	struct libinput *libinput = data;
+ 	uint64_t now;
+ 	uint64_t discard;
+@@ -187,18 +201,25 @@
+ 		return;
+ 
+ 	libinput_timer_handler(libinput, now);
++	#else
++	(void)data;
++	#endif
+ }
+ 
+ int
+ libinput_timer_subsys_init(struct libinput *libinput)
+ {
++	list_init(&libinput->timer.list);
++	libinput->timer.fd = -1;
++	libinput->timer.source = NULL;
++	libinput->timer.next_expiry = 0;
++
++	#if LIBINPUT_HAVE_TIMERFD
+ 	libinput->timer.fd =
+ 		timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
+ 	if (libinput->timer.fd < 0)
+ 		return -1;
+ 
+-	list_init(&libinput->timer.list);
+-
+ 	libinput->timer.source = libinput_add_fd(libinput,
+ 						 libinput->timer.fd,
+ 						 libinput_timer_dispatch,
+@@ -207,6 +228,7 @@
+ 		close(libinput->timer.fd);
+ 		return -1;
+ 	}
++	#endif
+ 
+ 	return 0;
+ }
+@@ -229,8 +251,10 @@
+ 	/* All timer users should have destroyed their timers now */
+ 	assert(list_empty(&libinput->timer.list));
+ 
+-	libinput_remove_source(libinput, libinput->timer.source);
+-	close(libinput->timer.fd);
++	if (libinput->timer.source)
++		libinput_remove_source(libinput, libinput->timer.source);
++	if (libinput->timer.fd >= 0)
++		close(libinput->timer.fd);
+ }
+ 
+ /**
+diff -ruN -x '*.orig' -x '*.rej' source-old/src/util-strings.h source/src/util-strings.h
+--- source-old/src/util-strings.h	2026-02-24 04:13:42.000000000 +0000
++++ source/src/util-strings.h	2026-04-13 23:39:02.337008079 +0100
+@@ -288,7 +288,7 @@
+ 		}
+ 	}
+ 
+-#ifdef HAVE_LOCALE_H
++#if defined(HAVE_LOCALE_H) && !defined(__redox__)
+ 	/* Create a "C" locale to force strtod to use '.' as separator */
+ 	locale_t c_locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+ 	if (c_locale == (locale_t)0)
+diff -ruN -x '*.orig' -x '*.rej' source-old/src/util-time.h source/src/util-time.h
+--- source-old/src/util-time.h	2026-02-24 04:13:42.000000000 +0000
++++ source/src/util-time.h	2026-04-13 23:39:02.337090072 +0100
+@@ -29,6 +29,7 @@
+ #include <errno.h>
+ #include <linux/input.h>
+ #include <stdint.h>
++#include <sys/time.h>
+ #include <time.h>
+ #include <unistd.h>
+ 
