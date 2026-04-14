@@ -16,7 +16,7 @@ target instead of a vague feature list.
 
 | Profile | Intent | Key Fragments | Current support language |
 |---|---|---|---|
-| `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline |
+| `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled |
 | `redbear-desktop` | Main Red Bear desktop integration profile without KDE-specific session wiring | `desktop.toml`, `redbear-netctl.toml` | builds |
 | `redbear-full` | Expanded graphics/input/Qt integration target | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental runtime path |
 | `redbear-kde` | KDE Plasma bring-up profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path |
@@ -28,6 +28,7 @@ target instead of a vague feature list.
 
 - First place to validate repository discipline and profile reproducibility.
 - Should stay smaller and less assumption-heavy than the graphics profiles.
+- Enables the shared `wired-dhcp` netctl profile by default for the Phase 2 VM/wired baseline.
 
 ### `redbear-desktop`
 
