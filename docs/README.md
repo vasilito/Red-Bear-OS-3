@@ -18,6 +18,7 @@ KDE Plasma desktop environment, and a Linux driver compatibility layer.
 | 04 | [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md) | Design for a FreeBSD LinuxKPI-style driver compatibility shim |
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Feasibility study and implementation plan for KDE Plasma |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
+| 07 | [Red Bear OS Implementation Plan](07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) | Canonical public implementation plan focused on profiles, packaging, validation, and staged hardware enablement |
 
 ## Current State Summary (as of 2026-04-14)
 
