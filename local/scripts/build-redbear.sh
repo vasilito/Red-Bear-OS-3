@@ -111,6 +111,12 @@ echo "Image: build/$ARCH/$CONFIG/harddrive.img"
 echo ""
 echo "To run in QEMU:"
 echo "  make qemu QEMUFLAGS=\"-m 4G\""
+if [ "$CONFIG" = "redbear-minimal" ] || [ "$CONFIG" = "redbear-desktop" ]; then
+    echo ""
+    echo "To validate the Phase 2 VM network baseline:"
+    echo "  ./local/scripts/validate-vm-network-baseline.sh"
+    echo "  ./local/scripts/test-vm-network-qemu.sh $CONFIG"
+fi
 echo ""
 echo "To build live ISO:"
 echo "  make live CONFIG_NAME=$CONFIG"
