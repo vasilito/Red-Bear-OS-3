@@ -16,6 +16,8 @@ const BLUE: &str = "\x1b[34m";
 const DIVIDER: &str = "═══════════════════════════════════════════════════════════════════";
 const RTL8125_VENDOR_ID: u16 = 0x10ec;
 const RTL8125_DEVICE_ID: u16 = 0x8125;
+const VIRTIO_NET_VENDOR_ID: u16 = 0x1af4;
+const VIRTIO_NET_DEVICE_ID: u16 = 0x1000;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
@@ -67,6 +69,7 @@ struct HardwareReport {
     usb_controllers: usize,
     drm_cards: usize,
     rtl8125_present: bool,
+    virtio_net_present: bool,
 }
 
 struct IntegrationCheck {
@@ -237,6 +240,16 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         test_hint: "redbear-info --verbose",
         note: "This only becomes functional when 10ec:8125 hardware is present and a network.* scheme is live.",
         functional_probe: Some(probe_rtl8125_path),
+    },
+    IntegrationCheck {
+        name: "virtio-net-vm-path",
+        category: "Networking",
+        description: "VirtIO network support for QEMU and other virtualized baselines",
+        artifact_path: Some("/usr/lib/drivers/virtio-netd"),
+        control_path: Some("/scheme/pci"),
+        test_hint: "redbear-info --verbose",
+        note: "This becomes functional when a VirtIO NIC (1af4:1000) is present and a network.* scheme is live.",
+        functional_probe: Some(probe_virtio_net_path),
     },
 ];
 
@@ -432,11 +445,33 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
         .iter()
         .any(|name| name.contains("rtl8125"));
 
+    let virtio_net_present = runtime
+        .read_dir_names("/scheme/pci")
+        .unwrap_or_default()
+        .into_iter()
+        .any(|entry| {
+            let config_path = format!("/scheme/pci/{entry}/config");
+            let Some(bytes) = read_bytes(runtime, &config_path) else {
+                return false;
+            };
+            if bytes.len() < 4 {
+                return false;
+            }
+            let vendor = u16::from_le_bytes([bytes[0], bytes[1]]);
+            let device = u16::from_le_bytes([bytes[2], bytes[3]]);
+            vendor == VIRTIO_NET_VENDOR_ID && device == VIRTIO_NET_DEVICE_ID
+        })
+        || network
+            .network_schemes
+            .iter()
+            .any(|name| name.contains("virtio") || name.contains("eth0"));
+
     HardwareReport {
         pci_devices,
         usb_controllers,
         drm_cards,
         rtl8125_present,
+        virtio_net_present,
     }
 }
 
@@ -628,6 +663,14 @@ fn print_table(report: &Report<'_>, verbose: bool) {
             "no"
         }
     );
+    println!(
+        "  VirtIO NIC seen: {}",
+        if report.hardware.virtio_net_present {
+            "yes"
+        } else {
+            "no"
+        }
+    );
     println!();
 
     print_section_header("Integrations");
@@ -796,6 +839,13 @@ fn print_json(report: &Report<'_>) {
         &mut out,
         "rtl8125_present",
         report.hardware.rtl8125_present,
+        true,
+        4,
+    );
+    push_json_bool_field(
+        &mut out,
+        "virtio_net_present",
+        report.hardware.virtio_net_present,
         false,
         4,
     );
@@ -1027,6 +1077,31 @@ fn probe_rtl8125_path(
                 .to_string()
         } else {
             "RTL8125 PCI device seen through /scheme/pci".to_string()
+        },
+    )
+}
+
+fn probe_virtio_net_path(
+    _runtime: &Runtime,
+    network: &NetworkReport,
+    hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    if !hardware.virtio_net_present {
+        return None;
+    }
+
+    Some(
+        if network
+            .network_schemes
+            .iter()
+            .any(|name| name.contains("virtio") || name.contains("eth0"))
+        {
+            "VirtIO NIC seen and network scheme surface is visible".to_string()
+        } else if network.connected {
+            "VirtIO NIC seen and native network stack reports a configured address".to_string()
+        } else {
+            "VirtIO NIC seen through /scheme/pci".to_string()
         },
     )
 }
@@ -1272,6 +1347,33 @@ mod tests {
     }
 
     #[test]
+    fn virtio_net_hardware_detection_parses_pci_config() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/pci/0000--00--03.0");
+        let config = [
+            (VIRTIO_NET_VENDOR_ID & 0xff) as u8,
+            (VIRTIO_NET_VENDOR_ID >> 8) as u8,
+            (VIRTIO_NET_DEVICE_ID & 0xff) as u8,
+            (VIRTIO_NET_DEVICE_ID >> 8) as u8,
+            0,
+            0,
+            0,
+            0,
+        ];
+        let path = root.join("scheme/pci/0000--00--03.0/config");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, config).unwrap();
+
+        let network = collect_network(&Runtime::from_root(root.clone()));
+        let hardware = collect_hardware(&Runtime::from_root(root.clone()), &network);
+        assert!(hardware.virtio_net_present);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn json_output_contains_network_and_integration_state() {
         let root = temp_root();
         write_file(
@@ -1288,6 +1390,7 @@ mod tests {
         );
 
         let report = collect_report(&Runtime::from_root(root.clone()));
+        assert!(!report.hardware.virtio_net_present);
         let mut output = String::new();
         output.push_str("{");
         push_json_string_field(
