@@ -3,7 +3,9 @@
 #
 # Usage:
 #   ./local/scripts/build-redbear.sh                     # Default: redbear-desktop
-#   ./local/scripts/build-redbear.sh redbear-minimal     # Minimal variant
+#   ./local/scripts/build-redbear.sh redbear-minimal     # Minimal validation baseline
+#   ./local/scripts/build-redbear.sh redbear-full        # Full Red Bear integration target
+#   ./local/scripts/build-redbear.sh redbear-kde         # KDE Plasma bring-up target
 #   ./local/scripts/build-redbear.sh redbear-live        # Live ISO variant
 #   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh     # Skip patch application
 set -euo pipefail
@@ -16,11 +18,11 @@ JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
 
 case "$CONFIG" in
-    redbear-desktop|redbear-minimal|redbear-live)
+    redbear-desktop|redbear-minimal|redbear-full|redbear-kde|redbear-live)
         ;;
     *)
         echo "ERROR: Unknown config '$CONFIG'"
-        echo "Supported: redbear-desktop, redbear-minimal, redbear-live"
+        echo "Supported: redbear-desktop, redbear-minimal, redbear-full, redbear-kde, redbear-live"
         exit 1
         ;;
 esac
