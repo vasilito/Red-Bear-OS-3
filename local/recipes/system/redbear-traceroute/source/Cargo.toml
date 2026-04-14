@@ -1,0 +1,20 @@
+[package]
+name = "redbear-traceroute"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "redbear_traceroute"
+path = "src/lib.rs"
+
+[[bin]]
+name = "redbear-traceroute"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+
+[target.'cfg(target_os = "redox")'.dependencies]
+libc = "0.2"
+libredox = "0.1"
+syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }
