@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/bin/netstat" = "netstat"
+"/usr/bin/redbear-netstat" = "redbear-netstat"
