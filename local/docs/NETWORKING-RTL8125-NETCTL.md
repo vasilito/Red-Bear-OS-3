@@ -80,6 +80,9 @@ base networking services have started.
   `redbear-minimal`: `pcid-spawner` → `smolnetd` → `dhcpd` → `netctl --boot` → `wired-dhcp`.
 - `./local/scripts/test-vm-network-qemu.sh` launches a VirtIO-backed QEMU run for the same Phase 2
   baseline and prints the in-guest validation commands to run.
+- `./local/scripts/test-vm-network-runtime.sh` is the in-guest check for the same baseline: it
+  verifies `/scheme/pci`, `/scheme/netcfg`, the active netctl profile, visible `network.*`
+  schemes, and the current `eth0` address.
 
 ## Remaining hardware validation
 
