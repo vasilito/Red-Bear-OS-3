@@ -1,21 +1,28 @@
 # Red Bear OS Full Configuration
-# Complete desktop + RBOS branding + ext4 + input drivers
-# Note: GPU drivers (redox-driver-sys, linux-kpi, redox-drm, amdgpu)
-# are not included because they need custom build templates.
-# Build them separately with: ./local/scripts/build-amd.sh
-#
+# Desktop + RBOS branding + ext4 + input + Wayland + Qt6
 # Build: make all CONFIG_NAME=redbear-full
 # Live:  make live CONFIG_NAME=redbear-full
+#
+# GPU driver stack (redox-driver-sys, linux-kpi, redox-drm, amdgpu): WIP crates
+# need custom template (library-only, cargo install fails). Re-enable when fixed.
+# KDE Frameworks + KWin: depend on qtdeclarative/qtwayland. Re-enable when ported.
+# libinput/libevdev: WIP meson builds, not yet validated. Re-enable when tested.
+# seatd: now builds; DRM lease/runtime validation is still open before enabling broadly.
 
 include = ["desktop.toml"]
 
 [general]
-# 2GB filesystem — plenty for full desktop + headroom
 filesystem_size = 2048
 
 [packages]
 # Red Bear OS branding (os-release, hostname, motd)
 redbear-release = {}
+
+# Native Redox PCI/USB listing tools (lspci, lsusb)
+redbear-hwutils = {}
+
+# Redox-native netctl compatibility command
+redbear-netctl = {}
 
 # Terminal file manager (Midnight Commander port)
 mc = {}
@@ -30,12 +37,224 @@ firmware-loader = {}
 evdevd = {}
 udev-shim = {}
 
-# Package builder (cub -S/-B/-G CLI)
-cub = {}
+# Diagnostic tool
+redbear-info = {}
 
-# RBOS meta-package (dependencies, default config)
-redbear-meta = {}
+# Process monitor
+htop = {}
+
+# Wayland protocol
+libwayland = {}
+
+# Keyboard support
+libxkbcommon = {}
+
+# Qt6 base (Core+Concurrent+Xml+Gui+Widgets, software rendering)
+qtbase = {}
+
+# RBOS meta-package — temporarily disabled (depends on GPU stack via redox-driver-sys)
+# redbear-meta = {}
 
 # Workaround: bash fails to cross-compile (upstream mkbuiltins.c issue)
 # ion (from minimal) is the default shell anyway
 bash = "ignore"
+
+# Firmware directory for AMD/Intel GPU blobs
+[[files]]
+path = "/usr/firmware/amdgpu"
+data = ""
+directory = true
+mode = 0o755
+
+# ── Neutralize broken legacy scripts from upstream configs ─────────
+#
+# base.toml and desktop-minimal.toml ship legacy init scripts that use
+# "notify <service>" — but "notify" is NOT a keyword in the legacy script
+# parser (only "requires_weak" and "nowait" exist). This causes init to
+# try executing a binary called "notify" which doesn't exist.
+#
+# The base source package already ships proper .service/.target files in
+# its init.d/ directory. These get installed to /usr/lib/init.d/ during
+# the build. We just need to neutralize the conflicting legacy scripts
+# so only the proper .service/.target files remain active.
+#
+# Override each broken legacy script with an empty file. Init will still
+# find the .target and .service files from the base package.
+
+# base.toml: "notify ipcd", "notify ptyd", "nowait sudo --daemon"
+# → Replaced by 00_base.target → 00_ipcd.service + 00_ptyd.service + 00_sudo.service
+[[files]]
+path = "/usr/lib/init.d/00_base"
+data = ""
+
+# base.toml: "pcid-spawner" (blocking, no keyword)
+# → Replaced by 00_pcid-spawner.service (oneshot)
+[[files]]
+path = "/usr/lib/init.d/00_drivers"
+data = ""
+
+# base.toml: "notify smolnetd", "nowait dhcpd"
+# → Replaced by 10_net.target → 10_smolnetd.service + 10_dhcpd.service
+[[files]]
+path = "/usr/lib/init.d/10_net"
+data = ""
+
+# desktop-minimal.toml: "notify audiod", "nowait orbital orblogin launcher"
+# → audiod: 20_audiod.service (from base package, type=scheme)
+# → orbital: needs its own .service file since base doesn't ship one
+[[files]]
+path = "/usr/lib/init.d/20_orbital"
+data = ""
+
+# ── Desktop services (not provided by base package) ────────────────
+
+# Orbital display server + login + launcher
+# desktop-minimal.toml had "nowait VT=3 orbital orblogin launcher"
+[[files]]
+path = "/usr/lib/init.d/20_orbital.service"
+data = """
+[unit]
+description = "Orbital display server"
+requires_weak = [
+    "10_net.target",
+]
+
+[service]
+cmd = "orbital"
+args = ["orblogin", "launcher"]
+envs = { VT = "3" }
+type = "oneshot_async"
+"""
+
+# ── Red Bear OS custom service .service files ──────────────────────
+
+# firmware-loader: scheme daemon serving /scheme/firmware
+# Uses SchemeDaemon which requires init to read the pipe (ServiceType::Scheme).
+[[files]]
+path = "/usr/lib/init.d/05_firmware-loader.service"
+data = """
+[unit]
+description = "Firmware loading scheme"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "firmware-loader"
+type = { scheme = "firmware" }
+"""
+
+# udev-shim: scheme daemon serving /scheme/udev
+[[files]]
+path = "/usr/lib/init.d/11_udev.service"
+data = """
+[unit]
+description = "udev compatibility shim"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "udev-shim"
+type = { scheme = "udev" }
+"""
+
+# evdevd: self-registers scheme, no INIT_NOTIFY handshake needed
+[[files]]
+path = "/usr/lib/init.d/10_evdevd.service"
+data = """
+[unit]
+description = "Evdev input daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "evdevd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/netctl"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/etc/netctl/examples"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/etc/netctl/examples/wired-dhcp"
+data = """
+Description='Red Bear wired DHCP profile'
+Interface=eth0
+Connection=ethernet
+IP=dhcp
+"""
+
+[[files]]
+path = "/etc/netctl/examples/wired-static"
+data = """
+Description='Red Bear wired static profile'
+Interface=eth0
+Connection=ethernet
+IP=static
+Address=('192.168.1.10/24')
+Gateway='192.168.1.1'
+DNS=('1.1.1.1')
+"""
+
+[[files]]
+path = "/usr/lib/init.d/12_netctl.service"
+data = """
+[unit]
+description = "Network profile application"
+requires_weak = [
+    "10_smolnetd.service",
+    "10_dhcpd.service",
+]
+
+[service]
+cmd = "netctl"
+args = ["--boot"]
+type = "oneshot"
+"""
+
+# desktop-minimal.toml: "inputd -A 2", "nowait getty 2", "nowait getty /scheme/debug/no-preserve -J"
+# Neutralize and replace with proper service files
+[[files]]
+path = "/usr/lib/init.d/30_console"
+data = ""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "getty"
+args = ["2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""

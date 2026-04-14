@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
 /// Linux-compatible evdev event types and constants.
 ///
 /// These mirror the Linux kernel's `include/uapi/linux/input.h` definitions
 /// so that clients expecting evdev semantics can work on Redox.
+use std::mem::size_of;
 
 // Event types
 pub const EV_SYN: u16 = 0x00;
@@ -9,13 +12,50 @@ pub const EV_KEY: u16 = 0x01;
 pub const EV_REL: u16 = 0x02;
 pub const EV_ABS: u16 = 0x03;
 pub const EV_MSC: u16 = 0x04;
+pub const EV_SW: u16 = 0x05;
 pub const EV_LED: u16 = 0x11;
 pub const EV_SND: u16 = 0x12;
 pub const EV_REP: u16 = 0x14;
+pub const EV_FF: u16 = 0x15;
 
 // Synchronization events
 pub const SYN_REPORT: u16 = 0;
 pub const SYN_CONFIG: u16 = 1;
+
+// Misc events
+pub const MSC_SCAN: u16 = 0x04;
+
+// Switch events
+pub const SW_LID: u16 = 0x00;
+pub const SW_TABLET_MODE: u16 = 0x01;
+pub const SW_HEADPHONE_INSERT: u16 = 0x02;
+pub const SW_RFKILL_ALL: u16 = 0x03;
+pub const SW_MICROPHONE_INSERT: u16 = 0x04;
+pub const SW_DOCK: u16 = 0x05;
+pub const SW_LINEOUT_INSERT: u16 = 0x06;
+pub const SW_JACK_PHYSICAL_INSERT: u16 = 0x07;
+pub const SW_VIDEOOUT_INSERT: u16 = 0x08;
+pub const SW_CAMERA_LENS_COVER: u16 = 0x09;
+pub const SW_KEYPAD_SLIDE: u16 = 0x0a;
+pub const SW_FRONT_PROXIMITY: u16 = 0x0b;
+pub const SW_ROTATE_LOCK: u16 = 0x0c;
+pub const SW_LINEIN_INSERT: u16 = 0x0d;
+pub const SW_MUTE_DEVICE: u16 = 0x0e;
+pub const SW_PEN_INSERTED: u16 = 0x0f;
+pub const SW_MACHINE_COVER: u16 = 0x10;
+
+// Input properties
+pub const INPUT_PROP_POINTER: u16 = 0x00;
+pub const INPUT_PROP_DIRECT: u16 = 0x01;
+
+// LEDs
+pub const LED_NUML: u16 = 0x00;
+pub const LED_CAPSL: u16 = 0x01;
+pub const LED_SCROLLL: u16 = 0x02;
+
+// Repeat settings
+pub const REP_DELAY: u16 = 0x00;
+pub const REP_PERIOD: u16 = 0x01;
 
 // Relative axes
 pub const REL_X: u16 = 0x00;
@@ -107,8 +147,22 @@ pub const KEY_F9: u16 = 67;
 pub const KEY_F10: u16 = 68;
 pub const KEY_NUMLOCK: u16 = 69;
 pub const KEY_SCROLLLOCK: u16 = 70;
+pub const KEY_KP7: u16 = 71;
+pub const KEY_KP8: u16 = 72;
+pub const KEY_KP9: u16 = 73;
+pub const KEY_KPMINUS: u16 = 74;
+pub const KEY_KP4: u16 = 75;
+pub const KEY_KP5: u16 = 76;
+pub const KEY_KP6: u16 = 77;
+pub const KEY_KPPLUS: u16 = 78;
+pub const KEY_KP1: u16 = 79;
+pub const KEY_KP2: u16 = 80;
+pub const KEY_KP3: u16 = 81;
+pub const KEY_KP0: u16 = 82;
+pub const KEY_KPDOT: u16 = 83;
 pub const KEY_F11: u16 = 87;
 pub const KEY_F12: u16 = 88;
+pub const KEY_KPENTER: u16 = 96;
 
 pub const KEY_HOME: u16 = 102;
 pub const KEY_UP: u16 = 103;
@@ -120,6 +174,8 @@ pub const KEY_DOWN: u16 = 108;
 pub const KEY_PAGEDOWN: u16 = 109;
 pub const KEY_INSERT: u16 = 110;
 pub const KEY_DELETE: u16 = 111;
+pub const KEY_KPSLASH: u16 = 98;
+pub const KEY_MENU: u16 = 139;
 
 pub const KEY_LEFTMETA: u16 = 125;
 pub const KEY_RIGHTMETA: u16 = 126;
@@ -144,6 +200,95 @@ pub const BUS_VIRTUAL: u16 = 0x06;
 
 // Evdev version
 pub const EV_VERSION: i32 = 0x010001;
+
+// ioctl constants
+pub const EVIOCGVERSION: u64 = 0x80044501;
+pub const EVIOCGID: u64 = 0x80084502;
+pub const EVIOCGNAME: u64 = 0x80000000 | 0x45 << 8;
+pub const EVIOCGBIT: u64 = 0x80000000 | 0x45 << 8;
+pub const EVIOCGABS: u64 = 0x80184540;
+pub const EVIOCSABS: u64 = 0x401845c0;
+pub const EVIOCGRAB: u64 = 0x40044590;
+pub const EVIOCSCLOCKID: u64 = 0x400445a0;
+pub const EVIOCGPROP: u64 = 0x804045a0;
+pub const EVIOCSFF: u64 = 0x402c4580;
+pub const EVIOCRMFF: u64 = 0x40044581;
+pub const EVIOCGEFFECTS: u64 = 0x80044584;
+
+// EVIOCGKEY returns the current state of all keys (bitmask of pressed keys)
+pub const EVIOCGKEY: u64 = (IOC_READ << IOC_DIRSHIFT)
+    | ((KEY_MAX / 8 + 1) as u64) << IOC_SIZESHIFT
+    | (EVDEV_IOCTL_TYPE << IOC_TYPESHIFT)
+    | 0x18;
+
+// EVIOCGLED returns the current state of all LEDs (bitmask of lit LEDs)
+pub const EVIOCGLED: u64 = (IOC_READ << IOC_DIRSHIFT)
+    | ((LED_MAX / 8 + 1) as u64) << IOC_SIZESHIFT
+    | (EVDEV_IOCTL_TYPE << IOC_TYPESHIFT)
+    | 0x19;
+
+// Key and LED state bitmaps
+pub const KEY_MAX: usize = 0x2FF; // 767 bits = 96 bytes
+pub const LED_MAX: usize = 0x0F; // 15 bits = 2 bytes
+
+pub const IOC_NRBITS: u64 = 8;
+pub const IOC_TYPEBITS: u64 = 8;
+pub const IOC_SIZEBITS: u64 = 14;
+
+pub const IOC_NRMASK: u64 = (1 << IOC_NRBITS) - 1;
+pub const IOC_TYPEMASK: u64 = (1 << IOC_TYPEBITS) - 1;
+pub const IOC_SIZEMASK: u64 = (1 << IOC_SIZEBITS) - 1;
+
+pub const IOC_NRSHIFT: u64 = 0;
+pub const IOC_TYPESHIFT: u64 = IOC_NRSHIFT + IOC_NRBITS;
+pub const IOC_SIZESHIFT: u64 = IOC_TYPESHIFT + IOC_TYPEBITS;
+pub const IOC_DIRSHIFT: u64 = IOC_SIZESHIFT + IOC_SIZEBITS;
+
+pub const IOC_NONE: u64 = 0;
+pub const IOC_WRITE: u64 = 1;
+pub const IOC_READ: u64 = 2;
+pub const EVDEV_IOCTL_TYPE: u64 = 0x45;
+
+pub const fn ioc_dir(cmd: u64) -> u64 {
+    cmd >> IOC_DIRSHIFT
+}
+
+pub const fn ioc_type(cmd: u64) -> u64 {
+    (cmd >> IOC_TYPESHIFT) & IOC_TYPEMASK
+}
+
+pub const fn ioc_nr(cmd: u64) -> u64 {
+    (cmd >> IOC_NRSHIFT) & IOC_NRMASK
+}
+
+pub const fn ioc_size(cmd: u64) -> usize {
+    ((cmd >> IOC_SIZESHIFT) & IOC_SIZEMASK) as usize
+}
+
+pub const fn is_evdev_ioctl(cmd: u64) -> bool {
+    ioc_type(cmd) == EVDEV_IOCTL_TYPE
+}
+
+pub const fn eviocgname(len: usize) -> u64 {
+    (IOC_READ << IOC_DIRSHIFT)
+        | ((len as u64) << IOC_SIZESHIFT)
+        | (EVDEV_IOCTL_TYPE << IOC_TYPESHIFT)
+        | 0x06
+}
+
+pub const fn eviocgbit(ev: u8, len: usize) -> u64 {
+    (IOC_READ << IOC_DIRSHIFT)
+        | ((len as u64) << IOC_SIZESHIFT)
+        | (EVDEV_IOCTL_TYPE << IOC_TYPESHIFT)
+        | ((0x20 + ev as u64) << IOC_NRSHIFT)
+}
+
+pub const fn eviocgabs(axis: u8) -> u64 {
+    (IOC_READ << IOC_DIRSHIFT)
+        | ((size_of::<AbsInfo>() as u64) << IOC_SIZESHIFT)
+        | (EVDEV_IOCTL_TYPE << IOC_TYPESHIFT)
+        | ((0x40 + axis as u64) << IOC_NRSHIFT)
+}
 
 /// Linux `struct input_event` layout (24 bytes).
 ///
@@ -201,6 +346,17 @@ pub struct InputId {
     pub vendor: u16,
     pub product: u16,
     pub version: u16,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AbsInfo {
+    pub value: i32,
+    pub minimum: i32,
+    pub maximum: i32,
+    pub fuzz: i32,
+    pub flat: i32,
+    pub resolution: i32,
 }
 
 fn now_timestamp() -> (u64, u64) {

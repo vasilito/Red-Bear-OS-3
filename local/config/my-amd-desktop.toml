@@ -21,8 +21,8 @@ redox-drm = {}
 amdgpu = {}
 
 # Input (Phase 3)
-evdevd = { path = "../../local/recipes/system/evdevd" }
-udev-shim = { path = "../../local/recipes/system/udev-shim" }
+evdevd = {}
+udev-shim = {}
 
 # Wayland (Phase 4 — depends on P2+P3)
 # libwayland = {}
@@ -62,5 +62,5 @@ nowait evdevd
 path = "/usr/lib/init.d/11_udev"
 data = """
 requires_weak 00_drivers
-nowait udev-shim
+nowait udev
 """

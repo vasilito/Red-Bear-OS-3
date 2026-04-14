@@ -103,6 +103,14 @@ impl FirmwareRegistry {
         Ok(data)
     }
 
+    pub fn len(&self) -> usize {
+        self.blobs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.blobs.is_empty()
+    }
+
     #[allow(dead_code)]
     pub fn list_keys(&self) -> Vec<&str> {
         self.blobs.keys().map(|s| s.as_str()).collect()

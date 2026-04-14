@@ -54,5 +54,5 @@ nowait evdevd
 path = "/usr/lib/init.d/11_udev"
 data = """
 requires_weak 00_drivers
-nowait udev-shim
+nowait udev
 """

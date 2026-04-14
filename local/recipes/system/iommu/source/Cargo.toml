@@ -1,0 +1,13 @@
+[package]
+name = "iommu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+redox-driver-sys = { version = "0.1", path = "../../../drivers/redox-driver-sys/source" }
+redox_scheme = { package = "redox-scheme", version = "0.1" }
+syscall = { package = "redox_syscall", version = "0.4" }
+log = { version = "0.4", features = ["std"] }
+
+[patch.crates-io]
+redox-driver-sys = { path = "../../../drivers/redox-driver-sys/source" }

@@ -4,21 +4,7 @@
 path = "source"
 
 [build]
-template = "custom"
-script = """
-# Build the firmware-loader daemon
-COOKBOOK_CARGO_PATH=. cookbook_cargo
-
-# Stage firmware blobs (copied by integrate-redbear.sh from local/firmware/amdgpu/)
-if [ -d "${COOKBOOK_SOURCE}/firmware/amdgpu" ]; then
-    AMD_FW_COUNT=$(ls "${COOKBOOK_SOURCE}/firmware/amdgpu/"*.bin 2>/dev/null | wc -l)
-    if [ "${AMD_FW_COUNT}" -gt 0 ]; then
-        mkdir -p "${COOKBOOK_STAGE}/usr/lib/firmware/amdgpu"
-        cp "${COOKBOOK_SOURCE}/firmware/amdgpu/"*.bin "${COOKBOOK_STAGE}/usr/lib/firmware/amdgpu/"
-        echo "Staged ${AMD_FW_COUNT} AMD firmware blobs"
-    fi
-fi
-"""
+template = "cargo"
 
 [package.files]
-"/usr/lib/drivers/firmware-loader" = "firmware-loader"
+"/usr/bin/firmware-loader" = "firmware-loader"

@@ -26,6 +26,7 @@ target
 wget-log
 /sysroot/
 local/docs/*.log
+local/docs/qt6-build-log.txt
 
 # Explicitly track our OWN source code (recipes with path="source" where we wrote the code)
 # Only recipes under these categories contain our hand-written source:

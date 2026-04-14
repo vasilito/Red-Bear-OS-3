@@ -83,10 +83,22 @@ mkdir -p recipes/gpu
 symlink "../../local/recipes/gpu/amdgpu"    "recipes/gpu/amdgpu"
 symlink "../../local/recipes/gpu/redox-drm" "recipes/gpu/redox-drm"
 
+# Library stubs / custom libs
+mkdir -p recipes/libs
+symlink "../../local/recipes/libs/libepoxy-stub"       "recipes/libs/libepoxy-stub"
+symlink "../../local/recipes/libs/libudev-stub"        "recipes/libs/libudev-stub"
+symlink "../../local/recipes/libs/lcms2-stub"          "recipes/libs/lcms2-stub"
+symlink "../../local/recipes/libs/libdisplay-info-stub" "recipes/libs/libdisplay-info-stub"
+symlink "../../local/recipes/libs/libxcvt-stub"        "recipes/libs/libxcvt-stub"
+
 # System
 mkdir -p recipes/system
+symlink "../../local/recipes/system/cub"              "recipes/system/cub"
 symlink "../../local/recipes/system/evdevd"           "recipes/system/evdevd"
 symlink "../../local/recipes/system/firmware-loader"  "recipes/system/firmware-loader"
+symlink "../../local/recipes/system/iommu"            "recipes/system/iommu"
+symlink "../../local/recipes/system/redbear-hwutils"  "recipes/system/redbear-hwutils"
+symlink "../../local/recipes/system/redbear-netctl"   "recipes/system/redbear-netctl"
 symlink "../../local/recipes/system/redbear-meta"     "recipes/system/redbear-meta"
 symlink "../../local/recipes/system/udev-shim"        "recipes/system/udev-shim"
 

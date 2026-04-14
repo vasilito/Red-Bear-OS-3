@@ -1,0 +1,14 @@
+#TODO: IOMMU daemon — needs hardware validation with QEMU amd-iommu device
+# Provides scheme:iommu for DMA remapping and device isolation.
+
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = [
+    "redox-driver-sys",
+]
+
+[package.files]
+"/usr/lib/drivers/iommu" = "iommu"

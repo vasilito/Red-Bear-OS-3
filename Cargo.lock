@@ -855,7 +855,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rbos_cookbook"
+name = "redbear_cookbook"
 version = "0.1.0"
 dependencies = [
  "ansi-to-tui",

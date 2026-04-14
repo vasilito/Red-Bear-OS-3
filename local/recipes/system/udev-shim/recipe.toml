@@ -5,4 +5,5 @@ path = "source"
 template = "cargo"
 
 [package.files]
-"/usr/lib/drivers/udev-shim" = "udev-shim"
+"/usr/bin/udev" = "udev-shim"
+"/usr/lib/drivers/udev" = "udev-shim"

@@ -43,6 +43,9 @@ README
 # will ensure all of these are built and staged before this package
 dependencies = [
     "redbear-release",
+    "redox-driver-sys",
+    "linux-kpi",
+    "redox-drm",
     "firmware-loader",
     "evdevd",
     "udev-shim",

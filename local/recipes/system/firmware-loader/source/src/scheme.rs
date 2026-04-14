@@ -2,17 +2,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use log::warn;
-use redox_scheme::SchemeBlockMut;
-use syscall04::data::Stat;
-use syscall04::error::{Error, Result, EBADF, EINVAL, EISDIR, ENOENT, EROFS};
-use syscall04::flag::{EventFlags, MapFlags, MunmapFlags, MODE_FILE, SEEK_CUR, SEEK_END, SEEK_SET};
+use redox_scheme::scheme::SchemeSync;
+use redox_scheme::{CallerCtx, OpenResult};
+use syscall::error::*;
+use syscall::schemev2::NewFdFlags;
+use syscall::{EventFlags, Stat, MODE_FILE};
 
 use crate::blob::FirmwareRegistry;
+
+const SCHEME_ROOT_ID: usize = 1;
 
 struct Handle {
     blob_key: String,
     data: Arc<Vec<u8>>,
-    offset: u64,
     map_count: usize,
     closed: bool,
 }
@@ -27,9 +29,17 @@ impl FirmwareScheme {
     pub fn new(registry: FirmwareRegistry) -> Self {
         FirmwareScheme {
             registry,
-            next_id: 0,
+            next_id: SCHEME_ROOT_ID + 1,
             handles: BTreeMap::new(),
         }
+    }
+
+    fn handle(&self, id: usize) -> Result<&Handle> {
+        self.handles.get(&id).ok_or(Error::new(EBADF))
+    }
+
+    fn handle_mut(&mut self, id: usize) -> Result<&mut Handle> {
+        self.handles.get_mut(&id).ok_or(Error::new(EBADF))
     }
 }
 
@@ -65,8 +75,23 @@ fn resolve_key(path: &str) -> Option<String> {
     Some(key)
 }
 
-impl SchemeBlockMut for FirmwareScheme {
-    fn open(&mut self, path: &str, _flags: usize, _uid: u32, _gid: u32) -> Result<Option<usize>> {
+impl SchemeSync for FirmwareScheme {
+    fn scheme_root(&mut self) -> Result<usize> {
+        Ok(SCHEME_ROOT_ID)
+    }
+
+    fn openat(
+        &mut self,
+        dirfd: usize,
+        path: &str,
+        _flags: usize,
+        _fcntl_flags: u32,
+        _ctx: &CallerCtx,
+    ) -> Result<OpenResult> {
+        if dirfd != SCHEME_ROOT_ID {
+            return Err(Error::new(EACCES));
+        }
+
         let key = resolve_key(path).ok_or(Error::new(EISDIR))?;
 
         if !self.registry.contains(&key) {
@@ -87,94 +112,95 @@ impl SchemeBlockMut for FirmwareScheme {
             Handle {
                 blob_key: key,
                 data,
-                offset: 0,
                 map_count: 0,
                 closed: false,
             },
         );
 
-        Ok(Some(id))
+        Ok(OpenResult::ThisScheme {
+            number: id,
+            flags: NewFdFlags::empty(),
+        })
     }
 
-    fn seek(&mut self, id: usize, pos: isize, whence: usize) -> Result<Option<isize>> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
-        let len = handle.data.len() as i64;
-        let new_offset = match whence {
-            SEEK_SET => pos as i64,
-            SEEK_CUR => handle.offset as i64 + pos as i64,
-            SEEK_END => len + pos as i64,
-            _ => return Err(Error::new(EINVAL)),
-        };
-        if new_offset < 0 {
-            return Err(Error::new(EINVAL));
-        }
-        handle.offset = new_offset as u64;
-        let new_offset = isize::try_from(new_offset).map_err(|_| Error::new(EINVAL))?;
-        Ok(Some(new_offset))
-    }
-
-    fn read(&mut self, id: usize, buf: &mut [u8]) -> Result<Option<usize>> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
-        let offset = handle.offset as usize;
+    fn read(
+        &mut self,
+        id: usize,
+        buf: &mut [u8],
+        offset: u64,
+        _flags: u32,
+        _ctx: &CallerCtx,
+    ) -> Result<usize> {
+        let handle = self.handle(id)?;
+        let offset = usize::try_from(offset).map_err(|_| Error::new(EINVAL))?;
         let data = &handle.data;
 
         if offset >= data.len() {
-            return Ok(Some(0));
+            return Ok(0);
         }
 
         let available = data.len() - offset;
         let to_copy = available.min(buf.len());
         buf[..to_copy].copy_from_slice(&data[offset..offset + to_copy]);
-        handle.offset += to_copy as u64;
 
-        Ok(Some(to_copy))
+        Ok(to_copy)
     }
 
-    fn write(&mut self, id: usize, _buf: &[u8]) -> Result<Option<usize>> {
-        let _ = self.handles.get(&id).ok_or(Error::new(EBADF))?;
+    fn write(
+        &mut self,
+        id: usize,
+        _buf: &[u8],
+        _offset: u64,
+        _flags: u32,
+        _ctx: &CallerCtx,
+    ) -> Result<usize> {
+        let _ = self.handle(id)?;
         Err(Error::new(EROFS))
     }
 
-    fn fpath(&mut self, id: usize, buf: &mut [u8]) -> Result<Option<usize>> {
-        let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
+    fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
+        let handle = self.handle(id)?;
         let path = format!("firmware:/{}.bin", handle.blob_key);
         let bytes = path.as_bytes();
         let len = bytes.len().min(buf.len());
         buf[..len].copy_from_slice(&bytes[..len]);
-        Ok(Some(len))
+        Ok(len)
     }
 
-    fn fstat(&mut self, id: usize, stat: &mut Stat) -> Result<Option<usize>> {
-        let handle = self.handles.get(&id).ok_or(Error::new(EBADF))?;
+    fn fstat(&mut self, id: usize, stat: &mut Stat, _ctx: &CallerCtx) -> Result<()> {
+        let handle = self.handle(id)?;
         stat.st_mode = MODE_FILE | 0o444;
         stat.st_size = handle.data.len() as u64;
         stat.st_blksize = 4096;
         stat.st_blocks = (handle.data.len() as u64 + 511) / 512;
-        Ok(Some(0))
+        stat.st_nlink = 1;
+
+        Ok(())
     }
 
-    fn fsync(&mut self, id: usize) -> Result<Option<usize>> {
-        if !self.handles.contains_key(&id) {
-            return Err(Error::new(EBADF));
-        }
-        Ok(Some(0))
+    fn fsync(&mut self, id: usize, _ctx: &CallerCtx) -> Result<()> {
+        let _ = self.handle(id)?;
+        Ok(())
     }
 
-    fn fevent(&mut self, id: usize, _flags: EventFlags) -> Result<Option<EventFlags>> {
-        if !self.handles.contains_key(&id) {
-            return Err(Error::new(EBADF));
-        }
-        Ok(Some(EventFlags::empty()))
+    fn fcntl(&mut self, id: usize, _cmd: usize, _arg: usize, _ctx: &CallerCtx) -> Result<usize> {
+        let _ = self.handle(id)?;
+        Ok(0)
     }
 
-    fn close(&mut self, id: usize) -> Result<Option<usize>> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
-        handle.closed = true;
-        let should_remove = handle.map_count == 0;
-        if should_remove {
-            self.handles.remove(&id);
-        }
-        Ok(Some(0))
+    fn fsize(&mut self, id: usize, _ctx: &CallerCtx) -> Result<u64> {
+        let handle = self.handle(id)?;
+        Ok(handle.data.len() as u64)
+    }
+
+    fn ftruncate(&mut self, id: usize, _len: u64, _ctx: &CallerCtx) -> Result<()> {
+        let _ = self.handle(id)?;
+        Err(Error::new(EROFS))
+    }
+
+    fn fevent(&mut self, id: usize, _flags: EventFlags, _ctx: &CallerCtx) -> Result<EventFlags> {
+        let _ = self.handle(id)?;
+        Ok(EventFlags::empty())
     }
 
     fn mmap_prep(
@@ -182,9 +208,10 @@ impl SchemeBlockMut for FirmwareScheme {
         id: usize,
         offset: u64,
         size: usize,
-        _flags: MapFlags,
-    ) -> Result<Option<usize>> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
+        _flags: syscall::MapFlags,
+        _ctx: &CallerCtx,
+    ) -> Result<usize> {
+        let handle = self.handle_mut(id)?;
         let data_len = handle.data.len() as u64;
 
         if offset > data_len {
@@ -196,7 +223,7 @@ impl SchemeBlockMut for FirmwareScheme {
 
         let ptr = &handle.data[offset as usize] as *const u8;
         handle.map_count += 1;
-        Ok(Some(ptr as usize))
+        Ok(ptr as usize)
     }
 
     fn munmap(
@@ -204,9 +231,10 @@ impl SchemeBlockMut for FirmwareScheme {
         id: usize,
         _offset: u64,
         _size: usize,
-        _flags: MunmapFlags,
-    ) -> Result<Option<usize>> {
-        let handle = self.handles.get_mut(&id).ok_or(Error::new(EBADF))?;
+        _flags: syscall::MunmapFlags,
+        _ctx: &CallerCtx,
+    ) -> Result<()> {
+        let handle = self.handle_mut(id)?;
         if handle.map_count > 0 {
             handle.map_count -= 1;
         }
@@ -214,6 +242,20 @@ impl SchemeBlockMut for FirmwareScheme {
         if should_cleanup {
             self.handles.remove(&id);
         }
-        Ok(Some(0))
+        Ok(())
+    }
+
+    fn on_close(&mut self, id: usize) {
+        if id == SCHEME_ROOT_ID {
+            return;
+        }
+
+        if let Some(handle) = self.handles.get_mut(&id) {
+            handle.closed = true;
+            let should_remove = handle.map_count == 0;
+            if should_remove {
+                self.handles.remove(&id);
+            }
+        }
     }
 }

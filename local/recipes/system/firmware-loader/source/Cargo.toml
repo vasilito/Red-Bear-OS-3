@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-redox_syscall = { version = "0.7", features = ["std"] }
-syscall04 = { package = "redox_syscall", version = "0.4" }
-redox_scheme = { package = "redox-scheme", version = "0.1" }
+libc = "0.2"
+syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }
+redox_scheme = { package = "redox-scheme", version = "0.11" }
+libredox = "0.1"
 log = { version = "0.4", features = ["std"] }
 thiserror = "2"

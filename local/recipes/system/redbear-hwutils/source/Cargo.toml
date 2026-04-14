@@ -1,0 +1,15 @@
+[package]
+name = "redbear-hwutils"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "lspci"
+path = "src/bin/lspci.rs"
+
+[[bin]]
+name = "lsusb"
+path = "src/bin/lsusb.rs"
+
+[dependencies]
+xhcid = { path = "../../../../../recipes/core/base/source/drivers/usb/xhcid" }

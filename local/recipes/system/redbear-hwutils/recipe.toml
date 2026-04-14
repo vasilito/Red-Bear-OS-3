@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/bin/lspci" = "lspci"
+"/usr/bin/lsusb" = "lsusb"

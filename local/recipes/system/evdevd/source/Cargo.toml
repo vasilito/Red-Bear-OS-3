@@ -8,3 +8,7 @@ redox-scheme = "0.1"
 syscall = { package = "redox_syscall", version = "0.4" }
 log = { version = "0.4", features = ["std"] }
 thiserror = "2"
+orbclient = { version = "=0.3.47", default-features = false }
+
+[target.'cfg(target_os = "redox")'.dependencies]
+redox_event = "0.4"

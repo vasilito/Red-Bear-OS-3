@@ -2,11 +2,12 @@ mod blob;
 mod scheme;
 
 use std::env;
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
 
 use log::{error, info, LevelFilter, Metadata, Record};
-use redox_scheme::{SignalBehavior, Socket};
+use redox_scheme::{scheme::SchemeSync, SignalBehavior, Socket};
 
 use blob::FirmwareRegistry;
 use scheme::FirmwareScheme;
@@ -40,52 +41,59 @@ fn default_firmware_dir() -> PathBuf {
     PathBuf::from("/usr/firmware/")
 }
 
-fn run() -> Result<(), String> {
-    let firmware_dir = env::var("FIRMWARE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| default_firmware_dir());
+unsafe fn get_init_notify_fd() -> RawFd {
+    let fd: RawFd = env::var("INIT_NOTIFY")
+        .expect("firmware-loader: INIT_NOTIFY not set")
+        .parse()
+        .expect("firmware-loader: INIT_NOTIFY is not a valid fd");
+    libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    fd
+}
 
-    info!(
-        "firmware-loader: starting with directory {}",
-        firmware_dir.display()
-    );
+fn notify_scheme_ready(notify_fd: RawFd, socket: &Socket, scheme: &mut FirmwareScheme) {
+    let cap_id = scheme
+        .scheme_root()
+        .expect("firmware-loader: scheme_root failed");
+    let cap_fd = socket
+        .create_this_scheme_fd(0, cap_id, 0, 0)
+        .expect("firmware-loader: create_this_scheme_fd failed");
 
-    let registry = FirmwareRegistry::new(&firmware_dir)
-        .map_err(|e| format!("failed to initialize firmware registry: {e}"))?;
+    syscall::call_wo(
+        notify_fd as usize,
+        &libredox::Fd::new(cap_fd).into_raw().to_ne_bytes(),
+        syscall::CallFlags::FD,
+        &[],
+    )
+    .expect("firmware-loader: failed to notify init that scheme is ready");
+}
 
-    let socket = Socket::create("firmware")
-        .map_err(|e| format!("failed to register firmware scheme: {e}"))?;
+fn run_daemon(notify_fd: RawFd, registry: FirmwareRegistry) -> ! {
+    let socket = Socket::create().expect("firmware-loader: failed to create scheme socket");
+    let mut scheme = FirmwareScheme::new(registry);
+
+    notify_scheme_ready(notify_fd, &socket, &mut scheme);
+
     info!("firmware-loader: registered scheme:firmware");
 
-    let mut firmware_scheme = FirmwareScheme::new(registry);
+    libredox::call::setrens(0, 0).expect("firmware-loader: failed to enter null namespace");
 
-    loop {
-        let request = match socket.next_request(SignalBehavior::Restart) {
-            Ok(Some(request)) => request,
-            Ok(None) => {
-                info!("firmware-loader: scheme unmounted, exiting");
-                break;
+    while let Some(request) = socket
+        .next_request(SignalBehavior::Restart)
+        .expect("firmware-loader: failed to read scheme request")
+    {
+        match request.kind() {
+            redox_scheme::RequestKind::Call(request) => {
+                let mut state = redox_scheme::scheme::SchemeState::new();
+                let response = request.handle_sync(&mut scheme, &mut state);
+                socket
+                    .write_response(response, SignalBehavior::Restart)
+                    .expect("firmware-loader: failed to write response");
             }
-            Err(e) => {
-                error!("firmware-loader: failed to read scheme request: {}", e);
-                continue;
-            }
-        };
-
-        let response = match request.handle_scheme_block_mut(&mut firmware_scheme) {
-            Ok(response) => response,
-            Err(_request) => {
-                error!("firmware-loader: failed to handle request");
-                continue;
-            }
-        };
-
-        if let Err(e) = socket.write_response(response, SignalBehavior::Restart) {
-            error!("firmware-loader: failed to write response: {}", e);
+            _ => (),
         }
     }
 
-    Ok(())
+    process::exit(0);
 }
 
 fn main() {
@@ -99,8 +107,26 @@ fn main() {
 
     init_logging(log_level);
 
-    if let Err(e) = run() {
-        error!("firmware-loader: fatal error: {}", e);
+    let firmware_dir = env::var("FIRMWARE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| default_firmware_dir());
+
+    info!(
+        "firmware-loader: starting with directory {}",
+        firmware_dir.display()
+    );
+
+    let registry = FirmwareRegistry::new(&firmware_dir).unwrap_or_else(|e| {
+        error!("firmware-loader: fatal error: failed to initialize firmware registry: {e}");
         process::exit(1);
-    }
+    });
+
+    info!(
+        "firmware-loader: indexed {} firmware blob(s) from {}",
+        registry.len(),
+        firmware_dir.display()
+    );
+
+    let notify_fd = unsafe { get_init_notify_fd() };
+    run_daemon(notify_fd, registry);
 }

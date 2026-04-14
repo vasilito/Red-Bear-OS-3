@@ -18,6 +18,12 @@ COOKBOOK_CONFIGURE_FLAGS+=(
     --enable-static-link # This ensures loadables are not built, which will fail
 )
 COOKBOOK_MAKE_JOBS=1 # workaround for parallel make bugs
+
+# mkbuiltins.c uses K&R-style empty parameter declarations (e.g. `static char *xmalloc ();`).
+# GCC 15+ defaults to C23 where () means (void), breaking calls with arguments.
+# Force C17 to restore the old behavior for the host-built code generator.
+export CFLAGS_FOR_BUILD="-g -O2 -std=gnu17"
+
 cookbook_configure
 ln -s "bash" "${COOKBOOK_STAGE}/usr/bin/sh"
 cp -r "${COOKBOOK_RECIPE}/etc" "${COOKBOOK_STAGE}/etc"
