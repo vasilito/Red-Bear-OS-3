@@ -4,7 +4,7 @@
 # Build: make all CONFIG_NAME=redbear-desktop
 # Live:  make live CONFIG_NAME=redbear-desktop
 
-include = ["desktop.toml", "redbear-netctl.toml"]
+include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
 [general]
 filesystem_size = 10240
@@ -19,8 +19,90 @@ redbear-hwutils = {}
 # Redox-native netctl compatibility command
 redbear-netctl = {}
 
+# Native network reporting and connect-scan tools
+redbear-netstat = {}
+redbear-traceroute = {}
+redbear-mtr = {}
+redbear-nmap = {}
+
+# Firmware loading
+firmware-loader = {}
+
+# Input/runtime service prerequisites
+evdevd = {}
+udev-shim = {}
+
+# Diagnostic tool
+redbear-info = {}
+
+# IOMMU validation surface
+iommu = {}
+
 # Terminal file manager (Midnight Commander port)
 mc = {}
 
 # Package builder (cub -S/-B/-G CLI)
 cub = {}
+
+
+# ── Desktop services (replace legacy desktop-minimal init scripts) ───────────
+
+[[files]]
+path = "/usr/lib/init.d/20_orbital.service"
+data = """
+[unit]
+description = "Orbital display server"
+requires_weak = [
+    "10_net.target",
+]
+
+[service]
+cmd = "orbital"
+args = ["orblogin", "launcher"]
+envs = { VT = "3" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "getty"
+args = ["2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_iommu.service"
+data = """
+[unit]
+description = "IOMMU DMA remapping daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "/usr/lib/drivers/iommu"
+type = "oneshot_async"
+"""

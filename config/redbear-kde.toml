@@ -10,6 +10,13 @@ include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.t
 [general]
 filesystem_size = 4096
 
+[users.messagebus]
+uid = 100
+gid = 100
+name = "messagebus"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
+
 [packages]
 # Red Bear OS branding
 redbear-release = {}
@@ -26,6 +33,15 @@ udev-shim = {}
 
 # D-Bus (session + system bus)
 dbus = {}
+
+# Diagnostic/runtime tooling
+redbear-info = {}
+redbear-hwutils = {}
+redbear-netctl = {}
+redbear-netstat = {}
+redbear-traceroute = {}
+redbear-mtr = {}
+redbear-nmap = {}
 
 # Wayland protocol
 libwayland = {}
@@ -48,57 +64,34 @@ qtwayland = {}
 # KF6 Frameworks — Tier 1 (no special deps)
 kf6-extra-cmake-modules = {}
 kf6-kcoreaddons = {}
-kf6-kwidgetsaddons = {}
 kf6-kconfig = {}
 kf6-ki18n = {}
-kf6-kcodecs = {}
-kf6-kguiaddons = {}
 kf6-kcolorscheme = {}
 kf6-kauth = {}
-kf6-kitemmodels = {}
-kf6-kitemviews = {}
 
-# KF6 Frameworks — Tier 2
-kf6-karchive = {}
+# KF6 Frameworks — KWin session-surface chain
 kf6-kwindowsystem = {}
 kf6-knotifications = {}
-kf6-kjobwidgets = {}
 kf6-kconfigwidgets = {}
-
-# KF6 Frameworks — Tier 3 (needs D-Bus)
 kf6-kcrash = {}
 kf6-kdbusaddons = {}
 kf6-kglobalaccel = {}
 kf6-kservice = {}
 kf6-kpackage = {}
 kf6-kiconthemes = {}
-kf6-kxmlgui = {}
-kf6-ktextwidgets = {}
-kf6-kirigami = {}
-kf6-solid = {}
-kf6-sonnet = {}
-
-# KF6 Frameworks — Tier 4 (needs kio + kxmlgui)
+kirigami = {}
 kf6-kio = {}
-kf6-kbookmarks = {}
-kf6-kcompletion = {}
 kf6-kdeclarative = {}
 kf6-kcmutils = {}
-plasma-framework = {}
+kf6-kwayland = {}
+kdecoration = {}
 
-# KDE Plasma
+# KDE session surface (Phase 6 slice)
 kwin = {}
-plasma-workspace = {}
-plasma-desktop = {}
-breeze = {}
-kde-cli-tools = {}
 
 # Graphics
 mesa = {}
 libdrm = {}
-
-# Workaround: bash fails to cross-compile
-bash = "ignore"
 
 # Firmware directory for AMD/Intel GPU blobs
 [[files]]
@@ -122,6 +115,30 @@ cmd = "dbus-daemon"
 args = ["--system"]
 type = "oneshot_async"
 """
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
 
 [[files]]
 path = "/usr/lib/init.d/13_seatd.service"
@@ -191,8 +208,7 @@ type = "oneshot_async"
 path = "/usr/bin/orbital-kde"
 mode = 0o755
 data = """
-#!/usr/bin/env bash
-set -ex
+#!/usr/bin/sh
 
 export DISPLAY=""
 export WAYLAND_DISPLAY=wayland-0
@@ -222,6 +238,6 @@ kwin_wayland --replace &
 
 sleep 2
 
-# Start Plasma Shell
-plasmashell &
+# Start KWin Wayland compositor
+kwin_wayland --replace
 """

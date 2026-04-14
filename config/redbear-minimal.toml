@@ -18,8 +18,22 @@ redbear-hwutils = {}
 # Redox-native netctl compatibility command
 redbear-netctl = {}
 
+# Native network reporting and connect-scan tools
+redbear-netstat = {}
+redbear-traceroute = {}
+redbear-mtr = {}
+redbear-nmap = {}
+
+# Firmware loading
+firmware-loader = {}
+
+# Input/runtime service prerequisites
+evdevd = {}
+udev-shim = {}
+
 # Terminal file manager
 mc = {}
+
 
 # Diagnostic tool
 redbear-info = {}

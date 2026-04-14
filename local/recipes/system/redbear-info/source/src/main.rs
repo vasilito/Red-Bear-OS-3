@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process;
 
@@ -142,6 +143,46 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         functional_probe: Some(probe_netctl_surface),
     },
     IntegrationCheck {
+        name: "redbear-netstat",
+        category: "Tool",
+        description: "Native Red Bear network status reporter",
+        artifact_path: Some("/usr/bin/redbear-netstat"),
+        control_path: Some("/scheme/netcfg"),
+        test_hint: "redbear-netstat",
+        note: "Functional when the netcfg scheme answers read-only interface, route, and resolver queries.",
+        functional_probe: Some(probe_smolnetd_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-traceroute",
+        category: "Tool",
+        description: "Native UDP-based path tracing utility",
+        artifact_path: Some("/usr/bin/redbear-traceroute"),
+        control_path: Some("/scheme/icmp"),
+        test_hint: "redbear-traceroute 1.1.1.1",
+        note: "Binary presence proves installation; successful hop tracing still depends on the live ICMP and UDP path in the current runtime.",
+        functional_probe: Some(probe_icmp_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-mtr",
+        category: "Tool",
+        description: "Native path measurement tool built on traceroute probes",
+        artifact_path: Some("/usr/bin/redbear-mtr"),
+        control_path: Some("/scheme/icmp"),
+        test_hint: "redbear-mtr 1.1.1.1",
+        note: "Binary presence proves installation; useful measurements still depend on the same live ICMP and UDP probe substrate as traceroute.",
+        functional_probe: Some(probe_icmp_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-nmap",
+        category: "Tool",
+        description: "Bounded TCP connect-scan utility",
+        artifact_path: Some("/usr/bin/redbear-nmap"),
+        control_path: Some("/scheme/netcfg"),
+        test_hint: "redbear-nmap 127.0.0.1 22,80,443",
+        note: "Binary presence proves the scanner is installed; successful scans still depend on live networking and reachable targets.",
+        functional_probe: Some(probe_smolnetd_surface),
+    },
+    IntegrationCheck {
         name: "pcid-spawner",
         category: "Core",
         description: "PCI driver autoload daemon",
@@ -160,6 +201,16 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         test_hint: "redbear-info --verbose",
         note: "Functional when the netcfg scheme answers read-only queries.",
         functional_probe: Some(probe_smolnetd_surface),
+    },
+    IntegrationCheck {
+        name: "xhcid",
+        category: "USB",
+        description: "xHCI host-controller daemon",
+        artifact_path: Some("/usr/lib/drivers/xhcid"),
+        control_path: Some("/scheme"),
+        test_hint: "lsusb",
+        note: "Functional when at least one usb.* controller scheme is registered.",
+        functional_probe: Some(probe_usb_surface),
     },
     IntegrationCheck {
         name: "dhcpd",
@@ -186,30 +237,40 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         category: "System",
         description: "Firmware indexing and serving daemon",
         artifact_path: Some("/usr/bin/firmware-loader"),
-        control_path: Some("/scheme/firmware"),
+        control_path: Some("/scheme"),
         test_hint: "ls /scheme/firmware/",
         note: "Functional when the firmware scheme is enumerable.",
-        functional_probe: Some(probe_directory_readable),
+        functional_probe: Some(probe_firmware_scheme),
+    },
+    IntegrationCheck {
+        name: "iommu",
+        category: "System",
+        description: "IOMMU DMA-remapping daemon",
+        artifact_path: Some("/usr/lib/drivers/iommu"),
+        control_path: Some("/scheme"),
+        test_hint: "redbear-phase-iommu-check",
+        note: "Functional when the iommu scheme is registered in /scheme.",
+        functional_probe: Some(probe_iommu_scheme),
     },
     IntegrationCheck {
         name: "udev-shim",
         category: "System",
         description: "udev-compatible device enumeration shim",
-        artifact_path: Some("/usr/bin/udev"),
-        control_path: Some("/scheme/udev"),
+        artifact_path: Some("/usr/bin/udev-shim"),
+        control_path: Some("/scheme"),
         test_hint: "ls /scheme/udev/",
         note: "Functional when the udev scheme can be listed.",
-        functional_probe: Some(probe_directory_readable),
+        functional_probe: Some(probe_udev_scheme),
     },
     IntegrationCheck {
         name: "evdevd",
         category: "Input",
         description: "Event-device translation daemon",
-        artifact_path: Some("/usr/lib/drivers/evdevd"),
-        control_path: Some("/scheme/evdev"),
+        artifact_path: Some("/usr/bin/evdevd"),
+        control_path: Some("/scheme"),
         test_hint: "ls /scheme/evdev/",
         note: "Functional when event nodes are enumerable through the evdev scheme.",
-        functional_probe: Some(probe_directory_readable),
+        functional_probe: Some(probe_evdev_scheme),
     },
     IntegrationCheck {
         name: "redox-drm",
@@ -431,7 +492,7 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
 
     let rtl8125_present = pci_entries.into_iter().any(|entry| {
         let config_path = format!("/scheme/pci/{entry}/config");
-        let Some(bytes) = read_bytes(runtime, &config_path) else {
+        let Some(bytes) = read_prefix_bytes(runtime, &config_path, 4) else {
             return false;
         };
         if bytes.len() < 4 {
@@ -451,7 +512,7 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
         .into_iter()
         .any(|entry| {
             let config_path = format!("/scheme/pci/{entry}/config");
-            let Some(bytes) = read_bytes(runtime, &config_path) else {
+            let Some(bytes) = read_prefix_bytes(runtime, &config_path, 4) else {
                 return false;
             };
             if bytes.len() < 4 {
@@ -976,8 +1037,12 @@ fn read_trimmed(runtime: &Runtime, path: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn read_bytes(runtime: &Runtime, path: &str) -> Option<Vec<u8>> {
-    fs::read(runtime.resolve(path)).ok()
+fn read_prefix_bytes(runtime: &Runtime, path: &str, max_len: usize) -> Option<Vec<u8>> {
+    let mut file = fs::File::open(runtime.resolve(path)).ok()?;
+    let mut bytes = vec![0_u8; max_len];
+    let read = file.read(&mut bytes).ok()?;
+    bytes.truncate(read);
+    Some(bytes)
 }
 
 fn parse_default_route(routes: &str) -> Option<String> {
@@ -1019,6 +1084,18 @@ fn probe_usb_surface(
     })
 }
 
+fn probe_icmp_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    runtime
+        .read_dir_names("/scheme")
+        .filter(|entries| entries.iter().any(|name| name == "icmp"))
+        .map(|_| "icmp scheme is present for probe/error reporting".to_string())
+}
+
 fn probe_netctl_surface(
     runtime: &Runtime,
     network: &NetworkReport,
@@ -1053,6 +1130,50 @@ fn probe_smolnetd_surface(
         Some(address) => format!("netcfg readable, active address {address}"),
         None => "netcfg readable, no configured address".to_string(),
     })
+}
+
+fn probe_named_scheme(runtime: &Runtime, scheme_name: &str) -> Option<String> {
+    let names = runtime.read_dir_names("/scheme")?;
+    names
+        .into_iter()
+        .any(|name| name == scheme_name)
+        .then(|| format!("scheme {scheme_name} is registered in /scheme"))
+}
+
+fn probe_firmware_scheme(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    probe_named_scheme(runtime, "firmware")
+}
+
+fn probe_udev_scheme(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    probe_named_scheme(runtime, "udev")
+}
+
+fn probe_evdev_scheme(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    probe_named_scheme(runtime, "evdev")
+}
+
+fn probe_iommu_scheme(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    probe_named_scheme(runtime, "iommu")
 }
 
 fn probe_rtl8125_path(
@@ -1382,6 +1503,8 @@ mod tests {
             "PRETTY_NAME=\"Red Bear OS\"\nVERSION_ID=\"0.1.0\"\n",
         );
         write_file(&root, "/usr/bin/redbear-info", "");
+        write_file(&root, "/usr/bin/redbear-netstat", "");
+        write_file(&root, "/usr/bin/redbear-nmap", "");
         create_dir(&root, "/scheme/netcfg");
         write_file(
             &root,
@@ -1405,6 +1528,14 @@ mod tests {
             .integrations
             .iter()
             .any(|item| item.check.name == "redbear-info"));
+        assert!(report
+            .integrations
+            .iter()
+            .any(|item| item.check.name == "redbear-netstat"));
+        assert!(report
+            .integrations
+            .iter()
+            .any(|item| item.check.name == "redbear-nmap"));
 
         fs::remove_dir_all(root).unwrap();
     }
