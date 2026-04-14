@@ -1,0 +1,45 @@
+# Red Bear OS shared device-service wiring
+#
+# Shared by profiles that ship the firmware/input compatibility stack.
+
+[[files]]
+path = "/usr/lib/init.d/05_firmware-loader.service"
+data = """
+[unit]
+description = "Firmware loading scheme"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "firmware-loader"
+type = { scheme = "firmware" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/11_udev.service"
+data = """
+[unit]
+description = "udev compatibility shim"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "udev-shim"
+type = { scheme = "udev" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/10_evdevd.service"
+data = """
+[unit]
+description = "Evdev input daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "evdevd"
+type = "oneshot_async"
+"""

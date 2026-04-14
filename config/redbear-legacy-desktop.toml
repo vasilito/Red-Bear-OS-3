@@ -1,0 +1,9 @@
+# Red Bear OS overrides for broken legacy desktop init scripts.
+
+[[files]]
+path = "/usr/lib/init.d/20_orbital"
+data = ""
+
+[[files]]
+path = "/usr/lib/init.d/30_console"
+data = ""
