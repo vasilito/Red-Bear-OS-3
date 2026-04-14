@@ -13,6 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 cub-lib = { path = "../cub-lib" }
-redox-pkg = { path = "../../../../../../recipes/core/pkgutils/source/pkg-lib", default-features = false, features = ["indicatif"] }
+redox-pkg = { git = "https://gitlab.redox-os.org/redox-os/pkgutils.git", default-features = false, features = ["indicatif"] }
 clap = { workspace = true }
 termion = "4.0.6"

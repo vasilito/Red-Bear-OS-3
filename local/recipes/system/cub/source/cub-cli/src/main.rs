@@ -223,7 +223,7 @@ fn install_package(context: &AppContext, package: &str) -> Result<(), Box<dyn st
     let package_name = PackageName::new(package.to_string())?;
     let mut library = context.open_library()?;
 
-    match library.install(vec![package_name.clone()], false) {
+    match library.install(vec![package_name.clone()]) {
         Ok(()) => {
             let applied = apply_library_changes(&mut library)?;
             println!(
@@ -318,7 +318,7 @@ fn build_local_dir(context: &AppContext, dir: &Path) -> Result<(), Box<dyn std::
 
     let package_name = PackageName::new(rbpkg.package.name.clone())?;
     let mut library = context.open_local_library(&local_repo_dir, &public_key_dir)?;
-    library.install(vec![package_name], false)?;
+    library.install(vec![package_name])?;
     let applied = apply_library_changes(&mut library)?;
 
     println!(
