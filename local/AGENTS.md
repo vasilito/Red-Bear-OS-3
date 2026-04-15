@@ -31,6 +31,67 @@ make all CONFIG_NAME=redbear-full          # Rebuild with latest
 Red Bear OS tracks the Redox OS build system as upstream. The `local/` directory
 survives upstream updates untouched.
 
+## SOURCE-OF-TRUTH RULE (VERY IMPORTANT)
+
+Treat the repository as two different layers with different durability guarantees:
+
+### 1. Upstream-owned layer — disposable, refreshable every day
+
+These paths are expected to be replaced, refetched, or regenerated when upstream changes:
+
+- `recipes/*/source/`
+- most of `recipes/` outside our symlinked `local/recipes/*` overlays
+- `config/desktop.toml`, `config/minimal.toml`, and other mainline configs
+- generated build outputs under `target/`, `build/`, `repo/`, and recipe-local `target/*`
+
+For relibc specifically, **`recipes/core/relibc/source/` is upstream-owned working source**, not
+Red Bear’s durable storage location. We may build and validate there, but we must not rely on that
+tree alone to preserve Red Bear work.
+
+### 2. Red Bear-owned layer — durable, must survive upstream refresh
+
+These paths are our actual long-term source of truth:
+
+- `local/patches/` — all durable changes to upstream-owned source trees
+- `local/recipes/` — Red Bear recipe overlays and new packages
+- `local/docs/` — Red Bear planning, validation, and integration documentation
+- tracked Red Bear configs such as `config/redbear-*.toml`
+
+If we can fetch fresh upstream sources tomorrow, reapply `local/patches/*`, relink
+`local/recipes/*`, and rebuild successfully, then the work is in the right place.
+
+If a change exists only inside an upstream-owned `recipes/*/source/` tree, then it is **not yet
+preserved**, even if the current build happens to pass.
+
+### Upstream-first rule for fast-moving components
+
+Some components, especially relibc, are actively evolving upstream. For those areas, Red Bear must
+prefer the upstream solution whenever upstream already solves the same problem.
+
+That means:
+
+- if our local patch solves a gap that upstream still has, keep the patch carrier
+- if upstream lands an equivalent or better solution, prefer upstream and shrink or drop our local patch
+- do not keep a Red Bear patch just because it existed first; keep it only while it still provides unique value
+
+For relibc specifically, patch carriers should be treated as **temporary compatibility overlays**,
+not a permanent fork strategy.
+
+### Daily-upstream-safe workflow
+
+For any change to upstream-owned source:
+
+1. make the minimal working change in the live source tree if needed for validation
+2. prove it builds/tests against the real recipe
+3. mirror that delta into `local/patches/<component>/...`
+4. update `local/docs/...` so the rebuild/reapply story is explicit
+5. assume the live upstream source tree may be thrown away and recreated at any time
+
+The success criterion is therefore:
+
+> We can pull renewed upstream sources every day, reapply Red Bear’s local overlays, and still
+> build the project successfully.
+
 ```bash
 # Automated sync (preferred):
 ./local/scripts/sync-upstream.sh              # Fetch + rebase + check patches
@@ -78,7 +139,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── patches/
 │   │   ├── kernel/            ← Kernel patches (ACPI, x2APIC)
 │   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
-│   │   ├── relibc/            ← relibc patches (POSIX: eventfd, signalfd, timerfd)
+│   │   ├── relibc/            ← relibc compatibility overlays still needed beyond upstream (eventfd, signalfd, timerfd, waitid, SysV IPC)
 │   │   ├── bootloader/        ← Bootloader patches
 │   │   └── installer/         ← Installer patches (ext4 filesystem support)
 │   ├── Assets/                ← Branding assets (icon, loading background)
@@ -90,7 +151,10 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── fetch-firmware.sh  ← Download AMD firmware
 │   │   ├── build-amd.sh       ← Legacy AMD-specific build (use build-redbear.sh)
 │   │   ├── test-amd-gpu.sh    ← AMD GPU test script
-│   │   └── test-baremetal.sh  ← Bare metal test script
+│   │   ├── test-baremetal.sh  ← Bare metal test script
+│   │   ├── validate-vm-network-baseline.sh ← Static repo-level VM networking baseline check
+│   │   ├── test-vm-network-qemu.sh ← QEMU launcher for the VirtIO VM networking baseline
+│   │   └── test-vm-network-runtime.sh ← In-guest runtime check for the VM networking baseline
 │   └── docs/                  ← Integration docs
 ```
 
@@ -105,6 +169,47 @@ redox-master/                  ← git pull updates mainline Redox
 
 # Live ISO
 ./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-live
+
+# VM-network baseline validation helpers
+./local/scripts/validate-vm-network-baseline.sh
+./local/scripts/test-vm-network-qemu.sh redbear-minimal
+# Then run inside the guest:
+#   ./local/scripts/test-vm-network-runtime.sh
+
+# Phase 3 runtime-substrate validation
+./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-desktop
+
+# Low-level controller validation
+./local/scripts/test-xhci-irq-qemu.sh --check
+./local/scripts/test-msix-qemu.sh
+./local/scripts/test-iommu-qemu.sh
+./local/scripts/test-usb-storage-qemu.sh
+
+# The current xHCI proof checks for an interrupt-driven mode in boot logs.
+# The current MSI-X proof uses the live virtio-net path in QEMU.
+# The current IOMMU proof checks for the AMD IOMMU device plus guest boot reachability.
+# The USB storage proof currently verifies whether usbscsid autospawns without hitting crash-class errors.
+
+# Phase 4 Wayland runtime validation
+./local/scripts/build-redbear.sh redbear-wayland
+./local/scripts/test-phase4-wayland-qemu.sh
+# Then run inside the guest:
+#   redbear-phase4-wayland-check
+
+# Phase 5 desktop/network plumbing validation
+./local/scripts/build-redbear.sh redbear-full
+./local/scripts/test-phase5-network-qemu.sh --check
+# Then run inside the guest:
+#   redbear-phase5-network-check
+
+# Phase 6 KDE session-surface validation
+./local/scripts/build-redbear.sh redbear-kde
+./local/scripts/test-phase6-kde-qemu.sh --check
+# Then run inside the guest:
+#   redbear-phase6-kde-check
+
+# redbear-netctl user-facing alias
+redbear-netctl --help
 
 # Or manually:
 make all CONFIG_NAME=redbear-desktop
@@ -129,6 +234,31 @@ When mainline updates affect our work:
 | Build system | Makefile/config changes | `mk/`, `src/` |
 | rsext4 | ext4 crate API changes | `local/recipes/core/ext4d/source/` Cargo.toml |
 | Installer | ext4 dispatch, filesystem selection | `local/patches/installer/redox.patch` |
+
+## PLANNING NOTES
+
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` is the canonical public execution plan.
+- `local/docs/AMD-FIRST-INTEGRATION.md` remains the deeper AMD-specific technical roadmap, but AMD
+  and Intel machines are now equal-priority Red Bear OS targets.
+- `local/docs/PHASE-0-3-REASSESSMENT.md` explains how to read the early phases consistently when
+  the historical hardware-enablement phases and newer product-enablement phases use different
+  numbering.
+- `local/docs/WIFI-IMPLEMENTATION-PLAN.md` is the current Wi-Fi architecture and rollout plan,
+  including the bounded role of `linux-kpi` and the native wireless control-plane direction.
+- `local/docs/USB-IMPLEMENTATION-PLAN.md` and `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` should
+  also be treated as first-class subsystem plans, not as side notes.
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` is the current umbrella plan for
+  IRQ delivery, MSI/MSI-X quality, IOMMU validation, and other low-level controller completeness work.
+
+The current execution order for these subsystem plans is:
+
+1. IRQ / low-level controller quality
+2. USB maturity
+3. Wi-Fi native control plane and first driver family
+4. Bluetooth controller + host path
+5. desktop/session compatibility on top of those runtime services
+
+Do not present USB, Wi-Fi, Bluetooth, or low-level controller work as optional or secondary.
 
 ## FILESYSTEMS
 
@@ -241,6 +371,9 @@ local/Assets/
 ```
 redbear-live.toml
   └── redbear-desktop.toml
+        ├── redbear-legacy-base.toml   ← Neutralize broken base legacy init scripts
+        ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
+        ├── redbear-netctl.toml        ← Shared Red Bear network profile files + netctl boot service
         ├── desktop.toml (mainline)
         │     ├── desktop-minimal.toml
         │     │     └── minimal.toml
@@ -248,9 +381,9 @@ redbear-live.toml
         │     └── server.toml
         │           └── minimal.toml
         │                 └── base.toml
-        └── [packages] redbear-release, redox-driver-sys, linux-kpi,
-                       firmware-loader, redox-drm, cub, redbear-hwutils,
-                       redbear-netctl, evdevd, udev-shim, redbear-meta
+        └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
+                       firmware-loader, evdevd, udev-shim, redbear-info,
+                       mc, cub
         NOTE: ext4d is inherited from desktop.toml (mainline package)
         NOTE: cub is included via redbear-desktop.toml and depends on the custom
               recipe symlink (recipes/system/cub → local/recipes/system/cub) being
@@ -267,6 +400,11 @@ redbear-full.toml
   └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
   └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
 
+redbear-wayland.toml
+  └── wayland.toml (mainline-derived Wayland profile)
+  └── runtime surface: orbital-wayland → smallvil
+  └── validation entrypoints: test-phase4-wayland-qemu.sh + redbear-phase4-wayland-check
+
 redbear-kde.toml
   └── desktop.toml (mainline)
   └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
@@ -281,7 +419,7 @@ redbear-minimal.toml
   └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
   └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
   └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
-                 redox-driver-sys, firmware-loader, evdevd, udev-shim
+                 firmware-loader, evdevd, udev-shim, redbear-info
 ```
 
 Config comparison:
