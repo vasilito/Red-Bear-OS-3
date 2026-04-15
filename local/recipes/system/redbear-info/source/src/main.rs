@@ -246,8 +246,8 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         name: "iommu",
         category: "System",
         description: "IOMMU DMA-remapping daemon",
-        artifact_path: Some("/usr/lib/drivers/iommu"),
-        control_path: Some("/scheme"),
+        artifact_path: Some("/usr/bin/iommu"),
+        control_path: Some("/scheme/iommu"),
         test_hint: "redbear-phase-iommu-check",
         note: "Functional when the iommu scheme is registered in /scheme.",
         functional_probe: Some(probe_iommu_scheme),
@@ -597,7 +597,7 @@ fn inspect_integration<'a>(
 }
 
 fn derive_state(artifact_present: Option<bool>, control_present: Option<bool>) -> ProbeState {
-    if control_present == Some(true) {
+    if control_present == Some(true) && artifact_present != Some(false) {
         ProbeState::Active
     } else if artifact_present == Some(true) {
         ProbeState::Present

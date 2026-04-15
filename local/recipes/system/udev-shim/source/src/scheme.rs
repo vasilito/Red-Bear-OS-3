@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Read;
 
 use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
@@ -12,14 +14,13 @@ use crate::device_db::{
 
 const SCHEME_ROOT_ID: usize = 1;
 
-#[derive(Clone)]
 enum HandleKind {
     Root,
     Devices,
     Device(usize),
     Dev,
     DevInputDir,
-    DevInput(usize),
+    DevInput(usize, File),
     DevInputMice,
     DevDriDir,
     DevDri(usize),
@@ -30,6 +31,32 @@ enum HandleKind {
     LinksDriByPathDir,
     Link(usize),
     Uevent,
+}
+
+impl Clone for HandleKind {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Root => Self::Root,
+            Self::Devices => Self::Devices,
+            Self::Device(idx) => Self::Device(*idx),
+            Self::Dev => Self::Dev,
+            Self::DevInputDir => Self::DevInputDir,
+            Self::DevInput(idx, file) => Self::DevInput(
+                *idx,
+                file.try_clone().expect("udev-shim: clone dev input fd"),
+            ),
+            Self::DevInputMice => Self::DevInputMice,
+            Self::DevDriDir => Self::DevDriDir,
+            Self::DevDri(idx) => Self::DevDri(*idx),
+            Self::DevLinks => Self::DevLinks,
+            Self::LinksInputDir => Self::LinksInputDir,
+            Self::LinksInputByPathDir => Self::LinksInputByPathDir,
+            Self::LinksDriDir => Self::LinksDriDir,
+            Self::LinksDriByPathDir => Self::LinksDriByPathDir,
+            Self::Link(idx) => Self::Link(*idx),
+            Self::Uevent => Self::Uevent,
+        }
+    }
 }
 
 pub struct UdevScheme {
@@ -79,7 +106,7 @@ impl UdevScheme {
             self.devices.push(classify_pci_device(bus, dev, func));
         }
 
-        if path_exists("/scheme/input") {
+        if scheme_registered("input") {
             self.devices.push(DeviceInfo::new_platform_input(
                 "Redox Keyboard Input",
                 "/devices/platform/keyboard0",
@@ -89,7 +116,7 @@ impl UdevScheme {
             ));
         }
 
-        if path_exists("/scheme/pointer") || path_exists("/scheme/mouse") {
+        if scheme_registered("pointer") || scheme_registered("mouse") {
             self.devices.push(DeviceInfo::new_platform_input(
                 "Redox Mouse Input",
                 "/devices/platform/mouse0",
@@ -275,7 +302,7 @@ impl UdevScheme {
                 }
                 Ok(self.directory_listing(entries))
             }
-            HandleKind::DevInput(idx) => {
+            HandleKind::DevInput(idx, _) => {
                 let dev = self.devices.get(*idx).ok_or_else(|| Error::new(ENOENT))?;
                 if dev.scheme_target.is_empty() {
                     return Err(Error::new(ENOENT));
@@ -391,7 +418,13 @@ impl UdevScheme {
                     let idx = self
                         .find_device_by_devnode(&devnode)
                         .ok_or_else(|| Error::new(ENOENT))?;
-                    Ok(HandleKind::DevInput(idx))
+                    let dev = self.devices.get(idx).ok_or_else(|| Error::new(ENOENT))?;
+                    if dev.scheme_target.is_empty() {
+                        return Err(Error::new(ENOENT));
+                    }
+                    let file = File::open(format!("/scheme/{}", dev.scheme_target))
+                        .map_err(|_| Error::new(ENOENT))?;
+                    Ok(HandleKind::DevInput(idx, file))
                 } else if let Some(rest) = cleaned.strip_prefix("dev/dri/") {
                     let devnode = format!("/dev/dri/{rest}");
                     let idx = self
@@ -434,7 +467,7 @@ impl UdevScheme {
             }
             HandleKind::Dev => Ok("/scheme/udev/dev".to_string()),
             HandleKind::DevInputDir => Ok("/scheme/udev/dev/input".to_string()),
-            HandleKind::DevInput(idx) => self
+            HandleKind::DevInput(idx, _) => self
                 .devices
                 .get(*idx)
                 .filter(|dev| !dev.devnode.is_empty())
@@ -503,18 +536,23 @@ impl SchemeSync for UdevScheme {
         _ctx: &CallerCtx,
     ) -> Result<usize> {
         let kind = self.kind_for_id(id)?;
-        let content = self.content_for_handle(&kind)?;
-        let bytes = content.as_bytes();
+        match kind {
+            HandleKind::DevInput(_, mut file) => file.read(buf).map_err(|_| Error::new(ENOENT)),
+            _ => {
+                let content = self.content_for_handle(&kind)?;
+                let bytes = content.as_bytes();
 
-        if offset >= bytes.len() as u64 {
-            return Ok(0);
+                if offset >= bytes.len() as u64 {
+                    return Ok(0);
+                }
+
+                let start = offset as usize;
+                let remaining = &bytes[start..];
+                let to_copy = remaining.len().min(buf.len());
+                buf[..to_copy].copy_from_slice(&remaining[..to_copy]);
+                Ok(to_copy)
+            }
         }
-
-        let start = offset as usize;
-        let remaining = &bytes[start..];
-        let to_copy = remaining.len().min(buf.len());
-        buf[..to_copy].copy_from_slice(&remaining[..to_copy]);
-        Ok(to_copy)
     }
 
     fn write(
@@ -540,7 +578,10 @@ impl SchemeSync for UdevScheme {
 
     fn fstat(&mut self, id: usize, stat: &mut syscall::Stat, _ctx: &CallerCtx) -> Result<()> {
         let kind = self.kind_for_id(id)?;
-        let size = self.content_for_handle(&kind)?.len() as u64;
+        let size = match kind {
+            HandleKind::DevInput(_, _) => 0,
+            _ => self.content_for_handle(&kind)?.len() as u64,
+        };
 
         stat.st_mode = if Self::is_directory(&kind) {
             MODE_DIR | 0o555
@@ -567,7 +608,10 @@ impl SchemeSync for UdevScheme {
 
     fn fsize(&mut self, id: usize, _ctx: &CallerCtx) -> Result<u64> {
         let kind = self.kind_for_id(id)?;
-        Ok(self.content_for_handle(&kind)?.len() as u64)
+        Ok(match kind {
+            HandleKind::DevInput(_, _) => 0,
+            _ => self.content_for_handle(&kind)?.len() as u64,
+        })
     }
 
     fn ftruncate(&mut self, id: usize, _len: u64, _ctx: &CallerCtx) -> Result<()> {
@@ -589,6 +633,16 @@ impl SchemeSync for UdevScheme {
 
 fn path_exists(path: &str) -> bool {
     std::fs::metadata(path).is_ok()
+}
+
+fn scheme_registered(name: &str) -> bool {
+    std::fs::read_dir("/scheme")
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .any(|entry| entry == name)
 }
 
 fn parse_pci_slot(name: &str) -> Option<(u8, u8, u8)> {

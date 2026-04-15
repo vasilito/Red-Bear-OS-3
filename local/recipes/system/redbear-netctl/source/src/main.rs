@@ -3,7 +3,23 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Command};
 
-const USAGE: &str = "Usage: netctl [--boot|list|status [profile]|start <profile>|stop <profile>|enable <profile>|disable [profile]|is-enabled [profile]]";
+fn program_name() -> String {
+    env::args()
+        .next()
+        .and_then(|path| {
+            PathBuf::from(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "netctl".to_string())
+}
+
+fn usage() -> String {
+    format!(
+        "Usage: {} [--boot|list|status [profile]|start <profile>|stop <profile>|enable <profile>|disable [profile]|is-enabled [profile]]",
+        program_name()
+    )
+}
 
 #[derive(Clone, Debug)]
 enum ProfileIpMode {
@@ -25,7 +41,7 @@ struct Profile {
 
 fn main() {
     if let Err(err) = run() {
-        eprintln!("netctl: {err}");
+        eprintln!("{}: {err}", program_name());
         process::exit(1);
     }
 }
@@ -33,7 +49,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
-        return Err(USAGE.into());
+        return Err(usage());
     };
 
     match command.as_str() {
@@ -46,15 +62,15 @@ fn run() -> Result<(), String> {
         "disable" => disable_profile(args.next().as_deref()),
         "is-enabled" => is_enabled(args.next().as_deref()),
         "help" | "--help" | "-h" => {
-            println!("{USAGE}");
+            println!("{}", usage());
             Ok(())
         }
-        _ => Err(USAGE.into()),
+        _ => Err(usage()),
     }
 }
 
 fn required_profile(profile: Option<String>) -> Result<String, String> {
-    profile.ok_or_else(|| USAGE.to_string())
+    profile.ok_or_else(usage)
 }
 
 fn run_boot_profile() -> Result<(), String> {

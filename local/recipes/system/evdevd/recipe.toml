@@ -5,4 +5,5 @@ path = "source"
 template = "cargo"
 
 [package.files]
+"/usr/bin/evdevd" = "evdevd"
 "/usr/lib/drivers/evdevd" = "evdevd"
