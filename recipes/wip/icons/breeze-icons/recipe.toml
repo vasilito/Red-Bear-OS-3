@@ -2,5 +2,14 @@
 # lacking build instructions
 [source]
 tar = "https://download.kde.org/stable/frameworks/5.112/breeze-icons-5.112.0.tar.xz"
+
 [build]
-template = "cmake"
+template = "custom"
+dependencies = [
+    "kf6-extra-cmake-modules",
+]
+script = """
+DYNAMIC_INIT
+COOKBOOK_CMAKE_FLAGS+=("-DKF_IGNORE_PLATFORM_CHECK=ON")
+cookbook_cmake
+"""

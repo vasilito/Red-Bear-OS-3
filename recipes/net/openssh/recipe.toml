@@ -1,4 +1,4 @@
-#TODO lack of resolv.h, expect dns not working
+#TODO resolver runtime on Redox still needs stronger validation; relibc now exports resolv.h/nameser surfaces
 #TODO lack of utmpx.h, expect no way to track login in sshd
 [source]
 tar = "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-9.8p1.tar.gz"
@@ -14,6 +14,15 @@ dependencies = [
 ]
 script = """
 DYNAMIC_INIT
+RELIBC_STAGE_INCLUDE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
+RELIBC_STAGE_LIB="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/lib"
+if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
+    export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+fi
+if [ -d "${RELIBC_STAGE_LIB}" ]; then
+    export LDFLAGS="-L${RELIBC_STAGE_LIB} -Wl,-rpath-link,${RELIBC_STAGE_LIB} ${LDFLAGS}"
+fi
 COOKBOOK_CONFIGURE_FLAGS+=(
     --disable-strip
     --sysconfdir=/etc/ssh

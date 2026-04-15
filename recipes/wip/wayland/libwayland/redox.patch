@@ -9,22 +9,5 @@ diff -ruwN source-old/src/meson.build source/src/meson.build
 -	wayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
 +	wayland_scanner_for_build = find_program('wayland-scanner', native: true)
  else
- 	wayland_scanner_for_build = wayland_scanner
+	wayland_scanner_for_build = wayland_scanner
  endif
-diff -ruwN source-old/src/wayland-os.c source/src/wayland-os.c
---- source-old/src/wayland-os.c	2025-07-06 13:11:26.000000000 +0100
-+++ source/src/wayland-os.c	2026-04-14 19:30:00.000000000 +0100
-@@ -134,11 +134,13 @@
- {
- 	int newfd;
- 
-+	#if defined(F_DUPFD_CLOEXEC)
- 	newfd = wl_fcntl(fd, F_DUPFD_CLOEXEC, minfd);
- 	if (newfd >= 0)
- 		return newfd;
- 	if (errno != EINVAL)
- 		return -1;
-+	#endif
- 
- 	newfd = wl_fcntl(fd, F_DUPFD, minfd);
- 	return set_cloexec_or_close(newfd);

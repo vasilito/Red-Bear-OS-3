@@ -70,9 +70,9 @@ diff -ruwN source/hostfile.c source-new/hostfile.c
  #include <netinet/in.h>
  
  #include <errno.h>
-+#ifndef __redox__
++/* Redox now has relibc resolv.h support. */
++/* Keep this hunk explicit for downstream patch clarity. */
  #include <resolv.h>
-+#endif
  #include <stdarg.h>
  #include <stdio.h>
  #include <stdlib.h>
@@ -165,131 +165,53 @@ diff -ruwN source/openbsd-compat/bsd-statvfs.h source-new/openbsd-compat/bsd-sta
 diff -ruwN source/openbsd-compat/getrrsetbyname.c source-new/openbsd-compat/getrrsetbyname.c
 --- source/openbsd-compat/getrrsetbyname.c	2024-07-01 11:36:28.000000000 +0700
 +++ source-new/openbsd-compat/getrrsetbyname.c	2025-09-06 21:09:36.556438304 +0700
-@@ -67,6 +67,52 @@
- #endif
- #define _THREAD_PRIVATE(a,b,c) (c)
- 
-+#ifdef __redox__
-+
-+#include <sys/types.h>
-+#include <stdint.h>
-+
-+/*
-+ * Minimalist replacement for <resolv.h> for systems that lack it,
-+ * such as Redox OS. This provides the basic structures needed by
-+ * the OpenSSH compatibility layer.
-+ */
-+
-+// Define necessary constants
-+#define MAXNS           3   /* max # name servers we'll track */
-+#define MAXDNSRCH       6   /* max # domains in search path */
-+#define MAXRESOLVSORT   10  /* number of nets to sort on */
-+#define MAXDNAME        256 /* max length of a domain name */
-+
-+/*
-+ * A simplified, portable version of the resolver state structure.
-+ * Glibc-specific fields, hooks, and complex unions have been removed.
-+ */
-+struct __res_state {
-+    int   retrans;                /* retransmission time interval */
-+    int   retry;                  /* number of times to retransmit */
-+    unsigned long options;        /* option flags */
-+    int   nscount;                /* number of name servers */
-+    struct sockaddr_in nsaddr_list[MAXNS]; /* address of name servers */
-+    unsigned short id;            /* current message id */
-+    char *dnsrch[MAXDNSRCH + 1];  /* components of domain to search */
-+    char  defdname[MAXDNAME];     /* default domain name */
-+    
-+    struct {
-+        struct in_addr addr;
-+        uint32_t       mask;
-+    } sort_list[MAXRESOLVSORT];
-+    
-+    int   res_h_errno;            /* last error code for this context */
-+    
-+    // Simplified bitfields, removing glibc internals
-+    unsigned ndots : 4;           /* threshold for initial abs. query */
-+    unsigned nsort : 4;           /* number of elements in sort_list[] */
-+};
-+
-+typedef struct __res_state *res_state;
-+#endif /* __redox */
-+
- #ifndef HAVE__RES_EXTERN
- struct __res_state _res;
- #endif
-@@ -167,6 +213,24 @@
- 	struct dns_rr		*next;
- };
- 
-+#ifdef __redox__
-+typedef struct {
-+    uint16_t id;
-+    uint8_t  rd : 1;
-+    uint8_t  tc : 1;
-+    uint8_t  aa : 1;
-+    uint8_t  opcode : 4;
-+    uint8_t  qr : 1;
-+    uint8_t  rcode : 4;
-+    uint8_t  z : 3;
-+    uint8_t  ra : 1;
-+    uint16_t qdcount;
-+    uint16_t ancount;
-+    uint16_t nscount;
-+    uint16_t arcount;
-+} HEADER;
-+#endif
-+
- struct dns_response {
- 	HEADER			header;
- 	struct dns_query	*query;
-@@ -221,10 +285,10 @@
- 	}
- 
- 	/* initialize resolver */
+@@ -221,10 +221,10 @@
+	}
+
+	/* initialize resolver */
 -	if ((_resp->options & RES_INIT) == 0 && res_init() == -1) {
-+	// if (res_init() == -1) {
- 		result = ERRSET_FAIL;
- 		goto fail;
++	if ((_resp->options & RES_INIT) == 0 && res_init() == -1) {
+		result = ERRSET_FAIL;
+		goto fail;
 -	}
-+	// }
- 
++	}
+
  #ifdef DEBUG
- 	_resp->options |= RES_DEBUG;
-@@ -482,12 +546,12 @@
- 			prev->next = curr;
- 
- 		/* name */
+	_resp->options |= RES_DEBUG;
+@@ -482,12 +482,12 @@
+			prev->next = curr;
+
+		/* name */
 -		length = dn_expand(answer, answer + size, *cp, name,
 -		    sizeof(name));
 -		if (length < 0) {
-+		// length = dn_expand(answer, answer + size, *cp, name,
-+		//     sizeof(name));
-+		// if (length < 0) {
- 			free_dns_query(head);
- 			return (NULL);
++		length = dn_expand(answer, answer + size, *cp, name,
++		    sizeof(name));
++		if (length < 0) {
+			free_dns_query(head);
+			return (NULL);
 -		}
-+		// }
- 		curr->name = strdup(name);
- 		if (curr->name == NULL) {
- 			free_dns_query(head);
-@@ -542,12 +606,12 @@
- 			prev->next = curr;
- 
- 		/* name */
++		}
+		curr->name = strdup(name);
+		if (curr->name == NULL) {
+			free_dns_query(head);
+@@ -542,12 +542,12 @@
+			prev->next = curr;
+
+		/* name */
 -		length = dn_expand(answer, answer + size, *cp, name,
 -		    sizeof(name));
 -		if (length < 0) {
-+		// length = dn_expand(answer, answer + size, *cp, name,
-+		//     sizeof(name));
-+		// if (length < 0) {
- 			free_dns_rr(head);
- 			return (NULL);
++		length = dn_expand(answer, answer + size, *cp, name,
++		    sizeof(name));
++		if (length < 0) {
+			free_dns_rr(head);
+			return (NULL);
 -		}
-+		// }
- 		curr->name = strdup(name);
- 		if (curr->name == NULL) {
- 			free_dns_rr(head);
++		}
+		curr->name = strdup(name);
+		if (curr->name == NULL) {
+			free_dns_rr(head);
 diff -ruwN source/openbsd-compat/getrrsetbyname.h source-new/openbsd-compat/getrrsetbyname.h
 --- source/openbsd-compat/getrrsetbyname.h	2024-07-01 11:36:28.000000000 +0700
 +++ source-new/openbsd-compat/getrrsetbyname.h	2025-09-06 21:09:36.557438268 +0700
@@ -297,13 +219,13 @@ diff -ruwN source/openbsd-compat/getrrsetbyname.h source-new/openbsd-compat/getr
  
  #include <sys/types.h>
  #include <netinet/in.h>
-+#ifndef __redox__
++/* Redox now has relibc arpa/nameser.h support. */
++/* Keep this include active instead of patch-local fallbacks. */
  #include <arpa/nameser.h>
-+#endif
  #include <netdb.h>
-+#ifndef __redox__
++/* Redox now has relibc resolv.h support. */
++/* Keep this include active instead of patch-local fallbacks. */
  #include <resolv.h>
-+#endif
  
  #ifndef HFIXEDSZ
  #define HFIXEDSZ 12
@@ -314,9 +236,9 @@ diff -ruwN source/openbsd-compat/inet_ntop.c source-new/openbsd-compat/inet_ntop
  #include <sys/socket.h>
  #include <netinet/in.h>
  #include <arpa/inet.h>
-+#ifndef __redox__
++/* Redox now has relibc arpa/nameser.h support. */
++/* Keep this include active. */
  #include <arpa/nameser.h>
-+#endif
  #include <string.h>
  #include <errno.h>
  #include <stdio.h>
@@ -453,9 +375,9 @@ diff -ruwN source/regress/netcat.c source-new/regress/netcat.c
  #include <stdlib.h>
  #include <string.h>
  #include <unistd.h>
-+#ifndef __redox__
++/* Redox now has relibc resolv.h support. */
++/* Keep this include active. */
  #include <resolv.h>
-+#endif
  
  #define SOCKS_PORT	"1080"
  #define HTTP_PROXY_PORT	"3128"
@@ -498,9 +420,9 @@ diff -ruwN source/sshbuf-misc.c source-new/sshbuf-misc.c
  #include <stdio.h>
  #include <limits.h>
  #include <string.h>
-+#ifndef __redox__
++/* Redox now has relibc resolv.h support. */
++/* Keep this include active. */
  #include <resolv.h>
-+#endif
  #include <ctype.h>
  #include <unistd.h>
  
@@ -614,9 +536,9 @@ diff -ruwN source/sshkey.c source-new/sshkey.c
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
-+#ifndef __redox__
++/* Redox now has relibc resolv.h support. */
++/* Keep this include active. */
  #include <resolv.h>
-+#endif
  #include <time.h>
  #ifdef HAVE_UTIL_H
  #include <util.h>

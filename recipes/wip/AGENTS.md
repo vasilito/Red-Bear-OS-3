@@ -2,6 +2,34 @@
 
 Experimental ports not yet ready for production. Wayland, KDE, GNOME, and driver WIP.
 
+## OWNERSHIP RULE FOR UPSTREAM WIP
+
+In Red Bear OS, an upstream recipe or subsystem being marked **WIP** changes how we treat it.
+
+### What WIP means for Red Bear
+
+If an upstream recipe, package group, or subsystem is still WIP:
+
+1. Red Bear treats that area as a **local project** rather than a first-class upstream dependency
+2. we may study, import, and refresh from the upstream WIP recipe
+3. but the version we fix, validate, and ship should live in the Red Bear overlay (`local/recipes/`,
+   `local/patches/`, `local/docs/`), not in trust of the upstream WIP tree alone
+
+### What happens when upstream promotes it
+
+If upstream later removes the WIP status and the recipe becomes a first-class supported Redox
+package, Red Bear should reevaluate immediately:
+
+- prefer the upstream recipe where it now solves the same problem adequately
+- reduce or remove the local Red Bear copy/patches if they are no longer needed
+- keep only the Red Bear-specific integration delta that upstream still does not solve
+
+### Practical implication
+
+`recipes/wip/` is therefore not “safe upstream ownership” for Red Bear shipping decisions. For this
+project, upstream WIP is a **source of inputs and ideas**, but stable Red Bear delivery should come
+from the local overlay until upstream promotes that work.
+
 ## STRUCTURE
 
 ```
@@ -66,3 +94,5 @@ recipes/wip/
 - BLAKE3 hashes optional for WIP
 - Test with `make r.<package>` before adding to config
 - When ready: move from `wip/` to appropriate category, add BLAKE3 hash
+- If Red Bear depends on a WIP subsystem long-term, prefer moving the maintained shipping version
+  under `local/recipes/` and documenting the delta in `local/docs/`

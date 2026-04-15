@@ -28,3 +28,11 @@ cookbook_configure
 ln -s "bash" "${COOKBOOK_STAGE}/usr/bin/sh"
 cp -r "${COOKBOOK_RECIPE}/etc" "${COOKBOOK_STAGE}/etc"
 """
+
+[package]
+name = "bash"
+
+[package.files]
+"/usr/bin/bash" = "bash"
+"/usr/bin/sh" = "sh"
+"/usr/bin/bashbug" = "bashbug"
