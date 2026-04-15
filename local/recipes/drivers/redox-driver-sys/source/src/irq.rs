@@ -149,6 +149,12 @@ impl MsixTable {
         let (irq, fd) = allocate_irq_vector(cpu_id)?;
         self.program_x86_message(index, cpu_id, irq)?;
         self.unmask_vector(index);
+        log::info!(
+            "redox-driver-sys: allocated MSI-X vector {} -> irq {} on cpu {}",
+            index,
+            irq,
+            cpu_id
+        );
         Ok(MsixVector { fd, index, irq })
     }
 
@@ -288,7 +294,15 @@ fn allocate_irq_vector(cpu_id: u8) -> Result<(u32, File)> {
             .create_new(true)
             .open(&path)
         {
-            Ok(fd) => return Ok((irq, fd)),
+            Ok(fd) => {
+                log::debug!(
+                    "redox-driver-sys: reserved irq vector {} from {} for cpu {}",
+                    irq,
+                    path,
+                    cpu_id
+                );
+                return Ok((irq, fd));
+            }
             Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
             Err(err) if err.kind() == ErrorKind::NotFound => continue,
             Err(err) => {

@@ -61,6 +61,23 @@ index 94a1eb17..3fd91156 100644
 +            Ok(values) => {
 +                log::debug!("{}._PS0 => {:?}", device_path, values);
 +            }
+@@
+             while let Some((descriptor, len)) = AnyDescriptor::parse(&data[i..]) {
+                 descriptors.push(descriptor);
+                 i += len;
+             }
++            let descriptor_count = descriptors.len();
++
++            if i < data.len() {
++                log::warn!(
++                    "port {} slot {} config {} descriptor parsing stopped early at byte {} of {}",
++                    port_id,
++                    slot,
++                    index,
++                    i,
++                    data.len()
++                );
++            }
 +            Err(error) => {
 +                log::warn!("Failed to power on {} with _PS0: {:?}", device_path, error);
 +            }
@@ -1039,3 +1056,300 @@ index 670a5526..24ce3d68 100644
          }
          UnitKind::Target {} => {
              if config.log_debug {
+diff --git a/drivers/storage/usbscsid/src/main.rs b/drivers/storage/usbscsid/src/main.rs
+--- a/drivers/storage/usbscsid/src/main.rs
++++ b/drivers/storage/usbscsid/src/main.rs
+@@
+ fn main() {
+     daemon::Daemon::new(daemon);
+ }
+ fn daemon(daemon: daemon::Daemon) -> ! {
+-    let mut args = env::args().skip(1);
++    if let Err(err) = run(daemon) {
++        eprintln!("usbscsid: startup failed: {err}");
++        std::process::exit(1);
++    }
++
++    std::process::exit(0);
++}
++
++fn run(daemon: daemon::Daemon) -> Result<(), String> {
++    let mut args = env::args().skip(1);
+
+     const USAGE: &'static str = "usbscsid <scheme> <port> <protocol>";
+
+-    let scheme = args.next().expect(USAGE);
+-    let port = args
+-        .next()
+-        .expect(USAGE)
+-        .parse::<PortId>()
+-        .expect("Expected port ID");
+-    let protocol = args
+-        .next()
+-        .expect(USAGE)
+-        .parse::<u8>()
+-        .expect("protocol has to be a number 0-255");
++    let scheme = args.next().ok_or_else(|| USAGE.to_string())?;
++    let port_arg = args.next().ok_or_else(|| USAGE.to_string())?;
++    let protocol_arg = args.next().ok_or_else(|| USAGE.to_string())?;
++    let port = port_arg
++        .parse::<PortId>()
++        .map_err(|err| format!("invalid port id `{port_arg}`: {err}"))?;
++    let protocol = protocol_arg
++        .parse::<u8>()
++        .map_err(|err| format!("invalid protocol `{protocol_arg}`: {err}"))?;
+@@
+-    let handle =
+-        XhciClientHandle::new(scheme.to_owned(), port).expect("Failed to open XhciClientHandle");
++    let handle = XhciClientHandle::new(scheme.to_owned(), port)
++        .map_err(|err| format!("failed to open XHCI client handle: {err}"))?;
+
+     let desc = handle
+         .get_standard_descs()
+-        .expect("Failed to get standard descriptors");
++        .map_err(|err| format!("failed to get standard descriptors: {err}"))?;
+@@
+-        .expect("Failed to find suitable configuration");
++        .ok_or_else(|| "failed to find suitable BOT configuration".to_string())?;
+@@
+-        .expect("Failed to configure endpoints");
++        .map_err(|err| format!("failed to configure endpoints: {err}"))?;
+
+-    let mut protocol = protocol::setup(&handle, protocol, &desc, &conf_desc, &if_desc)
+-        .expect("Failed to setup protocol");
++    let mut protocol = protocol::setup(&handle, protocol, &desc, &conf_desc, &if_desc)
++        .map_err(|err| format!("failed to setup protocol: {err}"))?;
+@@
+-    let mut scsi = Scsi::new(&mut *protocol).expect("usbscsid: failed to setup SCSI");
++    let mut scsi =
++        Scsi::new(&mut *protocol).map_err(|err| format!("failed to setup SCSI: {err}"))?;
+     println!("SCSI initialized");
+-    let mut buffer = [0u8; 512];
+-    scsi.read(&mut *protocol, 0, &mut buffer).unwrap();
+-    println!("DISK CONTENT: {}", base64::encode(&buffer[..]));
+
+-    let event_queue = event::EventQueue::new().unwrap();
++    let event_queue =
++        event::EventQueue::new().map_err(|err| format!("failed to create event queue: {err}"))?;
+@@
+-        .unwrap();
++        .map_err(|err| format!("failed to subscribe scheme event handle: {err}"))?;
+
+     for event in event_queue {
+-        match event.unwrap().user_data {
+-            Event::Scheme => driver_block::FuturesExecutor
+-                .block_on(scheme.tick())
+-                .unwrap(),
++        let event = match event {
++            Ok(event) => event,
++            Err(err) => {
++                eprintln!("usbscsid: event queue error: {err}");
++                continue;
++            }
++        };
++
++        match event.user_data {
++            Event::Scheme => {
++                if let Err(err) = driver_block::FuturesExecutor.block_on(scheme.tick()) {
++                    eprintln!("usbscsid: scheme tick failed: {err}");
++                }
++            }
+         }
+     }
+
+-    std::process::exit(0);
++    Ok(())
+ }
+diff --git a/drivers/storage/usbscsid/src/protocol/mod.rs b/drivers/storage/usbscsid/src/protocol/mod.rs
+--- a/drivers/storage/usbscsid/src/protocol/mod.rs
++++ b/drivers/storage/usbscsid/src/protocol/mod.rs
+@@
+     #[error("attempted recovery failed")]
+     RecoveryFailed,
+
++    #[error("unsupported USB mass-storage protocol 0x{0:02X}")]
++    UnsupportedProtocol(u8),
++
+     #[error("protocol error")]
+     ProtocolError(&'static str),
+ }
+@@
+ pub fn setup<'a>(
+     handle: &'a XhciClientHandle,
+     protocol: u8,
+-    dev_desc: &DevDesc,
++    _dev_desc: &DevDesc,
+     conf_desc: &ConfDesc,
+     if_desc: &IfDesc,
+-) -> Option<Box<dyn Protocol + 'a>> {
++) -> Result<Box<dyn Protocol + 'a>, ProtocolError> {
+     match protocol {
+-        0x50 => Some(Box::new(
+-            BulkOnlyTransport::init(handle, conf_desc, if_desc).unwrap(),
+-        )),
+-        _ => None,
++        0x50 => BulkOnlyTransport::init(handle, conf_desc, if_desc)
++            .map(|transport| Box::new(transport) as Box<dyn Protocol + 'a>),
++        _ => Err(ProtocolError::UnsupportedProtocol(protocol)),
+     }
+ }
+diff --git a/drivers/storage/usbscsid/src/scsi/mod.rs b/drivers/storage/usbscsid/src/scsi/mod.rs
+--- a/drivers/storage/usbscsid/src/scsi/mod.rs
++++ b/drivers/storage/usbscsid/src/scsi/mod.rs
+@@
+     #[error("overflow")]
+     Overflow(&'static str),
++
++    #[error("SCSI command failed: {0}")]
++    CommandFailed(&'static str),
+ }
+@@
+         if let SendCommandStatus {
+             kind: SendCommandStatusKind::Failed,
+             ..
+         } = protocol.send_command(
+             &self.command_buffer[..10],
+             DeviceReqData::In(&mut self.data_buffer[..initial_alloc_len as usize]),
+         )? {
+             self.get_ff_sense(protocol, 252)?;
+-            panic!("{:?}", self.res_ff_sense_data());
++            eprintln!(
++                "usbscsid: MODE SENSE(10) failed; sense data: {:?}",
++                self.res_ff_sense_data()
++            );
++            return Err(ScsiError::CommandFailed("MODE SENSE(10)"));
+         }
+diff --git a/drivers/usb/xhcid/src/xhci/event.rs b/drivers/usb/xhcid/src/xhci/event.rs
+--- a/drivers/usb/xhcid/src/xhci/event.rs
++++ b/drivers/usb/xhcid/src/xhci/event.rs
+@@
+     #[test]
+     fn grow_preserves_existing_ring_state() {
+-        let mut ring = EventRing::new::<super::super::CONTEXT_64>(true).unwrap();
++        let mut ring = EventRing::new::<{ super::super::CONTEXT_64 }>(true).unwrap();
+@@
+-        ring.grow::<super::super::CONTEXT_64>(true, old_len + 64)
++        ring.grow::<{ super::super::CONTEXT_64 }>(true, old_len + 64)
+             .unwrap();
+diff --git a/drivers/usb/xhcid/src/xhci/mod.rs b/drivers/usb/xhcid/src/xhci/mod.rs
+--- a/drivers/usb/xhcid/src/xhci/mod.rs
++++ b/drivers/usb/xhcid/src/xhci/mod.rs
+@@
+             let dev_desc = self.get_desc(port_id, slot).await?;
+             debug!("Got the full device descriptor!");
++            info!(
++                "port {} slot {} device {:04X}:{:04X} class {}.{} proto {} has {} configuration(s)",
++                port_id,
++                slot,
++                dev_desc.vendor,
++                dev_desc.product,
++                dev_desc.class,
++                dev_desc.sub_class,
++                dev_desc.protocol,
++                dev_desc.config_descs.len()
++            );
+             self.port_states.get_mut(&port_id).unwrap().dev_desc = Some(dev_desc);
+@@
+             debug!("Updated the default control pipe");
++            info!("port {} slot {} starting subdriver matching", port_id, slot);
+
+             match self.spawn_drivers(port_id) {
+                 Ok(()) => (),
+@@
+         trace!("Got config and device descriptors on port {}", port);
+         let drivers_usercfg: &DriversConfig = &DRIVERS_CONFIG;
++
++        if config_desc.interface_descs.is_empty() {
++            warn!(
++                "No interface descriptors found for port {} in configuration {}; no subdrivers can be matched",
++                port,
++                config_desc.configuration_value
++            );
++        }
+
+         for ifdesc in config_desc.interface_descs.iter() {
+diff --git a/drivers/usb/xhcid/src/xhci/scheme.rs b/drivers/usb/xhcid/src/xhci/scheme.rs
+--- a/drivers/usb/xhcid/src/xhci/scheme.rs
++++ b/drivers/usb/xhcid/src/xhci/scheme.rs
+@@
+ pub enum AnyDescriptor {
+     // These are the ones that I have found, but there are more.
+     Device(usb::DeviceDescriptor),
+     Config(usb::ConfigDescriptor),
+     Interface(usb::InterfaceDescriptor),
+     Endpoint(usb::EndpointDescriptor),
+     Hid(usb::HidDescriptor),
+     SuperSpeedCompanion(usb::SuperSpeedCompanionDescriptor),
+     SuperSpeedPlusCompanion(usb::SuperSpeedPlusIsochCmpDescriptor),
++    Unknown { kind: u8 },
+ }
+
+ impl AnyDescriptor {
+@@
+-                _ => {
+-                    //panic!("Descriptor unknown {}: bytes {:#0x?}", kind, bytes);
+-                    return None;
+-                }
++                _ => Self::Unknown { kind },
+             },
+             len.into(),
+         ))
+@@
+-            let mut interface_descs = SmallVec::new();
++            let mut interface_descs = SmallVec::<[IfDesc; 1]>::new();
+             let mut iter = descriptors.into_iter().peekable();
+@@
+                             Some(AnyDescriptor::Hid(h)) if idesc.class == 3 => {
+                                 hid_descs.push(h.into());
+                                 continue;
+                             }
++                            Some(AnyDescriptor::Unknown { kind }) => {
++                                log::warn!(
++                                    "port {} slot {} iface {} skipping unknown descriptor kind {} while collecting endpoints",
++                                    port_id,
++                                    slot,
++                                    idesc.number,
++                                    kind
++                                );
++                                continue;
++                            }
+                             Some(unexpected) => {
+                                 log::warn!("expected endpoint, got {:X?}", unexpected);
+                                 break;
+@@
+                 } else {
+                     log::warn!("expected interface, got {:?}", item);
+                     // TODO
+                     //break;
+                 }
+             }
++
++            log::info!(
++                "port {} slot {} config {} parsed {} descriptor entries into {} interface(s)",
++                port_id,
++                slot,
++                index,
++                descriptor_count,
++                interface_descs.len()
++            );
++
++            for if_desc in interface_descs.iter() {
++                let number: u8 = if_desc.number;
++                let alternate_setting: u8 = if_desc.alternate_setting;
++                let class: u8 = if_desc.class;
++                let sub_class: u8 = if_desc.sub_class;
++                let protocol: u8 = if_desc.protocol;
++                let endpoint_count: usize = if_desc.endpoints.len();
++                log::info!(
++                    "port {} slot {} config {} iface {} alt {} class {}.{} proto {} endpoints {}",
++                    port_id,
++                    slot,
++                    index,
++                    number,
++                    alternate_setting,
++                    class,
++                    sub_class,
++                    protocol,
++                    endpoint_count
++                );
++            }

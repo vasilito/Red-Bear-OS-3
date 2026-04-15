@@ -1,13 +1,34 @@
 use core::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use redox_syscall::flag::{MAP_SHARED, O_CLOEXEC, O_RDWR, PROT_READ, PROT_WRITE};
+use redox_syscall::flag::{MAP_PRIVATE, O_CLOEXEC, PROT_READ, PROT_WRITE};
 use redox_syscall::PAGE_SIZE;
 use syscall as redox_syscall;
 
 use crate::{DriverError, Result};
 
-/// SAFETY: Cached FD for `/scheme/memory/physical`. -1 means uninitialized.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DmaMemoryType {
+    Writeback,
+    Uncacheable,
+}
+
+impl DmaMemoryType {
+    const fn suffix(self) -> &'static str {
+        match self {
+            Self::Writeback => "wb",
+            Self::Uncacheable => "uc",
+        }
+    }
+}
+
+const DMA_MEMORY_TYPE: DmaMemoryType = if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
+    DmaMemoryType::Writeback
+} else {
+    DmaMemoryType::Uncacheable
+};
+
+/// SAFETY: Cached FD for `/scheme/memory/scheme-root`. -1 means uninitialized.
 /// This FD is process-lifetime cached for performance. If scheme:memory
 /// restarts (which should never happen — it's a kernel scheme), all
 /// in-flight DMA operations are already undefined behavior.
@@ -19,7 +40,7 @@ fn get_dma_memory_fd() -> Result<i32> {
         return Ok(current);
     }
 
-    let fd = libredox::call::open("/scheme/memory/physical", (O_CLOEXEC | O_RDWR) as i32, 0)
+    let fd = libredox::call::open("/scheme/memory/scheme-root", O_CLOEXEC as i32, 0)
         .map_err(|e| DriverError::Io(std::io::Error::from_raw_os_error(e.errno())))?;
 
     let raw = fd as i32;
@@ -68,7 +89,11 @@ fn virt_to_phys_cached(virt: usize) -> Result<usize> {
 
 enum DmaStorage {
     /// Allocated via scheme:memory — freed via munmap
-    SchemeMapped { ptr: NonNull<u8>, size: usize },
+    SchemeMapped {
+        ptr: NonNull<u8>,
+        size: usize,
+        region_fd: i32,
+    },
     /// Allocated via heap — freed via dealloc
     Heap {
         ptr: NonNull<u8>,
@@ -126,10 +151,9 @@ impl DmaBuffer {
     /// Allocate physically contiguous memory via scheme:memory/physical.
     fn allocate_via_scheme(mem_fd: i32, size: usize, _align: usize) -> Result<Self> {
         // Open a physical memory region of the requested size
-        let path = format!("zeroed@{}", size);
-        let region_fd =
-            libredox::call::openat(mem_fd as usize, &path, (O_CLOEXEC | O_RDWR) as i32, 0)
-                .map_err(|e| DriverError::Io(std::io::Error::from_raw_os_error(e.errno())))?;
+        let path = format!("zeroed@{}?phys_contiguous", DMA_MEMORY_TYPE.suffix());
+        let region_fd = libredox::call::openat(mem_fd as usize, &path, O_CLOEXEC as i32, 0)
+            .map_err(|e| DriverError::Io(std::io::Error::from_raw_os_error(e.errno())))?;
 
         // Map it into our address space
         let ptr = unsafe {
@@ -137,7 +161,7 @@ impl DmaBuffer {
                 fd: region_fd as usize,
                 offset: 0,
                 length: size,
-                flags: MAP_SHARED.bits() as u32,
+                flags: MAP_PRIVATE.bits() as u32,
                 prot: (PROT_READ | PROT_WRITE).bits() as u32,
                 addr: core::ptr::null_mut(),
             })
@@ -154,6 +178,17 @@ impl DmaBuffer {
         let _ = libredox::call::close(region_fd as usize);
 
         let phys_addr = virt_to_phys_cached(ptr as usize)?;
+        for page in 1..size.div_ceil(PAGE_SIZE) {
+            let translated = virt_to_phys_cached(ptr as usize + page * PAGE_SIZE)?;
+            if translated != phys_addr + page * PAGE_SIZE {
+                return Err(DriverError::Other(format!(
+                    "DMA mapping is not physically contiguous across page {}: expected {:#x}, got {:#x}",
+                    page,
+                    phys_addr + page * PAGE_SIZE,
+                    translated
+                )));
+            }
+        }
         let ptr = NonNull::new(ptr as *mut u8)
             .ok_or_else(|| DriverError::Other("DMA mmap returned null".into()))?;
 
@@ -165,7 +200,11 @@ impl DmaBuffer {
         );
 
         Ok(Self {
-            storage: DmaStorage::SchemeMapped { ptr, size },
+            storage: DmaStorage::SchemeMapped {
+                ptr,
+                size,
+                region_fd: region_fd as i32,
+            },
             phys_addr,
             size,
         })
@@ -205,8 +244,13 @@ impl DmaBuffer {
 impl Drop for DmaBuffer {
     fn drop(&mut self) {
         match &self.storage {
-            DmaStorage::SchemeMapped { ptr, size } => {
+            DmaStorage::SchemeMapped {
+                ptr,
+                size,
+                region_fd,
+            } => {
                 let _ = unsafe { libredox::call::munmap(ptr.as_ptr() as *mut (), *size) };
+                let _ = libredox::call::close(*region_fd as usize);
             }
             DmaStorage::Heap { ptr, layout } => {
                 unsafe { std::alloc::dealloc(ptr.as_ptr(), *layout) };

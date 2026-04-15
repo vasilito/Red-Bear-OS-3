@@ -64,16 +64,19 @@ Driver access pattern:
 - Register as scheme: daemon name becomes `/scheme/<name>`
 - PCI devices discovered via `pcid` daemon → spawns drivers
 
-## POSIX GAPS IN RELIBC (blocking Wayland)
+## HISTORICAL POSIX GAPS IN RELIBC (Wayland-facing)
 
 | Missing API | Location to implement |
 |-------------|----------------------|
-| signalfd/signalfd4 | `relibc/source/src/header/signal/` |
-| timerfd_create/settime/gettime | `relibc/source/src/header/sys_timerfd/` (NEW) |
-| eventfd | `relibc/source/src/header/sys_eventfd/` (NEW) |
-| F_DUPFD_CLOEXEC | `relibc/source/src/header/fcntl/` |
-| MSG_CMSG_CLOEXEC, MSG_NOSIGNAL | `relibc/source/src/header/sys_socket/` |
-| open_memstream | `relibc/source/src/header/stdio/` |
+| signalfd/signalfd4 | `relibc/source/src/header/signal/` — now source-visible in the current Red Bear tree |
+| timerfd_create/settime/gettime | `relibc/source/src/header/sys_timerfd/` — now source-visible in the current Red Bear tree |
+| eventfd | `relibc/source/src/header/sys_eventfd/` — now source-visible in the current Red Bear tree |
+| F_DUPFD_CLOEXEC | `relibc/source/src/header/fcntl/` — now source-visible in the current Red Bear tree |
+| MSG_CMSG_CLOEXEC, MSG_NOSIGNAL | `relibc/source/src/header/sys_socket/` — now source-visible in the current Red Bear tree |
+| open_memstream | `relibc/source/src/header/stdio/` — now source-visible in the current Red Bear tree |
+
+The current relibc work is therefore no longer just “add the missing Wayland APIs.” The higher-value
+remaining work is completeness depth, downstream cleanup, and runtime validation.
 
 ## ANTI-PATTERNS
 
