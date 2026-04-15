@@ -103,6 +103,6 @@ requires_weak = [
 ]
 
 [service]
-cmd = "/usr/lib/drivers/iommu"
+cmd = "/usr/bin/iommu"
 type = "oneshot_async"
 """

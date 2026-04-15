@@ -3,6 +3,12 @@
 # Shared by profiles that ship the firmware/input compatibility stack.
 
 [[files]]
+path = "/usr/firmware"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
 path = "/usr/lib/init.d/05_firmware-loader.service"
 data = """
 [unit]
