@@ -89,6 +89,11 @@ implemented phase with its own config/recipe/doc boundary.
 
 ### Layer 3: Input Stack
 
+> **Interpretation note:** paths under `recipes/wip/` in the matrix below should be read as upstream
+> WIP inputs or historical references, not automatically as the current Red Bear shipping source of
+> truth. Under the Red Bear WIP policy, upstream WIP may still be mirrored, fixed, and shipped from
+> the local overlay instead.
+
 | Component | Status | Where to implement | Concrete doc |
 |-----------|--------|--------------------|-------------|
 | evdev daemon | **Present in-tree** | `local/recipes/system/evdevd/` | [03 §2](03-WAYLAND-ON-REDOX.md) |
@@ -98,6 +103,10 @@ implemented phase with its own config/recipe/doc boundary.
 | seatd | Builds and is wired into KDE config, runtime unvalidated | `recipes/wip/services/seatd/`, `config/redbear-kde.toml` | — |
 
 ### Layer 4: Wayland Protocol
+
+> **Interpretation note:** the `recipes/wip/wayland/*` paths below are still useful references for
+> upstream status, but Red Bear should not treat them as automatically preferred shipping sources
+> while they remain upstream WIP.
 
 | Component | Status | Recipe | Blocker |
 |-----------|--------|--------|---------|

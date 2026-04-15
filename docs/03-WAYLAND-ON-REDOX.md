@@ -4,12 +4,19 @@
 
 Get a working Wayland compositor on Redox OS that can run KDE Plasma applications.
 
+For the current build/runtime truth summary of the desktop stack, use
+`local/docs/DESKTOP-STACK-CURRENT-STATUS.md` together with `local/docs/QT6-PORT-STATUS.md`.
+This file should now be read primarily as implementation history plus deeper Wayland-specific
+porting notes.
+
 ## Current State
 
-- `config/wayland.toml` exists — launches `cosmic-comp` or `smallvil` via `orbital-wayland`
+- `config/wayland.toml` exists — now uses the Red Bear runtime-service fragments and launches the
+  `smallvil` path by default via `orbital-wayland`
 - 21 Wayland recipes in `recipes/wip/wayland/` — most untested
 - `libwayland` 1.24.0 now rebuilds with a much smaller `redox.patch`; the P3 POSIX path (`signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, `MSG_NOSIGNAL`) is back on the native path, and the remaining patch is down to Redox-specific build quirks
-- `smallvil` (Smithay) runs as basic compositor, performance poor
+- `smallvil` (Smithay) is still the recommended first runtime target because it is the smallest
+  compositor path already present in-tree
 - `cosmic-comp` builds but still has no working keyboard input; the remaining issue is runtime/input integration, not simply the absence of a libinput recipe
 - `libdrm` builds with all GPU drivers disabled
 - Mesa uses OSMesa (software rendering only)
@@ -32,7 +39,30 @@ What is actually true today:
 - `evdevd`, `udev-shim`, and `redox-drm` exist in-tree, but full compositor/runtime validation remains open
 - `seatd` now also builds in-tree for Redox and is started by the KDE runtime config, but has not yet been validated end-to-end with the compositor/DRM path
 
-Read the step-by-step sections below as design history plus implementation notes, not as an exact current-state checklist.
+Read the step-by-step sections below as design history plus implementation notes, not as an exact
+current-state checklist.
+
+For the current Phase 4 runtime entrypoint in this repo, use:
+
+- `config/redbear-wayland.toml`
+- `local/scripts/test-phase4-wayland-qemu.sh`
+
+That path is the current smallvil-first Phase 4 validation target.
+
+Current runtime evidence for that target:
+
+- `redbear-wayland` builds to a bootable image
+- the image boots to a real login prompt in QEMU/UEFI
+- `redbear-phase4-wayland-check` runs in-guest and confirms the Wayland launch surface is present
+- `smallvil` reaches xkbcommon initialization and selects the Redox EGL platform in the live guest
+- the direct launcher `local/scripts/test-phase4-wayland-qemu.sh` now boots the built
+  `redbear-wayland` disk image instead of re-entering the build pipeline
+
+For the first runtime-validation pass, keep the **runtime target** intentionally small: `smallvil`
+ as the compositor and no heavier secondary Wayland stack as the primary goal. The current
+ `redbear-wayland` profile still inherits the broader desktop package set from `desktop.toml`, but
+ Phase 4 validation in this repo is specifically about the `orbital-wayland` → `smallvil` path,
+ not about treating every inherited desktop package as part of the Wayland validation surface.
 
 ---
 
@@ -251,6 +281,10 @@ fn handle_ioctl(fd: usize, request: usize, arg: usize) -> Result<usize> {
 ```
 
 **Also needed: udev shim**
+
+> **Historical path note:** the `recipes/wip/...` paths in the example steps below document the
+> original upstream-oriented implementation path. Under the current Red Bear policy, upstream WIP is
+> an input/reference, but the shipping/fixed version may live under `local/recipes/` instead.
 
 Create `recipes/wip/wayland/udev-shim/` — a minimal udev implementation that:
 - Enumerates `/dev/input/event*` devices
