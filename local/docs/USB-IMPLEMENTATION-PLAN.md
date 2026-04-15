@@ -34,11 +34,14 @@ and a low-level userspace client API through `xhcid_interface`.
 
 The current limitations are material:
 
-- xHCI still runs in polling mode because interrupt support is disabled
+- xHCI no longer hard-forces polling; it uses the existing interrupt-mode selection path again, but
+  interrupt-driven behavior is still only lightly validated under runtime load
+- checked-in event-ring growth support now exists, but it still needs stronger runtime validation
 - USB support varies by machine, including known `xhcid` panic cases
 - hub/topology handling is partial
 - HID is still wired through the legacy mixed-stream `inputd` path
-- USB mass storage exists in-tree, but default autospawn is disabled because it causes xHCI errors
+- USB mass storage exists in-tree and autospawn is now re-enabled for validation, but the current
+  blocker has moved to post-spawn runtime stability rather than driver matching.
 - there is no evidence of validated support for broader USB classes or modern USB-C / dual-role
   scope
 
@@ -47,10 +50,10 @@ The current limitations are material:
 | Area | State | Notes |
 |---|---|---|
 | Host mode | **usable / experimental** | Real host-side stack exists, but not broadly validated |
-| xHCI controller | **builds / enumerates / usable on some hardware** | Polling mode, hardware-variable, not fully corrected |
+| xHCI controller | **builds / enumerates / usable on some hardware** | Interrupt-mode selection restored, hardware-variable, event-ring growth exists in-tree but still needs stronger runtime validation |
 | Hub handling | **builds / partial usable** | `usbhubd` exists, USB 3 hub limitations remain |
 | HID | **builds / usable in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path |
-| Mass storage | **builds** | `usbscsid` exists, but default autospawn is disabled |
+| Mass storage | **builds / autospawns in QEMU** | `usbscsid` now spawns from the xHCI class-driver table, but runtime stability past spawn still needs work |
 | Native tooling | **builds / enumerates** | `lsusb`, `usbctl`, `redbear-info` provide partial observability |
 | Low-level userspace API | **builds** | `xhcid_interface` exists, but not a mature general userspace USB story |
 | libusb | **builds / experimental** | WIP, compiled but not tested |
@@ -84,10 +87,9 @@ The current limitations are material:
 - `HARDWARE.md` says USB support varies by machine and records systems where USB input or USB more
   broadly does not work, plus known `xhcid` panic cases
 - `local/docs/AMD-FIRST-INTEGRATION.md` marks USB as **variable**
-- `recipes/core/base/source/drivers/usb/xhcid/src/main.rs` forces polling mode and leaves
-  interrupt setup disabled with `TODO: Fix interrupts.`
-- `recipes/core/base/source/drivers/usb/xhcid/drivers.toml` comments out USB SCSI autospawn with
-  `#TODO: causes XHCI errors`
+- `recipes/core/base/source/drivers/usb/xhcid/src/xhci/irq_reactor.rs` now contains event-ring growth logic, but the restored interrupt path still needs stronger validation under sustained runtime load
+- `recipes/core/base/source/drivers/usb/xhcid/drivers.toml` now re-enables USB SCSI autospawn with
+  explicit protocol matching for BOT (`0x50`)
 - `recipes/core/base/source/drivers/COMMUNITY-HW.md` still claims there is no Redox xHCI driver,
   which means inherited USB docs cannot be treated as uniformly current
 
@@ -99,7 +101,7 @@ The current limitations are material:
 
 Current repo-visible issues include:
 
-- polling-mode operation instead of interrupt-driven behavior
+- partially restored interrupt-driven behavior without complete event-ring growth support
 - incorrect or incomplete speed handling for child devices
 - TODOs around configuration choice and alternate settings
 - TODOs around endpoint selection across interfaces
@@ -126,8 +128,9 @@ per-device streams, and explicit hotplug events.
 
 ### 4. Storage is present in-tree but not a current support claim
 
-`usbscsid` is a real driver, but the current xHCI class-driver table disables the SCSI-over-USB
-autospawn path because it causes XHCI errors.
+`usbscsid` is a real driver and the xHCI class-driver table now spawns it again during QEMU USB
+storage validation. The current blocker is not matching or spawn, but transport/runtime stability
+after spawn.
 
 That means Red Bear should document USB storage as **implemented in-tree but not currently enabled
 as a default working class path**.
@@ -276,7 +279,7 @@ family.
 
 **What to do**:
 
-- repair and re-enable USB mass-storage autospawn
+- stabilize USB mass-storage after autospawn (BOT transport / SCSI runtime path)
 - decide whether BOT-only is sufficient short-term or whether UAS is part of the next step
 - bring `libusb` to a runtime-tested state or explicitly replace it with a Red Bear-native API
   strategy

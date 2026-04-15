@@ -80,9 +80,20 @@ base networking services have started.
   `redbear-minimal`: `pcid-spawner` → `smolnetd` → `dhcpd` → `netctl --boot` → `wired-dhcp`.
 - `./local/scripts/test-vm-network-qemu.sh` launches a VirtIO-backed QEMU run for the same Phase 2
   baseline and prints the in-guest validation commands to run.
+  On x86_64 hosts it now fails fast unless usable OVMF/edk2 UEFI firmware is installed, because
+  otherwise the helper can fall through a misleading BIOS/iPXE boot path before Red Bear OS ever
+  starts.
 - `./local/scripts/test-vm-network-runtime.sh` is the in-guest check for the same baseline: it
   verifies `/scheme/pci`, `/scheme/netcfg`, the active netctl profile, visible `network.*`
   schemes, and the current `eth0` address.
+
+During reassessment, the QEMU/UEFI VM baseline reached a real guest login prompt and
+`redbear-info --json` reported:
+
+- `virtio_net_present: true`
+- configured `eth0` address `10.0.2.15/24`
+- default route via `10.0.2.2`
+- visible `network.pci-0000-00-03.0_virtio_net` scheme
 
 ## Remaining hardware validation
 

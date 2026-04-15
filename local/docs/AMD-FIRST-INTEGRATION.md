@@ -1,7 +1,12 @@
 # AMD-FIRST REDOX OS — MASTER INTEGRATION PLAN
 
-**Target**: Modern AMD64 bare metal machine with AMD GPU (RDNA2/RDNA3)
-**Secondary**: Intel GPU machines
+> **Status note (2026-04-14):** This document remains the detailed AMD-focused hardware roadmap,
+> but it is no longer the repository-wide platform-priority policy. Red Bear OS should now treat
+> AMD and Intel machines as equal-priority targets. Read this file as the deeper AMD-specific plan,
+> not as a statement that Intel is secondary going forward.
+
+**Target**: AMD64 bare metal machine with AMD GPU (RDNA2/RDNA3), within an overall Red Bear OS
+hardware policy that treats AMD and Intel machines as equal-priority targets.
 **Date**: 2026-04-11
 
 ## CRITICAL FINDINGS
@@ -14,8 +19,9 @@
 | i915 (Intel) | ~341,000 | Well-documented, simpler |
 | nouveau (NVIDIA) | ~400,000 | Community driver |
 
-**Implication**: AMD-first is HARDER but has larger market impact. We MUST use
-the LinuxKPI compatibility approach — a clean Rust rewrite would take 5+ years.
+**Implication**: The AMD path is HARDER but still important. For AMD-class Linux GPU and related
+device enablement, we MUST use the LinuxKPI compatibility approach — a clean Rust rewrite would
+take 5+ years.
 
 ### AMD Bare Metal Status on Redox
 
@@ -26,7 +32,7 @@ the LinuxKPI compatibility approach — a clean Rust rewrite would take 5+ years
 | ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
-| IOMMU | 🚧 Buildable, unvalidated | `iommu` daemon now builds, but no VT-d/AMD-Vi hardware validation yet |
+| IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that reaches MMIO reads; the remaining blocker is a CPU-side completion/DMA-page fault during init, and real hardware validation is still missing |
 | AMD GPU | 🚧 In progress | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 | Wi-Fi/BT | ❌ Missing | No wireless support |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |
@@ -327,6 +333,10 @@ Currently libdrm has `-Damdgpu=disabled`. Enable it once redox-drm exists.
 
 ## PHASE 5: AMD GPU ACCELERATION (16-24 weeks, parallel with P4)
 
+> Note: this AMD-first Phase 5 is a hardware-driver track. It is **not** the same thing as the
+> canonical public `docs/07` Phase 5, which is about wired networking and desktop/session
+> integration.
+
 ### P5-1: Full amdgpu Port via LinuxKPI
 
 This is the big one. Port the full amdgpu driver using linux-kpi headers.
@@ -403,7 +413,7 @@ P0 (ACPI boot)
 
 | Document | Change |
 |----------|--------|
-| `AGENTS.md` (root) | Add AMD-first strategy, local/ overlay refs |
+| `AGENTS.md` (root) | Keep equal-priority AMD/Intel hardware policy visible; keep local/ overlay refs |
 | `recipes/core/AGENTS.md` | Add AMD boot requirements, IOMMU note |
 | `recipes/wip/AGENTS.md` | Add AMD GPU driver WIP section |
 | `docs/AGENTS.md` | Add reference to local/docs/ |
