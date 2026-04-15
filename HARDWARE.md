@@ -1,8 +1,17 @@
 # Hardware Compatibility
 
 > Hardware compatibility inherited from upstream Redox OS. See https://doc.redox-os.org/book/hardware-support.html for the latest upstream data.
+>
+> **Status note (2026-04-15):** This file is a hardware-reporting/support-tracking surface, not the
+> canonical source for profile support language or project execution order. For current Red Bear
+> support framing, also use `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` and
+> `local/docs/PROFILE-MATRIX.md`.
 
 This document tracks the current hardware compatibility of Red Bear OS.
+
+Red Bear OS should now treat AMD and Intel machines as equal-priority hardware targets. Older
+AMD-first wording in subsystem roadmap documents should be read as historical sequencing rather
+than current platform policy.
 
 - [Why are hardware reports needed?](#why-are-hardware-reports-needed)
 - [What if my computer is customized?](#what-if-my-computer-is-customized)

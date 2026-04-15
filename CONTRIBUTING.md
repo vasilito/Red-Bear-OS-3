@@ -74,6 +74,31 @@ By sending a message in the room, your MR will not be forgotten or accumulate co
 
 You can read the best practices and guidelines on the [Best practices and guidelines](https://doc.redox-os.org/book/best-practices.html) chapter.
 
+## Repository Model for Contributors
+
+RedBearOS should be treated as an overlay distribution on top of Redox, in the same way Ubuntu
+relates to Debian.
+
+That means contributors should keep this separation in mind:
+
+- upstream-owned trees such as `recipes/*/source/` are refreshable working copies,
+- durable Red Bear-specific work belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and
+  tracked Red Bear configs,
+- if a change exists only in an upstream-owned source tree, it is not yet preserved properly for
+  long-term Red Bear maintenance.
+
+### WIP rule for contributors
+
+If an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project until
+upstream promotes it to first-class status.
+
+So for contributors:
+
+- upstream WIP may still be a useful input/reference,
+- but fixes intended for Red Bear shipping should normally land in the Red Bear overlay,
+- and when upstream later catches up, Red Bear should prefer upstream and retire local patches or
+  local recipe copies that are no longer needed.
+
 ## Development Recommendations and Tips
 
 - Copy-paste prevent and reduce typos
@@ -166,7 +191,8 @@ If you don't know how to code in Rust but know other programming languages:
 
 - Web development on the website (we only accept minimal JavaScript code to preserve performance)
 - Write unit tests (may require minimal knowledge of Rust)
-- Port C/C++ programs to Redox (read the `TODO`s of the recipes on the [WIP category](https://gitlab.redox-os.org/redox-os/redox/-/tree/master/recipes/wip))
+- Port C/C++ programs to Redox (read upstream WIP `TODO`s as inputs, but do not assume upstream WIP
+  recipes are automatically the durable Red Bear shipping source of truth)
 - Port programs to Redox
 
 If you know how to code in Rust but don't know operating system development:

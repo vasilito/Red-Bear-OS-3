@@ -9,6 +9,14 @@
 > that this report still describes as missing, including `redox-driver-sys`, `linux-kpi`,
 > `firmware-loader`, `redox-drm`, the AMD display path, the Qt6 stack, `config/redbear-kde.toml`,
 > and a large `local/recipes/kde/` tree.
+>
+> **Canonical current-state docs:** use `README.md`, `AGENTS.md`, and
+> `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` for repository-level current truth. For subsystem
+> current-state detail, use the active documents under `local/docs/`.
+>
+> **WIP interpretation note:** upstream `recipes/wip/...` paths referenced below are part of the
+> historical assessment context and should not be read as automatic current Red Bear shipping source
+> of truth. Apply the overlay/WIP policy and the WIP migration ledger when interpreting them.
 
 ## Current Snapshot
 
