@@ -1,5 +1,21 @@
 # 06 — Build System Setup Guide
 
+> **Status note (2026-04-15):** This file explains the mechanics of building the repository, but it
+> is not the canonical source for repository ownership policy or current execution order. For the
+> current repository model, use `README.md`, `AGENTS.md`, and
+> `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`. For Red Bear-owned subsystem planning, use the
+> current documents under `local/docs/`.
+
+## Repository Model Reminder
+
+Build this repository using the Red Bear overlay model:
+
+- upstream-owned source trees are refreshable working copies,
+- durable Red Bear state lives in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
+  Red Bear configs,
+- upstream WIP recipes are useful inputs, but should not automatically be treated as the durable
+  shipping source of truth for Red Bear.
+
 ## Prerequisites
 
 ### System Requirements
@@ -82,6 +98,9 @@ echo 'PODMAN_BUILD?=0' > .config
 
 ### Select Build Configuration
 
+Mainline configs still exist, but tracked Red Bear work should normally be built and validated
+through the first-class `redbear-*` profiles.
+
 Available configs (in `config/`):
 
 | Config | Description |
@@ -107,12 +126,20 @@ This produces `build/x86_64/desktop/harddrive.img`.
 ### Build with Specific Config
 
 ```bash
-# Using build.sh wrapper:
-./build.sh -c wayland all        # Wayland config
-./build.sh -c server all         # Server config
-./build.sh -c x11 all            # X11 config
-./build.sh -a aarch64 -c desktop all  # ARM64 build
+# Preferred Red Bear wrapper:
+./local/scripts/build-redbear.sh redbear-desktop
+./local/scripts/build-redbear.sh redbear-minimal
+./local/scripts/build-redbear.sh redbear-wayland
+./local/scripts/build-redbear.sh redbear-full
+./local/scripts/build-redbear.sh redbear-kde
+./local/scripts/build-redbear.sh redbear-live
+
+# Direct make is still valid when needed:
+make all CONFIG_NAME=redbear-desktop
+make all CONFIG_NAME=redbear-wayland
 ```
+
+For tracked Red Bear work, prefer the `redbear-*` profiles over older mainline profile names.
 
 ### Build a Live ISO
 
@@ -167,6 +194,12 @@ sudo dd if=build/x86_64/desktop/harddrive.img of=/dev/sdX bs=4M status=progress
 ./target/release/repo cook recipes/libs/mesa
 ./target/release/repo cook recipes/gui/orbital
 ```
+
+Under the Red Bear overlay model, remember:
+
+- `recipes/*/source/` is a refreshable working tree,
+- Red Bear-owned shipping deltas should be preserved under `local/patches/` and `local/recipes/`,
+- if a recipe is still upstream WIP, Red Bear may still choose to ship from `local/recipes/` instead.
 
 ### Understanding Recipe Format
 

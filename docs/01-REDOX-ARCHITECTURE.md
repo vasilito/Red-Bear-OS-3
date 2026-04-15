@@ -1,5 +1,10 @@
 # 01 — Redox OS Architecture Overview
 
+> **Status note (2026-04-15):** This file is primarily an architecture reference, not the canonical
+> current-state status document for Red Bear OS. Use `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`
+> and the current subsystem plans under `local/docs/` for project execution order and current
+> implementation truth.
+
 ## 1. Microkernel Design
 
 Redox is a **pure microkernel** written in Rust (~20-40k LoC). Only essential services
