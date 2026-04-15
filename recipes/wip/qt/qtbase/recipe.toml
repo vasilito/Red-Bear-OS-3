@@ -19,6 +19,21 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+RELIBC_STAGE_INCLUDE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
+RELIBC_STAGE_LIB="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/lib"
+if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/include"
+    cp -a "${RELIBC_STAGE_INCLUDE}/." "${COOKBOOK_SYSROOT}/include/"
+    export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CXXFLAGS="${CXXFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+fi
+if [ -d "${RELIBC_STAGE_LIB}" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/lib"
+    cp -a "${RELIBC_STAGE_LIB}/." "${COOKBOOK_SYSROOT}/lib/"
+    export LDFLAGS="-L${RELIBC_STAGE_LIB} -Wl,-rpath-link,${RELIBC_STAGE_LIB} ${LDFLAGS}"
+fi
+
 # ============================================================
 # Step 1: Build Qt host tools (moc, rcc, uic) on the host
 # These are needed for cross-compilation — Qt6 generates code
@@ -104,12 +119,6 @@ typedef struct statvfs statfs;
 STATFS_EOF
 fi
 
-# relibc lacks resolv.h (DNS resolver). QtNetwork includes it unconditionally on Unix.
-# Provide an empty stub — DNS resolution won't work but basic socket networking will.
-if [ ! -f "${COOKBOOK_SYSROOT}/include/resolv.h" ]; then
-    touch "${COOKBOOK_SYSROOT}/include/resolv.h"
-fi
-
 # Ensure private forwarding headers exist for Unix-specific includes
 # syncqt may not generate these for unknown platforms like Redox
 mkdir -p "${COOKBOOK_SOURCE}/src/corelib/QtCore/private"
@@ -141,8 +150,9 @@ found_linux && /^)$/ {
 ' "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt" > "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp"
 mv "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt"
 
-# Disable QtNetwork — relibc lacks resolv.h, in6_pktinfo, SIOCGIF* ioctls.
-# Will be re-enabled when POSIX networking gaps are filled in relibc.
+# Disable QtNetwork — relibc now provides a minimal resolv.h and bounded interface view,
+# but broader networking/runtime compatibility (for example `in6_pktinfo`, richer interface
+# semantics, and full downstream validation) is still incomplete.
 sed -i 's/^    add_subdirectory(network)/    # add_subdirectory(network) # disabled for Redox/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
 # Disable TUIO touch plugin — depends on QtNetwork which is disabled
@@ -196,31 +206,6 @@ if ! grep -q 'sys/ioctl.h' "${QP}" 2>/dev/null; then
     mv "${QP}.tmp" "${QP}"
 fi
 
-# Compile waitid() stub into sysroot lib — relibc lacks waitid() (unimplemented).
-# Qt's forkfd.c (QProcess backend) calls waitid(P_PID, ...) for child readiness.
-# The -1 return means "no children ready" — safe for process spawning via fork+exec.
-x86_64-unknown-redox-gcc -c -O2 -o "${COOKBOOK_SYSROOT}/lib/redox_waitid.o" \
-    "${COOKBOOK_ROOT}/local/recipes/qt/redox_waitid.c"
-x86_64-unknown-redox-ar rcs "${COOKBOOK_SYSROOT}/lib/libredox_waitid.a" \
-    "${COOKBOOK_SYSROOT}/lib/redox_waitid.o"
-
-# Also add waitid() declaration to sys/wait.h so forkfd.c sees it
-WAIT_H="${COOKBOOK_SYSROOT}/include/sys/wait.h"
-if [ -f "${WAIT_H}" ] && ! grep -q 'waitid.*siginfo_t' "${WAIT_H}" 2>/dev/null; then
-    awk '/^#endif/ { print "/* Redox: waitid() declaration */"; print "int waitid(int,int,siginfo_t*,int);" } { print }' \
-        "${WAIT_H}" > "${WAIT_H}.tmp"
-    mv "${WAIT_H}.tmp" "${WAIT_H}"
-fi
-
-# Inject waitid.o into Qt's Core library sources so it links into libQt6Core
-CORE_CMAKE="${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt"
-if ! grep -q 'redox_waitid' "${CORE_CMAKE}" 2>/dev/null; then
-    WAIT_O="${COOKBOOK_SYSROOT}/lib/redox_waitid.o"
-    awk '/target_sources\\(Core/ && !done { print; print "    '"${WAIT_O}"'"; done=1; next } { print }' \
-        "${CORE_CMAKE}" > "${CORE_CMAKE}.tmp"
-    mv "${CORE_CMAKE}.tmp" "${CORE_CMAKE}"
-fi
-
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
@@ -247,9 +232,7 @@ cmake "${COOKBOOK_SOURCE}" \
     -DFEATURE_xlib=OFF \
     -DFEATURE_vulkan=OFF \
      -DFEATURE_process=ON \
-     -DFEATURE_sharedmemory=OFF \
-    -DFEATURE_systemsemaphore=OFF \
-    -DFEATURE_testlib=OFF \
+     -DFEATURE_testlib=OFF \
     -DFEATURE_sql=OFF \
     -DFEATURE_printsupport=OFF \
     -DFEATURE_system_zlib=ON \

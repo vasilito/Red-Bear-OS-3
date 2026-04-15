@@ -124,12 +124,12 @@ set(CMAKE_PLATFORM_USES_PATH_WHEN_NO_SONAME 1)
 # --- Redox POSIX compatibility shims ---
 # relibc's assert.h does not define static_assert (C11 macro). Provide it for C only
 # (C++ has it as a keyword — redefining would cause errors in try_compile checks).
-# Also provide waitid() idtype constants P_PID, P_PGID, P_ALL (missing from relibc).
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Dstatic_assert=_Static_assert -DP_ALL=0 -DP_PID=1 -DP_PGID=2 -Dvfork=fork" CACHE STRING "")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DP_ALL=0 -DP_PID=1 -DP_PGID=2 -Dvfork=fork" CACHE STRING "")
 
-# relibc lacks waitid() — the stub is injected directly into Qt's Core library via
-# target_sources() in the qtbase recipe. No linker flags needed here.
+# relibc now provides waitid() itself, but qtbase/forkfd still does not reliably pick up the
+# P_PID / P_PGID / P_ALL constants through the active cross-build include path, so keep the
+# constants forced here until the downstream build proves them redundant.
 
 # --- Qt6 cross-compilation helpers ---
 # QT_MKSPECS_DIR: Qt6's QtMkspecHelpers.cmake sets this from QT_SOURCE_TREE,
