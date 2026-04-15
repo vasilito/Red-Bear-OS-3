@@ -116,10 +116,20 @@ fn main() {
         firmware_dir.display()
     );
 
-    let registry = FirmwareRegistry::new(&firmware_dir).unwrap_or_else(|e| {
-        error!("firmware-loader: fatal error: failed to initialize firmware registry: {e}");
-        process::exit(1);
-    });
+    let registry = match FirmwareRegistry::new(&firmware_dir) {
+        Ok(registry) => registry,
+        Err(blob::BlobError::DirNotFound(_)) => {
+            error!(
+                "firmware-loader: firmware directory not found, starting with an empty registry: {}",
+                firmware_dir.display()
+            );
+            FirmwareRegistry::empty(&firmware_dir)
+        }
+        Err(e) => {
+            error!("firmware-loader: fatal error: failed to initialize firmware registry: {e}");
+            process::exit(1);
+        }
+    };
 
     info!(
         "firmware-loader: indexed {} firmware blob(s) from {}",

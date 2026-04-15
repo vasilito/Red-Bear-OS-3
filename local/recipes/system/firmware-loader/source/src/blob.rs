@@ -35,6 +35,14 @@ pub struct FirmwareRegistry {
 }
 
 impl FirmwareRegistry {
+    pub fn empty(base_dir: &Path) -> Self {
+        FirmwareRegistry {
+            base_dir: base_dir.to_path_buf(),
+            blobs: HashMap::new(),
+            cache: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
     pub fn new(base_dir: &Path) -> Result<Self, BlobError> {
         if !base_dir.exists() {
             return Err(BlobError::DirNotFound(base_dir.to_path_buf()));

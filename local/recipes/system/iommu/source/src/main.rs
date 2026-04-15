@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 use iommu::amd_vi::AmdViUnit;
@@ -9,7 +10,13 @@ use iommu::amd_vi::AmdViUnit;
 use iommu::IommuScheme;
 use log::{error, info, LevelFilter, Metadata, Record};
 #[cfg(target_os = "redox")]
+use redox_driver_sys::memory::{CacheType, MmioProt, MmioRegion};
+#[cfg(target_os = "redox")]
 use redox_scheme::{SignalBehavior, Socket};
+#[cfg(target_os = "redox")]
+use syscall::EBADF;
+#[cfg(target_os = "redox")]
+use syscall::PAGE_SIZE;
 
 struct StderrLogger {
     level: LevelFilter,
@@ -37,39 +44,123 @@ fn init_logging(level: LevelFilter) {
     log::set_max_level(level);
 }
 
-fn detect_units_from_env() -> Result<Vec<AmdViUnit>, String> {
-    let Some(path) = env::var_os("IOMMU_IVRS_PATH") else {
+fn candidate_ivrs_paths() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/sys/firmware/acpi/tables/IVRS"),
+        PathBuf::from("/sys/firmware/acpi/tables/data/IVRS"),
+        PathBuf::from("/boot/acpi/IVRS"),
+        PathBuf::from("/acpi/tables/IVRS"),
+    ]
+}
+
+fn discover_ivrs_path_from_candidates(candidates: &[PathBuf]) -> Option<PathBuf> {
+    if let Some(path) = env::var_os("IOMMU_IVRS_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    candidates.iter().find(|path| path.exists()).cloned()
+}
+
+fn discover_ivrs_path() -> Option<PathBuf> {
+    discover_ivrs_path_from_candidates(&candidate_ivrs_paths())
+}
+
+fn detect_units() -> Result<Vec<AmdViUnit>, String> {
+    let Some(path) = discover_ivrs_path() else {
         return Ok(Vec::new());
     };
 
-    let bytes = fs::read(&path).map_err(|err| {
-        format!(
-            "failed to read IVRS table from {}: {err}",
-            path.to_string_lossy()
-        )
-    })?;
+    let bytes = fs::read(&path)
+        .map_err(|err| format!("failed to read IVRS table from {}: {err}", path.display()))?;
     let units = AmdViUnit::detect(&bytes).map_err(|err| format!("failed to parse IVRS: {err}"))?;
     Ok(units)
 }
 
 #[cfg(target_os = "redox")]
-fn run() -> Result<(), String> {
-    let mut units = detect_units_from_env()?;
-    info!("iommu: detected {} AMD-Vi unit(s)", units.len());
-    for (index, unit) in units.iter_mut().enumerate() {
-        match unit.init() {
-            Ok(()) => info!(
-                "iommu: initialized unit {} at MMIO {:#x}",
-                index,
-                unit.info().mmio_base
-            ),
-            Err(err) => error!(
-                "iommu: failed to initialize unit {} at MMIO {:#x}: {}",
-                index,
-                unit.info().mmio_base,
-                err
-            ),
+const ACPI_HEADER_LEN: usize = 36;
+
+#[cfg(target_os = "redox")]
+fn read_sdt_from_physical(phys_addr: u64) -> Result<Vec<u8>, String> {
+    let page_base = phys_addr / PAGE_SIZE as u64 * PAGE_SIZE as u64;
+    let page_offset = (phys_addr - page_base) as usize;
+
+    let header_map = MmioRegion::map(page_base, PAGE_SIZE, CacheType::WriteBack, MmioProt::READ)
+        .map_err(|err| format!("failed to map ACPI header page at {page_base:#x}: {err}"))?;
+
+    let mut header = vec![0_u8; ACPI_HEADER_LEN];
+    for (i, byte) in header.iter_mut().enumerate() {
+        *byte = header_map.read8(page_offset + i);
+    }
+    let length = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+    if length < ACPI_HEADER_LEN {
+        return Err(format!(
+            "invalid ACPI SDT length {length} at {phys_addr:#x}"
+        ));
+    }
+
+    let map_len = (page_offset + length).next_multiple_of(PAGE_SIZE);
+    let full_map = MmioRegion::map(page_base, map_len, CacheType::WriteBack, MmioProt::READ)
+        .map_err(|err| format!("failed to map ACPI table at {page_base:#x}: {err}"))?;
+
+    let mut bytes = vec![0_u8; length];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte = full_map.read8(page_offset + i);
+    }
+    Ok(bytes)
+}
+
+#[cfg(target_os = "redox")]
+fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
+    let rxsdt = match fs::read("/scheme/kernel.acpi/rxsdt") {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return Err(format!("failed to read /scheme/kernel.acpi/rxsdt: {err}"));
         }
+    };
+
+    if rxsdt.len() < ACPI_HEADER_LEN {
+        return Ok(Vec::new());
+    }
+
+    let signature = &rxsdt[0..4];
+    let entry_size = match signature {
+        b"RSDT" => 4,
+        b"XSDT" => 8,
+        _ => return Ok(Vec::new()),
+    };
+
+    let mut offset = ACPI_HEADER_LEN;
+    while offset + entry_size <= rxsdt.len() {
+        let phys_addr = if entry_size == 4 {
+            u32::from_le_bytes(rxsdt[offset..offset + 4].try_into().unwrap()) as u64
+        } else {
+            u64::from_le_bytes(rxsdt[offset..offset + 8].try_into().unwrap())
+        };
+
+        let table = read_sdt_from_physical(phys_addr)?;
+        if table.len() >= 4 && &table[0..4] == b"IVRS" {
+            return AmdViUnit::detect(&table).map_err(|err| format!("failed to parse IVRS: {err}"));
+        }
+
+        offset += entry_size;
+    }
+
+    Ok(Vec::new())
+}
+
+#[cfg(target_os = "redox")]
+fn run() -> Result<(), String> {
+    let units = detect_units_from_kernel_acpi().or_else(|err| {
+        info!("iommu: kernel ACPI discovery unavailable: {err}");
+        detect_units()
+    })?;
+    info!("iommu: detected {} AMD-Vi unit(s)", units.len());
+    for (index, unit) in units.iter().enumerate() {
+        info!(
+            "iommu: discovered unit {} at MMIO {:#x}; initialization is deferred until first use",
+            index,
+            unit.info().mmio_base
+        );
     }
 
     let socket =
@@ -86,6 +177,10 @@ fn run() -> Result<(), String> {
                 break;
             }
             Err(e) => {
+                if e.errno == EBADF {
+                    info!("iommu: scheme fd closed, exiting");
+                    break;
+                }
                 error!("iommu: failed to read scheme request: {e}");
                 continue;
             }
@@ -107,14 +202,69 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "redox")]
+fn run_self_test() -> Result<(), String> {
+    let mut units = detect_units_from_kernel_acpi().or_else(|err| {
+        info!("iommu: kernel ACPI discovery unavailable: {err}");
+        detect_units()
+    })?;
+
+    println!("units_detected={}", units.len());
+    if units.is_empty() {
+        return Err("iommu self-test detected zero AMD-Vi unit(s)".to_string());
+    }
+
+    let mut initialized_now = 0u32;
+    let mut events_drained = 0u32;
+
+    for (index, unit) in units.iter_mut().enumerate() {
+        let was_initialized = unit.initialized();
+        unit.init().map_err(|err| {
+            format!(
+                "iommu self-test failed to initialize unit {} at MMIO {:#x}: {}",
+                index,
+                unit.info().mmio_base,
+                err
+            )
+        })?;
+
+        if !was_initialized {
+            initialized_now = initialized_now.saturating_add(1);
+        }
+
+        let drained = unit.drain_events().map_err(|err| {
+            format!(
+                "iommu self-test failed to drain events for unit {} at MMIO {:#x}: {}",
+                index,
+                unit.info().mmio_base,
+                err
+            )
+        })?;
+        events_drained = events_drained.saturating_add(drained.len() as u32);
+    }
+
+    let initialized_after = units.iter().filter(|unit| unit.initialized()).count() as u64;
+    println!("units_initialized_now={}", initialized_now);
+    println!("units_attempted={}", units.len());
+    println!("units_initialized_after={}", initialized_after);
+    println!("events_drained={}", events_drained);
+
+    Ok(())
+}
+
 #[cfg(not(target_os = "redox"))]
 fn run() -> Result<(), String> {
-    let units = detect_units_from_env()?;
+    let units = detect_units()?;
     info!(
-        "iommu: host build stub active; parsed {} AMD-Vi unit(s) from IOMMU_IVRS_PATH",
+        "iommu: host build stub active; parsed {} AMD-Vi unit(s) from discovered IVRS source",
         units.len()
     );
     Ok(())
+}
+
+#[cfg(not(target_os = "redox"))]
+fn run_self_test() -> Result<(), String> {
+    Err("iommu self-test requires target_os=redox".to_string())
 }
 
 fn main() {
@@ -128,8 +278,39 @@ fn main() {
 
     init_logging(log_level);
 
-    if let Err(e) = run() {
+    let result = if env::args().any(|arg| arg == "--self-test-init") {
+        run_self_test()
+    } else {
+        run()
+    };
+
+    if let Err(e) = result {
         error!("iommu: fatal error: {e}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{candidate_ivrs_paths, discover_ivrs_path_from_candidates};
+    use std::path::PathBuf;
+
+    #[test]
+    fn candidate_paths_include_standard_ivrs_locations() {
+        let candidates = candidate_ivrs_paths();
+        assert!(candidates.contains(&PathBuf::from("/sys/firmware/acpi/tables/IVRS")));
+        assert!(candidates.contains(&PathBuf::from("/sys/firmware/acpi/tables/data/IVRS")));
+        assert!(candidates.contains(&PathBuf::from("/boot/acpi/IVRS")));
+        assert!(candidates.contains(&PathBuf::from("/acpi/tables/IVRS")));
+    }
+
+    #[test]
+    fn discovery_chooses_first_existing_candidate() {
+        let candidates = vec![
+            PathBuf::from("/definitely/missing/ivrs"),
+            PathBuf::from("/tmp"),
+        ];
+        let discovered = discover_ivrs_path_from_candidates(&candidates);
+        assert_eq!(discovered, Some(PathBuf::from("/tmp")));
     }
 }

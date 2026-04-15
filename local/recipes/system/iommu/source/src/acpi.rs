@@ -229,6 +229,7 @@ pub fn parse_ivrs(bytes: &[u8]) -> Result<IvrsInfo, IvrsError> {
 
     let mut units = Vec::new();
     let mut offset = IVRS_HEADER_BYTES;
+    let mut skipped_qemu_padding = false;
     while offset < table.len() {
         if offset + 4 > table.len() {
             return Err(IvrsError::TruncatedEntry { offset });
@@ -239,6 +240,16 @@ pub fn parse_ivrs(bytes: &[u8]) -> Result<IvrsInfo, IvrsError> {
             read_u16(table, offset + 2).ok_or(IvrsError::TruncatedEntry { offset })? as usize;
 
         if entry_length < 4 {
+            if !skipped_qemu_padding
+                && offset == IVRS_HEADER_BYTES
+                && table.get(offset..offset + 8) == Some(&[0; 8])
+            {
+                // QEMU's AMD IOMMU model can place an extra 8-byte reserved region between the
+                // IVInfo field and the first IVHD entry. Skip it once and continue parsing.
+                skipped_qemu_padding = true;
+                offset += 8;
+                continue;
+            }
             return Err(IvrsError::InvalidEntryLength {
                 offset,
                 length: entry_length,
@@ -453,6 +464,31 @@ mod tests {
         bytes
     }
 
+    fn build_ivrs_with_qemu_padding(units: &[Vec<u8>]) -> Vec<u8> {
+        let padding = 8;
+        let length =
+            (IVRS_HEADER_BYTES + padding + units.iter().map(Vec::len).sum::<usize>()) as u32;
+        let mut bytes = vec![0u8; length as usize];
+
+        bytes[0..4].copy_from_slice(b"IVRS");
+        bytes[4..8].copy_from_slice(&length.to_le_bytes());
+        bytes[8] = 3;
+        bytes[10..16].copy_from_slice(b"RDBEAR");
+        bytes[16..24].copy_from_slice(b"AMDVI   ");
+        bytes[36..40].copy_from_slice(&0x0123_4567u32.to_le_bytes());
+
+        let mut offset = IVRS_HEADER_BYTES + padding;
+        for unit in units {
+            bytes[offset..offset + unit.len()].copy_from_slice(unit);
+            offset += unit.len();
+        }
+
+        let checksum =
+            (!bytes.iter().fold(0u8, |sum, byte| sum.wrapping_add(*byte))).wrapping_add(1);
+        bytes[9] = checksum;
+        bytes
+    }
+
     fn build_ivhd(mmio_base: u64, iommu_bdf: Bdf, entries: &[u8]) -> Vec<u8> {
         let length = (0x18 + entries.len()) as u16;
         let mut bytes = vec![0u8; length as usize];
@@ -502,6 +538,20 @@ mod tests {
         assert!(!unit.handles_device(Bdf::new(0, 3, 0)));
         assert_eq!(unit.unit_id(), 7);
         assert_eq!(unit.msi_number(), 2);
+    }
+
+    #[test]
+    fn parses_ivrs_with_qemu_style_reserved_padding() {
+        let unit_entries = [0x00, 0x00, 0x00, 0x00];
+        let table = build_ivrs_with_qemu_padding(&[build_ivhd(
+            0xfee0_0000,
+            Bdf::new(0, 0x18, 2),
+            &unit_entries,
+        )]);
+
+        let parsed = parse_ivrs(&table).unwrap_or_else(|err| panic!("IVRS parse failed: {err}"));
+        assert_eq!(parsed.units.len(), 1);
+        assert_eq!(parsed.units[0].mmio_base, 0xfee0_0000);
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub mod opcode {
     pub const QUERY: u16 = 0x0000;
     pub const CREATE_DOMAIN: u16 = 0x0001;
     pub const DESTROY_DOMAIN: u16 = 0x0002;
+    pub const INIT_UNITS: u16 = 0x0003;
     pub const MAP: u16 = 0x0010;
     pub const UNMAP: u16 = 0x0011;
     pub const ASSIGN_DEVICE: u16 = 0x0020;
@@ -213,6 +214,26 @@ impl IommuScheme {
         (1..u16::MAX).find(|domain_id| !self.domains.contains_key(domain_id))
     }
 
+    fn ensure_unit_initialized(&mut self, unit_index: usize) -> core::result::Result<(), i32> {
+        let Some(unit) = self.units.get_mut(unit_index) else {
+            return Err(ENODEV as i32);
+        };
+
+        if unit.initialized() {
+            return Ok(());
+        }
+
+        unit.init().map_err(|err| {
+            log::error!(
+                "iommu: failed to initialize unit {} at MMIO {:#x}: {}",
+                unit_index,
+                unit.info().mmio_base,
+                err
+            );
+            EIO as i32
+        })
+    }
+
     fn root_listing(&self) -> Vec<u8> {
         let mut listing = String::from("control\n");
         for (index, unit) in self.units.iter().enumerate() {
@@ -310,6 +331,49 @@ impl IommuScheme {
                 self.device_assignments.len() as u64,
                 self.units.iter().filter(|unit| unit.initialized()).count() as u64,
             ),
+            opcode::INIT_UNITS => {
+                let requested_index = if request.arg0 == u32::MAX {
+                    None
+                } else {
+                    Some(request.arg0 as usize)
+                };
+
+                let mut initialized_now = 0u32;
+                let mut attempted = 0u64;
+                for index in 0..self.units.len() {
+                    if requested_index.is_some() && requested_index != Some(index) {
+                        continue;
+                    }
+
+                    attempted += 1;
+                    let was_initialized = self
+                        .units
+                        .get(index)
+                        .map(|unit| unit.initialized())
+                        .unwrap_or(false);
+
+                    if let Err(errno) = self.ensure_unit_initialized(index) {
+                        return IommuResponse::error(request.opcode, errno);
+                    }
+
+                    if !was_initialized {
+                        initialized_now = initialized_now.saturating_add(1);
+                    }
+                }
+
+                let initialized_total =
+                    self.units.iter().filter(|unit| unit.initialized()).count() as u64;
+
+                IommuResponse::success(
+                    request.opcode,
+                    initialized_now,
+                    attempted,
+                    initialized_total,
+                    requested_index
+                        .map(|index| index as u64)
+                        .unwrap_or(u64::MAX),
+                )
+            }
             opcode::CREATE_DOMAIN => {
                 let domain_id = if request.arg0 == 0 {
                     match self.next_domain_id() {
@@ -362,6 +426,9 @@ impl IommuScheme {
 
                 for (index, unit) in self.units.iter_mut().enumerate() {
                     if requested_index.is_some() && requested_index != Some(index) {
+                        continue;
+                    }
+                    if !unit.initialized() {
                         continue;
                     }
                     match unit.drain_events() {
@@ -485,9 +552,14 @@ impl IommuScheme {
                     Err(errno) => return IommuResponse::error(request.opcode, errno),
                 };
 
+                if let Err(errno) = self.ensure_unit_initialized(unit_index) {
+                    return IommuResponse::error(request.opcode, errno);
+                }
+
                 let Some(domain) = self.domains.get(&domain_id) else {
                     return IommuResponse::error(request.opcode, ENOENT as i32);
                 };
+
                 let Some(unit) = self.units.get_mut(unit_index) else {
                     return IommuResponse::error(request.opcode, ENODEV as i32);
                 };
@@ -822,6 +894,26 @@ mod tests {
         assert_eq!(query_response.status, 0);
         assert_eq!(query_response.arg0, 0);
         assert_eq!(query_response.arg1, 1);
+    }
+
+    #[test]
+    fn init_units_on_empty_scheme_is_a_noop_success() {
+        let mut scheme = IommuScheme::new();
+        let control = scheme
+            .open("control", 0, 0, 0)
+            .unwrap_or_else(|err| panic!("open control failed: {err}"))
+            .unwrap_or_else(|| panic!("control open returned no handle"));
+
+        let request = IommuRequest::new(opcode::INIT_UNITS, u32::MAX, 0, 0, 0);
+        scheme
+            .write(control, &request.to_bytes())
+            .unwrap_or_else(|err| panic!("init units write failed: {err}"));
+        let response = read_response(&mut scheme, control);
+
+        assert_eq!(response.status, 0);
+        assert_eq!(response.arg0, 0);
+        assert_eq!(response.arg1, 0);
+        assert_eq!(response.arg2, 0);
     }
 
     #[test]

@@ -143,9 +143,12 @@ pub struct CommandBuffer {
 }
 
 impl CommandBuffer {
+    pub const RESERVED_COMPLETION_INDEX: usize = 0;
+    pub const FIRST_COMMAND_INDEX: usize = 1;
+
     pub fn new(entry_count: usize) -> Result<Self, &'static str> {
-        if entry_count == 0 {
-            return Err("IOMMU command buffer entry count must be non-zero");
+        if entry_count <= Self::FIRST_COMMAND_INDEX {
+            return Err("IOMMU command buffer entry count must leave room for command entries");
         }
 
         let byte_len = entry_count
@@ -185,6 +188,22 @@ impl CommandBuffer {
 
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    pub fn completion_store_dma_addr(&self) -> u64 {
+        self.buffer.physical_address() as u64
+    }
+
+    pub fn clear_completion_store(&mut self) {
+        self.commands_mut()[0] = CommandEntry::default();
+    }
+
+    pub fn read_completion_store(&self) -> u32 {
+        unsafe { core::ptr::read_volatile(self.buffer.as_ptr() as *const u32) }
+    }
+
+    pub fn completion_store_cpu_ptr(&self) -> *mut u32 {
+        self.buffer.as_ptr() as *mut u32
     }
 
     fn commands_mut(&mut self) -> &mut [CommandEntry] {
@@ -280,6 +299,31 @@ impl EventLog {
 
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    pub fn completion_store_dma_addr(&self) -> u64 {
+        let offset = (self.capacity - 1) * EVENT_LOG_ENTRY_SIZE;
+        (self.buffer.physical_address() + offset) as u64
+    }
+
+    pub fn completion_store_cpu_ptr(&self) -> *mut u32 {
+        let offset = (self.capacity - 1) * EVENT_LOG_ENTRY_SIZE;
+        unsafe { self.buffer.as_ptr().add(offset) as *mut u32 }
+    }
+
+    pub fn clear_completion_store(&mut self) {
+        let offset = (self.capacity - 1) * EVENT_LOG_ENTRY_SIZE;
+        unsafe {
+            core::ptr::write_bytes(
+                self.buffer.as_mut_ptr().add(offset),
+                0,
+                EVENT_LOG_ENTRY_SIZE,
+            )
+        };
+    }
+
+    pub fn read_completion_store(&self) -> u32 {
+        unsafe { core::ptr::read_volatile(self.completion_store_cpu_ptr() as *const u32) }
     }
 
     fn entries(&self) -> &[EventLogEntry] {

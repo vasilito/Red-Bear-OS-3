@@ -1,13 +1,11 @@
-use core::ptr::{read_volatile, write_volatile};
-
-use log::{debug, warn};
+use log::{debug, info};
 use redox_driver_sys::memory::{CacheType, MmioProt, MmioRegion};
 
 use crate::acpi::{parse_ivrs, Bdf, IommuUnitInfo, IvrsError};
 use crate::command_buffer::{CommandBuffer, CommandEntry, EventLog, EventLogEntry};
-use crate::device_table::{DeviceTable, DeviceTableEntry, DEVICE_TABLE_ENTRIES};
+use crate::device_table::{DeviceTable, DeviceTableEntry};
 use crate::interrupt::InterruptRemapTable;
-use crate::mmio::{control, ext_feature, status, AmdViMmio, AMD_VI_MMIO_BYTES};
+use crate::mmio::{control, ext_feature, offsets, status, AMD_VI_MMIO_BYTES};
 use crate::page_table::DomainPageTables;
 
 const CMD_BUF_LEN_ENCODING: u64 = 0x09;
@@ -20,7 +18,6 @@ const COMPLETION_TOKEN: u32 = 0xA11D_F00D;
 
 struct MmioMapping {
     region: MmioRegion,
-    base: *mut AmdViMmio,
 }
 
 pub struct AmdViUnit {
@@ -30,7 +27,6 @@ pub struct AmdViUnit {
     command_buffer: Option<CommandBuffer>,
     event_log: Option<EventLog>,
     interrupt_table: Option<InterruptRemapTable>,
-    completion_store: Option<redox_driver_sys::dma::DmaBuffer>,
     command_tail: usize,
     event_head: usize,
     initialized: bool,
@@ -59,7 +55,6 @@ impl AmdViUnit {
             command_buffer: None,
             event_log: None,
             interrupt_table: None,
-            completion_store: None,
             command_tail: 0,
             event_head: 0,
             initialized: false,
@@ -86,7 +81,7 @@ impl AmdViUnit {
         let region = MmioRegion::map(
             self.info.mmio_base,
             AMD_VI_MMIO_BYTES,
-            CacheType::DeviceMemory,
+            CacheType::Uncacheable,
             MmioProt::READ_WRITE,
         )
         .map_err(|err| {
@@ -95,8 +90,16 @@ impl AmdViUnit {
                 self.info.mmio_base
             )
         })?;
-        let base = region.as_ptr() as *mut AmdViMmio;
-        self.mmio = Some(MmioMapping { region, base });
+        self.mmio = Some(MmioMapping { region });
+
+        let control_initial = self.mmio_read32(offsets::CONTROL)?;
+        let status_initial = self.mmio_read32(offsets::STATUS)?;
+        info!(
+            "amd-vi: unit {} initial control={:#x} status={:#x}",
+            self.info.unit_id(),
+            control_initial,
+            status_initial
+        );
 
         self.disable_unit()?;
 
@@ -123,15 +126,15 @@ impl AmdViUnit {
         if ext & ext_feature::NX_SUP != 0 {
             control_value |= control::NX_EN;
         }
-        unsafe {
-            AmdViMmio::write_control(self.mmio_base()?, control_value);
-        }
+        let control_before = self.mmio_read32(offsets::CONTROL)?;
+        info!(
+            "amd-vi: unit {} control register before enable write = {:#x}",
+            self.info.unit_id(),
+            control_before
+        );
+        self.mmio_write32(offsets::CONTROL, control_value)?;
 
-        self.flush_configuration()?;
-
-        unsafe {
-            AmdViMmio::write_control(self.mmio_base()?, control_value | control::IOMMU_ENABLE);
-        }
+        self.mmio_write32(offsets::CONTROL, control_value | control::IOMMU_ENABLE)?;
         self.wait_for_running(true)?;
         self.initialized = true;
         Ok(())
@@ -183,12 +186,11 @@ impl AmdViUnit {
             return Ok(drained);
         }
 
-        let base = self.mmio_base()?;
         let event_log = self
             .event_log
             .as_ref()
             .ok_or_else(|| "event log not initialized".to_string())?;
-        let tail = unsafe { AmdViMmio::read_evt_log_tail(base) as usize % event_log.capacity() };
+        let tail = (self.mmio_read64(offsets::EVT_LOG_TAIL)? as usize) % event_log.capacity();
 
         while self.event_head != tail {
             let event = event_log.read_entry(self.event_head);
@@ -196,9 +198,7 @@ impl AmdViUnit {
             self.event_head = (self.event_head + 1) % event_log.capacity();
         }
 
-        unsafe {
-            AmdViMmio::write_evt_log_head(base, self.event_head as u64);
-        }
+        self.mmio_write64(offsets::EVT_LOG_HEAD, self.event_head as u64)?;
         Ok(drained)
     }
 
@@ -213,17 +213,13 @@ impl AmdViUnit {
     }
 
     fn disable_unit(&mut self) -> Result<(), String> {
-        let base = self.mmio_base()?;
-        unsafe {
-            AmdViMmio::write_control(base, 0);
-        }
+        self.mmio_write32(offsets::CONTROL, 0)?;
         self.wait_for_running(false)
     }
 
     fn wait_for_running(&self, expected: bool) -> Result<(), String> {
-        let base = self.mmio_base()?;
         for _ in 0..100_000 {
-            let running = unsafe { AmdViMmio::read_status(base) } & status::IOMMU_RUNNING != 0;
+            let running = self.mmio_read32(offsets::STATUS)? & status::IOMMU_RUNNING != 0;
             if running == expected {
                 return Ok(());
             }
@@ -242,121 +238,124 @@ impl AmdViUnit {
         command_buffer: &CommandBuffer,
         event_log: &EventLog,
     ) -> Result<(), String> {
-        let base = self.mmio_base()?;
-        unsafe {
-            AmdViMmio::write_dev_table_bar(
-                base,
-                (device_table.physical_address() as u64 & !0xFFF) | DEV_TABLE_SIZE_ENCODING,
-            );
-            AmdViMmio::write_cmd_buf_bar(
-                base,
-                (command_buffer.physical_address() as u64 & !0xFFF) | CMD_BUF_LEN_ENCODING,
-            );
-            AmdViMmio::write_evt_log_bar(
-                base,
-                (event_log.physical_address() as u64 & !0xFFF) | EVT_LOG_LEN_ENCODING,
-            );
-            AmdViMmio::write_exclusion_base(base, 0);
-            AmdViMmio::write_exclusion_limit(base, 0);
-        }
+        self.mmio_write64(
+            offsets::DEV_TABLE_BAR,
+            (device_table.physical_address() as u64 & !0xFFF) | DEV_TABLE_SIZE_ENCODING,
+        )?;
+        self.mmio_write64(
+            offsets::CMD_BUF_BAR,
+            (command_buffer.physical_address() as u64 & !0xFFF) | CMD_BUF_LEN_ENCODING,
+        )?;
+        self.mmio_write64(
+            offsets::EVT_LOG_BAR,
+            (event_log.physical_address() as u64 & !0xFFF) | EVT_LOG_LEN_ENCODING,
+        )?;
+        self.mmio_write64(offsets::EXCLUSION_BASE, 0)?;
+        self.mmio_write64(offsets::EXCLUSION_LIMIT, 0)?;
         Ok(())
     }
 
     fn reset_ring_pointers(&mut self) -> Result<(), String> {
-        let base = self.mmio_base()?;
-        unsafe {
-            AmdViMmio::write_cmd_buf_head(base, 0);
-            AmdViMmio::write_cmd_buf_tail(base, 0);
-            AmdViMmio::write_evt_log_head(base, 0);
-        }
-        self.command_tail = 0;
+        self.mmio_write64(
+            offsets::CMD_BUF_HEAD,
+            CommandBuffer::FIRST_COMMAND_INDEX as u64,
+        )?;
+        self.mmio_write64(
+            offsets::CMD_BUF_TAIL,
+            CommandBuffer::FIRST_COMMAND_INDEX as u64,
+        )?;
+        self.mmio_write64(offsets::EVT_LOG_HEAD, 0)?;
+        self.command_tail = CommandBuffer::FIRST_COMMAND_INDEX;
         self.event_head = 0;
         Ok(())
     }
 
-    fn flush_configuration(&mut self) -> Result<(), String> {
-        let ext = self.mmio_read_extended_feature()?;
-        if ext & ext_feature::IA_SUP != 0 {
-            self.submit_command(CommandEntry::invalidate_all())?;
-        } else if let Some(table) = self.device_table.as_ref() {
-            let mut pending_invalidations = Vec::new();
-            for device_id in 0..DEVICE_TABLE_ENTRIES {
-                let entry = table.get_entry(device_id as u16);
-                if entry.valid() {
-                    pending_invalidations.push(device_id as u16);
-                }
-            }
-            for device_id in pending_invalidations {
-                self.submit_command(CommandEntry::invalidate_devtab_entry(device_id))?;
-            }
-        } else {
-            warn!("amd-vi: device table not yet allocated while flushing configuration");
-        }
-        self.wait_for_completion()
-    }
-
     fn submit_command(&mut self, command: CommandEntry) -> Result<(), String> {
-        let base = self.mmio_base()?;
+        let head_raw = self.mmio_read64(offsets::CMD_BUF_HEAD)? as usize;
         let command_buffer = self
             .command_buffer
             .as_mut()
             .ok_or_else(|| "command buffer not initialized".to_string())?;
 
-        let head =
-            unsafe { AmdViMmio::read_cmd_buf_head(base) as usize % command_buffer.capacity() };
-        let next_tail = (self.command_tail + 1) % command_buffer.capacity();
+        let head = head_raw % command_buffer.capacity();
+        let next_tail = if self.command_tail + 1 >= command_buffer.capacity() {
+            CommandBuffer::FIRST_COMMAND_INDEX
+        } else {
+            self.command_tail + 1
+        };
         if next_tail == head {
             return Err("AMD-Vi command buffer is full".to_string());
         }
 
         command_buffer.write_command(self.command_tail, &command);
         self.command_tail = next_tail;
-        unsafe {
-            AmdViMmio::write_cmd_buf_tail(base, self.command_tail as u64);
-        }
+        self.mmio_write64(offsets::CMD_BUF_TAIL, self.command_tail as u64)?;
         Ok(())
     }
 
     fn wait_for_completion(&mut self) -> Result<(), String> {
-        let completion_store = match self.completion_store.take() {
-            Some(buffer) => buffer,
-            None => redox_driver_sys::dma::DmaBuffer::allocate(8, 8)
-                .map_err(|err| format!("failed to allocate completion wait store: {err}"))?,
+        let completion_dma = {
+            let command_buffer = self
+                .command_buffer
+                .as_mut()
+                .ok_or_else(|| "command buffer not initialized".to_string())?;
+            info!(
+                "amd-vi: unit {} completion store cpu={:#x} dma={:#x} (command-slot-0)",
+                self.info.unit_id(),
+                command_buffer.completion_store_cpu_ptr() as usize,
+                command_buffer.completion_store_dma_addr(),
+            );
+            command_buffer.clear_completion_store();
+            command_buffer.completion_store_dma_addr()
         };
-
-        let completion_ptr = completion_store.as_ptr() as *const u32;
-        let completion_mut = completion_store.as_ptr() as *mut u32;
-        unsafe {
-            write_volatile(completion_mut, 0);
-        }
-        let completion_phys = completion_store.physical_address() as u64;
         self.submit_command(CommandEntry::completion_wait(
-            completion_phys,
+            completion_dma,
             COMPLETION_TOKEN,
         ))?;
 
         for _ in 0..100_000 {
-            if unsafe { read_volatile(completion_ptr) } == COMPLETION_TOKEN {
-                self.completion_store = Some(completion_store);
+            if self
+                .command_buffer
+                .as_ref()
+                .ok_or_else(|| "command buffer not initialized".to_string())?
+                .read_completion_store()
+                == COMPLETION_TOKEN
+            {
                 return Ok(());
             }
             std::hint::spin_loop();
         }
 
-        self.completion_store = Some(completion_store);
         Err("timed out waiting for AMD-Vi command completion".to_string())
     }
 
     fn mmio_read_extended_feature(&self) -> Result<u64, String> {
-        let base = self.mmio_base()?;
-        Ok(unsafe { AmdViMmio::read_extended_feature(base) })
+        self.mmio_read64(offsets::EXTENDED_FEATURE)
     }
 
-    fn mmio_base(&self) -> Result<*mut AmdViMmio, String> {
+    fn mmio_region(&self) -> Result<&MmioRegion, String> {
         self.mmio
             .as_ref()
-            .map(|mapping| mapping.base)
+            .map(|mapping| &mapping.region)
             .ok_or_else(|| "AMD-Vi MMIO is not mapped".to_string())
+    }
+
+    fn mmio_read32(&self, offset: usize) -> Result<u32, String> {
+        Ok(self.mmio_region()?.read32(offset))
+    }
+
+    fn mmio_write32(&self, offset: usize, value: u32) -> Result<(), String> {
+        self.mmio_region()?.write32(offset, value);
+        Ok(())
+    }
+
+    fn mmio_read64(&self, offset: usize) -> Result<u64, String> {
+        Ok(self.mmio_region()?.read64(offset))
+    }
+
+    fn mmio_write64(&self, offset: usize, value: u64) -> Result<(), String> {
+        self.mmio_region()?.write64(offset, value);
+        Ok(())
     }
 }
 
