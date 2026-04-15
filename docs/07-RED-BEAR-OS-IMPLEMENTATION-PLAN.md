@@ -2,376 +2,456 @@
 
 ## Purpose
 
-This document defines a clear, practical implementation plan for Red Bear OS. It focuses on
-building a usable, validated system through disciplined packaging, profile-based composition, and
-incremental hardware enablement, while preserving Redox architecture: userspace drivers, services,
-and capability-oriented system boundaries.
+This is the canonical repository-level implementation plan for Red Bear OS.
 
-This is the canonical public plan for how Red Bear OS should evolve at the repository level.
-Detailed subsystem notes still live in focused documents such as
-`local/docs/AMD-FIRST-INTEGRATION.md`, `docs/03-WAYLAND-ON-REDOX.md`, and
-`docs/05-KDE-PLASMA-ON-REDOX.md`.
+It is not a historical phase diary and it is not a subsystem deep dive. Its job is to define:
+
+- what Red Bear OS is trying to become,
+- how Red Bear relates to upstream Redox,
+- which profiles are real product surfaces,
+- which workstreams are first-class,
+- what the current state is,
+- and what order of work best improves the project from here.
+
+Detailed subsystem planning remains in focused documents under `local/docs/`.
+
+## Repository Model
+
+RedBearOS should be understood as an overlay distribution on top of Redox in the same way Ubuntu
+relates to Debian.
+
+- Redox is upstream.
+- Red Bear carries integration, packaging, validation, and subsystem overlays on top.
+- Upstream-owned source trees are refreshable working copies.
+- Durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
+  Red Bear configs.
+
+The project is in the right long-term shape only when refreshed upstream sources can be fetched,
+Red Bear overlays can be reapplied, and the project still rebuilds successfully.
+
+## Ownership Rules
+
+### Upstream-owned layer
+
+These are refreshable working inputs, not durable Red Bear storage:
+
+- `recipes/*/source/`
+- most of `recipes/` outside local overlay symlinks
+- mainline configs such as `config/desktop.toml` and `config/minimal.toml`
+- generated build outputs under `target/`, `build/`, `repo/`, and recipe-local `target/*`
+
+### Red Bear-owned layer
+
+These are the durable Red Bear source-of-truth paths:
+
+- `local/patches/`
+- `local/recipes/`
+- `local/docs/`
+- tracked Red Bear configs such as `config/redbear-*.toml`
+
+### Upstream-first rule
+
+For fast-moving upstream components, prefer upstream whenever upstream already solves the same
+problem adequately.
+
+Keep Red Bear patches only while they still provide unique value.
+
+### WIP rule
+
+If an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project.
+
+That means:
+
+1. upstream WIP can be used as an input and reference,
+2. but Red Bear should fix and ship from the local overlay while the work is still WIP,
+3. and once upstream promotes that work to first-class supported status, Red Bear should reevaluate
+   and prefer upstream where appropriate.
 
 ## Core Principles
 
-### Preserve the architecture
+### Preserve Redox architecture
 
-- Keep drivers and services in userspace.
-- Preserve clear system boundaries and capability-based design.
-- Stay aligned with upstream Redox where practical.
+- drivers and services remain userspace-first,
+- system boundaries remain explicit,
+- capability-oriented design remains intact,
+- compatibility shims are acceptable when bounded and well-documented.
 
 ### Packaging is the integration layer
 
-- Deliver functionality as packages and package groups.
-- Compose profiles from packages rather than monolithic changes.
-- Prefer packaging and configuration work over invasive core-tree rewrites when possible.
-
-### Keep Red Bear changes isolated
-
-- Place Red Bear-specific work under `local/` whenever possible.
-- Keep upstream-facing areas clean and rebase-friendly.
-- Use scripts and overlays to make sync/rebase work predictable.
-
-### Profiles are products
-
-The supported product surfaces are:
-
-- `redbear-minimal`
-- `redbear-desktop`
-- `redbear-full`
-- `redbear-live`
-
-Each profile must be buildable, testable, and documented.
+- functionality is delivered as packages,
+- profiles are composed from packages and package groups,
+- integration should prefer packaging, configuration, and overlays over invasive upstream rewrites.
 
 ### Validation over claims
 
-- “Compiles” is not the same as “supported”.
-- Every user-visible feature must map to a profile.
-- Support status must be explicit, reproducible, and evidence-backed.
+- “builds” is not the same as “supported”,
+- every user-visible claim should map to a profile,
+- every support claim should be reproducible and evidence-backed.
 
-## System Structure
+## Product Surfaces
 
-### Layers
-
-1. **Upstream platform** — Redox kernel, libc, and core services
-2. **Red Bear integration (`local/`)** — patches, recipes, configs, scripts, overlays
-3. **Profiles** — concrete system builds assembled from packages and package groups
-
-### Profiles
-
-#### `redbear-minimal`
-
-Console-focused.
-
-- Boot
-- Storage
-- Package manager
-- Wired networking
-
-This is the primary development and validation target.
-
-#### `redbear-desktop`
-
-Wayland plus base desktop services.
-
-This is the main integration environment for graphics, input, and desktop bring-up.
-
-#### `redbear-full`
-
-KDE Plasma target.
-
-This profile should only include graphics and networking paths that are validated enough to be
-presented as real user-facing system behavior.
-
-#### `redbear-live`
-
-Live, demo, and rescue environment.
-
-This profile should prioritize diagnostics, recovery workflows, and installability.
-
-## Packaging Model
-
-### Package groups
-
-- `base-core`
-- `storage-base`
-- `desktop-base`
-- `wayland-base`
-- `kde-base`
-- `net-base`
-- `net-vm`
-- `net-wired-common`
-- `net-wifi-experimental`
-- `gpu-intel-experimental`
-- `gpu-amd-experimental`
-- `redbear-branding`
-- `redbear-live-tools`
-- `redbear-hwdiag`
-
-### Rules
-
-- All functionality is delivered via packages.
-- Drivers are packaged individually.
-- Profiles depend on package groups.
-- Package metadata should make support status obvious.
-
-## Workstreams
-
-### 1. Repository discipline
-
-Define and maintain contribution rules.
-
-- Keep all custom work under `local/` where possible.
-- Provide scripts for rebasing, diffing, and resyncing upstream.
-- Make repository governance visible and repeatable.
-
-**Outputs**
-
-- `local/docs/repo-governance.md`
-- Maintenance scripts
-
-**Acceptance**
-
-- Custom work is easy to identify.
-- Upstream sync work is predictable and documented.
-
-### 2. Profiles and packaging
-
-Formalize profile definitions and package-group composition.
-
-- Map each profile to package groups.
-- Standardize package metadata and support labeling.
-- Keep profile behavior reproducible.
-
-**Acceptance**
-
-- Profiles are reproducible and documented.
-
-### 3. Driver substrate
-
-Implement and stabilize the shared driver base.
-
-- `redox-driver-sys` for shared driver plumbing
-- PCI, MMIO, IRQ, and DMA support
-- Driver daemon template for new device work
-
-**Acceptance**
-
-- A new driver can be created from a known template.
-
-### 4. Graphics and Wayland
-
-Drive the graphical stack through concrete milestones.
-
-**Milestones**
-
-- Run one Wayland application
-- Start KWin
-- Launch Plasma shell
-
-**Acceptance**
-
-- At least one profile runs a real graphical session.
-
-### 5. Networking
-
-#### Architecture
-
-- Per-NIC driver daemons
-- Network service for interfaces, DHCP, and routing
-- D-Bus compatibility surface where desktop software expects it
-
-#### Milestones
-
-**N1: VM networking**
-
-- `virtio-net`
-- DHCP and package access
-
-**N2: Wired hardware**
-
-- Intel NICs
-- Realtek NICs
-
-**N3: KDE integration**
-
-- NetworkManager-compatible D-Bus subset
-
-**N4: Wi-Fi (experimental)**
-
-- Single chipset family first
-
-**Acceptance**
-
-- Wired networking works in at least one real profile.
-
-### 6. KDE integration
-
-- Package the D-Bus session path
-- Provide a networking shim where KDE expects one
-- Provide an audio compatibility layer where needed
-- Package session startup and startup dependencies
-
-**Acceptance**
-
-- A KDE session launches and its limitations are documented.
-
-### 7. Live image and diagnostics
-
-- Hardware detection tools
-- Network diagnostics
-- Graphics diagnostics
-
-**Acceptance**
-
-- The live image can diagnose common failure cases.
-
-### 8. Validation and CI
-
-#### Support labels
-
-- `builds`
-- `boots`
-- `network`
-- `wayland`
-- `kde`
-- `validated`
-- `experimental`
-
-#### Tasks
-
-- VM-based tests
-- Hardware validation matrix
-
-**Acceptance**
-
-- Support status is explicit and reproducible.
-
-## Execution Phases
-
-### Phase 1 — Repository discipline and profile reproducibility
-
-- Establish repository rules for Red Bear-specific work.
-- Make tracked profiles explicit.
-- Reduce duplicated profile wiring through shared config fragments.
-- Keep build helpers aligned with the tracked profile set.
-
-**Primary targets**
+The first-class Red Bear profiles are:
 
 - `redbear-minimal`
 - `redbear-desktop`
+- `redbear-wayland`
+- `redbear-full`
+- `redbear-kde`
+- `redbear-live`
 
-**Acceptance**
+Each profile is a product surface, not just a build convenience.
 
-- Profile composition is easier to audit.
-- Shared Red Bear service wiring is not copy-pasted across profile files.
-- Repository governance and support-language rules are documented.
+### `redbear-minimal`
 
-### Phase 2 — Minimal system baseline
+Primary reproducible baseline.
 
-- Boot
-- Package management
-- VM networking
+Scope:
 
-**Acceptance**
+- boot,
+- package management,
+- native wired networking,
+- diagnostics,
+- minimal service baseline.
 
-- `redbear-minimal` remains the primary reproducible validation baseline.
+### `redbear-desktop`
 
-### Phase 3 — Driver and runtime substrate
+Main integration profile for base desktop/runtime work.
 
-- Shared driver layer
-- Firmware loading
-- Input/runtime service prerequisites
+Scope:
 
-**Acceptance**
+- Orbital desktop path,
+- runtime services,
+- diagnostics,
+- base user-facing system bring-up.
 
-- The driver/runtime substrate needed by graphics and desktop work is explicitly packaged and wired.
+### `redbear-wayland`
 
-### Phase 4 — Graphics and Wayland path
+Dedicated Wayland runtime validation profile.
 
-- Wayland runtime path
-- Qt application bring-up
-- Profile-level graphics integration
+Scope:
 
-**Acceptance**
+- narrow compositor/runtime path,
+- explicit validation target for Wayland stack correctness,
+- not a claim of full desktop completeness.
 
-- At least one profile can carry a coherent graphical session path.
+### `redbear-full`
 
-### Phase 5 — Wired networking and desktop integration
+Broader graphics/network/session plumbing profile.
 
-- Wired networking on real profiles
-- KDE-visible networking path
-- Session-level compatibility surfaces
+Scope:
 
-**Acceptance**
+- desktop/runtime plumbing beyond the narrow Wayland validation slice,
+- D-Bus presence,
+- Qt base integration,
+- broader integration surface before KDE session focus.
 
-- Wired networking works in at least one profile with documented limits.
+### `redbear-kde`
 
-### Phase 6 — KDE session viability
+Dedicated KDE/Plasma bring-up profile.
 
-- KWin
-- Plasma shell
-- Session startup packaging
+Scope:
 
-**Acceptance**
+- KWin,
+- Plasma session surfaces,
+- session packaging and dependencies,
+- explicit documentation of limitations while still incomplete.
 
-- KDE session launch is possible with documented limitations.
+### `redbear-live`
 
-### Phase 7 — Hardware validation and support labels
+Live/demo/recovery profile.
 
-- One fully validated profile
-- Support matrix and validation evidence
+Scope:
 
-**Acceptance**
+- diagnostics,
+- recovery workflows,
+- installability,
+- demonstrable system identity.
 
-- Support claims are explicit, reproducible, and tied to a profile.
+## Current State Baseline
 
-### Phase 8 — Wi-Fi expansion
+### Repository state summary
 
-- Experimental Wi-Fi support for one chipset family first
+The current repo is no longer at a greenfield or “missing everything” stage.
 
-**Acceptance**
+The current evidence-backed baseline is:
 
-- Wi-Fi work remains clearly marked as experimental until validated.
+- the Red Bear overlay model is documented and in active use,
+- major local subsystem plans exist under `local/docs/`,
+- native wired networking is present,
+- Qt6 and major downstream desktop dependencies build,
+- Wayland-facing relibc compatibility surfaces now rebuild from a refreshed upstream relibc source
+  tree via local patch carriers,
+- `libwayland` and `qtbase` build successfully from the reconstructed relibc state,
+- KDE session work is in progress but not yet a stable runtime claim,
+- USB, Wi-Fi, Bluetooth, and low-level controller quality remain first-class unfinished workstreams.
 
-## Task Template
+### What is current versus historical
 
-Every substantial work item should capture:
+Older P0–P6 wording remains useful for continuity, but it is not the canonical current execution
+model anymore.
 
-- **Title**
-- **Objective**
-- **Scope**
-- **Files affected**
-- **Dependencies**
-- **Implementation notes**
-- **Acceptance criteria**
-- **Validation steps**
-- **Risks**
+Use this document plus current `local/docs/` subsystem plans as the source of truth for current work
+ordering.
 
-## Final Direction
+## Workstream Order
 
-Red Bear OS should evolve as a profile-driven, package-defined system built on Redox architecture.
-Progress should be measured by working profiles, not theoretical completeness.
+The current repository-wide work order is:
 
-### Priority order
+1. repository discipline and overlay hygiene
+2. reproducible profiles and validation surfaces
+3. low-level controller and IRQ quality
+4. USB maturity
+5. Wi-Fi native control plane and first driver family
+6. Bluetooth controller/host path
+7. desktop/session compatibility on top of those runtime services
+8. hardware validation and support labeling
 
-1. Repository discipline
-2. Profile reproducibility
-3. VM usability
-4. Graphics bring-up
-5. Wired networking
-6. KDE integration
-7. Hardware validation
-8. Wi-Fi expansion
+These are all first-class targets, but they do not all have the same dependency weight.
 
-## Related Documents
+### Blocker chain
 
-- [Root README](../README.md)
-- [Architecture Overview](01-REDOX-ARCHITECTURE.md)
-- [Gap Analysis & Roadmap](02-GAP-ANALYSIS.md)
-- [Wayland on Redox](03-WAYLAND-ON-REDOX.md)
-- [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md)
-- [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md)
-- [`local/docs/AMD-FIRST-INTEGRATION.md`](../local/docs/AMD-FIRST-INTEGRATION.md)
-- [`local/docs/repo-governance.md`](../local/docs/repo-governance.md)
-- [`local/docs/PROFILE-MATRIX.md`](../local/docs/PROFILE-MATRIX.md)
+The current blocker structure is:
+
+```text
+low-level controller / IRQ quality
+  -> USB maturity
+      -> realistic Bluetooth transport path
+
+low-level controller / IRQ quality
+  -> Wi-Fi driver bring-up
+      -> native wireless control plane
+          -> desktop-facing compatibility later
+```
+
+This means Red Bear should not present USB, Wi-Fi, Bluetooth, or low-level controller work as
+optional polish. They are first-class subsystem targets, but they must be executed in dependency
+order.
+
+## Workstreams
+
+### 1. Repository discipline and overlay hygiene
+
+Goal:
+
+- keep Red Bear-specific work identifiable,
+- keep upstream refresh predictable,
+- ensure durable overlays exist for active Red Bear-owned deltas,
+- keep WIP migration logic explicit.
+
+Current state:
+
+- overlay model is documented,
+- relibc preservation/reapply proof exists,
+- WIP ownership policy is documented,
+- documentation still needs cleaner indexing and some historical pruning.
+
+Acceptance:
+
+- refreshed upstream sources can be re-overlaid and rebuilt predictably,
+- the canonical/current-vs-historical split is visible in docs,
+- active Red Bear-owned deltas are preserved outside refreshable source trees.
+
+### 2. Profiles and packaging
+
+Goal:
+
+- keep profiles reproducible,
+- keep support surfaces obvious,
+- keep package-group composition intentional.
+
+Current state:
+
+- tracked Red Bear profiles exist,
+- profile roles are clearer than before,
+- some older profile wording still overlaps with historical phase language.
+
+Acceptance:
+
+- each first-class profile has a documented role,
+- profile behavior is reproducible,
+- support labels are tied to profile-specific evidence.
+
+### 3. Low-level controllers and IRQ quality
+
+Goal:
+
+- improve runtime trust in IRQ delivery, MSI/MSI-X, and IOMMU-adjacent infrastructure,
+- turn compile-oriented infrastructure into runtime-proven substrate.
+
+Current state:
+
+- source and build evidence are good,
+- runtime validation is thinner than desired,
+- this remains a blocker for USB, Wi-Fi, Bluetooth, and reliable device/runtime claims.
+
+Canonical plan:
+
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
+
+Acceptance:
+
+- runtime evidence exists for the claimed controller/IRQ scope,
+- subsystem docs stop overstating compile-oriented proof.
+
+### 4. USB maturity
+
+Goal:
+
+- mature the existing USB host/controller path into a more reliable subsystem,
+- improve topology, hotplug, HID, storage, and observability confidence.
+
+Current state:
+
+- USB exists in-tree,
+- support is still partial and variable,
+- controller/runtime maturity still needs work,
+- broader USB class support is not yet a safe claim.
+
+Canonical plan:
+
+- `local/docs/USB-IMPLEMENTATION-PLAN.md`
+
+Acceptance:
+
+- USB support is described honestly by validation state,
+- controller/runtime quality is no longer the main blocker for first Bluetooth transport work.
+
+### 5. Wi-Fi
+
+Goal:
+
+- add one bounded experimental Wi-Fi path that fits Red Bear’s native architecture.
+
+Current state:
+
+- Wi-Fi is still missing,
+- prerequisites exist,
+- `linux-kpi` is only a partial low-level aid, not the Wi-Fi architecture itself,
+- a native control plane is still required.
+
+Canonical plan:
+
+- `local/docs/WIFI-IMPLEMENTATION-PLAN.md`
+
+Acceptance:
+
+- one experimental Wi-Fi family is packaged and evidence-backed,
+- post-association handoff to the existing network stack is real,
+- desktop-facing Wi-Fi claims remain honest and bounded.
+
+### 6. Bluetooth
+
+Goal:
+
+- add a bounded host-side Bluetooth path after its transport/runtime dependencies are credible.
+
+Current state:
+
+- Bluetooth is still missing,
+- architecture direction is documented,
+- transport dependency on USB maturity remains explicit.
+
+Canonical plan:
+
+- `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md`
+
+Acceptance:
+
+- one controller path, one host path, and one bounded user-facing workflow exist with experimental
+  support language.
+
+### 7. Graphics, Wayland, and desktop/session compatibility
+
+Goal:
+
+- turn the current build-visible desktop stack into runtime-trusted session surfaces.
+
+Current state:
+
+- relibc compatibility work is materially improved,
+- `libwayland` and `qtbase` build,
+- Qt6 base stack builds,
+- KDE recipe/session work exists,
+- runtime trust is still behind build success.
+
+Canonical references:
+
+- `local/docs/QT6-PORT-STATUS.md`
+- `docs/03-WAYLAND-ON-REDOX.md`
+- `docs/05-KDE-PLASMA-ON-REDOX.md`
+
+Acceptance:
+
+- `redbear-wayland` remains the narrow runtime validation slice,
+- `redbear-full` remains the broader desktop/session plumbing slice,
+- `redbear-kde` reaches documented session viability with honest limitations.
+
+### 8. Hardware validation and support labeling
+
+Goal:
+
+- convert “builds” and “boots” into explicit support claims with evidence.
+
+Current state:
+
+- validation language is better than before,
+- runtime support labeling still needs more consistent central presentation.
+
+Acceptance:
+
+- support claims are profile-scoped,
+- evidence is reproducible,
+- the project has a clearer matrix of current, experimental, and validated surfaces.
+
+## Canonical Subsystem Documents
+
+The current subsystem plans to treat as first-class are:
+
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
+- `local/docs/USB-IMPLEMENTATION-PLAN.md`
+- `local/docs/WIFI-IMPLEMENTATION-PLAN.md`
+- `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md`
+- `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`
+- `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md`
+- `local/docs/QT6-PORT-STATUS.md`
+
+The older architecture/roadmap docs under `docs/01`–`docs/05` remain useful, but they should be
+read together with status notes and the newer local subsystem docs.
+
+## Acceptance Model
+
+Red Bear should use simple evidence language consistently:
+
+- `builds`
+- `boots`
+- `enumerates`
+- `usable`
+- `validated`
+- `experimental`
+
+Do not compress these into a single “supported” claim.
+
+## Immediate Documentation Priorities
+
+The highest-value documentation follow-ups from the current state are:
+
+1. add a clearer document-status matrix in `docs/README.md`,
+2. add a WIP migration ledger for major upstream-WIP-to-local-overlay transitions,
+3. add a concise script behavior matrix for sync/fetch/apply/build helper scripts,
+4. continue pruning obsolete local overlays only after refreshed-upstream reapply proofs confirm
+   upstream coverage is sufficient.
+
+## Bottom Line
+
+Red Bear OS is no longer at the stage where the main question is “can we start?”.
+
+The current state is a transition from compile-oriented subsystem accumulation toward a stricter,
+profile-driven, overlay-disciplined, evidence-backed system project. The implementation plan must now
+optimize for:
+
+- predictable upstream refresh,
+- durable local overlays,
+- honest support language,
+- and execution order that respects the real blocker chain.
+
+That is the current master plan.
