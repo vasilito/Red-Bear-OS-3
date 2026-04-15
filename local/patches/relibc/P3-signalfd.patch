@@ -1,7 +1,8 @@
-diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
---- a/src/header/signal/mod.rs
-+++ b/src/header/signal/mod.rs
-@@ -33,6 +33,10 @@
+diff -ruN a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+--- a/src/header/signal/mod.rs	2026-04-15 09:40:30.420306210 +0100
++++ b/src/header/signal/mod.rs	2026-04-15 09:46:42.011891206 +0100
+@@ -32,6 +32,9 @@
+ #[path = "redox.rs"]
  pub mod sys;
  
 +mod signalfd;
@@ -10,10 +11,9 @@ diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
  type SigSet = BitSet<[u64; 1]>;
  
  pub(crate) const SIG_DFL: usize = 0;
-diff --git a/src/header/signal/signalfd.rs b/src/header/signal/signalfd.rs
-new file mode 100644
---- /dev/null
-+++ b/src/header/signal/signalfd.rs
+diff -ruN a/src/header/signal/signalfd.rs b/src/header/signal/signalfd.rs
+--- a/src/header/signal/signalfd.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/signal/signalfd.rs	2026-04-15 09:46:42.011930569 +0100
 @@ -0,0 +1,103 @@
 +use core::{mem, ptr};
 +

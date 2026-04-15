@@ -1,0 +1,95 @@
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs	2026-04-15 09:55:11.441949342 +0100
++++ b/src/header/mod.rs	2026-04-15 09:57:28.904091552 +0100
+@@ -92,14 +92,14 @@
+ pub mod sys_eventfd;
+ pub mod sys_file;
+ pub mod sys_ioctl;
+-// TODO: sys/ipc.h
++pub mod sys_ipc;
+ pub mod sys_mman;
+ // TODO: sys/msg.h
+ pub mod sys_ptrace;
+ pub mod sys_resource;
+ pub mod sys_select;
+-// TODO: sys/sem.h
+-// TODO: sys/shm.h
++pub mod sys_sem;
++pub mod sys_shm;
+ pub mod sys_socket;
+ pub mod sys_stat;
+ pub mod sys_statvfs;
+diff -ruN a/src/header/sys_ipc/cbindgen.toml b/src/header/sys_ipc/cbindgen.toml
+--- a/src/header/sys_ipc/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_ipc/cbindgen.toml	2026-04-15 09:57:28.904120977 +0100
+@@ -0,0 +1,9 @@
++sys_includes = ["sys/types.h"]
++include_guard = "_SYS_IPC_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
+diff -ruN a/src/header/sys_ipc/mod.rs b/src/header/sys_ipc/mod.rs
+--- a/src/header/sys_ipc/mod.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_ipc/mod.rs	2026-04-15 09:57:28.904159138 +0100
+@@ -0,0 +1,31 @@
++//! `sys/ipc.h` implementation.
++
++use crate::platform::types::{c_int, c_ushort};
++
++pub type key_t = c_int;
++
++pub const IPC_PRIVATE: key_t = 0;
++pub const IPC_CREAT: c_int = 0o1000;
++pub const IPC_EXCL: c_int = 0o2000;
++pub const IPC_NOWAIT: c_int = 0o4000;
++
++pub const IPC_RMID: c_int = 0;
++pub const IPC_SET: c_int = 1;
++pub const IPC_STAT: c_int = 2;
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub struct ipc_perm {
++    pub __key: key_t,
++    pub uid: c_ushort,
++    pub gid: c_ushort,
++    pub cuid: c_ushort,
++    pub cgid: c_ushort,
++    pub mode: c_ushort,
++    pub __seq: c_ushort,
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn _cbindgen_export_ipc_perm(value: ipc_perm) {
++    let _ = value;
++}
+diff -ruN a/src/header/sys_sem/cbindgen.toml b/src/header/sys_sem/cbindgen.toml
+--- a/src/header/sys_sem/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_sem/cbindgen.toml	2026-04-15 09:57:28.904183804 +0100
+@@ -0,0 +1,9 @@
++sys_includes = ["sys/types.h", "sys/ipc.h", "stdint.h"]
++include_guard = "_SYS_SEM_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
+diff -ruN a/src/header/sys_shm/cbindgen.toml b/src/header/sys_shm/cbindgen.toml
+--- a/src/header/sys_shm/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_shm/cbindgen.toml	2026-04-15 09:57:28.904207067 +0100
+@@ -0,0 +1,9 @@
++sys_includes = ["sys/types.h", "sys/ipc.h", "sys/mman.h", "stdint.h"]
++include_guard = "_SYS_SHM_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true

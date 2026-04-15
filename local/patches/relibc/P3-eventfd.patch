@@ -1,19 +1,23 @@
-diff --git a/src/header/mod.rs b/src/header/mod.rs
---- a/src/header/mod.rs
-+++ b/src/header/mod.rs
-@@ -88,6 +88,7 @@
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs	2026-04-15 09:40:30.417847129 +0100
++++ b/src/header/mod.rs	2026-04-15 09:46:42.009254774 +0100
+@@ -89,6 +89,7 @@
+ // TODO: stropts.h (deprecated)
  pub mod sys_auxv;
  pub mod sys_epoll;
 +pub mod sys_eventfd;
  pub mod sys_file;
  pub mod sys_ioctl;
-diff --git a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindgen.toml
-new file mode 100644
---- /dev/null
-+++ b/src/header/sys_eventfd/cbindgen.toml
-@@ -0,0 +1,9 @@
+ // TODO: sys/ipc.h
+diff -ruN a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindgen.toml
+--- a/src/header/sys_eventfd/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_eventfd/cbindgen.toml	2026-04-15 09:46:42.009280833 +0100
+@@ -0,0 +1,12 @@
 +sys_includes = ["stdint.h"]
 +include_guard = "_SYS_EVENTFD_H"
++trailer = """
++typedef uint64_t eventfd_t;
++"""
 +language = "C"
 +style = "Tag"
 +no_includes = true
@@ -21,11 +25,10 @@ new file mode 100644
 +
 +[enum]
 +prefix_with_name = true
-diff --git a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
-new file mode 100644
---- /dev/null
-+++ b/src/header/sys_eventfd/mod.rs
-@@ -0,0 +1,89 @@
+diff -ruN a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
+--- a/src/header/sys_eventfd/mod.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_eventfd/mod.rs	2026-04-15 09:46:42.009305629 +0100
+@@ -0,0 +1,90 @@
 +//! `sys/eventfd.h` implementation.
 +//!
 +//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/eventfd.2.html>.
@@ -47,6 +50,7 @@ new file mode 100644
 +pub const EFD_CLOEXEC: c_int = 0x80000;
 +pub const EFD_NONBLOCK: c_int = 0x800;
 +pub const EFD_SEMAPHORE: c_int = 0x1;
++pub type eventfd_t = u64;
 +
 +fn read_exact(fd: c_int, buf: &mut [u8]) -> Result<(), Errno> {
 +    match Sys::read(fd, buf)? {
@@ -101,17 +105,17 @@ new file mode 100644
 +}
 +
 +#[unsafe(no_mangle)]
-+pub unsafe extern "C" fn eventfd_read(fd: c_int, value: *mut u64) -> c_int {
++pub unsafe extern "C" fn eventfd_read(fd: c_int, value: *mut eventfd_t) -> c_int {
 +    if value.is_null() {
 +        ERRNO.set(EFAULT);
 +        return -1;
 +    }
-+    let buf = unsafe { slice::from_raw_parts_mut(value.cast::<u8>(), mem::size_of::<u64>()) };
++    let buf = unsafe { slice::from_raw_parts_mut(value.cast::<u8>(), mem::size_of::<eventfd_t>()) };
 +    read_exact(fd, buf).map(|()| 0).or_minus_one_errno()
 +}
 +
 +#[unsafe(no_mangle)]
-+pub unsafe extern "C" fn eventfd_write(fd: c_int, value: u64) -> c_int {
-+    let buf = unsafe { slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<u64>()) };
++pub unsafe extern "C" fn eventfd_write(fd: c_int, value: eventfd_t) -> c_int {
++    let buf = unsafe { slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<eventfd_t>()) };
 +    write_exact(fd, buf).map(|()| 0).or_minus_one_errno()
 +}

@@ -1,0 +1,180 @@
+diff -ruN a/src/header/sys_sem/mod.rs b/src/header/sys_sem/mod.rs
+--- a/src/header/sys_sem/mod.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_sem/mod.rs	2026-04-15 09:52:34.039784454 +0100
+@@ -0,0 +1,176 @@
++//! `sys/sem.h` implementation.
++
++use alloc::{collections::BTreeMap, ffi::CString, format};
++use core::{mem, ptr, sync::atomic::{AtomicI32, Ordering}};
++
++use crate::{
++    header::{
++        errno::{EFAULT, EINVAL, ENOENT},
++        fcntl::{O_CREAT, O_EXCL, O_RDWR},
++        sys_ipc::{IPC_CREAT, IPC_EXCL, IPC_NOWAIT, IPC_PRIVATE, IPC_RMID, ipc_perm, key_t},
++        sys_mman::{MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, mmap, munmap, shm_open, shm_unlink},
++        unistd::close,
++    },
++    out::Out,
++    platform::{ERRNO, Pal, Sys, types::{c_int, c_short, c_ushort, c_void}},
++    sync::{Mutex, Semaphore},
++};
++
++pub const GETVAL: c_int = 12;
++pub const SETVAL: c_int = 16;
++pub const SEM_UNDO: c_short = 0x1000;
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub struct sembuf {
++    pub sem_num: c_ushort,
++    pub sem_op: c_short,
++    pub sem_flg: c_short,
++}
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub struct semid_ds {
++    pub sem_perm: ipc_perm,
++    pub sem_nsems: c_ushort,
++}
++
++#[repr(C)]
++pub union semun {
++    pub val: c_int,
++    pub buf: *mut semid_ds,
++}
++
++#[repr(C)]
++struct SharedSemSet {
++    sem: Semaphore,
++}
++
++#[derive(Clone)]
++struct SemMeta {
++    path: CString,
++    nsems: c_ushort,
++}
++
++static NEXT_SEMID: AtomicI32 = AtomicI32::new(1);
++static SEM_REGISTRY: Mutex<BTreeMap<c_int, SemMeta>> = Mutex::new(BTreeMap::new());
++static SEM_ATTACHMENTS: Mutex<BTreeMap<c_int, (usize, c_int)>> = Mutex::new(BTreeMap::new());
++
++fn key_path(key: key_t) -> CString { CString::new(format!("/relibc-sysv-sem-{key:x}")).unwrap() }
++fn id_path(id: c_int) -> CString { CString::new(format!("/relibc-sysv-sem-id-{id:x}")).unwrap() }
++
++fn open_flags_from_ipc(semflg: c_int) -> c_int {
++    let mut flags = O_RDWR;
++    if semflg & IPC_CREAT == IPC_CREAT { flags |= O_CREAT; }
++    if semflg & IPC_EXCL == IPC_EXCL { flags |= O_EXCL; }
++    flags
++}
++
++unsafe fn map_sem(path: &CString, create: bool, initial: c_int) -> Result<*mut SharedSemSet, c_int> {
++    let fd = unsafe { shm_open(path.as_ptr(), if create { O_CREAT | O_RDWR } else { O_RDWR }, 0o600) };
++    if fd < 0 { return Err(ERRNO.get()); }
++    let mut st = crate::header::sys_stat::stat::default();
++    if Sys::fstat(fd, Out::from_mut(&mut st)).is_err() { let _ = close(fd); return Err(ERRNO.get()); }
++    if st.st_size == 0 {
++        if Sys::ftruncate(fd, mem::size_of::<SharedSemSet>() as i64).is_err() { let _ = close(fd); return Err(ERRNO.get()); }
++    }
++    let ptr = unsafe { mmap(ptr::null_mut(), mem::size_of::<SharedSemSet>(), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) };
++    let _ = close(fd);
++    if ptr == MAP_FAILED { return Err(ERRNO.get()); }
++    let set = ptr.cast::<SharedSemSet>();
++    if create && st.st_size == 0 { unsafe { set.write(SharedSemSet { sem: Semaphore::new(initial as u32) }) }; }
++    Ok(set)
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn semget(key: key_t, nsems: c_int, semflg: c_int) -> c_int {
++    if nsems != 1 { ERRNO.set(EINVAL); return -1; }
++    let semid = NEXT_SEMID.fetch_add(1, Ordering::SeqCst);
++    let path = if key == IPC_PRIVATE { id_path(semid) } else { key_path(key) };
++    let fd = unsafe { shm_open(path.as_ptr(), open_flags_from_ipc(semflg), (semflg & 0o777) as c_int) };
++    if fd < 0 { return -1; }
++    let _ = close(fd);
++    SEM_REGISTRY.lock().insert(semid, SemMeta { path, nsems: 1 });
++    semid
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn semop(semid: c_int, sops: *mut sembuf, nsops: usize) -> c_int {
++    if sops.is_null() { ERRNO.set(EFAULT); return -1; }
++    if nsops == 0 { return 0; }
++    let meta = { let registry = SEM_REGISTRY.lock(); registry.get(&semid).cloned() };
++    let Some(meta) = meta else { ERRNO.set(ENOENT); return -1; };
++    let set = {
++        let mut attachments = SEM_ATTACHMENTS.lock();
++        if let Some((ptr, _)) = attachments.get(&semid) { *ptr as *mut SharedSemSet } else {
++            let ptr = match unsafe { map_sem(&meta.path, false, 0) } { Ok(ptr) => ptr, Err(_) => return -1 };
++            attachments.insert(semid, (ptr as usize, 1));
++            ptr
++        }
++    };
++    let ops = unsafe { core::slice::from_raw_parts(sops, nsops) };
++    for op in ops {
++        if op.sem_num != 0 { ERRNO.set(EINVAL); return -1; }
++        if op.sem_op > 0 { unsafe { (*set).sem.post(op.sem_op as u32) }; continue; }
++        if op.sem_op == 0 {
++            if op.sem_flg & IPC_NOWAIT as c_short == IPC_NOWAIT as c_short {
++                if unsafe { (*set).sem.value() } != 0 { ERRNO.set(crate::header::errno::EAGAIN); return -1; }
++            } else if unsafe { (*set).sem.value() } != 0 {
++                ERRNO.set(crate::header::errno::EAGAIN);
++                return -1;
++            }
++            continue;
++        }
++        for _ in 0..(-op.sem_op) {
++            if op.sem_flg & IPC_NOWAIT as c_short == IPC_NOWAIT as c_short {
++                if unsafe { (*set).sem.try_wait() } == 0 { ERRNO.set(crate::header::errno::EAGAIN); return -1; }
++            } else if unsafe { (*set).sem.wait(None, crate::header::time::CLOCK_MONOTONIC) }.is_err() {
++                ERRNO.set(crate::header::errno::EINTR);
++                return -1;
++            }
++        }
++    }
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn semctl(semid: c_int, semnum: c_int, cmd: c_int, mut args: ...) -> c_int {
++    if semnum != 0 { ERRNO.set(EINVAL); return -1; }
++    let meta = { let registry = SEM_REGISTRY.lock(); registry.get(&semid).cloned() };
++    let Some(meta) = meta else { ERRNO.set(ENOENT); return -1; };
++    match cmd {
++        IPC_RMID => {
++            let _ = unsafe { shm_unlink(meta.path.as_ptr()) };
++            SEM_REGISTRY.lock().remove(&semid);
++            if let Some((ptr, _)) = SEM_ATTACHMENTS.lock().remove(&semid) {
++                let _ = unsafe { munmap((ptr as *mut SharedSemSet).cast::<c_void>(), mem::size_of::<SharedSemSet>()) };
++            }
++            0
++        }
++        GETVAL => {
++            let set = match unsafe { map_sem(&meta.path, false, 0) } { Ok(set) => set, Err(errno) => { ERRNO.set(errno); return -1; } };
++            let value = unsafe { (*set).sem.value() as c_int };
++            let _ = unsafe { munmap(set.cast::<c_void>(), mem::size_of::<SharedSemSet>()) };
++            value
++        }
++        SETVAL => {
++            let val = unsafe { args.arg::<c_int>() };
++            let set = match unsafe { map_sem(&meta.path, false, 0) } { Ok(set) => set, Err(errno) => { ERRNO.set(errno); return -1; } };
++            let current = unsafe { (*set).sem.value() as c_int };
++            if val > current { unsafe { (*set).sem.post((val - current) as u32) }; } else {
++                for _ in 0..(current - val) {
++                    if unsafe { (*set).sem.try_wait() } == 0 { break; }
++                }
++            }
++            let _ = unsafe { munmap(set.cast::<c_void>(), mem::size_of::<SharedSemSet>()) };
++            0
++        }
++        crate::header::sys_ipc::IPC_STAT => {
++            let buf = unsafe { args.arg::<*mut semid_ds>() };
++            if buf.is_null() { ERRNO.set(EFAULT); return -1; }
++            unsafe { *buf = semid_ds { sem_perm: ipc_perm::default(), sem_nsems: meta.nsems }; }
++            0
++        }
++        _ => { ERRNO.set(EINVAL); -1 }
++    }
++}

@@ -1,18 +1,18 @@
-diff --git a/src/header/mod.rs b/src/header/mod.rs
---- a/src/header/mod.rs
-+++ b/src/header/mod.rs
-@@ -100,5 +100,6 @@ pub mod sys_socket;
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs	2026-04-15 09:58:03.811510680 +0100
++++ b/src/header/mod.rs	2026-04-15 09:59:40.902089070 +0100
+@@ -103,6 +103,7 @@
  pub mod sys_stat;
  pub mod sys_statvfs;
  pub mod sys_time;
 +pub mod sys_timerfd;
  #[deprecated]
  pub mod sys_timeb;
-diff --git a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
-new file mode 100644
---- /dev/null
-+++ b/src/header/sys_timerfd/cbindgen.toml
-@@ -0,0 +1,9 @@
+ //pub mod sys_times;
+diff -ruN a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
+--- a/src/header/sys_timerfd/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_timerfd/cbindgen.toml	2026-04-15 09:59:40.902120449 +0100
+@@ -0,0 +1,12 @@
 +sys_includes = ["time.h"]
 +include_guard = "_SYS_TIMERFD_H"
 +language = "C"
@@ -22,11 +22,13 @@ new file mode 100644
 +
 +[enum]
 +prefix_with_name = true
-diff --git a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
-new file mode 100644
---- /dev/null
-+++ b/src/header/sys_timerfd/mod.rs
-@@ -0,0 +1,89 @@
++
++[export.rename]
++"itimerspec" = "struct itimerspec"
+diff -ruN a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
+--- a/src/header/sys_timerfd/mod.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_timerfd/mod.rs	2026-04-15 09:59:40.902160103 +0100
+@@ -0,0 +1,94 @@
 +//! `sys/timerfd.h` implementation.
 +//!
 +//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/timerfd_create.2.html>.
@@ -53,6 +55,7 @@ new file mode 100644
 +pub const TFD_CLOEXEC: c_int = 0x80000;
 +pub const TFD_NONBLOCK: c_int = 0x800;
 +pub const TFD_TIMER_ABSTIME: c_int = 0x1;
++pub const TFD_TIMER_CANCEL_ON_SET: c_int = 0x2;
 +
 +fn read_exact(fd: c_int, buf: &mut [u8]) -> Result<(), Errno> {
 +    match Sys::read(fd, buf)? {
@@ -92,7 +95,11 @@ new file mode 100644
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn timerfd_settime(fd: c_int, flags: c_int, new: *const itimerspec, old: *mut itimerspec) -> c_int {
-+    if flags & !TFD_TIMER_ABSTIME != 0 {
++    let supported = TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET;
++    if flags & !supported != 0 {
++        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
++    }
++    if flags & TFD_TIMER_CANCEL_ON_SET != 0 && flags & TFD_TIMER_ABSTIME == 0 {
 +        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
 +    }
 +    if new.is_null() {

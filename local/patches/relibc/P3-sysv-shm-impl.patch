@@ -1,0 +1,131 @@
+diff -ruN a/src/header/sys_shm/mod.rs b/src/header/sys_shm/mod.rs
+--- a/src/header/sys_shm/mod.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/src/header/sys_shm/mod.rs	2026-04-15 09:52:34.038301738 +0100
+@@ -0,0 +1,127 @@
++//! `sys/shm.h` implementation.
++
++use alloc::{collections::BTreeMap, ffi::CString, format};
++use core::{ptr, sync::atomic::{AtomicI32, Ordering}};
++
++use crate::{
++    header::{
++        errno::{EACCES, EFAULT, EINVAL, ENOENT, ENOSYS},
++        fcntl::{O_CREAT, O_EXCL, O_RDWR},
++        sys_ipc::{IPC_CREAT, IPC_EXCL, IPC_PRIVATE, IPC_RMID, ipc_perm, key_t},
++        sys_mman::{MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, mmap, munmap, shm_open, shm_unlink},
++        sys_stat::stat,
++        unistd::close,
++    },
++    out::Out,
++    platform::{ERRNO, Pal, Sys, types::{c_int, c_ushort, c_void, size_t, time_t}},
++    sync::Mutex,
++};
++
++pub const SHM_RDONLY: c_int = 0o10000;
++pub const SHM_RND: c_int = 0o20000;
++
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct shmid_ds {
++    pub shm_perm: ipc_perm,
++    pub shm_segsz: size_t,
++    pub shm_atime: time_t,
++    pub shm_dtime: time_t,
++    pub shm_ctime: time_t,
++    pub shm_cpid: c_int,
++    pub shm_lpid: c_int,
++    pub shm_nattch: c_ushort,
++}
++
++impl Default for shmid_ds {
++    fn default() -> Self {
++        Self { shm_perm: ipc_perm::default(), shm_segsz: 0, shm_atime: 0, shm_dtime: 0, shm_ctime: 0, shm_cpid: 0, shm_lpid: 0, shm_nattch: 0 }
++    }
++}
++
++#[derive(Clone)]
++struct SegmentMeta {
++    path: CString,
++    size: size_t,
++    removed: bool,
++}
++
++static NEXT_SHMID: AtomicI32 = AtomicI32::new(1);
++static SHM_REGISTRY: Mutex<BTreeMap<c_int, SegmentMeta>> = Mutex::new(BTreeMap::new());
++static SHM_ATTACHMENTS: Mutex<BTreeMap<usize, (c_int, size_t)>> = Mutex::new(BTreeMap::new());
++
++fn key_path(key: key_t) -> CString { CString::new(format!("/relibc-sysv-shm-{key:x}")).unwrap() }
++fn id_path(id: c_int) -> CString { CString::new(format!("/relibc-sysv-shm-id-{id:x}")).unwrap() }
++
++fn open_flags_from_ipc(shmflg: c_int) -> c_int {
++    let mut flags = O_RDWR;
++    if shmflg & IPC_CREAT == IPC_CREAT { flags |= O_CREAT; }
++    if shmflg & IPC_EXCL == IPC_EXCL { flags |= O_EXCL; }
++    flags
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn shmget(key: key_t, size: size_t, shmflg: c_int) -> c_int {
++    let shmid = NEXT_SHMID.fetch_add(1, Ordering::SeqCst);
++    let path = if key == IPC_PRIVATE { id_path(shmid) } else { key_path(key) };
++    let fd = unsafe { shm_open(path.as_ptr(), open_flags_from_ipc(shmflg), (shmflg & 0o777) as c_int) };
++    if fd < 0 { return -1; }
++
++    let mut st = stat::default();
++    if Sys::fstat(fd, Out::from_mut(&mut st)).is_err() { let _ = close(fd); return -1; }
++    if st.st_size == 0 && size > 0 {
++        if Sys::ftruncate(fd, size as i64).is_err() { let _ = close(fd); return -1; }
++    }
++    let _ = close(fd);
++    SHM_REGISTRY.lock().insert(shmid, SegmentMeta { path, size, removed: false });
++    shmid
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn shmat(shmid: c_int, shmaddr: *const c_void, shmflg: c_int) -> *mut c_void {
++    let meta = { let registry = SHM_REGISTRY.lock(); registry.get(&shmid).cloned() };
++    let Some(meta) = meta else { ERRNO.set(ENOENT); return MAP_FAILED; };
++    if !shmaddr.is_null() { ERRNO.set(ENOSYS); return MAP_FAILED; }
++    let mut prot = PROT_READ;
++    if shmflg & SHM_RDONLY == 0 { prot |= PROT_WRITE; }
++    let fd = unsafe { shm_open(meta.path.as_ptr(), O_RDWR, 0) };
++    if fd < 0 { return MAP_FAILED; }
++    let ptr = unsafe { mmap(ptr::null_mut(), meta.size, prot, MAP_SHARED, fd, 0) };
++    let _ = close(fd);
++    if ptr == MAP_FAILED { return MAP_FAILED; }
++    SHM_ATTACHMENTS.lock().insert(ptr as usize, (shmid, meta.size));
++    ptr
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn shmdt(shmaddr: *const c_void) -> c_int {
++    if shmaddr.is_null() { ERRNO.set(EFAULT); return -1; }
++    let Some((_, size)) = SHM_ATTACHMENTS.lock().remove(&(shmaddr as usize)) else { ERRNO.set(EINVAL); return -1; };
++    unsafe { munmap(shmaddr.cast_mut(), size) }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn shmctl(shmid: c_int, cmd: c_int, buf: *mut shmid_ds) -> c_int {
++    let mut registry = SHM_REGISTRY.lock();
++    let Some(meta) = registry.get_mut(&shmid) else { ERRNO.set(ENOENT); return -1; };
++    match cmd {
++        IPC_RMID => { meta.removed = true; unsafe { shm_unlink(meta.path.as_ptr()) } }
++        crate::header::sys_ipc::IPC_STAT => {
++            if buf.is_null() { ERRNO.set(EFAULT); return -1; }
++            unsafe {
++                *buf = shmid_ds {
++                    shm_perm: ipc_perm::default(),
++                    shm_segsz: meta.size,
++                    shm_atime: 0,
++                    shm_dtime: 0,
++                    shm_ctime: 0,
++                    shm_cpid: 0,
++                    shm_lpid: 0,
++                    shm_nattch: SHM_ATTACHMENTS.lock().values().filter(|(id, _)| *id == shmid).count() as c_ushort,
++                };
++            }
++            0
++        }
++        _ => { ERRNO.set(EACCES); -1 }
++    }
++}

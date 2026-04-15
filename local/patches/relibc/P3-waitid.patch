@@ -1,0 +1,130 @@
+diff --git a/src/header/sys_wait/mod.rs b/src/header/sys_wait/mod.rs
+index 11f4bf2c..91a58c5b 100644
+--- a/src/header/sys_wait/mod.rs
++++ b/src/header/sys_wait/mod.rs
+@@ -4,13 +4,17 @@
+ 
+ use crate::{
+     error::ResultExt,
++    header::signal::siginfo_t,
+     out::Out,
+     platform::{
+-        Pal, Sys,
+-        types::{c_int, pid_t},
++        ERRNO, Pal, Sys,
++        types::{c_int, c_uint, pid_t},
+     },
+ };
+ 
++pub type idtype_t = c_int;
++pub type id_t = c_uint;
++
+ pub const WNOHANG: c_int = 1;
+ pub const WUNTRACED: c_int = 2;
+ 
+@@ -24,27 +28,89 @@ pub const __WALL: c_int = 0x4000_0000;
+ #[allow(overflowing_literals)]
+ pub const __WCLONE: c_int = 0x8000_0000;
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wait.html>.
++pub const P_ALL: idtype_t = 0;
++pub const P_PID: idtype_t = 1;
++pub const P_PGID: idtype_t = 2;
++
++pub const CLD_EXITED: c_int = 1;
++pub const CLD_KILLED: c_int = 2;
++pub const CLD_DUMPED: c_int = 3;
++pub const CLD_TRAPPED: c_int = 4;
++pub const CLD_STOPPED: c_int = 5;
++pub const CLD_CONTINUED: c_int = 6;
++
++fn wexitstatus(status: c_int) -> c_int { (status >> 8) & 0xff }
++fn wtermsig(status: c_int) -> c_int { status & 0x7f }
++fn wstopsig(status: c_int) -> c_int { wexitstatus(status) }
++fn wcoredump(status: c_int) -> bool { (status & 0x80) != 0 }
++fn wifexited(status: c_int) -> bool { (status & 0x7f) == 0 }
++fn wifstopped(status: c_int) -> bool { (status & 0xff) == 0x7f }
++fn wifcontinued(status: c_int) -> bool { status == 0xffff }
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn wait(stat_loc: *mut c_int) -> pid_t {
+     unsafe { waitpid(!0, stat_loc, 0) }
+ }
+ 
+-/*
+- * TODO: implement idtype_t, id_t, and siginfo_t
+- *
+- * #[unsafe(no_mangle)]
+- * pub unsafe extern "C" fn waitid(
+- *     idtype: idtype_t,
+- *     id: id_t,
+- *     infop: siginfo_t,
+- *     options: c_int
+- *  ) -> c_int {
+- *      unimplemented!();
+- *  }
+- */
+-
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/waitpid.html>.
++fn map_waitid_target(idtype: idtype_t, id: id_t) -> Option<pid_t> {
++    match idtype {
++        P_ALL => Some(-1),
++        P_PID => Some(id as pid_t),
++        P_PGID => Some(if id == 0 { 0 } else { -(id as pid_t) }),
++        _ => None,
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn waitid(
++    idtype: idtype_t,
++    id: id_t,
++    infop: *mut siginfo_t,
++    options: c_int,
++) -> c_int {
++    if infop.is_null() {
++        ERRNO.set(crate::header::errno::EFAULT);
++        return -1;
++    }
++
++    let Some(pid_target) = map_waitid_target(idtype, id) else {
++        ERRNO.set(crate::header::errno::EINVAL);
++        return -1;
++    };
++
++    let mut status = 0;
++    let pid = Sys::waitpid(pid_target, Some(Out::from_mut(&mut status)), options).or_minus_one_errno();
++    if pid < 0 {
++        return -1;
++    }
++
++    unsafe { *infop = core::mem::zeroed() };
++    if pid == 0 {
++        return 0;
++    }
++
++    unsafe {
++        (*infop).si_pid = pid;
++        (*infop).si_signo = crate::header::signal::SIGCHLD as c_int;
++        (*infop).si_errno = 0;
++        if wifexited(status) {
++            (*infop).si_code = CLD_EXITED;
++            (*infop).si_status = wexitstatus(status);
++        } else if wifstopped(status) {
++            (*infop).si_code = CLD_STOPPED;
++            (*infop).si_status = wstopsig(status);
++        } else if wifcontinued(status) {
++            (*infop).si_code = CLD_CONTINUED;
++            (*infop).si_status = crate::header::signal::SIGCONT as c_int;
++        } else {
++            (*infop).si_status = wtermsig(status);
++            (*infop).si_code = if wcoredump(status) { CLD_DUMPED } else { CLD_KILLED };
++        }
++    }
++
++    0
++}
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn waitpid(pid: pid_t, stat_loc: *mut c_int, options: c_int) -> pid_t {
+     Sys::waitpid(pid, unsafe { Out::nullable(stat_loc) }, options).or_minus_one_errno()

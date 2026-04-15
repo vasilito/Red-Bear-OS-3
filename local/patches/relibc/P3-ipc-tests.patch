@@ -1,0 +1,92 @@
+diff --git a/tests/semaphore/sem_open.c b/tests/semaphore/sem_open.c
+new file mode 100644
+--- /dev/null
++++ b/tests/semaphore/sem_open.c
+@@ -0,0 +1,15 @@
++#include <assert.h>
++#include <fcntl.h>
++#include <semaphore.h>
++#include <stdio.h>
++
++int main(void) {
++    sem_t *sem = sem_open("/relibc-test-sem", O_CREAT | O_EXCL, 0600, 1);
++    assert(sem != SEM_FAILED);
++    assert(sem_wait(sem) == 0);
++    assert(sem_post(sem) == 0);
++    assert(sem_close(sem) == 0);
++    assert(sem_unlink("/relibc-test-sem") == 0);
++    puts("sem_open ok");
++    return 0;
++}
+diff --git a/tests/sys_shm/shmget.c b/tests/sys_shm/shmget.c
+new file mode 100644
+--- /dev/null
++++ b/tests/sys_shm/shmget.c
+@@ -0,0 +1,15 @@
++#include <assert.h>
++#include <stdio.h>
++#include <sys/ipc.h>
++#include <sys/shm.h>
++
++int main(void) {
++    int id = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
++    assert(id >= 0);
++    void *ptr = shmat(id, 0, 0);
++    assert(ptr != (void *)-1);
++    assert(shmdt(ptr) == 0);
++    assert(shmctl(id, IPC_RMID, 0) == 0);
++    puts("shmget ok");
++    return 0;
++}
+diff --git a/tests/sys_timerfd/timerfd.c b/tests/sys_timerfd/timerfd.c
+new file mode 100644
+--- /dev/null
++++ b/tests/sys_timerfd/timerfd.c
+@@ -0,0 +1,18 @@
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/timerfd.h>
++#include <unistd.h>
++
++int main(void) {
++    int fd = timerfd_create(CLOCK_REALTIME, 0);
++    if (fd < 0) {
++        puts("timerfd unavailable");
++        return 0;
++    }
++    struct itimerspec spec;
++    memset(&spec, 0, sizeof(spec));
++    spec.it_value.tv_nsec = 1;
++    assert(timerfd_settime(fd, TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET, &spec, NULL) == 0);
++    assert(close(fd) == 0);
++    puts("timerfd ok");
++    return 0;
++}
+diff --git a/tests/sys_signalfd/signalfd.c b/tests/sys_signalfd/signalfd.c
+new file mode 100644
+--- /dev/null
++++ b/tests/sys_signalfd/signalfd.c
+@@ -0,0 +1,20 @@
++#include <assert.h>
++#include <signal.h>
++#include <stdio.h>
++#include <sys/signalfd.h>
++#include <unistd.h>
++
++int main(void) {
++    sigset_t mask;
++    assert(sigemptyset(&mask) == 0);
++    assert(sigaddset(&mask, SIGUSR1) == 0);
++    int fd = signalfd(-1, &mask, sizeof(mask));
++    if (fd < 0) {
++        puts("signalfd unavailable");
++        return 0;
++    }
++    assert(kill(getpid(), SIGUSR1) == 0);
++    struct signalfd_siginfo info;
++    assert(read(fd, &info, sizeof(info)) == (ssize_t)sizeof(info));
++    assert(info.ssi_signo == SIGUSR1);
++    puts("signalfd ok");
++    return 0;
++}

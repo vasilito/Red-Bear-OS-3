@@ -1,0 +1,19 @@
+diff --git a/src/header/sys_wait/cbindgen.toml b/src/header/sys_wait/cbindgen.toml
+index 807d8fb3..047dc3e9 100644
+--- a/src/header/sys_wait/cbindgen.toml
++++ b/src/header/sys_wait/cbindgen.toml
+@@ -1,4 +1,4 @@
+-sys_includes = ["sys/types.h", "sys/resource.h"]
++sys_includes = ["sys/types.h", "sys/resource.h", "signal.h"]
+ include_guard = "_SYS_WAIT_H"
+ trailer = """
+ #define WEXITSTATUS(s) (((s) >> 8) & 0xff)
+@@ -7,7 +7,7 @@ trailer = """
+ #define WCOREDUMP(s) (((s) & 0x80) != 0)
+ #define WIFEXITED(s) (((s) & 0x7f) == 0)
+ #define WIFSTOPPED(s) (((s) & 0xff) == 0x7f)
+-#define WIFSIGNALED(s) (((((s) & 0x7f) + 1U) & 0x7f) >= 2) // Ends with 1111111 or 10000000
++#define WIFSIGNALED(s) (((((s) & 0x7f) + 1U) & 0x7f) >= 2)
+ #define WIFCONTINUED(s) ((s) == 0xffff)
+ """
+ language = "C"
