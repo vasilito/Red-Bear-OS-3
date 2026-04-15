@@ -18,6 +18,27 @@
 
 Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a general-purpose, Unix-like, microkernel-based operating system written in Rust. It tracks upstream Redox, incorporating its improvements while adding custom drivers, filesystems, and hardware support.
 
+RedBearOS should be understood as an overlay distribution on top of Redox in the same way Ubuntu
+relates to Debian:
+
+- Redox is upstream
+- Red Bear carries integration, packaging, validation, and subsystem overlays on top
+- upstream-owned source trees are refreshable working copies
+- durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
+  Red Bear configs
+
+For **upstream WIP recipes specifically**, Red Bear uses a stricter rule:
+
+1. once an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project
+2. we copy, fix, validate, and ship that work from our local overlay until it is stable enough for us
+3. we continue updating our local copy from upstream WIP work when useful, but we do not rely on the
+   upstream WIP recipe itself as our shipped source of truth
+4. once upstream removes the WIP status and the recipe/subsystem becomes a first-class supported
+   part of Redox, Red Bear reevaluates and should prefer the upstream version over the local copy
+
+That policy exists so the project can pull refreshed upstream sources regularly and still rebuild
+predictably from the Red Bear-owned overlay.
+
 ## What's New
 
 - KDE bring-up moved forward: `config/redbear-kde.toml` exists, the Qt6 stack builds in-tree, and the KDE recipe tree is now populated.
@@ -29,7 +50,34 @@ See [CHANGELOG.md](./CHANGELOG.md) for the running user-visible change log.
 The current public roadmap and execution model live in the
 [Red Bear OS Implementation Plan](./docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md).
 
-## Current Phase Snapshot
+For readers landing on GitHub, the most useful entry points are:
+
+- [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
+- [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
+- [WIP Migration Ledger](./local/docs/WIP-MIGRATION-LEDGER.md) — how Red Bear currently treats upstream WIP versus local overlays
+- [Script Behavior Matrix](./local/docs/SCRIPT-BEHAVIOR-MATRIX.md) — what the main sync/fetch/apply/build scripts do and do not guarantee
+
+Current subsystem-specific plans also include:
+
+- [USB Implementation Plan](./local/docs/USB-IMPLEMENTATION-PLAN.md)
+- [Wi-Fi Implementation Plan](./local/docs/WIFI-IMPLEMENTATION-PLAN.md)
+- [Bluetooth Implementation Plan](./local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md)
+- [IRQ and Low-Level Controllers Enhancement Plan](./local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md)
+
+Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets. Older AMD-first
+language in historical integration notes should be read as earlier sequencing context, not as the
+current platform policy.
+
+## Historical Phase Snapshot
+
+The table below is a legacy P0-P6 snapshot retained for historical continuity with older Red Bear
+status notes.
+
+It is **not** the canonical execution-order source for current subsystem planning. For the current
+repo-wide order of implementation — including low-level controllers, USB, Wi‑Fi, and Bluetooth as
+first-class subsystem workstreams — use
+[docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md](./docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) together
+with the subsystem plans listed above.
 
 | Phase | Status | Notes |
 |---|---|---|
@@ -37,11 +85,36 @@ The current public roadmap and execution model live in the
 | P1 driver infra | ✅ Complete | Compile-oriented infrastructure present |
 | P2 DRM / display | ✅ Code complete | Hardware validation still pending |
 | P3 POSIX + input | 🚧 In progress | relibc exports now cover the rebuilt `signalfd`/`timerfd`/`eventfd`/`open_memstream` consumer path; runtime validation remains |
-| P4 Wayland runtime | 🚧 Partial | `libwayland` and `seatd` now build, and KDE config starts seatd, but compositor/DRM/input runtime validation is still incomplete |
-| P5 AMD accel / IOMMU | 🚧 Partial | `iommu` daemon now builds, but hardware validation and full acceleration are still open |
+| P4 Wayland runtime | 🚧 In progress | `redbear-wayland` is now a first-class profile, builds to a bootable image, and reaches the `orbital-wayland` → `smallvil` runtime path in QEMU/UEFI |
+| P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
 | P6 KDE Plasma | 🚧 In progress | Mix of real builds, shims, and stubs |
 
-There is no distinct first-class **P7** phase artifact in this repository today; later work appears as milestone-style follow-on work beyond the tracked P6 boundary.
+There is no distinct first-class **P7** artifact in this older historical numbering. The canonical
+current execution plan uses the newer phased/workstream ordering documented in `docs/07`.
+
+## First-class subsystem order and blockers
+
+The current subsystem order is not arbitrary.
+
+- **Low-level controllers / IRQ quality** are first-class because they block reliable driver/runtime validation.
+- **USB** is first-class because Bluetooth and wider device support depend on controller and hotplug maturity.
+- **Wi-Fi** is first-class because Red Bear still lacks any native wireless driver/control plane.
+- **Bluetooth** is first-class because it remains fully missing and depends on either USB maturity or another controller path.
+
+The current blocker chain is:
+
+`low-level controllers -> USB -> Bluetooth`
+
+and, separately:
+
+`low-level controllers -> Wi-Fi driver bring-up -> native wireless control plane -> desktop compatibility later`
+
+These subsystems are all intended to be implemented in full, but they must be executed in this order
+to avoid building desktop-facing layers on top of missing runtime substrate.
+
+The current total order is: low-level controllers first, then USB, then Wi-Fi, then Bluetooth, and
+only after those runtime services are credible should heavier desktop/session compatibility layers
+expand on top of them.
 
 ## What's Different from Upstream Redox
 
