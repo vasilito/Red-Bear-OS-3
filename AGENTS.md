@@ -3,13 +3,25 @@
 **Generated:** 2026-04-12 (P1/P2 complete)
 **Toolchain:** Rust nightly-2025-10-03 (edition 2024)
 **Architecture:** Microkernel OS in Rust, ~38k files, ~294k LoC Rust
-**Target Hardware**: AMD64 bare metal, AMD GPU (RDNA2/RDNA3), then Intel
+**Target Hardware**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority Red Bear OS targets
 
 ## OVERVIEW
 
 Red Bear OS build system orchestrator — fetches, builds, and packages ~100+ Git repositories
 into a bootable Redox image. Uses a Makefile + Rust "cookbook" tool + TOML configs.
 Languages: Rust (core), C (ported packages), TOML (config), Make (build orchestration).
+
+RedBearOS should be treated as an overlay distribution on top of Redox in the same way Ubuntu
+relates to Debian:
+
+- Redox is upstream
+- Red Bear carries integration, packaging, validation, and subsystem overlays on top
+- upstream-owned source trees are refreshable working copies
+- durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
+  Red Bear configs
+
+If we can fetch refreshed upstream sources, reapply our overlays, and rebuild successfully, the
+project is in the right shape for long-term maintenance.
 
 ## STRUCTURE
 
@@ -32,7 +44,7 @@ redox-master/
 │   ├── Assets/      # Branding assets (icon, loading background)
 │   ├── firmware/    # AMD GPU firmware blobs (fetched, not committed)
 │   ├── scripts/     # Build/deploy scripts (fetch-firmware.sh, build-amd.sh)
-│   └── docs/        # AMD-first integration docs (AMD-FIRST-INTEGRATION.md)
+│   └── docs/        # Red Bear integration docs (AMD roadmap, Wi-Fi/Bluetooth plans, status notes)
 ├── prefix/          # Cross-compiler toolchain (Clang/LLVM for x86_64-unknown-redox)
 ├── build/           # Build outputs, logs, fstools, per-arch directories
 ├── repo/            # Package manifests and PKGAR artifacts per architecture
@@ -138,6 +150,11 @@ make all
 
 All Red Bear OS modifications to upstream files are kept separately in `local/patches/`.
 
+This is not just a convenience rule; it is a long-term maintenance rule. For fast-moving upstream
+areas like relibc, prefer the upstream solution whenever upstream already solves the same problem.
+Keep Red Bear patch carriers only for gaps or compatibility work that upstream still does not solve
+adequately.
+
 ### Structure
 
 ```
@@ -207,7 +224,7 @@ git reset --hard upstream-redox/master
 
 See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 
-**Target**: AMD64 bare metal, AMD GPU (RDNA2/RDNA3). Intel second.
+**Target**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority hardware targets.
 
 **amdgpu is 6M+ lines — 18x larger than Intel i915. LinuxKPI compat approach mandatory.**
 
@@ -261,3 +278,23 @@ All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 - The `repo` binary (cookbook CLI) may crash with TUI in non-interactive environments — use `CI=1`
 - No git submodules — external repos managed via recipe source URLs and repo manifests
 - File `INTEGRATION_REPORT.md` contains detailed integration status from a previous analysis
+
+## SUBSYSTEM PRIORITY AND ORDER
+
+Red Bear OS should treat low-level controllers, USB, Wi-Fi, and Bluetooth as first-class subsystem
+targets.
+
+Current execution order:
+
+1. low-level controllers / IRQ quality / runtime-proof
+2. USB controller and topology maturity
+3. Wi-Fi native control-plane and one bounded driver path
+4. Bluetooth host/controller path
+5. desktop/session compatibility layers on top of those runtime services
+
+Current blocker emphasis:
+
+- low-level controller quality blocks reliable USB and Wi-Fi validation
+- USB maturity blocks the realistic first Bluetooth transport path
+- Wi-Fi and Bluetooth should not be treated as optional polish; both remain missing subsystem work
+  that must be implemented fully, but in the right order
