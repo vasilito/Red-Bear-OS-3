@@ -32,7 +32,7 @@ find_package(KF6GuiAddons ${KF_DEP_VERSION} REQUIRED)
 
 
 if(NOT WIN32 AND NOT APPLE AND NOT ANDROID AND NOT REDOX)
-##    find_package(KF6GlobalAccel ${KF_DEP_VERSION} REQUIRED)
+###    find_package(KF6GlobalAccel ${KF_DEP_VERSION} REQUIRED)
     set(HAVE_KGLOBALACCEL TRUE)
 else()
     set(HAVE_KGLOBALACCEL FALSE)

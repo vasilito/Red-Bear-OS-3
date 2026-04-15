@@ -35,6 +35,10 @@ sed -i 's/^include(ECMQmlModule)/#include(ECMQmlModule)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^    add_subdirectory(qml)/#    add_subdirectory(qml)/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^#add_subdirectory(src)/add_subdirectory(src)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '139,160 s/^##//' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '148,160 s/^#//' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles

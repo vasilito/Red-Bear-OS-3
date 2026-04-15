@@ -27,8 +27,14 @@ sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^find_package(KF6Notifications/#find_package(KF6Notifications/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i '/find_package(Qt6.*Widgets)/a find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/knotificationjobuidelegate.cpp/d' "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i '/knotificationjobuidelegate.h/d' "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/KF6::Notifications/#KF6::Notifications/' "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/KNotificationJobUiDelegate/#KNotificationJobUiDelegate/' "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles

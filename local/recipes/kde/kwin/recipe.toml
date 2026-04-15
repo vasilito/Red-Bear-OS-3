@@ -66,6 +66,15 @@ for tool in moc rcc uic qdbuscpp2xml qdbusxml2cpp wayland-scanner; do
     [ -f "/usr/bin/$tool" ] && [ ! -e "${HOST_BUILD}/bin/$tool" ] && ln -sf "/usr/bin/$tool" "${HOST_BUILD}/bin/$tool"
 done
 
+mkdir -p "${HOST_BUILD}/lib/cmake"
+for qt_module in Qt6Xml; do
+    if [ -d "/usr/lib/cmake/${qt_module}" ] && [ ! -e "${HOST_BUILD}/lib/cmake/${qt_module}" ]; then
+        ln -sf "/usr/lib/cmake/${qt_module}" "${HOST_BUILD}/lib/cmake/${qt_module}"
+    elif [ -d "/usr/lib64/cmake/${qt_module}" ] && [ ! -e "${HOST_BUILD}/lib/cmake/${qt_module}" ]; then
+        ln -sf "/usr/lib64/cmake/${qt_module}" "${HOST_BUILD}/lib/cmake/${qt_module}"
+    fi
+done
+
 rm -rf "${HOST_SCANNER_BUILD}"
 mkdir -p "${HOST_SCANNER_BUILD}"
 env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \

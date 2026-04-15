@@ -27,21 +27,6 @@ sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' \
 sed -i 's|#io/kfilesystemtype.cpp|io/kfilesystemtype.cpp|' \
     "${COOKBOOK_SOURCE}/src/lib/CMakeLists.txt"
 
-# Provide a stub determineFileSystemTypeImpl() — Q_OS_LINUX path uses Linux-specific
-# statfs which isn't available in relibc. Unknown is safe (only affects dir watch optimization).
-KFS="${COOKBOOK_SOURCE}/src/lib/io/kfilesystemtype.cpp"
-if ! grep -q 'Redox stub' "${KFS}" 2>/dev/null; then
-    awk '/^KFileSystemType::Type KFileSystemType::fileSystemType/ {
-        print "KFileSystemType::Type determineFileSystemTypeImpl(const QByteArray &path) {"
-        print "    Q_UNUSED(path);"
-        print "    return KFileSystemType::Unknown;"
-        print "}"
-        print ""
-    }
-    { print }' "${KFS}" > "${KFS}.tmp"
-    mv "${KFS}.tmp" "${KFS}"
-fi
-
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \

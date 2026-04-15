@@ -234,7 +234,9 @@ KFileSystemType::Type determineFileSystemTypeImpl(const QByteArray &path)
 }
 #endif
 
-KFileSystemType::Type determineFileSystemTypeImpl(const QByteArray &path) {
+// Redox stub determineFileSystemTypeImpl
+KFileSystemType::Type determineFileSystemTypeImpl(const QByteArray &path)
+{
     Q_UNUSED(path);
     return KFileSystemType::Unknown;
 }
