@@ -1,26 +1,79 @@
-# Redox OS Fork — Wayland, KDE & Linux Driver Compatibility
+# Red Bear OS Documentation Index
 
-Technical documentation for forking Redox OS to include Wayland protocol support,
-KDE Plasma desktop environment, and a Linux driver compatibility layer.
+Technical documentation for Red Bear OS as an overlay distribution on top of Redox OS.
+
+This index is the entry point for the documentation set. Its main job is to make the
+current/canonical versus historical/reference split obvious.
 
 > **Status note (2026-04-14):** several documents below are historical implementation plans whose
 > original "missing / not started" language is now stale. The repo already contains substantial
 > Red Bear OS work under `local/`; use each document's top-level status notes together with
 > `local/docs/AMD-FIRST-INTEGRATION.md` and `local/docs/QT6-PORT-STATUS.md` for current state.
 
+> **Red Bear note:** newer subsystem plans can also live under `local/docs/` when they are Red Bear-
+> specific rather than general Redox architecture material. In particular, see
+> `local/docs/WIFI-IMPLEMENTATION-PLAN.md` for the current Wi-Fi direction and
+> `local/docs/AMD-FIRST-INTEGRATION.md` for the AMD-focused hardware roadmap.
+
+> **Repository model:** RedBearOS relates to Redox in the same way Ubuntu relates to Debian.
+> Upstream Redox remains the base platform; Red Bear carries packaging, patch, validation, and
+> subsystem overlays on top. For long-term stability, upstream-owned source trees should be treated
+> as refreshable working copies, while durable Red Bear state belongs in `local/patches/`,
+> `local/recipes/`, `local/docs/`, and tracked Red Bear configs.
+>
+> **WIP policy:** if an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a
+> local project until upstream promotes it to first-class status. We may refresh from upstream WIP,
+> but we should fix and ship from the Red Bear overlay until upstream support is real enough to
+> replace the local copy.
+
+## Document Status Matrix
+
+| Document set | Role |
+|---|---|
+| `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
+| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md` | canonical current Red Bear subsystem plans and status |
+| `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
+| `docs/02-GAP-ANALYSIS.md`, `docs/03-WAYLAND-ON-REDOX.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
+
+When a current-state local document conflicts with an older historical public roadmap, prefer the
+current local subsystem plan.
+
 ## Documents
 
 | # | Document | Description |
 |---|----------|-------------|
-| 01 | [Architecture Overview](01-REDOX-ARCHITECTURE.md) | Redox OS internals: microkernel, scheme system, driver model, display stack |
-| 02 | [Gap Analysis & Roadmap](02-GAP-ANALYSIS.md) | What's missing between current Redox and our Wayland/KDE/driver-compat goals |
-| 03 | [Wayland on Redox](03-WAYLAND-ON-REDOX.md) | Deep-dive into Wayland protocol requirements and current porting status |
-| 04 | [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md) | Design for a FreeBSD LinuxKPI-style driver compatibility shim |
-| 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Feasibility study and implementation plan for KDE Plasma |
+| 01 | [Architecture Overview](01-REDOX-ARCHITECTURE.md) | Architecture reference for Redox internals: microkernel, scheme system, driver model, display stack |
+| 02 | [Gap Analysis & Roadmap](02-GAP-ANALYSIS.md) | Historical gap matrix plus corrected current phase summary |
+| 03 | [Wayland on Redox](03-WAYLAND-ON-REDOX.md) | Historical Wayland implementation path plus deeper Wayland-specific rationale |
+| 04 | [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md) | Historical/current hybrid design reference for the LinuxKPI-style driver compatibility model |
+| 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Historical KDE implementation path plus deeper KDE-specific rationale |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
 | 07 | [Red Bear OS Implementation Plan](07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) | Canonical public implementation plan focused on profiles, packaging, validation, and staged hardware enablement |
 
-## Current State Summary (as of 2026-04-14)
+## Related Red Bear-local plans
+
+- `../local/docs/USB-IMPLEMENTATION-PLAN.md` — current USB completeness and rollout plan
+- `../local/docs/WIFI-IMPLEMENTATION-PLAN.md` — current Wi-Fi architecture and rollout plan
+- `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
+- `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — current low-level controller and IRQ blocker plan
+- `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap; historical AMD-first sequencing, not current platform-priority policy
+- `../local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership and upstream-vs-local migration ledger
+- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
+- `../local/docs/PROJECT-DOCUMENTATION-ASSESSMENT.md` — current assessment of documentation quality, canon, and remaining cleanup priorities
+- `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
+
+These local Red Bear plans should be treated as first-class subsystem references for USB, Wi-Fi,
+Bluetooth, and low-level controller work. They carry blocker detail that the public docs summarize
+at a higher level.
+
+## Current State Summary (as of 2026-04-15)
+
+This summary is only a quick orientation layer. For canonical current-state detail, prefer:
+
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` for repository-wide execution order,
+- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for desktop build/runtime truth,
+- `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
+- and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
 - **Display server**: Orbital (custom, scheme-based) — works
 - **Wayland**: libwayland + wayland-protocols built. Smallvil/cosmic-comp remain partial runtime experiments.

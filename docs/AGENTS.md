@@ -1,20 +1,36 @@
 # DOCS — ARCHITECTURE & INTEGRATION DOCUMENTATION
 
-7 technical documents covering Redox architecture, gap analysis, and integration paths.
-Some are now historical roadmap documents; check each file's top-level status note before treating it as current state.
-For current Red Bear OS status, also read `local/docs/AMD-FIRST-INTEGRATION.md` and `local/docs/QT6-PORT-STATUS.md`.
+Public `docs/` files now mix three roles:
+
+- canonical repository-level policy/current-state docs,
+- architecture/reference docs,
+- and older roadmap/design docs that are still useful but partly historical.
+
+Do not assume everything under `docs/` is equally current.
+
+For current Red Bear OS status, also read:
+
+- `docs/README.md` — canonical docs index + status matrix
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` — canonical public implementation plan
+- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — current desktop stack build/runtime truth
+- `local/docs/QT6-PORT-STATUS.md` — current Qt/KF6 package-level status
+- `local/docs/AMD-FIRST-INTEGRATION.md` — deeper AMD/graphics technical roadmap
+- `local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership status
+- `local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — current script guarantees and non-guarantees
+- `local/docs/PROJECT-DOCUMENTATION-ASSESSMENT.md` — current assessment of the documentation corpus
 
 ## STRUCTURE
 
 ```
 docs/
-├── 01-REDOX-ARCHITECTURE.md   # Microkernel design, scheme system, driver model, Orbital
-├── 02-GAP-ANALYSIS.md         # Dependency chain, gap matrix, milestone roadmap
-├── 03-WAYLAND-ON-REDOX.md     # Wayland implementation path (5 steps, ~26 weeks)
-├── 04-LINUX-DRIVER-COMPAT.md  # LinuxKPI-style driver compat layer (3 crates)
-├── 05-KDE-PLASMA-ON-REDOX.md  # KDE Plasma port (3 phases, ~38 weeks)
-├── 06-BUILD-SYSTEM-SETUP.md   # Build prerequisites, config, commands, troubleshooting
-└── README.md                  # Index of all docs
+├── 01-REDOX-ARCHITECTURE.md   # Architecture reference: microkernel, scheme system, driver model, Orbital
+├── 02-GAP-ANALYSIS.md         # Historical gap matrix with corrected current-state notes
+├── 03-WAYLAND-ON-REDOX.md     # Historical Wayland implementation path + deeper rationale
+├── 04-LINUX-DRIVER-COMPAT.md  # Driver-compat architecture reference + historical porting path
+├── 05-KDE-PLASMA-ON-REDOX.md  # Historical KDE implementation path + deeper rationale
+├── 06-BUILD-SYSTEM-SETUP.md   # Build/setup mechanics guide (not canonical policy)
+├── 07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md # Canonical public implementation plan
+└── README.md                  # Canonical docs index + status matrix
 ```
 
 ## WHERE TO LOOK
@@ -23,8 +39,14 @@ docs/
 |----------|----------|-------------|
 | How does the kernel work? | 01 | §1 Microkernel, §2 Scheme System |
 | How do drivers access hardware? | 01 | §3 Driver Model, §6 Build System |
+| What is the canonical current implementation plan? | 07 | Entire document |
+| Which docs are current vs historical? | README | Document Status Matrix |
+| What is the current WIP ownership policy? | local/docs/WIP-MIGRATION-LEDGER.md | Entire document |
+| What do the main sync/fetch/apply/build scripts actually guarantee? | local/docs/SCRIPT-BEHAVIOR-MATRIX.md | Entire document |
+| What is the current desktop-stack truth? | local/docs/DESKTOP-STACK-CURRENT-STATUS.md | Entire document |
+| What is the current Qt/KF6 status? | local/docs/QT6-PORT-STATUS.md | Entire document |
 | What's missing for Wayland? | 02 | Status correction + ordered remaining gaps |
-| How to fix POSIX gaps? | 03 | Status correction + historical §1 notes |
+| How to fix POSIX gaps? | local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md | Current relibc completeness work |
 | How to build evdevd? | 03 | §2 (evdev input daemon architecture) |
 | How to build DRM/KMS? | 03 | §3 (drmd daemon, Intel driver) |
 | How to port a Wayland compositor? | 03 | §4 (Smithay Redox backends) |
@@ -35,13 +57,9 @@ docs/
 | How to port KDE Frameworks? | 05 | Phase KDE-B (25 frameworks, tiered approach) |
 | How to port KDE Plasma? | 05 | Phase KDE-C (KWin, Plasma Shell, session config) |
 | How to set up the build? | 06 | Prerequisites per distro, build commands |
-| What's the milestone timeline? | 02 | M1-M8 roadmap, parallel execution plan |
+| What is the current work ordering? | 07 | Workstream Order + Blocker chain |
 
-## KEY NUMBERS
+## READING RULE
 
-- **POSIX gap story**: APIs now largely exist in-tree, but downstream Wayland consumers still carry compatibility patches
-- **Wayland recipes**: 21 in `recipes/wip/wayland/`
-- **KDE apps**: 9 WIP recipes in `recipes/wip/kde/`
-- **To Wayland compositor**: ~26 weeks (2 developers)
-- **To KDE Plasma**: ~38 weeks (2 developers)
-- **To Linux driver compat**: ~24 weeks (parallel track)
+When a current-state local document conflicts with an older public roadmap/design file, prefer the
+current local subsystem plan or the canonical public implementation plan.
