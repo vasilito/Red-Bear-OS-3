@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# apply-patches.sh — Apply all Red Bear OS patches on top of upstream Redox build system.
+# apply-patches.sh — Apply all Red Bear OS overlays on top of upstream Redox build system.
 #
 # Usage: ./local/scripts/apply-patches.sh [--force]
 #
@@ -7,6 +7,10 @@
 #   1. Applies build-system patches (rebranding, cookbook fixes, config, docs)
 #   2. Ensures recipe patches are symlinked from local/patches/
 #   3. Ensures custom recipe symlinks exist in recipes/
+#
+# WIP policy note:
+#   If upstream work is still under recipes/wip/, Red Bear may still ship from local/recipes/
+#   instead. This script therefore treats the local overlay as the durable source of truth.
 #
 # With --force: reapplies even if patches appear already applied.
 #

@@ -19,6 +19,11 @@
 #
 # Sources are placed in recipes/<category>/<name>/source/ for git/tar recipes,
 # and are left in-place for local/recipes/ (path-based sources).
+#
+# WIP policy note:
+# upstream WIP recipes are still useful fetch inputs, but Red Bear may ship the maintained version
+# from local/recipes/ instead. Fetching upstream WIP source does not by itself make that upstream
+# tree the durable shipping source of truth.
 
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-upstream.sh — Update from upstream Redox and reapply Red Bear OS patches.
+# sync-upstream.sh — Update from upstream Redox and reapply Red Bear OS overlays.
 #
 # Usage:
 #   ./local/scripts/sync-upstream.sh              # Rebase onto upstream master
@@ -9,6 +9,10 @@
 # Strategy: git rebase (preserves Red Bear OS commits, replays on new upstream).
 # Fallback: if rebase fails, patches in local/patches/build-system/ can be
 #           applied from scratch via: ./local/scripts/apply-patches.sh --force
+#
+# IMPORTANT: upstream WIP recipes are not treated as durable shipping inputs by Red Bear.
+# After upstream sync, Red Bear-owned WIP work still needs to come from local/recipes/ and
+# local/patches/, not from trust in recipes/wip/ alone.
 
 set -euo pipefail
 
