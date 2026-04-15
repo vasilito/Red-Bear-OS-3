@@ -8,6 +8,24 @@
 
 set -euo pipefail
 
+find_uefi_firmware() {
+    local candidates=(
+        "/usr/share/ovmf/OVMF.fd"
+        "/usr/share/OVMF/OVMF_CODE.fd"
+        "/usr/share/qemu/edk2-x86_64-code.fd"
+        "/run/libvirt/nix-ovmf/edk2-x86_64-code.fd"
+        "/opt/homebrew/opt/qemu/share/qemu/edk2s-x86_64-code.fd"
+    )
+    local path
+    for path in "${candidates[@]}"; do
+        if [[ -f "$path" ]]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+    return 1
+}
+
 usage() {
     cat <<'USAGE'
 Usage: test-vm-network-qemu.sh [config] [extra qemu args...]
@@ -75,6 +93,15 @@ echo "=== Red Bear OS VM Network Baseline ==="
 echo "Config: $CONFIG"
 echo "Image:  $IMAGE"
 echo "Net:    virtio"
+if [[ "${ARCH}" == "x86_64" ]]; then
+    if firmware="$(find_uefi_firmware)"; then
+        echo "UEFI:   $firmware"
+    else
+        echo "ERROR: no usable x86_64 UEFI firmware was found for QEMU" >&2
+        echo "Install OVMF/edk2-x86_64-code and retry." >&2
+        exit 1
+    fi
+fi
 echo
 echo "Suggested in-guest checks:"
 echo "  redbear-info --verbose"
@@ -83,4 +110,4 @@ echo "  netctl status"
 echo "  lspci"
 echo
 
-exec make qemu CONFIG_NAME="$CONFIG" net=virtio QEMUFLAGS="$QEMUFLAGS"
+exec env CI=1 make qemu CONFIG_NAME="$CONFIG" net=virtio serial=yes QEMUFLAGS="$QEMUFLAGS"
