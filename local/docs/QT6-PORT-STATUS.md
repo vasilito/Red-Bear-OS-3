@@ -118,9 +118,9 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 | Vulkan | `-DFEATURE_vulkan=OFF` | No Vulkan runtime | Port Mesa Vulkan ICD → enable |
 | OpenSSL | `-DFEATURE_openssl=OFF` | OpenSSL3 port in WIP but not validated | Validate openssl3 recipe → enable |
 | D-Bus | `-DFEATURE_dbus=OFF` | No D-Bus on Redox | Port libdbus → enable |
-| Process | `-DFEATURE_process=OFF` | relibc POSIX completeness for QProcess | Test QProcess on Redox → enable |
-| Shared Memory | `-DFEATURE_sharedmemory=OFF` | `QSharedMemory` uses `shm_open()`/`shmget()` | Add `shm_open`/`shmget` to relibc |
-| System Semaphore | `-DFEATURE_systemsemaphore=OFF` | `QSystemSemaphore` uses `sem_open()`/`semget()` | Add POSIX semaphores to relibc |
+| Process | `-DFEATURE_process=ON` | relibc now provides a bounded `waitid()` path and qtbase configures, builds, and stages with process support enabled | Validate QProcess on Redox |
+| Shared Memory | `-DFEATURE_sharedmemory=ON` | relibc now provides `shm_open()` plus bounded SysV shared-memory surfaces and qtbase configures, builds, and stages with shared memory enabled | Validate QSharedMemory on Redox |
+| System Semaphore | `-DFEATURE_systemsemaphore=ON` | relibc now provides `sem_open()`/`sem_close()`/`sem_unlink()` and qtbase configures, builds, and stages with system semaphore support enabled | Validate QSystemSemaphore on Redox |
 | qmake | `-DFEATURE_qmake=OFF` | Build tool, not needed with CMake | Enable if downstream needs qmake |
 | SQL | `-DFEATURE_sql=OFF` | User-agreed scope exclusion | Add sqlite/odbc → enable |
 | Print Support | `-DFEATURE_printsupport=OFF` | User-agreed scope exclusion | Port cups → enable |
@@ -187,7 +187,7 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 | Gap | Impact | relibc File to Modify |
 |-----|--------|----------------------|
-| `resolv.h` | Present in relibc | `recipes/core/relibc/source/src/header/resolv/` |
+| `resolv.h` | Present in relibc as a minimal source-visible header | `recipes/core/relibc/source/src/header/resolv/` |
 | `in6_pktinfo` / `ipv6_mreq` | Present in relibc | `recipes/core/relibc/source/src/header/netinet_in/mod.rs` |
 | `SIOCGIF*` ioctls | Present for the current Redox `eth0` model | `recipes/core/relibc/source/src/header/sys_ioctl/redox/mod.rs` |
 | `::ioctl` path | Present in relibc Redox ioctl implementation | `recipes/core/relibc/source/src/header/sys_ioctl/` |
@@ -199,9 +199,22 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 |-----|--------|---------------|
 | D-Bus IPC | QtDBus, KDE components | QtDBus |
 | GPU display validation | Hardware-accelerated rendering | QtOpenGL |
-| `shm_open()` / `shmget()` | Shared memory | QSharedMemory |
-| `sem_open()` / `semget()` | POSIX semaphores | QSystemSemaphore |
-| `fork()`/`exec()` POSIX completeness | QProcess internals | QProcess |
+| broader shared-memory validation beyond the existing `shm_open()` path | Shared memory | QSharedMemory |
+| broader semaphore/system-IPC validation beyond the new `sem_open()` path | POSIX semaphores | QSystemSemaphore |
+| process/runtime validation beyond the new bounded `waitid()` path | QProcess internals | QProcess |
+
+Recent relibc implementation progress in this repo now also includes:
+
+- source-visible `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `F_DUPFD_CLOEXEC`, and `MSG_NOSIGNAL`
+- a bounded `waitid()` path in relibc, replacing the old Qt-side waitid stub workaround
+- a bounded `eth0`-backed `net_if` / `ifaddrs` path in relibc
+- a minimal source-visible `resolv.h` surface in relibc
+- bounded `sys/ipc.h` / `sys/shm.h` surfaces for the `IPC_PRIVATE` shared-memory workflow
+
+Current downstream build proof in this repo now includes:
+
+- `libwayland` cooking successfully against the updated relibc surfaces
+- qtbase configuring, building, and staging with `process`, `sharedmemory`, and `systemsemaphore` enabled
 | Fontconfig | Advanced font selection | QtGui (bundled FreeType works for basic) |
 
 ---
@@ -325,8 +338,10 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
 1. **QML JIT disabled** — `QT_FEATURE_qml_jit` does not compile for Redox. QML still works
    via the interpreter path, just without JIT acceleration. Non-blocking for basic QML apps.
 
-2. **QtNetwork disabled** — DNS resolver and IPv6 multicast gaps in relibc. HTTP/WebSocket
-   unavailable until relibc networking is completed. QML network access also affected.
+2. **QtNetwork disabled** — relibc now exposes bounded resolver compatibility (`resolv.h`,
+   `arpa/nameser.h`, `res_query`, `res_search`), but DNS/runtime semantics and IPv6 multicast
+   coverage are still incomplete. HTTP/WebSocket remain unavailable until relibc networking is
+   validated more broadly. QML network access is also affected.
 
 3. **No GPU hardware acceleration** — Qt6 OpenGL/EGL and Mesa EGL+GBM now build, but they are still validated only on the software/LLVMpipe path.
    True hardware acceleration (radeonsi or equivalent) still requires kernel DMA-BUF fd passing and real hardware validation.

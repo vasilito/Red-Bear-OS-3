@@ -13,7 +13,7 @@ It is meant to answer:
 - what services or schemes are actually active,
 - what integrations passed a safe read-only runtime probe,
 - whether networking is configured, including IP, DNS, and default route,
-- whether key hardware discovery surfaces (PCI, USB, DRM, RTL8125) are visible.
+- whether key hardware discovery surfaces (PCI, USB, DRM, RTL8125, VirtIO NICs) are visible.
 
 ## Output model
 
@@ -36,9 +36,15 @@ are hardware-validated at runtime.
 - **Networking** — stack state, connected flag, interface, MAC, IP/CIDR, DNS, default route,
   active `netctl` profile, visible `network.*` schemes
 - **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility
+- **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility,
+  VirtIO NIC visibility for VM baselines
 - **Integrations** — tools, daemons, and integration paths such as `lspci`, `lsusb`, `netctl`,
   `pcid-spawner`, `smolnetd`, `firmware-loader`, `udev-shim`, `evdevd`, `redox-drm`, and the
-  native RTL8125 path
+  native RTL8125 and VirtIO networking paths
+
+For Phase 3 runtime validation, `udev-shim` is expected at `/usr/bin/udev-shim` and `evdevd` is
+expected at both `/usr/bin/evdevd` and `/usr/lib/drivers/evdevd` so service execution and runtime
+reporting use the same binary identity.
 
 ## Commands
 
