@@ -11,6 +11,35 @@ path = "src/bin/lspci.rs"
 name = "lsusb"
 path = "src/bin/lsusb.rs"
 
+[[bin]]
+name = "redbear-evtest"
+path = "src/bin/evtest-rbos.rs"
+
+[[bin]]
+name = "redbear-input-inject"
+path = "src/bin/input-inject-rbos.rs"
+
+[[bin]]
+name = "redbear-phase3-input-check"
+path = "src/bin/redbear-phase3-input-check.rs"
+
+[[bin]]
+name = "redbear-phase4-wayland-check"
+path = "src/bin/redbear-phase4-wayland-check.rs"
+
+[[bin]]
+name = "redbear-phase5-network-check"
+path = "src/bin/redbear-phase5-network-check.rs"
+
+[[bin]]
+name = "redbear-phase6-kde-check"
+path = "src/bin/redbear-phase6-kde-check.rs"
+
+[[bin]]
+name = "redbear-phase-iommu-check"
+path = "src/bin/redbear-phase-iommu-check.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+orbclient = "0.3"
