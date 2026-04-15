@@ -5,6 +5,11 @@
 > exist under `local/recipes/kde/`, and the current gap is no longer "start KDE from scratch".
 > The real frontier is distinguishing true builds from shimmed/stubbed packages and then closing
 > the KWin / Plasma runtime path.
+>
+> For the current build/runtime truth summary of the desktop stack, use
+> `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` together with
+> `local/docs/QT6-PORT-STATUS.md`. This file should now be read primarily as implementation history
+> plus deeper KDE-specific rationale and porting notes.
 
 ## Current State Snapshot
 
@@ -76,6 +81,10 @@ Blocked on: KF6 completion, Mesa EGL/GBM, libdrm amdgpu+intel
 **Goal**: A Qt application displays a window on the Redox Wayland compositor.
 
 #### Step 1: Port `qtbase` (6-8 weeks)
+
+> **Historical recipe note:** the `recipes/wip/qt/...` path below is retained as design history.
+> For current Red Bear ownership and shipping decisions, use the WIP ownership policy and current
+> local overlay docs rather than assuming upstream WIP is the preferred final source.
 
 **Create recipe**: `recipes/wip/qt/qtbase/recipe.toml`
 
@@ -236,6 +245,11 @@ These have minimal dependencies — just Qt and CMake.
 | `kguiaddons` | GUI utilities | None — pure Qt |
 
 **Recipe pattern** (same for all Tier 1):
+
+> **Historical recipe pattern note:** the `recipes/wip/kde/...` examples below show the original
+> upstream-oriented porting pattern. Current Red Bear-owned KDE shipping work should prefer
+> `local/recipes/kde/` while upstream KDE recipes remain WIP.
+
 ```toml
 # recipes/wip/kde/kcoreaddons/recipe.toml
 [source]
@@ -475,6 +489,10 @@ plasmashell &
 ---
 
 ## KDE Applications (Build on 19 WIP Recipes)
+
+> **WIP ownership note:** the application list below is useful as an upstream-WIP inventory, but it
+> is not by itself a statement that Red Bear should ship directly from upstream `recipes/wip/kde/`.
+> Apply the WIP migration ledger when deciding local-versus-upstream ownership.
 
 These are already partially ported in `recipes/wip/kde/`:
 

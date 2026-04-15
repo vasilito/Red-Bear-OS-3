@@ -320,6 +320,11 @@ tar cf intel-driver.tar linux/drivers/gpu/drm/i915/ \
 
 ### Step 2: Create recipe
 
+> **Historical recipe note:** the `recipes/wip/drivers/...` example below is part of the original
+> upstream-oriented porting path. Under the Red Bear overlay policy, upstream WIP driver recipes are
+> still useful inputs, but the fixed/shipping version may need to live under `local/recipes/` until
+> upstream promotes them to first-class status.
+
 ```toml
 # recipes/wip/drivers/i915/recipe.toml
 [source]
