@@ -1,0 +1,267 @@
+#TODO: Qt6 shader tools — provides libQt6ShaderTools and the qsb host tool used by
+# Qt Quick for runtime shader compilation. Host-side Qt6ShaderToolsTools metadata and qsb
+# must be propagated into the shared QT_HOST_PATH for downstream modules to configure cleanly.
+# Depends on qtbase being built first.
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+SHADER_HOST="${COOKBOOK_ROOT}/build/qt-shadertools-host"
+
+mkdir -p "${HOST_BUILD}/include/QtGui/6.11.0/QtGui"
+
+QTBASE_STAGE="${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/${TARGET}/stage/usr"
+if [ -d "${QTBASE_STAGE}/include/QtGui" ] && [ ! -d "${COOKBOOK_SYSROOT}/include/QtGui" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/include"
+    cp -a "${QTBASE_STAGE}/include/QtGui" "${COOKBOOK_SYSROOT}/include/"
+fi
+if [ -d "${QTBASE_STAGE}/lib" ]; then
+    mkdir -p "${HOST_BUILD}/lib"
+    cp -a "${QTBASE_STAGE}/lib/libQt6Gui.so"* "${HOST_BUILD}/lib/" 2>/dev/null || true
+    cp -a "${QTBASE_STAGE}/lib/libQt6Gui.prl" "${HOST_BUILD}/lib/" 2>/dev/null || true
+fi
+QTBASE_BUILD_INCLUDE="${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/${TARGET}/build/include/QtGui"
+if [ -d "${QTBASE_BUILD_INCLUDE}/6.11.0/QtGui/rhi" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/include/QtGui/6.11.0"
+    cp -a "${QTBASE_BUILD_INCLUDE}/6.11.0/QtGui" "${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/"
+    mkdir -p "${COOKBOOK_SYSROOT}/include"
+    cp -a "${QTBASE_BUILD_INCLUDE}/6.11.0/QtGui/rhi" "${COOKBOOK_SYSROOT}/include/"
+fi
+export CPPFLAGS="${CPPFLAGS} -I${COOKBOOK_SYSROOT}/include -I${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui"
+export CFLAGS="${CFLAGS} -I${COOKBOOK_SYSROOT}/include -I${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui"
+export CXXFLAGS="${CXXFLAGS} -I${COOKBOOK_SYSROOT}/include -I${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui"
+
+python - <<'PY'
+import os
+from pathlib import Path
+root = Path(os.environ["COOKBOOK_ROOT"])
+sysroot = Path(os.environ["COOKBOOK_SYSROOT"])
+src = Path(os.environ["COOKBOOK_SOURCE"]) / "src/shadertools"
+shim_dir = src / "redbear_rhi"
+shim_dir.mkdir(exist_ok=True)
+
+qshader_src = (root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshader.h").read_text()
+qguiglobal_src = (sysroot / "include/QtGui/qtguiglobal.h").read_text()
+qguiglobal_src = qguiglobal_src.replace('#include <QtCore/qglobal.h>', f'#include "{sysroot / "include/QtCore/qglobal.h"}"')
+qguiglobal_src = qguiglobal_src.replace('#include <QtGui/qtgui-config.h>', f'#include "{sysroot / "include/QtGui/qtgui-config.h"}"')
+qguiglobal_src = qguiglobal_src.replace('#include <QtGui/qtguiexports.h>', f'#include "{sysroot / "include/QtGui/qtguiexports.h"}"')
+(shim_dir / 'qtguiglobal_redbear.h').write_text(qguiglobal_src)
+
+qshader_src = qshader_src.replace('#include <QtGui/qtguiglobal.h>', '#include "qtguiglobal_redbear.h"')
+qshader_src = qshader_src.replace('#include <QtCore/qhash.h>', f'#include "{sysroot / "include/QtCore/qhash.h"}"')
+qshader_src = qshader_src.replace('#include <QtCore/qmap.h>', f'#include "{sysroot / "include/QtCore/qmap.h"}"')
+qshader_src = qshader_src.replace('#include <rhi/qshaderdescription.h>', '#include "qshaderdescription_redbear.h"')
+(shim_dir / 'qshader_redbear.h').write_text(qshader_src)
+
+qshaderdesc_src = (root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshaderdescription.h").read_text()
+qshaderdesc_src = qshaderdesc_src.replace('#include <QtGui/qtguiglobal.h>', '#include "qtguiglobal_redbear.h"')
+qshaderdesc_src = qshaderdesc_src.replace('#include <QtCore/qstring.h>', f'#include "{sysroot / "include/QtCore/qstring.h"}"')
+qshaderdesc_src = qshaderdesc_src.replace('#include <QtCore/qlist.h>', f'#include "{sysroot / "include/QtCore/qlist.h"}"')
+(shim_dir / 'qshaderdescription_redbear.h').write_text(qshaderdesc_src)
+
+qshaderdesc_p_src = (root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshaderdescription_p.h").read_text()
+qshaderdesc_p_src = qshaderdesc_p_src.replace('#include <rhi/qshaderdescription.h>', '#include "qshaderdescription_redbear.h"')
+qshaderdesc_p_src = qshaderdesc_p_src.replace('#include <QtCore/QList>', f'#include "{sysroot / "include/QtCore/QList"}"')
+qshaderdesc_p_src = qshaderdesc_p_src.replace('#include <QtCore/QAtomicInt>', f'#include "{sysroot / "include/QtCore/QAtomicInt"}"')
+qshaderdesc_p_src = qshaderdesc_p_src.replace('#include <QtCore/QJsonDocument>', f'#include "{sysroot / "include/QtCore/QJsonDocument"}"')
+(shim_dir / 'qshaderdescription_p_redbear.h').write_text(qshaderdesc_p_src)
+
+qshader_p_src = (root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshader_p.h").read_text()
+qtguiglobal_p_src = (root / "recipes/wip/qt/qtbase/source/src/gui/kernel/qtguiglobal_p.h").read_text()
+qglobal_p_src = (root / "recipes/wip/qt/qtbase/source/src/corelib/global/qglobal_p.h").read_text()
+qtcoreglobal_p_src = (root / "recipes/wip/qt/qtbase/source/src/corelib/global/qtcoreglobal_p.h").read_text()
+qtcoreglobal_p_src = qtcoreglobal_p_src.replace('#include <QtCore/qglobal.h>', f'#include "{sysroot / "include/QtCore/qglobal.h"}"')
+qtcoreglobal_p_src = qtcoreglobal_p_src.replace('#include <QtCore/private/qconfig_p.h>', f'#include "{root / "recipes/wip/qt/qtbase/target" / os.environ["TARGET"] / "stage/usr/include/QtCore/6.11.0/QtCore/private/qconfig_p.h"}"')
+(shim_dir / 'qtcoreglobal_p_redbear.h').write_text(qtcoreglobal_p_src)
+
+qglobal_p_src = qglobal_p_src.replace('#include "qglobal.h"', f'#include "{sysroot / "include/QtCore/qglobal.h"}"')
+qglobal_p_src = qglobal_p_src.replace('#include "qglobal_p.h"      // include self to avoid syncqt warning - no-op', '// self-include removed for Red Bear shim')
+qglobal_p_src = qglobal_p_src.replace('#include <QtCore/private/qtcoreglobal_p.h>', '#include "qtcoreglobal_p_redbear.h"')
+(shim_dir / 'qglobal_p_redbear.h').write_text(qglobal_p_src)
+
+qtguiglobal_p_src = qtguiglobal_p_src.replace('#include <QtGui/qtguiglobal.h>', '#include "qtguiglobal_redbear.h"')
+qtguiglobal_p_src = qtguiglobal_p_src.replace('#include <QtGui/private/qtgui-config_p.h>', f'#include "{root / "recipes/wip/qt/qtbase/target" / os.environ["TARGET"] / "stage/usr/include/QtGui/6.11.0/QtGui/private/qtgui-config_p.h"}"')
+qtguiglobal_p_src = qtguiglobal_p_src.replace('#include <QtCore/private/qglobal_p.h>', '#include "qglobal_p_redbear.h"')
+(shim_dir / 'qtguiglobal_p_redbear.h').write_text(qtguiglobal_p_src)
+
+qshader_p_src = qshader_p_src.replace('#include <QtGui/private/qtguiglobal_p.h>', '#include "qtguiglobal_p_redbear.h"')
+qshader_p_src = qshader_p_src.replace('#include <rhi/qshader.h>', '#include "qshader_redbear.h"')
+qshader_p_src = qshader_p_src.replace('#include <QtCore/QAtomicInt>', f'#include "{sysroot / "include/QtCore/QAtomicInt"}"')
+qshader_p_src = qshader_p_src.replace('#include <QtCore/QMap>', f'#include "{sysroot / "include/QtCore/QMap"}"')
+(shim_dir / 'qshader_p_redbear.h').write_text(qshader_p_src)
+
+target = shim_dir / 'qshader_redbear.h'
+for rel in ["qshaderbaker.h", "qspirvcompiler_p.h", "qspirvshader_p.h"]:
+    path = src / rel
+    text = path.read_text()
+    text = text.replace('#include <QtGui/6.11.0/QtGui/rhi/qshader.h>', f'#include "{target}"')
+    text = text.replace('#include <rhi/qshader.h>', f'#include "{target}"')
+    text = text.replace(f'#include "{root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshader.h"}"', f'#include "{target}"')
+    path.write_text(text)
+
+qspirvshader_cpp = src / 'qspirvshader.cpp'
+text = qspirvshader_cpp.read_text()
+text = text.replace('#include <private/qshaderdescription_p.h>', '#include "redbear_rhi/qshaderdescription_p_redbear.h"')
+text = text.replace('#include <private/qshader_p.h>', '#include "redbear_rhi/qshader_p_redbear.h"')
+text = text.replace(f'#include "{root / "recipes/wip/qt/qtbase/source/src/gui/rhi/private/qshaderdescription_p.h"}"', '#include "redbear_rhi/qshaderdescription_p_redbear.h"')
+text = text.replace(f'#include "{root / "recipes/wip/qt/qtbase/source/src/gui/rhi/private/qshader_p.h"}"', '#include "redbear_rhi/qshader_p_redbear.h"')
+text = text.replace(f'#include "{root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshaderdescription_p.h"}"', '#include "redbear_rhi/qshaderdescription_p_redbear.h"')
+text = text.replace(f'#include "{root / "recipes/wip/qt/qtbase/source/src/gui/rhi/qshader_p.h"}"', '#include "redbear_rhi/qshader_p_redbear.h"')
+qspirvshader_cpp.write_text(text)
+
+qsb_cpp = Path(os.environ["COOKBOOK_SOURCE"]) / "tools/qsb/qsb.cpp"
+text = qsb_cpp.read_text()
+text = text.replace('#include <QtGui/private/qshader_p.h>', '#include "../../src/shadertools/redbear_rhi/qshader_p_redbear.h"')
+qsb_cpp.write_text(text)
+
+tools_cmake = Path(os.environ["COOKBOOK_SOURCE"]) / "tools/CMakeLists.txt"
+text = tools_cmake.read_text()
+text = text.replace('add_subdirectory(qsb)', '# add_subdirectory(qsb) # disabled in Red Bear target build; host qsb is built separately')
+tools_cmake.write_text(text)
+PY
+
+# ============================================================
+# Step 1: Build host qsb from the module top-level so Qt's repo macros resolve.
+# ============================================================
+if [ ! -f "${HOST_BUILD}/bin/qsb" ]; then
+    echo "=== Building qsb host tool ==="
+    rm -rf "${SHADER_HOST}"
+    mkdir -p "${SHADER_HOST}"
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS \
+        -u CXXFLAGS \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake -S "${COOKBOOK_SOURCE}" -B "${SHADER_HOST}" \
+        -DCMAKE_C_COMPILER=/usr/bin/cc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
+        -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+        -DQT_BUILD_EXAMPLES=OFF \
+        -DQT_BUILD_TESTS=OFF \
+        -DQT_GENERATE_SBOM=OFF \
+        -Wno-dev
+    cmake --build "${SHADER_HOST}" -j"${COOKBOOK_MAKE_JOBS}"
+
+    mkdir -p "${HOST_BUILD}/lib/cmake"
+    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderToolsPrivate" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderToolsTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+    if [ -d "${SHADER_HOST}/libexec" ]; then
+        mkdir -p "${HOST_BUILD}/libexec"
+        cp -a "${SHADER_HOST}/libexec/." "${HOST_BUILD}/libexec/" 2>/dev/null || true
+    fi
+    if [ -f "${SHADER_HOST}/bin/qsb" ]; then
+        mkdir -p "${HOST_BUILD}/bin"
+        cp -a "${SHADER_HOST}/bin/qsb" "${HOST_BUILD}/bin/"
+    elif [ -f "${SHADER_HOST}/libexec/qsb" ]; then
+        mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec"
+        cp -a "${SHADER_HOST}/libexec/qsb" "${HOST_BUILD}/libexec/"
+        cp -a "${SHADER_HOST}/libexec/qsb" "${HOST_BUILD}/bin/qsb"
+    fi
+fi
+
+# ============================================================
+# Step 2: Cross-compile libQt6ShaderTools for Redox
+# ============================================================
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DCMAKE_C_STANDARD_INCLUDE_DIRECTORIES="${COOKBOOK_SYSROOT}/include;${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui" \
+    -DCMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES="${COOKBOOK_SYSROOT}/include;${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui" \
+    -DCMAKE_C_FLAGS="${CFLAGS}" \
+    -DCMAKE_CXX_FLAGS="${CXXFLAGS} -I${COOKBOOK_SYSROOT}/include" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+# ============================================================
+# Step 3: Stage artifacts
+# ============================================================
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -a "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -a "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+
+# RPATH cleanup
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+
+# CMake export fixup: replace build-tree paths with /usr
+BUILD_DIR="${COOKBOOK_BUILD}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+
+# Sysroot propagation for downstream Qt modules
+SYSROOT="${COOKBOOK_SYSROOT}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6ShaderTools" -name '*.cmake' -exec sed -i \
+    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+mkdir -p "${SYSROOT}/include"
+cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+mkdir -p "${SYSROOT}/lib/cmake/Qt6ShaderTools"
+cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6ShaderTools/"* "${SYSROOT}/lib/cmake/Qt6ShaderTools/" 2>/dev/null || true
+mkdir -p "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+
+# Ensure qsb is staged for downstream consumers.
+if [ -f "${HOST_BUILD}/bin/qsb" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/bin"
+    cp -a "${HOST_BUILD}/bin/qsb" "${COOKBOOK_STAGE}/usr/bin/"
+    patchelf --remove-rpath "${COOKBOOK_STAGE}/usr/bin/qsb" 2>/dev/null || true
+fi
+"""
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtshadertools-everywhere-src-6.11.0.tar.xz"

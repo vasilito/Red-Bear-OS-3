@@ -1,0 +1,11 @@
+#TODO: libqrencode — QR code encoder library for KF6 Prison. Optional CLI/PNG features can be revisited later.
+[source]
+tar = "https://github.com/fukuchi/libqrencode/archive/refs/tags/v4.1.1.tar.gz"
+blake3 = "78bf8bbcfb037140d0e98dc355e77416c9c9b0fd3ac12fd6e767b07d68f60f8c"
+script = '''
+sed -i 's/^cmake_minimum_required(VERSION 3\.1\.0)$/cmake_minimum_required(VERSION 3.5)/' CMakeLists.txt
+sed -i 's/^option(WITH_TOOLS "Build utility tools"  YES )$/option(WITH_TOOLS "Build utility tools"  NO )/' CMakeLists.txt
+'''
+
+[build]
+template = "cmake"

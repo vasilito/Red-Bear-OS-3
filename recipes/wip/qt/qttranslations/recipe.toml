@@ -1,0 +1,122 @@
+#TODO: Qt6 translations — cross-built for Redox with host-side Qt Linguist tools. Runtime validation of the staged .qm catalogs and translation lookup paths is still pending.
+# Provides: Qt translation catalogs under /usr/translations plus the generated catalogs.json manifest.
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qttranslations-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qttools",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+QTTOOLS_SOURCE="${COOKBOOK_ROOT}/recipes/wip/qt/qttools/source"
+LINGUIST_HOST="${COOKBOOK_ROOT}/build/qt-linguist-host"
+
+if [ ! -d "${QTTOOLS_SOURCE}" ]; then
+    printf 'qttranslations: expected qttools source at %s\n' "${QTTOOLS_SOURCE}" >&2
+    exit 1
+fi
+
+# qttranslations only builds when the Qt Linguist component exists. Build the host-side
+# lrelease/lupdate/lconvert tools into the shared Qt host prefix so cross CMake can find them.
+if [ ! -f "${HOST_BUILD}/bin/lrelease" ] || [ ! -f "${HOST_BUILD}/bin/lupdate" ] || [ ! -f "${HOST_BUILD}/bin/lconvert" ]; then
+    mkdir -p "${LINGUIST_HOST}"
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake -S "${QTTOOLS_SOURCE}" -B "${LINGUIST_HOST}" \
+        -DCMAKE_C_COMPILER=/usr/bin/cc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+        -DCMAKE_ASM_COMPILER=/usr/bin/cc \
+        -DCMAKE_AR=/usr/bin/ar \
+        -DCMAKE_RANLIB=/usr/bin/ranlib \
+        -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
+        -DCMAKE_STRIP=/usr/bin/strip \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
+        -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+        -DQT_BUILD_EXAMPLES=OFF \
+        -DQT_BUILD_TESTS=OFF \
+        -DQT_BUILD_TOOLS_BY_DEFAULT=OFF \
+        -DQT_GENERATE_SBOM=OFF \
+        -DQT_INSTALL_XDG_DESKTOP_ENTRIES=OFF \
+        -DQT_FEATURE_qdoc=OFF \
+        -Wno-dev
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake --build "${LINGUIST_HOST}" --target lrelease lupdate lconvert -j"${COOKBOOK_MAKE_JOBS}"
+    mkdir -p "${HOST_BUILD}/bin"
+    cp -a "${LINGUIST_HOST}/bin/." "${HOST_BUILD}/bin/" 2>/dev/null || true
+    if [ -d "${LINGUIST_HOST}/libexec" ]; then
+        mkdir -p "${HOST_BUILD}/libexec"
+        cp -a "${LINGUIST_HOST}/libexec/." "${HOST_BUILD}/libexec/" 2>/dev/null || true
+    fi
+fi
+
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
+# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+if [ -d "translations" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/translations"
+    cp -a translations/* "${COOKBOOK_STAGE}/usr/translations/" 2>/dev/null || true
+fi
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+    mkdir -p "${COOKBOOK_SYSROOT}/lib/cmake"
+    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${COOKBOOK_SYSROOT}/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/translations" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/translations"
+    cp -a "${COOKBOOK_STAGE}/usr/translations/"* "${COOKBOOK_SYSROOT}/translations/" 2>/dev/null || true
+fi
+"""

@@ -323,7 +323,7 @@ diff -ruwN source-old/src/corelib/plugin/qelfparser_p.cpp source/src/corelib/plu
 diff -ruwN source-old/src/corelib/plugin/qlibrary.cpp source/src/corelib/plugin/qlibrary.cpp
 --- source-old/src/corelib/plugin/qlibrary.cpp	2024-12-02 05:39:06.000000000 +0000
 +++ source/src/corelib/plugin/qlibrary.cpp	2026-04-16 00:00:00.000000000 +0000
-@@ -232,24 +232,35 @@
+@@ -232,24 +232,37 @@
      qsizetype fdlen = qMin(file.size(), MaxMemoryMapSize);
 -    const char *filedata = reinterpret_cast<char *>(file.map(0, fdlen));
 +    const char *filedata = nullptr;

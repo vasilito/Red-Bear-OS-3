@@ -1,5 +1,5 @@
-#TODO: Qt6 base — qtbase compiled with Core+Concurrent+Xml+Gui+Widgets+DBus. Runtime validation pending.
-# Scope: software rendering (no EGL/OpenGL), no Network/SQL/PrintSupport/TestLib.
+#TODO: Qt6 base — qtbase compiled with Core+Concurrent+Xml+Gui+Widgets+DBus+OpenGL+EGL. Runtime validation pending.
+# OpenGL/EGL enabled (software via Mesa/LLVMpipe; hardware acceleration requires kernel DMA-BUF).
 # Re-enable path: see local/docs/QT6-PORT-STATUS.md
 # Redox platform detection and syscall adaptations in redox.patch
 [source]
@@ -59,19 +59,28 @@ done
 # with these tools during the target build.
 # ============================================================
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
-if [ ! -f "${HOST_BUILD}/bin/moc" ]; then
+HOST_PROFILE="qtbase-host-6.11.0-gui-xml-wayland-no-qdbus-tools"
+HOST_STAMP="${HOST_BUILD}/.redbear-host-profile"
+HOST_PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/jvm/default/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
+python - <<'PY'
+import os
+from pathlib import Path
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/tools/CMakeLists.txt"
+text = path.read_text()
+old = "    add_subdirectory(qdbuscpp2xml)\\n    add_subdirectory(qdbusxml2cpp)\\n"
+new = "    # add_subdirectory(qdbuscpp2xml) # disabled for Redox Qt Wave 1\\n    # add_subdirectory(qdbusxml2cpp) # disabled for Redox Qt Wave 1\\n"
+text = text.replace(old, new)
+path.write_text(text)
+PY
+if [ -d "${HOST_BUILD}" ] && { [ ! -f "${HOST_STAMP}" ] || [ "$(cat "${HOST_STAMP}" 2>/dev/null)" != "${HOST_PROFILE}" ]; }; then
+    rm -rf "${HOST_BUILD}"
+fi
+if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
     echo "=== Building Qt host tools ==="
     mkdir -p "${HOST_BUILD}"
-    env \
-        -u CPPFLAGS \
-        -u LDFLAGS \
-        -u PKG_CONFIG_ALLOW_CROSS \
-        -u PKG_CONFIG_PATH \
-        -u PKG_CONFIG_LIBDIR \
-        -u PKG_CONFIG_SYSROOT_DIR \
-        -u CFLAGS_x86_64_unknown_redox \
-        -u CXXFLAGS_x86_64_unknown_redox \
-        -u LDFLAGS_x86_64_unknown_redox \
+    env -i \
+        HOME="${HOME}" \
+        PATH="${HOST_PATH}" \
         cmake -S "${COOKBOOK_SOURCE}" -B "${HOST_BUILD}" \
         -DCMAKE_C_COMPILER=/usr/bin/cc \
         -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
@@ -84,7 +93,7 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ]; then
         -DQT_BUILD_EXAMPLES=OFF \
         -DQT_BUILD_TESTS=OFF \
         -DFEATURE_glib=OFF \
-        -DFEATURE_gui=OFF \
+        -DFEATURE_gui=ON \
         -DFEATURE_widgets=OFF \
         -DFEATURE_opengl=OFF \
     -DFEATURE_network=OFF \
@@ -92,21 +101,17 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ]; then
     -DFEATURE_openssl=OFF \
     -DFEATURE_sql=OFF \
     -DFEATURE_testlib=OFF \
-    -DFEATURE_xml=OFF \
-    -DFEATURE_wayland=ON \
-    -DFEATURE_qtwaylandscanner=ON \
-    -Wno-dev
-    env \
-        -u CPPFLAGS \
-        -u LDFLAGS \
-        -u PKG_CONFIG_ALLOW_CROSS \
-        -u PKG_CONFIG_PATH \
-        -u PKG_CONFIG_LIBDIR \
-        -u PKG_CONFIG_SYSROOT_DIR \
-        -u CFLAGS_x86_64_unknown_redox \
-        -u CXXFLAGS_x86_64_unknown_redox \
-        -u LDFLAGS_x86_64_unknown_redox \
+        -DFEATURE_xml=ON \
+        -DFEATURE_wayland=ON \
+        -DFEATURE_qtwaylandscanner=ON \
+        -Wno-dev
+    env -i \
+        HOME="${HOME}" \
+        PATH="${HOST_PATH}" \
         cmake --build "${HOST_BUILD}" --target host_tools -j"${COOKBOOK_MAKE_JOBS}"
+    mkdir -p "${HOST_BUILD}/include/QtGui/6.11.0/QtGui"
+    mkdir -p "${HOST_BUILD}/include/QtDBus/6.11.0/QtDBus"
+    printf '%s\n' "${HOST_PROFILE}" > "${HOST_STAMP}"
 fi
 
 # ============================================================

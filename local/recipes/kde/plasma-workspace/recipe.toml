@@ -39,7 +39,7 @@ dependencies = [
     "kf6-kwidgetsaddons",
     "kf6-kwindowsystem",
     "kf6-kxmlgui",
-    "kf6-kirigami",
+    "kirigami",
     "kf6-prison",
     "kf6-solid",
     "plasma-framework",

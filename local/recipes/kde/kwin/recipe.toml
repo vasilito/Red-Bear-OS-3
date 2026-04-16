@@ -1,6 +1,8 @@
 #TODO: KWin Wayland compositor — DRM backend → scheme:drm, libinput → via evdevd, session → seatd
 # Stub deps remaining: libepoxy-stub, libudev-stub, lcms2-stub, libdisplay-info-stub
 # provide INTERFACE IMPORTED cmake targets so KWin links without real implementations.
+# Re-enabled (deps built): decorations, global shortcuts, runners, notifications, D-Bus
+# Still disabled: KCMS (QML), screen locking, tabbox, effects, X11, QML, signing docs
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
 
@@ -171,23 +173,23 @@ cmake "${COOKBOOK_SOURCE}" \
     -DQT_BUILD_EXAMPLES=OFF \
     -DQT_BUILD_TESTS=OFF \
     -DBUILD_TESTING=OFF \
-    -DKWIN_BUILD_DECORATIONS=OFF \
+    -DKWIN_BUILD_DECORATIONS=ON \
     -DKWIN_BUILD_KCMS=OFF \
     -DKWIN_BUILD_SCREENLOCKING=OFF \
     -DKWIN_BUILD_TABBOX=OFF \
     -DKWIN_BUILD_EFFECTS=OFF \
     -DKWIN_BUILD_RUNNING_IN_KDE=OFF \
     -DKWIN_BUILD_X11=OFF \
-    -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
-    -DKWIN_BUILD_RUNNERS=OFF \
-    -DKWIN_BUILD_NOTIFICATIONS=OFF \
+    -DKWIN_BUILD_GLOBALSHORTCUTS=ON \
+    -DKWIN_BUILD_RUNNERS=ON \
+    -DKWIN_BUILD_NOTIFICATIONS=ON \
     -DKWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF \
     -DKWIN_BUILD_SCREENLOCKER=OFF \
     -DQT_GENERATE_SBOM=OFF \
     -DQT_SKIP_AUTO_PLUGIN_INCLUSION=ON \
     -DQT_NO_PRIVATE_MODULE_WARNING=ON \
     -DBUILD_WITH_QML=OFF \
-    -DUSE_DBUS=OFF \
+    -DUSE_DBUS=ON \
     -Wno-dev
 
 mkdir -p src

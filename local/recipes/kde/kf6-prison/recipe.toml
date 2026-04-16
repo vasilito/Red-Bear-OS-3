@@ -1,6 +1,6 @@
-#TODO: Plasma Framework — Plasma applets, containments, shell. Depends on kf6-kio, kf6-kdeclarative, kf6-kpackage.
+#TODO: Prison — barcode/QR code framework. Build the core KF6 library now; Data Matrix, scanner, and QML paths stay disabled on Redox.
 [source]
-tar = "https://invent.kde.org/frameworks/plasma-framework/-/archive/v6.10.0/plasma-framework-v6.10.0.tar.gz"
+tar = "https://invent.kde.org/frameworks/prison/-/archive/v6.10.0/prison-v6.10.0.tar.gz"
 
 [build]
 template = "custom"
@@ -10,16 +10,7 @@ dependencies = [
     "kf6-extra-cmake-modules",
     "kf6-kcoreaddons",
     "kf6-ki18n",
-    "kf6-kconfig",
-    "kf6-kconfigwidgets",
-    "kf6-kpackage",
-    "kf6-kservice",
-    "kf6-kdeclarative",
-    "kf6-kio",
-    "kirigami",
-    "kf6-kwindowsystem",
-    "kf6-knotifications",
-    "kf6-kguiaddons",
+    "libqrencode",
 ]
 script = """
 DYNAMIC_INIT
@@ -36,7 +27,6 @@ sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
@@ -46,11 +36,15 @@ cmake "${COOKBOOK_SOURCE}" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
     -DBUILD_TESTING=OFF \
     -DBUILD_QCH=OFF \
-    -DBUILD_WITH_QML=OFF \
     -DUSE_DBUS=OFF \
+    -DWITH_QUICK=OFF \
+    -DBUILD_WITH_QML=OFF \
+    -DWITH_MULTIMEDIA=OFF \
+    -DCMAKE_DISABLE_FIND_PACKAGE_Dmtx=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_ZXing=ON \
     -Wno-dev
 
 cmake --build . -j${COOKBOOK_MAKE_JOBS}

@@ -1,0 +1,48 @@
+#TODO: KWallet — wallet management framework. Stub-only for plasma-workspace dependency resolution.
+[source]
+tar = "https://invent.kde.org/frameworks/kwallet/-/archive/v6.10.0/kwallet-v6.10.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kconfig",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+STAGE="${COOKBOOK_STAGE}/usr"
+mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
+
+cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
+add_library(KF6::Wallet INTERFACE IMPORTED)
+EOFCFG
+
+cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
+set(PACKAGE_VERSION "6.10.0")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOFVER
+
+cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletTargets.cmake" << 'EOFTGT'
+add_library(KF6::Wallet INTERFACE IMPORTED)
+EOFTGT
+
+mkdir -p "${STAGE}/lib"
+echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
+
+echo "=== KWallet stub installation complete ==="
+echo "Note: KWallet is stubbed on Redox for plasma-workspace dependency resolution."
+echo "Dummy cmake configs installed for dependency resolution."
+"""

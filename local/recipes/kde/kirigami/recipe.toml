@@ -29,25 +29,25 @@ mkdir -p "${STAGE}/lib/cmake/KF6Kirigami"
 mkdir -p "${STAGE}/lib/cmake/KF6Kirigami2"
 
 cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfig.cmake" << 'EOFCFG'
-add_library(KF6::Kirigami INTERFACE)
+add_library(KF6::Kirigami INTERFACE IMPORTED)
 EOFCFG
 
 cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfigVersion.cmake" << 'EOFVER'
 set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSIONCompatible TRUE)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
 EOFVER
 
 cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiTargets.cmake" << 'EOFTGT'
-add_library(KF6::Kirigami INTERFACE)
+add_library(KF6::Kirigami INTERFACE IMPORTED)
 EOFTGT
 
 cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2Config.cmake" << 'EOFCFG2'
-add_library(KF6::Kirigami2 INTERFACE)
+add_library(KF6::Kirigami2 INTERFACE IMPORTED)
 EOFCFG2
 
 cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2ConfigVersion.cmake" << 'EOFVER2'
 set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSIONCompatible TRUE)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
 EOFVER2
 
 mkdir -p "${STAGE}/lib"
