@@ -26,41 +26,91 @@ This repo should not treat **builds** or **enumerates** as equivalent to **valid
 
 ### Summary
 
-USB in Red Bear OS is **present but incomplete**.
+USB in Red Bear OS is **present and improving**.
 
 The current repo supports a real host-side USB path built around the userspace `xhcid` controller
 daemon, hub and HID class spawning, native USB observability (`lsusb`, `usbctl`, `redbear-info`),
 and a low-level userspace client API through `xhcid_interface`.
 
-The current limitations are material:
+Completed work:
 
-- xHCI no longer hard-forces polling; it uses the existing interrupt-mode selection path again, but
-  interrupt-driven behavior is still only lightly validated under runtime load
-- checked-in event-ring growth support now exists, but it still needs stronger runtime validation
-- USB support varies by machine, including known `xhcid` panic cases
-- hub/topology handling is partial
+- BOS/SuperSpeed descriptor fetching wired up — `xhcid` fetches and parses BOS capability
+  descriptors during device enumeration, with bounds-checked slicing and graceful USB 2 fallback
+- Speed detection for hub child devices — `usbhubd` extracts child device speed from hub port
+  status via `UsbSpeed` enum (`#[repr(u8)]` with `TryFrom<u8>`) and passes it through
+  `attach_with_speed()` protocol; server maps to PSIV via `lookup_speed_category()`
+- Interrupt-driven operation restored — `main.rs` calls `get_int_method()` instead of hard-coded
+  `(None, Polling)`; MSI/MSI-X/INTx paths re-enabled
+- Event ring growth implemented — `grow_event_ring()` doubles ring size (up to 4096 cap),
+  allocates new DMA ring, preserves dequeue pointer, updates ERDP/ERSTBA hardware registers
+- USB 3 hub endpoint configuration — `SET_INTERFACE` always sent; stall on `(0,0)` tolerated
+  with debug log and graceful continuation
+- Hub interrupt EP1 status change detection replacing full polling loop in `usbhubd`
+- Hub change bit clearing on all port paths — `clear_port_changes` sends
+  `ClearFeature(C_PORT_CONNECTION, C_PORT_ENABLE, C_PORT_RESET, C_PORT_OVER_CURRENT)` plus
+  USB3-specific features (`C_PORT_LINK_STATE`, `C_PORT_CONFIG_ERROR`) after every port status read
+- Runtime panic reduction across USB daemons — `device_enumerator.rs`, `irq_reactor.rs`,
+  `mod.rs`, `scheme.rs`, `usbhubd/main.rs`, `usbhidd/main.rs` converted from `panic!/expect`
+  to `log + continue/return` or `ok_or` in most hot paths; mutex poison recovery on all hot-path
+  locks; `scsi/mod.rs` block descriptor parsing returns errors instead of panicking;
+  `xhci/scheme.rs` uses `ok_or` for device descriptor and DMA buffer access
+- `usbhidd` no longer panics on malformed report data — proper `Result` propagation
+- `usbscsid` panic paths eliminated in BOT transport — all 4 `panic!()` calls replaced with
+  stall recovery (`clear_stall` + `reset_recovery`) and `ProtocolError` returns; SCSI
+  `get_mode_sense10` failure returns error instead of panicking; `main.rs` uses
+  `unwrap_or_else` with `eprintln` + `exit(1)` instead of `expect()`; startup sector read
+  failure logs and continues instead of panicking; event loop handles errors gracefully
+- Empty UAS module stub removed from `usbscsid`; `protocol::setup` returns `None` gracefully
+  for unsupported protocols instead of unwrapping
+- BOT transport correctness fixes — `CLEAR_FEATURE(ENDPOINT_HALT)` now uses USB endpoint
+  address from descriptor (`bEndpointAddress`) instead of driver endpoint index; `get_max_lun`
+  sends correct interface number; `early_residue` correctly computes `expected - transferred`
+  for short packets; CSW read uses iterative bounded loop instead of unbounded recursion
+- USB validation harness (`test-usb-qemu.sh`) with 6-check QEMU validation
+- In-guest USB checker binary (`redbear-usb-check`) walking scheme tree
+- USB validation runbook for operators
+- All changes mirrored to `local/patches/base/redox.patch` for upstream refresh survival
+
+The remaining limitations are:
+
 - HID is still wired through the legacy mixed-stream `inputd` path
-- USB mass storage exists in-tree and now autospawns successfully in the current QEMU validation
-  path, but broader runtime stability and wider class/topology validation are still open.
+- SuperSpeedPlus differentiation requires Extended Port Status (not yet implemented)
+- TTT (Think Time) in Slot Context hardcoded to 0 — needs parent hub descriptor propagation
+- Composite devices and non-default alternate settings use first-match only (`//TODO: USE ENDPOINTS FROM ALL INTERFACES`)
+- `grow_event_ring()` swaps to a new ring but does not copy pending TRBs from the old one; under sustained event-ring-full conditions this may lose in-flight events
+- `usbhubd` startup uses `unwrap_or_else` with graceful exit (not panics), but per-child-port handle creation now skips failed ports with error logging
 - there is no evidence of validated support for broader USB classes or modern USB-C / dual-role
   scope
+
+### Identified Correctness Issues (from audit)
+
+A comprehensive audit of the xHCI driver identified these correctness issues. Fixes are being
+applied through `local/patches/base/redox.patch`:
+
+- **ERDP read pointer bug** (`event.rs`): `erdp()` returns the software producer pointer from the
+  ring state instead of reading the actual hardware dequeue pointer from the ERDP runtime register.
+  Per XHCI spec §4.9.3, the ERDP must reflect where hardware has finished reading, not where
+  software enqueues new entries. This causes the event ring dequeue pointer to be incorrect after
+  processing events, potentially leading to missed or double-processed events.
+- **Mutex poisoning panics**: ~37 `unwrap()` calls on mutex locks across `mod.rs`, `irq_reactor.rs`,
+  `scheme.rs`, and `ring.rs` will panic if a thread holding the lock panics. All should use
+  `unwrap_or_else(|e| e.into_inner())` for poisoning recovery. Additionally, ~22 `expect()` calls
+  need proper error handling.
+- **Ring `panic!()` in `trb_phys_ptr()`**: `ring.rs` contains a direct `panic!()` on invalid state
+  instead of returning an error.
 
 ### Current Status Matrix
 
 | Area | State | Notes |
 |---|---|---|
-| Host mode | **usable / experimental** | Real host-side stack exists, but not broadly validated |
-| xHCI controller | **builds / enumerates / usable on some hardware** | Interrupt-mode selection restored, hardware-variable, event-ring growth exists in-tree but still needs stronger runtime validation |
-| Hub handling | **builds / partial usable** | `usbhubd` exists, USB 3 hub limitations remain |
-| HID | **builds / usable in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path |
-| Mass storage | **builds / autospawns in QEMU** | `usbscsid` now spawns from the xHCI class-driver table, but runtime stability past spawn still needs work |
-| Native tooling | **builds / enumerates** | `lsusb`, `usbctl`, `redbear-info` provide partial observability |
-| Low-level userspace API | **builds** | `xhcid_interface` exists, but not a mature general userspace USB story |
-| libusb | **builds / experimental** | WIP, compiled but not tested |
-| usbutils | **broken / experimental** | WIP, compilation error |
-| EHCI/OHCI/UHCI | **absent / undocumented** | No evidence present in-tree |
-| USB networking/audio/video/Bluetooth classes | **partial / experimental** | Broad class support remains incomplete, but one bounded explicit-startup USB-attached Bluetooth slice now exists |
-| Device mode / OTG / dual-role / USB-C / PD / alt-modes / USB4 | **absent / undocumented** | No evidence present |
+| Host mode | **usable / experimental** | Real host-side stack exists, interrupt-driven, not broadly validated on hardware |
+| xHCI controller | **builds / usable on some hardware** | Interrupt delivery restored (MSI/MSI-X/INTx), event ring growth, CLEAR_FEATURE uses USB endpoint address; mutex poison recovery on all hot-path locks in scheme.rs and mod.rs |
+| Hub handling | **builds / improving** | `usbhubd` uses interrupt EP1, change bits cleared, USB 3 speed-aware attach |
+| HID | **builds / usable in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path, no panics in report loop |
+| Mass storage | **builds / improving** | `usbscsid` BOT transport has graceful error handling; endpoint addresses corrected; event loop handles errors; `plain::from_bytes`/`slice_from_bytes` error mapping in bot.rs and scsi/mod.rs block descriptors with bounds checks; runtime I/O validation still needed |
+| Native tooling | **builds / enumerates** | `lsusb`, `usbctl`, `redbear-info`, `redbear-usb-check` provide observability |
+| Low-level userspace API | **builds** | `xhcid_interface` with `UsbSpeed` enum, `attach_with_speed()` |
+| Validation | **builds** | `test-usb-qemu.sh` + `redbear-usb-check` + USB-VALIDATION-RUNBOOK.md |
 
 ## Evidence Already In Tree
 
@@ -101,19 +151,17 @@ The current limitations are material:
 
 Current repo-visible issues include:
 
-- partially restored interrupt-driven behavior without complete event-ring growth support
-- incorrect or incomplete speed handling for child devices
 - TODOs around configuration choice and alternate settings
 - TODOs around endpoint selection across interfaces
-- incomplete BOS / SuperSpeed / SuperSpeedPlus handling
+- TTT (Think Time) hardcoded to 0 in Slot Context — needs parent hub descriptor propagation
 
 This means the current stack is more than a bring-up stub, but still below the bar for a reliable,
 future-proof USB controller foundation.
 
 ### 2. Topology and hotplug maturity are partial
 
-The stack can enumerate ports and descendants, but the code still carries explicit TODOs around hub
-behavior and USB 3 hub handling.
+The stack can enumerate ports and descendants. USB 3 hub endpoint configuration now works without
+stalling, and child device speed detection is correct when devices attach through hubs.
 
 The current repo does not justify a claim that attach, detach, reset, reconfigure, and hub-chained
 topologies are runtime-proven in a broad sense.
@@ -126,14 +174,17 @@ However, the current HID path is still tied to the older anonymous `inputd` prod
 `local/docs/INPUT-SCHEME-ENHANCEMENT.md` already defines the needed next step: named producers,
 per-device streams, and explicit hotplug events.
 
-### 4. Storage is present in-tree but not a current support claim
+### 4. Storage is present in-tree, improving, but not yet validated
 
-`usbscsid` is a real driver and the xHCI class-driver table now spawns it again during QEMU USB
-storage validation. The current blocker is not matching or spawn, but transport/runtime stability
-after spawn.
+`usbscsid` is a real driver and the xHCI class-driver table spawns it during QEMU USB storage
+validation. All BOT transport `panic!()` paths have been replaced with proper stall recovery and
+error returns. The `main.rs` initialization path uses graceful error handling instead of `expect()`.
 
-That means Red Bear should document USB storage as **implemented in-tree but not currently enabled
-as a default working class path**.
+The remaining gap is runtime validation: proving that stall recovery actually works under real
+device I/O, and that multi-LUN devices configure correctly.
+
+Red Bear should document USB storage as **implemented in-tree with improved error handling, but not yet
+runtime-validated on hardware**.
 
 ### 5. The userspace USB story is still low-level
 
@@ -199,6 +250,21 @@ not a recommendation to bypass Red Bear's overlay/patch discipline.
 
 ### Phase U1 — xHCI Controller Baseline
 
+**Status**: Partially complete.
+
+**Completed**:
+- BOS/SuperSpeed descriptor fetching wired up in `get_desc()` — `fetch_bos_desc()` called,
+  `bos_capability_descs()` iterator parsed, `supports_superspeed`/`supports_superspeedplus` stored
+  in `DevDesc`
+- Speed detection for hub child devices fixed — `UsbSpeed` enum with `from_v2_port_status()` and
+  `from_v3_port_status()` mapping, passed via `attach_with_speed()` protocol from `usbhubd`
+- `attach_device_with_speed()` accepts optional speed override byte, maps to PSIV via
+  `lookup_speed_category()`
+
+**Remaining**:
+- Validate one controller family as the first real support target
+- Tighten controller-state correctness under sustained load
+
 **Goal**: Turn `xhcid` from partial bring-up into a dependable baseline on at least one controller
 family.
 
@@ -225,11 +291,24 @@ family.
 
 ### Phase U2 — Topology, Configuration, and Hotplug Correctness
 
+**Status**: Partially complete.
+
+**Completed**:
+- USB 3 hub endpoint configuration stall handled — `SET_INTERFACE` is always sent; stall on
+  `(0, 0)` is tolerated with debug log and graceful continuation
+- `usbhubd` now passes `interface_desc` and `alternate_setting` to `configure_endpoints`
+
+**Remaining**:
+- validate repeated attach/detach/reset behavior
+- support non-default configurations and alternate settings where needed
+- improve composite-device handling and endpoint selection across interfaces
+- separate "enumerates" from "stays correct under topology changes"
+
 **Goal**: Make the USB tree and device configuration path correct enough for real-world devices.
 
 **What to do**:
 
-- fix USB 3 hub stall cases and other known hub limitations
+- USB 3 hub stall handling completed — SET_INTERFACE always sent with (0,0) stall tolerance
 - validate repeated attach/detach/reset behavior
 - support non-default configurations and alternate settings where needed
 - improve composite-device handling and endpoint selection across interfaces
@@ -250,6 +329,17 @@ family.
 ---
 
 ### Phase U3 — HID Modernization
+
+**Status**: Partially complete.
+
+**Completed**:
+- `usbhidd` error handling improved — `assert_eq!` replaced with `anyhow::bail!`, `.expect()` in
+  main loop replaced with `match` + `continue` for graceful recovery
+
+**Remaining**:
+- migrate `usbhidd` toward named producers and per-device streams
+- expose hotplug add/remove behavior cleanly to downstream consumers
+- align USB HID with the `inputd` enhancement design already documented in-tree
 
 **Goal**: Move USB HID from legacy mixed-stream input to a modern per-device runtime path.
 
@@ -333,6 +423,18 @@ implicit forever.
 
 ### Phase U6 — Validation Slices and Support Claims
 
+**Status**: Partially complete.
+
+**Completed**:
+- `local/scripts/test-usb-qemu.sh` — Full USB stack validation harness that boots with xHCI +
+  keyboard + tablet + mass storage, then checks for xHCI interrupt mode, HID spawn, SCSI spawn,
+  BOS processing, and no crash-class errors
+
+**Remaining**:
+- add hardware-matrix coverage for target controllers and class families
+- extend `redbear-info` only where passive probing can be honest
+- tie support claims to a concrete profile or package-group slice
+
 **Goal**: Turn USB from a collection of partial capabilities into an evidence-backed support story.
 
 **What to do**:
@@ -368,23 +470,25 @@ Prefer language such as:
 - “xHCI host support is present but experimental”
 - “USB enumeration and HID-adjacent host paths exist in-tree”
 - “USB support remains controller-variable”
-- “USB storage support exists in-tree and is QEMU-proven for the current validation path, but is
-  not yet a broad hardware support claim”
+- “USB storage support exists in-tree with improved error handling, but is not yet a broad hardware support claim”
 
 ## Summary
 
 USB in Red Bear today is not missing. It is a real userspace host-side subsystem with meaningful
 enumeration, runtime observability, hub/HID infrastructure, and a low-level userspace API.
 
-It is also not complete. The current gaps are no longer “does Red Bear have any USB code at all?”
-but rather:
+Recent work has closed several specific gaps: BOS/SuperSpeed descriptor handling, hub child speed
+detection, USB 3 hub configuration stalls, HID error handling, and a comprehensive QEMU validation
+harness.
 
-- controller correctness and interrupt maturity
-- topology and configuration correctness
-- HID modernization
-- re-enabling and validating storage
+The remaining gaps are:
+
+- controller interrupt maturity under sustained load
+- topology and configuration correctness under attach/detach stress
+- HID modernization toward named producers and per-device streams
+- re-enabling and validating storage runtime stability
 - defining a coherent userspace USB API strategy
 - deciding how much modern USB scope Red Bear actually wants
-- building a real USB validation surface
+- building broader USB validation coverage
 
 That is the correct framing for a modern, future-proof USB implementation plan in this repo.

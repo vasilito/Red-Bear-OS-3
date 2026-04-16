@@ -74,7 +74,7 @@ one more driver.” The feasible first target is a deliberately small subsystem 
 
 | Area | State | Notes |
 |---|---|---|
-| Bluetooth controller support | **experimental bounded slice** | `redbear-btusb` provides explicit-startup USB transport probing/status plus a daemon path that is now exercised repeatedly in QEMU for the bounded Battery Level slice |
+| Bluetooth controller support | **experimental, USB discovery real** | `redbear-btusb` now probes `/scheme/usb/` for real Bluetooth class devices (USB class 0xE0/0x01/0x01 with vendor-ID fallback), parses descriptor files, assigns `hciN` names deterministically, and writes real adapter metadata into the status file. Daemon re-probes periodically. 8 tests pass including mock-filesystem USB discovery tests. |
 | Bluetooth host stack | **experimental bounded slice** | `redbear-btctl` provides a BLE-first CLI/scheme surface with stub-backed scan plus bounded connect/disconnect control for stored bond IDs; the packaged checker now reruns that slice repeatedly and covers daemon-restart honesty in QEMU |
 | Pairing / bond database | **experimental bounded slice** | `redbear-btctl` now persists conservative stub bond records under `/var/lib/bluetooth/<adapter>/bonds/`; connect/disconnect control targets those records, and the checker now verifies cleanup honesty, but this is still storage/control plumbing only, not real pairing or generic reconnect validation |
 | Desktop Bluetooth API | **missing** | D-Bus exists generally, but no Bluetooth API/service exists |

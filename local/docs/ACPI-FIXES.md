@@ -1,5 +1,8 @@
 # ACPI Fixes — P0 Phase Tracker
 
+> **Numbering note:** "P0" refers to the historical hardware-enablement phase (ACPI boot),
+> not the v2.0 desktop plan phases in `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`.
+
 Status of ACPI fixes for AMD bare metal boot. Cross-referenced with
 `HARDWARE.md` crash reports and kernel/acpid source TODOs.
 

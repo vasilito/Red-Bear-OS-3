@@ -1,146 +1,122 @@
 # Red Bear OS Desktop Stack — Current Status
 
+**Last updated:** 2026-04-16
+**Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
+
 ## Purpose
 
 This document is the **current build/runtime truth summary** for the Red Bear desktop stack.
 
-It is intentionally narrower than the historical Wayland and KDE roadmap docs. Its job is to answer:
-
-- what the current desktop stack actually builds,
-- what the tracked desktop profiles currently expose,
+Its job is to answer:
+- what the desktop stack actually builds,
+- what the tracked profiles currently expose,
 - what is only build-visible,
 - what is runtime-proven,
 - and what still blocks a trustworthy Wayland/KDE session claim.
 
-Use this document as the current-state summary. Use `docs/03-WAYLAND-ON-REDOX.md` and
-`docs/05-KDE-PLASMA-ON-REDOX.md` mainly as design history, rationale, and deeper porting notes.
+For the execution plan (phases, timelines, acceptance criteria), see the canonical plan above.
+For historical design rationale, see `docs/03-WAYLAND-ON-REDOX.md` and `docs/05-KDE-PLASMA-ON-REDOX.md`.
 
-## Current State Summary
+## Where We Are in the Plan
 
-The Red Bear desktop stack is no longer blocked on basic Qt/Wayland package availability.
+The canonical desktop plan uses a three-track model:
 
-The repo currently proves:
+- **Track A (Phase 1–2):** Runtime Substrate → Software Compositor — **Phase 1 is the current target**
+- **Track B (Phase 3–4):** KWin Session → KDE Plasma — **blocked on Track A**
+- **Track C (Phase 5):** Hardware GPU — **can start after Phase 1**
 
-- `libwayland` builds successfully against the current relibc/Red Bear compatibility surface
-- Qt6 core modules build (`qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland`)
-- the current relibc overlay and its fresh-source reapply workflow are strong enough to support the
-  rebuilt Qt/Wayland stack
-- D-Bus builds and is wired into desktop-facing profiles
-- `seatd` builds and is wired into the KDE-facing runtime profile
-- the `redbear-wayland`, `redbear-full`, and `redbear-kde` profiles exist as real tracked product
-  surfaces
-
-The repo does **not** yet prove a generally trustworthy desktop runtime.
-
-The main gap is no longer “can we build the packages?” The main gap is “which parts of the desktop
-stack are runtime-trusted rather than just build-visible?”
+**Current position:** Build-side gates are crossed. Phase 1 (Runtime Substrate Validation) is the
+next work target. The repo has not yet started systematic runtime validation.
 
 ## Status Matrix
 
-| Area | Current state | What that means |
+| Area | Evidence class | Detail |
 |---|---|---|
 | `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially better than before |
-| Qt6 core stack | **builds** | `qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland` are in-tree build surfaces |
-| KF6 frameworks | **mixed but strong build progress** | many frameworks build; some higher-level pieces still rely on bounded or reduced recipes |
-| KWin / Plasma session | **experimental / incomplete runtime** | recipe/config wiring exists, but runtime trust still trails build success |
-| Mesa / hardware graphics path | **partial** | software path exists; current QEMU validation still shows llvmpipe, and hardware-validated Wayland graphics path still lags |
-| Input stack | **build-visible and partly wired** | `evdevd`, `libevdev`, `libinput`, `seatd` are present, but runtime trust is still narrower than full desktop support |
-| D-Bus session/system plumbing | **builds / wired into profiles** | present in desktop-facing profiles, but not equal to full desktop integration completeness |
+| Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland` |
+| KF6 frameworks | **builds** | All 32/32; some higher-level pieces use bounded/reduced recipes (kf6-kio heavy shim, kirigami stub-only) |
+| KWin | **experimental** | Recipe exists; 5 features re-enabled; 4 stub deps block honest build; 9 feature switches still disabled |
+| plasma-workspace | **experimental** | Recipe exists; stub deps (kf6-knewstuff, kf6-kwallet) unresolved |
+| plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
+| Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
+| libdrm amdgpu | **builds** | Package-level success only |
+| Input stack | **builds, enumerates** | evdevd, libevdev, libinput, seatd present; evdevd registers scheme at boot |
+| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full` |
+| DRM/KMS | **builds** | redox-drm scheme daemon; no hardware runtime validation |
+| GPU acceleration | **blocked** | PRIME/DMA-BUF ioctls implemented; GPU CS ioctl missing |
+| smallvil compositor | **experimental** | Reaches early init in QEMU; no complete session |
+| `redbear-wayland` profile | **builds, boots** | Bounded Wayland runtime profile |
+| `redbear-full` profile | **builds, boots** | Broader desktop plumbing profile |
+| `redbear-kde` profile | **builds** | KDE session-surface profile |
 
 ## Profile View
 
 ### `redbear-wayland`
 
-Role:
-
-- narrow runtime validation profile for Wayland bring-up
-
-Current truth:
-
-- it is the current first-class profile for a bounded Wayland runtime path
-- it should be used for small-scope compositor/runtime validation, not broad desktop claims
+- **Role:** Phase 2 Wayland compositor validation target
+- **Current truth:** Builds and boots in QEMU; smallvil reaches early init but no complete session
+- **Use for:** Compositor/runtime regression testing, not broad desktop claims
 
 ### `redbear-full`
 
-Role:
-
-- broader desktop/network/session plumbing profile
-
-Current truth:
-
-- it carries D-Bus and broader desktop integration pieces
-- it is stronger than `redbear-wayland` for general integration, but still not the same as a stable
-  KDE session claim
+- **Role:** Broader desktop/network/session plumbing
+- **Current truth:** Carries D-Bus and broader integration pieces; VirtIO networking works in QEMU
+- **Use for:** Desktop integration testing beyond the narrow Wayland slice
 
 ### `redbear-kde`
 
-Role:
-
-- KDE/Plasma session-surface profile
-
-Current truth:
-
-- it carries the KWin/session wiring and the KDE-facing package set
-- it should still be described as experimental until runtime evidence catches up with build success
+- **Role:** Phase 3–4 KDE/Plasma session bring-up
+- **Current truth:** Carries KWin/session wiring and KDE-facing package set; experimental
+- **Use for:** KDE session surface testing once Phase 2 completes
 
 ## Current Blockers
 
-### 1. Runtime trust still trails build success
+### 1. Runtime trust trails build success (Phase 1 gate)
 
-The project now has real build-visible desktop progress, but build success still exceeds runtime
-confidence.
+The repo has real build-visible desktop progress, but build success exceeds runtime confidence.
+Phase 1 exists specifically to close this gap.
 
-That gap is the main thing older docs sometimes blur.
+### 2. No complete compositor session (Phase 2 gate)
 
-### 2. Graphics/runtime validation is still thinner than package progress
+smallvil reaches early initialization but does not complete a usable Wayland compositor session.
+This blocks all desktop session work.
 
-The software-rendered stack is much further along than the hardware-validated stack.
+### 3. KWin blocked by stub dependencies (Phase 3 gate)
 
-Current QEMU truth:
+Four stub cmake targets must become real builds:
 
-- the tracked `redbear-wayland` test harness still uses `-vga std`
-- the live compositor path currently reports `GL Renderer: "llvmpipe (LLVM 21.1.2, 256 bits)"`
-- therefore the current QEMU Wayland proof is still a software-rendered runtime slice, not a
-  hardware-accelerated desktop proof
-- QEMU should be treated as a bounded regression/test harness for Wayland/Qt bring-up, not as the
-  primary proof target for the final hardware-accelerated desktop claim
+| Stub | Real library exists? | Path to resolve | Difficulty |
+|---|---|---|---|
+| `libepoxy-stub` | Yes — `recipes/wip/libs/gnome/libepoxy/` (meson, has redox.patch) | Port real libepoxy; currently needs full X11/GLX stack | Medium |
+| `libudev-stub` | Partial — `recipes/wip/services/eudev/` (broken: POSIX headers missing) | Fix eudev compilation; `udev-shim` is a binary not a C library | Medium-Hard |
+| `lcms2-stub` | Yes — `recipes/wip/libs/other/liblcms/` (compiled, untested) | Test and integrate real lcms2; depends on libtiff | Low |
+| `libdisplay-info-stub` | **No** — not in recipe tree at all | New port from freedesktop.org; full EDID/CTA/DisplayID parser | Hard |
 
-The real hardware-accelerated acceptance target remains the bare-metal/runtime-driver path:
+Additionally, two packages need honest builds: kirigami (stub-only), kf6-kio (heavy shim).
 
-- `redox-drm` detects and drives the target GPU family
-- Mesa GBM/EGL/GLES2 uses that runtime graphics path
-- the compositor and Qt Wayland clients run stably on top of it
-- runtime evidence shows the desktop path is using the real accelerated stack rather than a
-  software fallback
+### 4. Hardware acceleration missing GPU CS ioctl (Phase 5 gate)
 
-The desktop stack therefore should not over-claim hardware-ready Wayland/KDE support yet.
-
-### 3. KDE build progress is ahead of session maturity
-
-KDE package and framework progress is real, but the session surface should still be described as an
-experimental bring-up target rather than a broadly working desktop.
-
-### 4. Input and seat management are present but not yet a final confidence story
-
-`libinput`, `seatd`, and related runtime pieces matter, but they should still be treated as part of
-the runtime-proof gap rather than as already-settled desktop infrastructure.
+PRIME/DMA-BUF buffer sharing is implemented at the scheme level, but GPU command submission
+does not exist. This blocks hardware-accelerated rendering.
 
 ## Canonical Document Roles
 
-Use the desktop-related docs this way:
-
-- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — current build/runtime truth summary
-- `local/docs/QT6-PORT-STATUS.md` — Qt/KF6 package-level build/status truth
-- `docs/03-WAYLAND-ON-REDOX.md` — historical Wayland implementation path + deeper rationale
-- `docs/05-KDE-PLASMA-ON-REDOX.md` — historical KDE implementation path + deeper rationale
-- `local/docs/PROFILE-MATRIX.md` — profile role and support-language reference
+| Document | Role |
+|---|---|
+| `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Canonical desktop path plan (v2.0, Phase 1–5) |
+| This document | Current build/runtime truth summary |
+| `local/docs/QT6-PORT-STATUS.md` | Qt/KF6/KWin package-level build status |
+| `local/docs/AMD-FIRST-INTEGRATION.md` | AMD-specific hardware/driver detail |
+| `docs/03-WAYLAND-ON-REDOX.md` | Historical Wayland design rationale |
+| `docs/05-KDE-PLASMA-ON-REDOX.md` | Historical KDE design rationale |
+| `local/docs/PROFILE-MATRIX.md` | Profile roles and support-language reference |
 
 ## Bottom Line
 
-The current Red Bear desktop stack is in a transition phase:
+The Red Bear desktop stack has crossed major build-side gates:
+- All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
+- Three tracked desktop profiles exist and at least boot in QEMU
+- relibc compatibility is materially stronger than before
 
-- no longer blocked on basic Qt/Wayland package availability,
-- materially stronger on relibc/Wayland-facing compatibility than before,
-- but still short of a broad runtime-trusted desktop claim.
-
-That is the current truth this repo should present.
+The remaining work is **runtime validation and session assembly**, not more package porting.
+Phase 1 (Runtime Substrate Validation) is the immediate next target.

@@ -20,15 +20,19 @@ USB plan uses:
 
 ## Tracked Profiles
 
+> **Phase numbering note:** phase labels below use the v2.0 desktop plan phases from
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. Scripts and older docs may reference the
+> historical P0–P6 hardware-enablement sequence — those are not the same numbering.
+
 | Profile | Intent | Key Fragments | Current support language |
 |---|---|---|---|
 | `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled / input-runtime substrate wired |
-| `redbear-bluetooth-experimental` | First bounded Bluetooth validation profile | `redbear-bluetooth-experimental.toml`, `redbear-minimal.toml` | builds / boots in QEMU / validated bounded Battery Level slice via `redbear-bluetooth-battery-check` and `test-bluetooth-qemu.sh --check` / explicit-startup USB BLE-first only / repeated helper + restart cleanup covered / not generic GATT / not USB-class-autospawn |
+| `redbear-bluetooth-experimental` | First bounded Bluetooth validation profile | `redbear-bluetooth-experimental.toml`, `redbear-bluetooth-services.toml`, `redbear-minimal.toml` | builds / boots in QEMU / validated bounded Battery Level slice via `redbear-bluetooth-battery-check` and `test-bluetooth-qemu.sh --check` / explicit-startup USB BLE-first only / repeated helper + restart cleanup covered / not generic GATT / not USB-class-autospawn |
 | `redbear-wifi-experimental` | First bounded Intel Wi-Fi validation profile | `redbear-wifi-experimental.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental bounded Intel Wi-Fi slice / driver + control/profile/reporting stack present / packaged in-target validation and capture commands available / real hardware connectivity still unproven |
 | `redbear-desktop` | Main Red Bear desktop integration profile without KDE-specific session wiring | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / input-runtime substrate wired / runtime reporting installed |
-| `redbear-wayland` | Phase 4 Wayland runtime validation profile | `wayland.toml` | builds / boots in QEMU / experimental software-path graphics-runtime slice / not QEMU hardware-acceleration proof |
-| `redbear-full` | Phase 5 desktop/network plumbing profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / boots in QEMU / D-Bus system bus wired / experimental runtime path |
-| `redbear-kde` | Phase 6 KDE session-surface profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path / D-Bus+seatd+KWin session surface wired |
+| `redbear-wayland` | v2.0 Phase 2 Wayland compositor validation profile | `wayland.toml` | builds / boots in QEMU / experimental software-path graphics-runtime slice / not QEMU hardware-acceleration proof |
+| `redbear-full` | Broader desktop/network/session plumbing (spans v2.0 Phases 2–3) | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / boots in QEMU / D-Bus system bus wired / experimental runtime path |
+| `redbear-kde` | v2.0 Phases 3–4 KDE Plasma session-surface profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path / D-Bus+seatd+KWin session surface wired |
 | `redbear-live` | Live and recovery image layered on desktop | `redbear-desktop.toml` | builds |
 
 ## Profile Notes
@@ -37,7 +41,7 @@ USB plan uses:
 
 - First place to validate repository discipline and profile reproducibility.
 - Should stay smaller and less assumption-heavy than the graphics profiles.
-- Enables the shared `wired-dhcp` netctl profile by default for the Phase 2 VM/wired baseline.
+- Enables the shared `wired-dhcp` netctl profile by default for the VM/wired baseline.
 - Ships the shared firmware/input runtime service prerequisites so the early substrate can be tested on the smallest profile as well.
 
 ### `redbear-bluetooth-experimental`
@@ -73,15 +77,15 @@ USB plan uses:
 ### `redbear-wayland`
 
 - Wraps the repo's existing `wayland.toml` into a first-class Red Bear build target.
-- Serves as the Phase 4 runtime-validation surface for `orbital-wayland` and `smallvil`.
+- Serves as the v2.0 Phase 2 compositor validation surface for `orbital-wayland` and `smallvil`.
 - Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase4-wayland-check`, with `smallvil` reaching xkbcommon initialization and EGL platform selection on Redox.
 - Current QEMU renderer evidence is still software-based (`llvmpipe` on the current `-vga std` harness), so this profile must not be described as a hardware-accelerated desktop proof yet.
-- Treat this profile as the bounded Phase 4 Wayland/Qt regression harness; the final hardware-desktop claim still belongs to the bare-metal accelerated graphics path.
+- Treat this profile as the bounded Wayland/Qt regression harness; the final hardware-desktop claim still belongs to the bare-metal accelerated graphics path.
 
 ### `redbear-full`
 
 - Used for broader desktop/session plumbing after the narrower `redbear-wayland` validation slice.
-- Current Phase 5 role: carry D-Bus system-bus plumbing together with the native Red Bear network stack.
+- Current role: carry D-Bus system-bus plumbing together with the native Red Bear network stack (spans v2.0 Phases 2–3).
 - Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase5-network-check`, with functional VirtIO networking and `DBUS_SYSTEM_BUS=present`.
 - Should not be described as fully supported until runtime validation is evidence-backed.
 
@@ -89,7 +93,7 @@ USB plan uses:
 
 - Dedicated profile for Plasma/KWin session bring-up.
 - Keep KDE-specific service wiring here instead of leaking it into the generic desktop profile.
-- Current Phase 6 role: carry the KWin session launch surface and its D-Bus/seatd dependencies in one image.
+- Current role: carry the KWin session launch surface and its D-Bus/seatd dependencies in one image (v2.0 Phases 3–4).
 
 ### `redbear-live`
 

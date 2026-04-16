@@ -1,11 +1,21 @@
 # Qt6 Port — Red Bear OS
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-04-16
 **Qt version:** 6.11.0
 **Target:** x86_64-unknown-redox (cross-compiled from Linux x86_64 host)
-**Phase 1 status:** ✅ COMPLETE — Qt6 core stack + OpenGL/EGL + D-Bus + Wayland
-**Phase 2 status:** ✅ COMPLETE — All 32 KF6 frameworks built
-**Phase 3 status:** 🔄 IN PROGRESS — KWin + KDE Plasma build
+
+> **Phase numbering note:** The phases below (Phase 1–6) are this document's internal Qt porting
+> phases, not the canonical desktop plan phases. For the project-wide desktop execution plan
+> (Phase 1: Runtime Substrate → Phase 5: Hardware GPU), see
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0).
+
+**Qt Phase 1 status:** ✅ COMPLETE — Qt6 core stack + OpenGL/EGL + D-Bus + Wayland
+**Qt Phase 2 status:** ✅ COMPLETE — All 32 KF6 frameworks built
+**Qt Phase 3 status:** 🔄 IN PROGRESS — KWin + KDE Plasma build
+
+> **Execution note (2026-04-16):** The current Redox-applicable Qt 6.11 recipe expansion wave has
+> real-cook verification for `qtimageformats`, `qt5compat`, `qttools`, `qttranslations`, and
+> `qtshadertools`.
 
 ## Current Status Summary
 
@@ -15,15 +25,35 @@
 | **qtdeclarative** | ✅ | 11 libs, QML JIT disabled |
 | **qtsvg** | ✅ | 2 libs |
 | **qtwayland** | ✅ | Wayland client + compositor |
+| **qtimageformats** | ✅ | Real recipe + cook verified |
+| **qt5compat** | ✅ | Real recipe + cook verified |
+| **qttools** | ✅ | Redox-scoped tooling slice cook verified |
+| **qttranslations** | ✅ | Translation catalogs cook verified |
+| **qtshadertools** | ✅ | Real recipe + cook verified |
 | **Mesa EGL+GBM** | ✅ | libEGL, libgbm, libGLESv2, swrast DRI |
 | **libdrm** | ✅ | libdrm + libdrm_amdgpu |
 | **libinput** | ✅ | 1.30.2 with comprehensive redox.patch |
 | **D-Bus** | ✅ | 1.16.2, libdbus-1.so |
 | **KF6 Frameworks** | ✅ 32/32 | All frameworks built |
 | **KWin** | 🔄 | Recipe ready, now using real `libxcvt`, but still blocked by remaining shimmed/stubbed deps and incomplete runtime path |
-| **Hardware acceleration** | ❌ | Requires kernel DMA-BUF (future work) |
+| **Hardware acceleration** | ❌ | PRIME/DMA-BUF scheme ioctls implemented; blocked on GPU command submission (CS ioctl) |
 
 ---
+
+## Wave 1 — Redox-applicable Qt 6.11 module expansion
+
+The first post-core Qt 6.11 coverage wave is now real-cook verified:
+
+| Module | Status | Verification |
+|--------|--------|--------------|
+| `qtimageformats` | ✅ | `CI=1 ./target/release/repo cook qtimageformats` |
+| `qt5compat` | ✅ | `CI=1 ./target/release/repo cook qt5compat` |
+| `qttools` | ✅ | `CI=1 ./target/release/repo cook qttools` |
+| `qttranslations` | ✅ | `CI=1 ./target/release/repo cook qttranslations` |
+| `qtshadertools` | ✅ | `CI=1 ./target/release/repo cook qtshadertools` |
+
+This means the repo now has real Qt 6.11 recipes for the first high-yield Redox-applicable
+expansion set, all verified by actual `repo cook` runs.
 
 ## Scope Definition
 
@@ -32,8 +62,8 @@ Qt6 consists of many modules — each is a separate source package. Phase 2 (qtw
 follows in the next step.
 
 **User-agreed scope constraints:**
-- OpenGL: software/shm only, no EGL — get Qt compiling first
-- Disabled features: process, sharedmemory, systemsemaphore, testlib, sql, printsupport
+- OpenGL: now enabled (GLES 2.0 software path via Mesa/LLVMpipe); hardware acceleration still future work
+- Still disabled features: process testlib, sql, printsupport remain out of scope for current iteration
 - Iterative approach: enable modules incrementally, re-enable disabled features later
 
 ## Build Status
@@ -99,32 +129,32 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 ### Disabled Modules — Full Blocker Analysis
 
-| Module | Blocker | Root Cause | Re-enable Path |
-|--------|---------|------------|----------------|
-| QtNetwork | Runtime validation still pending | the relibc header/ioctl surface is now present in-tree, but downstream QtNetwork behavior still needs end-to-end validation on Redox | Validate QtNetwork against the updated relibc networking surface |
-| QtOpenGL | No EGL, no GPU driver runtime validation | amdgpu/intel DRM drivers compile but haven't been validated on hardware; no Mesa EGL build | Validate GPU drivers on HW → build Mesa with EGL → enable QtOpenGL |
-| QtOpenGLWidgets | Gated by `QT_FEATURE_opengl` | Same as QtOpenGL | Same as QtOpenGL |
-| QtDBus | D-Bus IPC system not ported to Redox | No D-Bus daemon or libdbus on Redox | Port libdbus → enable QtDBus |
-| QtSql | User-agreed scope exclusion | Not needed for initial GUI | Add sqlite/odbc recipe → enable QtSql |
-| QtPrintSupport | User-agreed scope exclusion | No printing subsystem on Redox | Port cups/filters → enable QtPrintSupport |
+| Module | Status | Blocker | Re-enable Path |
+|--------|--------|---------|----------------|
+| QtNetwork | ❌ Disabled | relibc networking runtime semantics still incomplete (DNS resolver, IPv6 multicast) | Validate QtNetwork against the updated relibc networking surface |
+| QtSql | ❌ Disabled | User-agreed scope exclusion | Add sqlite/odbc recipe → enable QtSql |
+| QtPrintSupport | ❌ Disabled | User-agreed scope exclusion, no printing subsystem on Redox | Port cups/filters → enable QtPrintSupport |
+
+> **Previously disabled, now enabled:** QtOpenGL (✅ Phase 4b), QtOpenGLWidgets (✅ Phase 4b), and
+> QtDBus (✅ Phase 2a) were disabled in earlier builds but have since been enabled and built
+> successfully. See Phase 4b and Phase 2a sections below for details.
 
 ### Disabled Features — Full Blocker Analysis
 
-| Feature | CMake Flag | Blocker | Re-enable Path |
-|---------|-----------|---------|----------------|
-| OpenGL | `-DFEATURE_opengl=OFF` | No EGL, no GPU runtime validation | Validate GPU drivers → Mesa EGL → enable |
-| EGL | `-DFEATURE_egl=OFF` | No libEGL from Mesa | Mesa EGL build → enable |
-| XCB/Xlib | `-DFEATURE_xcb=OFF -DFEATURE_xlib=OFF` | No X11 on Redox | Not applicable — Redox uses Wayland |
-| Vulkan | `-DFEATURE_vulkan=OFF` | No Vulkan runtime | Port Mesa Vulkan ICD → enable |
-| OpenSSL | `-DFEATURE_openssl=OFF` | OpenSSL3 port in WIP but not validated | Validate openssl3 recipe → enable |
-| D-Bus | `-DFEATURE_dbus=OFF` | No D-Bus on Redox | Port libdbus → enable |
-| Process | `-DFEATURE_process=ON` | relibc now provides a bounded `waitid()` path and qtbase configures, builds, and stages with process support enabled | Validate QProcess on Redox |
-| Shared Memory | `-DFEATURE_sharedmemory=ON` | relibc now provides `shm_open()` plus bounded SysV shared-memory surfaces and qtbase configures, builds, and stages with shared memory enabled | Validate QSharedMemory on Redox |
-| System Semaphore | `-DFEATURE_systemsemaphore=ON` | relibc now provides `sem_open()`/`sem_close()`/`sem_unlink()` and qtbase configures, builds, and stages with system semaphore support enabled | Validate QSystemSemaphore on Redox |
-| qmake | `-DFEATURE_qmake=OFF` | Build tool, not needed with CMake | Enable if downstream needs qmake |
-| SQL | `-DFEATURE_sql=OFF` | User-agreed scope exclusion | Add sqlite/odbc → enable |
-| Print Support | `-DFEATURE_printsupport=OFF` | User-agreed scope exclusion | Port cups → enable |
-| QML JIT | `-DFEATURE_qml_jit=OFF` | Does not compile for Redox | Fix in upstream or disable permanently |
+| Feature | CMake Flag | Status | Notes |
+|---------|-----------|--------|-------|
+| XCB/Xlib | `-DFEATURE_xcb=OFF -DFEATURE_xlib=OFF` | ❌ Disabled | Not applicable — Redox uses Wayland, not X11 |
+| Vulkan | `-DFEATURE_vulkan=OFF` | ❌ Disabled | No Vulkan runtime on Redox |
+| OpenSSL | `-DFEATURE_openssl=OFF` | ❌ Disabled | OpenSSL3 port in WIP but not validated |
+| qmake | `-DFEATURE_qmake=OFF` | ❌ Disabled | Build tool, not needed with CMake |
+| SQL | `-DFEATURE_sql=OFF` | ❌ Disabled | User-agreed scope exclusion |
+| Print Support | `-DFEATURE_printsupport=OFF` | ❌ Disabled | User-agreed scope exclusion |
+| QML JIT | `-DFEATURE_qml_jit=OFF` | ❌ Disabled | Does not compile for Redox |
+
+> **Previously disabled, now enabled:** OpenGL (`-DFEATURE_opengl=ON`), EGL (`-DFEATURE_egl=ON`),
+> and D-Bus (`-DFEATURE_dbus=ON`) were disabled in earlier builds but have since been enabled and
+> built successfully. Process, shared memory, and system semaphore were also enabled after relibc
+> improvements. See respective Phase sections for details.
 
 ---
 
@@ -197,8 +227,8 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 | Gap | Impact | Module Blocked |
 |-----|--------|---------------|
-| D-Bus IPC | QtDBus, KDE components | QtDBus |
-| GPU display validation | Hardware-accelerated rendering | QtOpenGL |
+| broader networking runtime validation | QtNetwork end-to-end behavior | QtNetwork |
+| GPU hardware display validation | Hardware-accelerated rendering | QtOpenGL hardware path |
 | broader shared-memory validation beyond the existing `shm_open()` path | Shared memory | QSharedMemory |
 | broader semaphore/system-IPC validation beyond the new `sem_open()` path | POSIX semaphores | QSystemSemaphore |
 | process/runtime validation beyond the new bounded `waitid()` path | QProcess internals | QProcess |
@@ -305,8 +335,9 @@ Current truth for Phase 4:
   as a bounded regression/test path, not as the final acceleration proof target
 - the in-repo Phase 4 runtime check currently still fails in `qt6-bootstrap-check` during early Qt
   startup, so even the bounded software-path runtime proof remains incomplete
-- true hardware-accelerated desktop readiness still requires kernel DMA-BUF fd passing plus real
+- true hardware-accelerated desktop readiness still requires GPU command submission (CS ioctl) plus real
   AMD/Intel hardware validation through the DRM → GBM/EGL → compositor → Qt client path
+  (PRIME/DMA-BUF cross-process buffer sharing is implemented at scheme level)
 
 ### Phase 4b — Qt6 OpenGL Enablement (✅ build-side complete, 🚧 runtime incomplete)
 
@@ -322,11 +353,29 @@ KDE Plasma packages built:
 - plasma-wayland-protocols ✅ BUILT (protocol XMLs for kf6-kwayland)
 - kdecoration ✅ BUILT (KDecoration3 window decoration library)
 
-KWin recipe updated with dependencies (all KF6 + Mesa + libdrm + libinput + qtwayland):
-- All KF6 deps built (kconfigwidgets, kxmlgui, kglobalaccel, kidletime, kio, etc.)
-- Mesa EGL+GBM ✅
-- libinput ✅
-- libdrm ✅
+plasma-workspace stub dependencies partially resolved:
+- kf6-knewstuff ✅ STUB ONLY (KF6NewStuff cmake INTERFACE IMPORTED targets for plasma-workspace dep resolution)
+- kf6-kwallet ✅ STUB ONLY (KF6Wallet cmake INTERFACE IMPORTED targets for plasma-workspace dep resolution)
+- kf6-prison ✅ REAL RECIPE (real cmake build against libqrencode; dmtx/ZXing disabled; not yet compiled)
+
+qt6-wayland-smoke improved to create a visible QWindow:
+- Creates a 320x240 colored window (red background, "Red Bear OS - Qt6 Wayland Smoke Test" text)
+- Uses QBackingStore for software rendering
+- Runs for 3 seconds (previously 1 second, no window)
+- This turns the smoke test from a bootstrap check into a real Wayland surface proof target
+
+KWin recipe updated — features re-enabled where deps are satisfied:
+- KWIN_BUILD_DECORATIONS=ON (kdecoration builds ✅)
+- KWIN_BUILD_GLOBALSHORTCUTS=ON (kglobalaccel builds ✅)
+- KWIN_BUILD_RUNNERS=ON (kf6-kio builds ✅)
+- KWIN_BUILD_NOTIFICATIONS=ON (knotifications builds ✅)
+- USE_DBUS=ON (D-Bus 1.16.2 builds ✅)
+- Still disabled (9): KCMS, screen locking, tabbox, effects, X11, QML, running-in-kde,
+  signing docs, screenlocker
+- Stub deps remaining: libepoxy-stub, libudev-stub, lcms2-stub, libdisplay-info-stub
+
+New dependency library:
+- libqrencode 4.1.1 ✅ BUILT (QR code encoder, dependency of kf6-prison)
 - kf6-kwayland ✅
 - seatd builds separately (runtime dependency, not needed for compilation)
 
@@ -357,7 +406,8 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
    validated more broadly. QML network access is also affected.
 
 3. **No GPU hardware acceleration** — Qt6 OpenGL/EGL and Mesa EGL+GBM now build, but they are still validated only on the software/LLVMpipe path.
-   True hardware acceleration (radeonsi or equivalent) still requires kernel DMA-BUF fd passing and real hardware validation.
+   True hardware acceleration (radeonsi or equivalent) still requires GPU command submission and real hardware validation.
+   PRIME/DMA-BUF cross-process buffer sharing is implemented at the scheme level.
 
 4. **relibc / graphics surface still incomplete for runtime** — the build-side `open_memstream` and Wayland-facing header export path now work,
    but DMA-BUF ioctls, sync objects, and broader graphics runtime validation are still unavailable.
@@ -370,7 +420,11 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
 The Qt6/KF6 build stack is substantially further along than the earlier "~50%" estimate implied:
 - Qt6, QtWayland, Mesa EGL+GBM, Qt6 OpenGL, libdrm amdgpu, and all 32 KF6 frameworks now build
 - the remaining blockers are concentrated in KWin/Plasma runtime integration and in the still-shimmed or stub-only packages such as Kirigami, libepoxy, libudev, lcms2, and libdisplay-info
-- hardware acceleration still requires kernel DMA-BUF work and real hardware validation
+- hardware acceleration still requires GPU command submission and real hardware validation (PRIME/DMA-BUF buffer sharing is implemented)
 - a successful build stack is not yet the same thing as a working KDE Plasma session
 
-(Updated 2026-04-14 — status reconciled after relibc/libwayland bridge fixes; build-side progress is real, runtime remains incomplete)
+For the canonical execution plan from this state to a working KDE Plasma desktop, see
+`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0). The Qt work described here maps to
+pre-Phase work (builds complete) and Phase 3 (KWin desktop session) in the canonical plan.
+
+(Updated 2026-04-16 — aligned with CONSOLE-TO-KDE-DESKTOP-PLAN.md v2.0)

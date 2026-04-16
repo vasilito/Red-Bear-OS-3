@@ -1,5 +1,9 @@
 # Red Bear OS Phase 0–3 Reassessment
 
+> **DEPRECATED (2026-04-16):** This one-time reconciliation document has been absorbed into the
+> updated `CONSOLE-TO-KDE-DESKTOP-PLAN.md` and `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`. It is
+> retained for historical reference only. Do not use it as a current planning source.
+
 ## Purpose
 
 This document reconciles the current public execution plan in `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`
@@ -256,7 +260,11 @@ For Phase 0–3 work, prefer closing validation gaps and documentation drift bef
 The early-phase codebase is in a much better structural state now; the main quality risk is no
 longer missing packages, but overstating readiness before runtime evidence exists.
 
-## Phase 4 Handoff Note
+## Phase 4 Handoff Note (historical P0–P6 numbering)
+
+> This section uses the old P0–P6 phase numbering. In the v2.0 desktop plan
+> (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), the "Phase 4" below corresponds to Phase 2
+> (Wayland Compositor Proof).
 
 Phase 4 should begin from the existing `wayland.toml` profile, not by jumping straight to KWin.
 The current repo already contains the `smallvil`, `cosmic-comp`, `qtwayland`, and Mesa software

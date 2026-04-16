@@ -6,10 +6,10 @@ This index is the entry point for the documentation set. Its main job is to make
 current/canonical versus historical/reference split obvious.
 
 > **Status note (2026-04-16):** The canonical desktop path document is now
-> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. It consolidates the Wayland, KDE, and GPU roadmap
-> into one honest implementation plan. The historical docs below (01–05) remain useful for
-> architecture reference and implementation rationale, but they should be read together with the
-> new plan and the current local subsystem docs.
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0, three-track Phase 1–5 model). It consolidates
+> the Wayland, KDE, and GPU roadmap into one honest implementation plan with testable exit criteria.
+> The historical docs below (01–05) remain useful for architecture reference and implementation
+> rationale, but they should be read together with the new plan and the current local subsystem docs.
 
 > **Status note (2026-04-14):** several documents below are historical implementation plans whose
 > original "missing / not started" language is now stale. The repo already contains substantial
@@ -96,7 +96,7 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **Wayland**: libwayland + wayland-protocols built. Smallvil/cosmic-comp remain partial runtime experiments.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
-- **KF6 Frameworks**: mixed state — many real builds, but some packages are still shimmed or stubbed.
+- **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
 - **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
 - **GPU drivers**: redox-drm scheme daemon and AMD+Intel compile-oriented paths exist; hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built

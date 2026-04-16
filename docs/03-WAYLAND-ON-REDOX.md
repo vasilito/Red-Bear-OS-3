@@ -18,8 +18,8 @@ porting notes.
 - `smallvil` (Smithay) is still the recommended first runtime target because it is the smallest
   compositor path already present in-tree
 - `cosmic-comp` builds but still has no working keyboard input; the remaining issue is runtime/input integration, not simply the absence of a libinput recipe
-- `libdrm` builds with all GPU drivers disabled
-- Mesa uses OSMesa (software rendering only)
+- `libdrm` builds with amdgpu and Intel enabled
+- Mesa builds with EGL+GBM+GLES2 (software via LLVMpipe; hardware acceleration still requires kernel DMA-BUF)
 - **evdevd** (`scheme:evdev`) provides Linux-compatible `/dev/input/eventX` interface
 - **udev-shim** (`scheme:udev`) provides udev-like device enumeration
 - **seatd** now builds for Redox and is wired into the KDE runtime config, but DRM-lease/runtime validation is still open
@@ -42,12 +42,17 @@ What is actually true today:
 Read the step-by-step sections below as design history plus implementation notes, not as an exact
 current-state checklist.
 
-For the current Phase 4 runtime entrypoint in this repo, use:
+For the current Wayland runtime entrypoint in this repo, use:
 
 - `config/redbear-wayland.toml`
 - `local/scripts/test-phase4-wayland-qemu.sh`
 
-That path is the current smallvil-first Phase 4 validation target.
+> **Numbering note:** the "Phase 4" in the script name above refers to the historical P0-P6
+> hardware-enablement sequence (see `AGENTS.md`). In the v2.0 desktop plan
+> (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), Wayland compositor work falls under Phase 2.
+> The scripts still work under their original names.
+
+That path is the current smallvil-first Wayland validation target.
 
 Current runtime evidence for that target:
 
@@ -364,8 +369,7 @@ drmd/
 │   │   ├── plane.rs         — primary + cursor planes
 │   │   └── framebuffer.rs   — framebuffer allocation
 │   ├── gem/
-│   │   ├── mod.rs           — GEM buffer management
-│   │   └── dmabuf.rs        — DMA-BUF export/import
+│   │   └── mod.rs           — GEM buffer management
 │   └── drivers/
 │       ├── mod.rs           — driver trait
 │       └── intel.rs         — Intel GPU driver (modesetting)
@@ -548,7 +552,7 @@ Once Steps 1-4 are done:
 1. **cosmic-comp**: Uncomment libinput dependency in recipe, rebuild
 2. **wlroots**: Build with libdrm + libinput + GBM
 3. **sway**: Should work once wlroots builds
-4. **KWin**: See `05-KDE-PLASMA-ON-REDOX.md` for the full path
+4. **KWin**: See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path; `05-KDE-PLASMA-ON-REDOX.md` for historical rationale
 
 ---
 

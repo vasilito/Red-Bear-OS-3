@@ -1,9 +1,16 @@
-# AMD-FIRST REDOX OS — MASTER INTEGRATION PLAN
+# AMD-FIRST REDOX OS — AMD-SPECIFIC INTEGRATION PLAN
 
-> **Status note (2026-04-14):** This document remains the detailed AMD-focused hardware roadmap,
-> but it is no longer the repository-wide platform-priority policy. Red Bear OS should now treat
-> AMD and Intel machines as equal-priority targets. Read this file as the deeper AMD-specific plan,
-> not as a statement that Intel is secondary going forward.
+> **Status note (2026-04-16):** This document remains the detailed AMD-focused hardware roadmap.
+> It is no longer the canonical desktop path plan — see
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for that role. This file is now scoped to AMD-specific
+> hardware integration detail only.
+>
+> The P0–P6 section headings below refer to the historical hardware-enablement sequence, not the
+> v2.0 desktop plan phases (Phase 1–5). Where numbering conflicts with the v2.0 plan, the v2.0 plan
+> takes precedence.
+>
+> Red Bear OS now treats AMD and Intel machines as equal-priority targets. Read this file as the
+> deeper AMD-specific technical plan, not as a platform-priority statement.
 
 **Target**: AMD64 bare metal machine with AMD GPU (RDNA2/RDNA3), within an overall Red Bear OS
 hardware policy that treats AMD and Intel machines as equal-priority targets.
@@ -186,7 +193,6 @@ local/recipes/gpu/redox-drm/
 │   │   ├── encoder.rs    # Encoder management
 │   │   └── plane.rs      # Primary/cursor planes
 │   ├── gem.rs            # GEM buffer objects
-│   ├── dmabuf.rs         # DMA-BUF export/import
 │   └── drivers/
 │       ├── mod.rs         # trait GpuDriver
 │       └── amd/
@@ -257,7 +263,7 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 | GTT manager | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/gtt.rs` |
 | Ring buffer | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/ring.rs` |
 | GEM buffer mgmt | ✅ | `local/recipes/gpu/redox-drm/source/src/gem.rs` |
-| DMA-BUF | ✅ | `local/recipes/gpu/redox-drm/source/src/dmabuf.rs` |
+| DMA-BUF | ✅ | `local/recipes/gpu/redox-drm/source/src/scheme.rs` (PRIME export/import via opaque tokens) |
 | Intel driver | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs` + `display.rs` |
 
 ### Build Verification
@@ -327,7 +333,9 @@ smithay/src/backend/
 
 ### P4-2: libdrm AMD Backend
 
-Currently libdrm has `-Damdgpu=disabled`. Enable it once redox-drm exists.
+libdrm now builds with `-Damdgpu=enabled` and `-Dintel=enabled`. The amdgpu and Intel
+backends are present in the built sysroot. Runtime hardware validation through real GPU
+hardware is still pending.
 
 **Patches**: `local/patches/libdrm/`
 
@@ -335,9 +343,10 @@ Currently libdrm has `-Damdgpu=disabled`. Enable it once redox-drm exists.
 
 ## PHASE 5: AMD GPU ACCELERATION (16-24 weeks, parallel with P4)
 
-> Note: this AMD-first Phase 5 is a hardware-driver track. It is **not** the same thing as the
-> canonical public `docs/07` Phase 5, which is about wired networking and desktop/session
-> integration.
+> Note: this AMD-first Phase 5 is a hardware-driver track. In the v2.0 desktop plan
+> (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), hardware GPU enablement is also Phase 5, so the
+> numbering happens to align. The P0–P6 labels in this document refer to the historical
+> hardware-enablement sequence, not the current desktop-plan phases.
 
 ### P5-1: Full amdgpu Port via LinuxKPI
 
@@ -397,39 +406,29 @@ P0 (ACPI boot)
 
 ---
 
-## WHAT NEEDS TO BE DOCUMENTED
+## DOCUMENT STATUS
 
-### New Documents to Create
+> **Note (2026-04-16):** Most documents and scripts listed below have been created since this plan
+> was originally written. This section is retained as a checklist rather than a to-do list.
 
-| Document | Location | Purpose |
-|----------|----------|---------|
-| This file | `local/docs/AMD-FIRST-INTEGRATION.md` | Master plan |
-| ACPI fix guide | `local/docs/ACPI-FIXES.md` | What ACPI functions are missing |
-| Firmware loading spec | `local/docs/FIRMWARE-LOADING.md` | How AMD firmware loading works |
-| AMD GPU register notes | `local/docs/AMD-GPU-NOTES.md` | Hardware programming notes |
-| Bare metal testing log | `local/docs/BAREMETAL-LOG.md` | Hardware test results |
-| Build guide (AMD) | `local/docs/BUILD-GUIDE-AMD.md` | How to build for AMD hardware |
-| Overlay usage guide | `local/AGENTS.md` | How to use local/ overlay |
+### Documents — Creation Status
 
-### Existing Documents to Update
+| Document | Location | Status |
+|----------|----------|--------|
+| This file | `local/docs/AMD-FIRST-INTEGRATION.md` | ✅ Created |
+| ACPI fix guide | `local/docs/ACPI-FIXES.md` | ✅ Created |
+| Bare metal testing log | `local/docs/BAREMETAL-LOG.md` | ✅ Created |
+| Overlay usage guide | `local/AGENTS.md` | ✅ Created |
+| Desktop path plan | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | ✅ Created |
 
-| Document | Change |
-|----------|--------|
-| `AGENTS.md` (root) | Keep equal-priority AMD/Intel hardware policy visible; keep local/ overlay refs |
-| `recipes/core/AGENTS.md` | Add AMD boot requirements, IOMMU note |
-| `recipes/wip/AGENTS.md` | Add AMD GPU driver WIP section |
-| `docs/AGENTS.md` | Add reference to local/docs/ |
-| `docs/04-LINUX-DRIVER-COMPAT.md` | Add AMD-specific porting notes |
-| `docs/02-GAP-ANALYSIS.md` | Add P0 bare metal boot layer |
+### Config Files and Scripts — Creation Status
 
-### Config Files to Create
-
-| File | Purpose |
-|------|---------|
-| `local/config/my-amd-desktop.toml` | AMD desktop build config |
-| `local/scripts/fetch-firmware.sh` | Download AMD firmware blobs |
-| `local/scripts/build-amd.sh` | Build wrapper for AMD target |
-| `local/scripts/test-baremetal.sh` | Burn + test on real hardware |
+| File | Status |
+|------|--------|
+| `local/scripts/fetch-firmware.sh` | ✅ Created |
+| `local/scripts/build-redbear.sh` | ✅ Created (replaces build-amd.sh) |
+| `local/scripts/test-baremetal.sh` | ✅ Created |
+| `config/redbear-desktop.toml` | ✅ Created (replaces my-amd-desktop.toml) |
 
 ---
 

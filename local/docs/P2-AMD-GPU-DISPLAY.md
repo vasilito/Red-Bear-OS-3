@@ -123,6 +123,11 @@ pcid: local/config/pcid.d/amd_gpu.toml
 - Rust side passes real PciDeviceInfo (vendor, device, revision, IRQ, BAR0/BAR2) to C via FFI
 - C layer validates the struct is populated before `amdgpu_redox_init()` uses it
 
+### linux-kpi quirk consumption (current)
+- `redox-drm` now also passes the real PCI BDF into the amdgpu C glue so linux-kpi quirk lookups resolve against the actual GPU, not a guessed location
+- `amdgpu_redox_main.c` now calls `pci_get_quirk_flags()` / `pci_has_quirk()` in the live Redox init path
+- `PCI_QUIRK_NEED_FIRMWARE` now gates DMCUB firmware loading as a hard requirement when present, while logs also spell out quirk-driven IRQ expectations (`NO_MSI`, `NO_MSIX`, `FORCE_LEGACY`)
+
 ### Intel GPU support (T4-T5)
 - Intel driver switched to shared `InterruptHandle` (MSI-X + legacy)
 - Added `local/config/pcid.d/intel_gpu.toml` for auto-detection (vendor 0x8086, class 0x03)

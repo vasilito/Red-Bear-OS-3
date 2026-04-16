@@ -69,6 +69,7 @@ redox-master/
 | Fix relibc (POSIX) | `recipes/core/relibc/source/` | C library written in Rust |
 | Wayland integration | `recipes/wip/wayland/` + `docs/03-WAYLAND-ON-REDOX.md` | 21 WIP recipes |
 | KDE Plasma path | `recipes/wip/kde/` + `docs/05-KDE-PLASMA-ON-REDOX.md` | 9 WIP KDE app recipes |
+| **Desktop path plan** | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | **Canonical plan: console → HW-accelerated KDE** |
 | Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture |
 | Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
@@ -76,6 +77,7 @@ redox-master/
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
 | GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
 | Boot config | `config/*.toml` | TOML hierarchy, include-based |
+| **Hardware quirks** | `local/recipes/drivers/redox-driver-sys/source/src/quirks/` | Data-driven quirk tables: compiled-in + TOML + DMI; see `local/docs/QUIRKS-SYSTEM.md` |
 
 ## BUILD COMMANDS
 
@@ -155,6 +157,19 @@ areas like relibc, prefer the upstream solution whenever upstream already solves
 Keep Red Bear patch carriers only for gaps or compatibility work that upstream still does not solve
 adequately.
 
+When upstream Redox already provides a package, crate, or subsystem for functionality that also
+exists in Red Bear local code, prefer the upstream Redox version by default unless the Red Bear
+implementation is materially better. Do not grow lower-quality in-house duplicates as a steady
+state.
+
+For quirks and driver support specifically:
+
+- prefer improving and using the canonical `redox-driver-sys` path,
+- avoid maintaining separate lower-quality quirk engines when the same functionality belongs in
+  `redox-driver-sys`,
+- if duplication is temporarily unavoidable, treat it as convergence work to remove, not as a
+  permanent design.
+
 ### Structure
 
 ```
@@ -222,7 +237,7 @@ git reset --hard upstream-redox/master
 
 ## AMD-FIRST INTEGRATION PATH
 
-See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
+See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path plan and `local/docs/AMD-FIRST-INTEGRATION.md` for deeper AMD-specific technical detail.
 
 **Target**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority hardware targets.
 
@@ -242,7 +257,11 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
 | AMD GPU | 🚧 | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 
-### Phased Roadmap
+### Phased Roadmap (historical P0–P6)
+
+> **Note:** The P0–P6 numbering below is the historical hardware-enablement sequence.
+> The canonical current desktop path plan uses a new Phase 1–5 structure documented in
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0, 2026-04-16).
 
 | Phase | Duration | Delivers |
 |-------|----------|----------|
@@ -254,20 +273,32 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 DML2 config enabled, 63 DML source files in build, TTM compiled, libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
 | P6: KDE Plasma | 12-16 weeks | 🚧 In progress — Qt6 ✅, KF6 32/32 ✅, Mesa EGL/GBM/GLES2 ✅, kf6-kcmutils ✅, kf6-kwayland ✅, kdecoration ✅, KWin 🔄 building |
 
-**Total to KDE Plasma on AMD**: ~48 weeks (~11 months) with 2 developers (P0-P2 complete; P3/P4 build-side substantially advanced, runtime still open).
+### Canonical Desktop Path (current plan)
+
+The current execution plan uses a three-track model with new Phase 1–5 numbering:
+- **Phase 1:** Runtime Substrate Validation (4–6 weeks)
+- **Phase 2:** Wayland Compositor Proof (4–6 weeks)
+- **Phase 3:** KWin Desktop Session (6–10 weeks)
+- **Phase 4:** KDE Plasma Session (8–12 weeks)
+- **Phase 5:** Hardware GPU Enablement (12–20 weeks, parallel with 3–4)
+
+See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for full detail.
+
+**Total to software-rendered KDE Plasma**: 22–34 weeks (~6–8 months) with 2 developers.
+**Total to hardware-accelerated KDE Plasma**: 34–54 weeks (~8–13 months) with 2 developers.
 
 ### Critical Path
 ```
-P0 (ACPI boot) ✅ → P1 (driver infra) ✅ → P2 (AMD display) ✅ → P3 (POSIX+input, build-side) 🚧 → P4 (Wayland runtime) 🚧 → P6 (KDE)
-                                                                                    P5 (full amdgpu, parallel)
+Phase 1 (runtime substrate) → Phase 2 (software compositor) → Phase 3 (KWin session) → Phase 4 (KDE Plasma)
+                               Phase 5 (hardware GPU, parallel with Phases 3–4)
 ```
 
 ### Custom Crates (P1/P2)
-1. `redox-driver-sys` — `local/recipes/drivers/redox-driver-sys/source/` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci
-2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys
-3. `redox-drm` — `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon (AMD + Intel drivers)
+1. `redox-driver-sys` — `local/recipes/drivers/redox-driver-sys/source/` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci + hardware quirks system (`src/quirks/`)
+2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys; includes `pci_get_quirk_flags()` C FFI for quirk queries
+3. `redox-drm` — `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon (AMD + Intel drivers); consumes quirk flags for MSI/MSI-X fallback and DISABLE_ACCEL
 4. `firmware-loader` — `local/recipes/system/firmware-loader/source/` — scheme:firmware for GPU blobs
-5. `amdgpu` — `local/recipes/gpu/amdgpu/source/` — AMD DC C port with linux-kpi compat
+5. `amdgpu` — `local/recipes/gpu/amdgpu/source/` — AMD DC C port with linux-kpi compat; can query quirks via `pci_has_quirk()` FFI
 
 All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 

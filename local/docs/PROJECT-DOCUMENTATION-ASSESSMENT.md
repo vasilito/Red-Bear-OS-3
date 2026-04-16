@@ -1,5 +1,9 @@
 # Project Documentation Assessment
 
+> **DEPRECATED (2026-04-16):** This one-time assessment was completed and its findings applied to the
+> documentation set. It is retained for historical reference only. For current documentation status,
+> see `docs/README.md` and the document-status matrix there.
+
 ## Purpose
 
 This document assesses the current Red Bear OS documentation set after the repository-model and WIP

@@ -12,6 +12,11 @@ This document maps the distance between current Redox OS 0.9.0 and three goals:
 Most of this document is a historical roadmap and no longer reflects the repository's current state.
 Use the matrix below as the authoritative phase summary before reading the older milestone text.
 
+> **Phase numbering note (2026-04-16):** the P0–P6 labels below refer to the historical
+> hardware-enablement sequence, not the v2.0 desktop plan phases (Phase 1–5) in
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. P4 ≈ v2.0 Phase 2 (compositor), P6 ≈ v2.0
+> Phases 3–4 (KWin + Plasma).
+
 | Layer / Phase | Current repo state | Evidence |
 |---|---|---|
 | P0 ACPI / bare-metal boot | Complete in-tree | `local/docs/ACPI-FIXES.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch` |
@@ -83,7 +88,7 @@ implemented phase with its own config/recipe/doc boundary.
 | DRM/KMS scheme | **Present in-tree** | `local/recipes/gpu/redox-drm/` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
 | GPU driver (Intel) | Experimental modeset only | `redox-drm/src/drivers/intel/` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
 | GEM buffers | **Present in-tree** | `local/recipes/gpu/redox-drm/source/src/gem.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
-| DMA-BUF sharing | **Present in-tree** | `local/recipes/gpu/redox-drm/source/src/dmabuf.rs` | [04 §3](04-LINUX-DRIVER-COMPAT.md) |
+| DMA-BUF sharing | ✅ Implemented | PRIME export/import via opaque tokens in `scheme.rs` | [DMA-BUF plan](../local/docs/DMA-BUF-IMPROVEMENT-PLAN.md) |
 | Mesa hardware backend | **Missing** | Mesa winsys for Redox DRM | [03 §3.4](03-WAYLAND-ON-REDOX.md) |
 | GPU OpenGL | Software only | Blocked on GPU driver | [04](04-LINUX-DRIVER-COMPAT.md) |
 

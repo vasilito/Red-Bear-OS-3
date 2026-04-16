@@ -77,6 +77,19 @@ That means:
 For relibc specifically, patch carriers should be treated as **temporary compatibility overlays**,
 not a permanent fork strategy.
 
+When upstream Redox already provides a package, crate, or subsystem for functionality that also
+exists in Red Bear local code, prefer the upstream Redox version by default unless the Red Bear
+implementation is materially better. Do not grow lower-quality in-house duplicates as a steady
+state.
+
+For quirks and driver support specifically:
+
+- prefer improving and using the canonical `redox-driver-sys` path,
+- avoid maintaining separate lower-quality quirk engines when the same functionality belongs in
+  `redox-driver-sys`,
+- if duplication is temporarily unavoidable, treat it as convergence work to remove, not as a
+  permanent design.
+
 ### Daily-upstream-safe workflow
 
 For any change to upstream-owned source:
@@ -133,9 +146,9 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
-│   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-meta
-│   │   ├── wayland/           ← Wayland compositor (Phase 4)
-│   │   └── kde/               ← KDE Plasma (Phase 6)
+│   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-quirks, redbear-meta
+│   │   ├── wayland/           ← Wayland compositor (v2.0 Phase 2)
+│   │   └── kde/               ← KDE Plasma (v2.0 Phases 3–4)
 │   ├── patches/
 │   │   ├── kernel/            ← Kernel patches (ACPI, x2APIC)
 │   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
@@ -187,7 +200,11 @@ redox-master/                  ← git pull updates mainline Redox
 # Then run inside the guest:
 #   ./local/scripts/test-vm-network-runtime.sh
 
-# Phase 3 runtime-substrate validation
+# Phase 1 desktop-substrate validation (v2.0 plan: relibc headers, evdevd, udev-shim,
+# firmware-loader, DRM/KMS, health-check — covers 6 acceptance areas)
+./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
+
+# Legacy Phase 3 runtime-substrate validation (historical P0-P6 numbering; script still works)
 ./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-desktop
 
 # Low-level controller validation
@@ -195,6 +212,7 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/test-msix-qemu.sh
 ./local/scripts/test-iommu-qemu.sh
 ./local/scripts/test-usb-storage-qemu.sh
+./local/scripts/test-usb-qemu.sh --check
 
 # The current xHCI proof checks for an interrupt-driven mode in boot logs.
 # The current MSI-X proof uses the live virtio-net path in QEMU.
@@ -202,13 +220,13 @@ redox-master/                  ← git pull updates mainline Redox
 # AMD-Vi units initialize and drain events successfully in QEMU.
 # The USB storage proof currently verifies whether usbscsid autospawns without hitting crash-class errors.
 
-# Phase 4 Wayland runtime validation
+# Legacy Phase 4 Wayland runtime validation (historical P0-P6 numbering; script still works)
 ./local/scripts/build-redbear.sh redbear-wayland
 ./local/scripts/test-phase4-wayland-qemu.sh
 # Then run inside the guest:
 #   redbear-phase4-wayland-check
 
-# Phase 5 desktop/network plumbing validation
+# Legacy Phase 5 desktop/network plumbing validation (historical P0-P6 numbering; script still works)
 ./local/scripts/build-redbear.sh redbear-full
 ./local/scripts/test-phase5-network-qemu.sh --check
 # Then run inside the guest:
@@ -229,7 +247,7 @@ redox-master/                  ← git pull updates mainline Redox
 #   ./local/scripts/test-wifi-passthrough-qemu.sh --host-pci 0000:xx:yy.z --check --capture-output ./wifi-passthrough-capture.json
 #   ./local/scripts/finalize-wifi-validation-run.sh ./wifi-passthrough-capture.json ./wifi-passthrough-artifacts.tar.gz
 
-# Phase 6 KDE session-surface validation
+# Legacy Phase 6 KDE session-surface validation (historical P0-P6 numbering; script still works)
 ./local/scripts/build-redbear.sh redbear-kde
 ./local/scripts/test-phase6-kde-qemu.sh --check
 # Then run inside the guest:
@@ -261,15 +279,17 @@ When mainline updates affect our work:
 | Build system | Makefile/config changes | `mk/`, `src/` |
 | rsext4 | ext4 crate API changes | `local/recipes/core/ext4d/source/` Cargo.toml |
 | Installer | ext4 dispatch, filesystem selection | `local/patches/installer/redox.patch` |
+| Quirks | New Linux quirk entries to port | `local/recipes/drivers/redox-driver-sys/source/src/quirks/` |
 
 ## PLANNING NOTES
 
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` is the canonical public execution plan.
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0) is the canonical desktop path plan from console to
+  hardware-accelerated KDE Plasma on Wayland, using a three-track Phase 1–5 model.
 - `local/docs/AMD-FIRST-INTEGRATION.md` remains the deeper AMD-specific technical roadmap, but AMD
   and Intel machines are now equal-priority Red Bear OS targets.
-- `local/docs/PHASE-0-3-REASSESSMENT.md` explains how to read the early phases consistently when
-  the historical hardware-enablement phases and newer product-enablement phases use different
-  numbering.
+- `local/docs/PHASE-0-3-REASSESSMENT.md` is deprecated — its reconciliation role is now covered by the
+  updated CONSOLE-TO-KDE-DESKTOP-PLAN.md and docs/07.
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md` is the current Wi-Fi architecture and rollout plan,
   including the bounded role of `linux-kpi` and the native wireless control-plane direction.
 - `local/docs/USB-IMPLEMENTATION-PLAN.md` and `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` should
@@ -278,6 +298,10 @@ When mainline updates affect our work:
   VFIO-backed Intel Wi-Fi validation, packaged checkers, and capture artifacts.
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` is the current umbrella plan for
   IRQ delivery, MSI/MSI-X quality, IOMMU validation, and other low-level controller completeness work.
+- `local/docs/QUIRKS-SYSTEM.md` documents the hardware quirks infrastructure: compiled-in tables,
+  TOML runtime files, DMI matching, driver integration, and the linux-kpi C FFI bridge.
+- `local/docs/QUIRKS-IMPROVEMENT-PLAN.md` is the current follow-up plan for removing quirks drift,
+  integrating quirks into real drivers, and converging on one source of truth.
 
 The current execution order for these subsystem plans is:
 
