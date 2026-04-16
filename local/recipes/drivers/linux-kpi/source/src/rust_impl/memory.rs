@@ -72,6 +72,24 @@ fn dma32_alloc(size: usize) -> *mut u8 {
 
         let phys = virt_to_phys(candidate as usize);
         if phys == 0 {
+            #[cfg(all(test, not(target_os = "redox")))]
+            let host_test_fallback = true;
+            #[cfg(not(all(test, not(target_os = "redox"))))]
+            let host_test_fallback = false;
+
+            if host_test_fallback {
+                log::debug!(
+                    "dma32_alloc: host test fallback for virt={:#x} without translation",
+                    candidate as usize
+                );
+                if let Ok(mut tracker) = DMA32_TRACKER.lock() {
+                    tracker.insert(SendU8Ptr(candidate), layout);
+                    return candidate;
+                }
+                unsafe { dealloc(candidate, layout) };
+                return ptr::null_mut();
+            }
+
             log::warn!(
                 "dma32_alloc: virt_to_phys failed for {:#x}",
                 candidate as usize

@@ -6,11 +6,11 @@ const GFP_DMA32: u32 = 2;
 
 /// Wrapper to make raw pointers `Send`, required because `DEVRES_MAP` is a
 /// global `Mutex` (which needs `T: Send`). Raw pointers are not `Send` by
-/// default since the compiler can't prove thread-safety. Here each `(ptr,
-/// Layout)` pair is exclusively owned by the device that allocated it — only
+/// default since the compiler can't prove thread-safety. Here each tracked
+/// pointer is exclusively owned by the device that allocated it — only
 /// freed via `devm_kfree` or `devres_free_all` — so sending across threads is
 /// safe.
-struct TrackedAlloc(*mut u8, Layout);
+struct TrackedAlloc(*mut u8);
 unsafe impl Send for TrackedAlloc {}
 
 lazy_static::lazy_static! {
@@ -42,16 +42,15 @@ pub extern "C" fn devm_kzalloc(dev: *mut u8, size: usize, flags: u32) -> *mut u8
         return ptr;
     }
 
-    let layout = match tracked_layout(size, flags) {
-        Some(layout) => layout,
-        None => return ptr,
-    };
+    if tracked_layout(size, flags).is_none() {
+        return ptr;
+    }
 
     if let Ok(mut devres_map) = DEVRES_MAP.lock() {
         devres_map
             .entry(dev as usize)
             .or_default()
-            .push(TrackedAlloc(ptr, layout));
+            .push(TrackedAlloc(ptr));
     }
 
     ptr

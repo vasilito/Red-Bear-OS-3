@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::mem;
-use std::os::raw::c_int;
+use std::os::raw::{c_int, c_ulong};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -117,8 +117,8 @@ fn join_all_handles(entry: &TimerEntry) {
 #[no_mangle]
 pub extern "C" fn setup_timer(
     timer: *mut TimerList,
-    function: extern "C" fn(*mut u8),
-    data: *mut u8,
+    function: extern "C" fn(c_ulong),
+    data: c_ulong,
 ) {
     if timer.is_null() {
         return;
@@ -131,13 +131,13 @@ pub extern "C" fn setup_timer(
             TimerList {
                 expires: AtomicU64::new(0),
                 function: AtomicPtr::new(function_ptr),
-                data: AtomicPtr::new(data),
+                data: AtomicPtr::new(data as usize as *mut u8),
                 active: AtomicBool::new(false),
             },
         );
     }
 
-    reset_timer_entry(timer, function_ptr, data);
+    reset_timer_entry(timer, function_ptr, data as usize as *mut u8);
 }
 
 #[no_mangle]
@@ -185,8 +185,8 @@ pub extern "C" fn mod_timer(timer: *mut TimerList, expires: u64) -> i32 {
         }
 
         let function =
-            unsafe { std::mem::transmute::<usize, extern "C" fn(*mut u8)>(function_addr) };
-        function(data_addr as *mut u8);
+            unsafe { std::mem::transmute::<usize, extern "C" fn(c_ulong)>(function_addr) };
+        function(data_addr as c_ulong);
 
         if entry_for_thread.generation.load(Ordering::Acquire) == generation {
             entry_for_thread.active.store(false, Ordering::Release);

@@ -2,9 +2,7 @@ use std::os::raw::c_ulong;
 use std::ptr;
 use std::sync::Mutex;
 
-use redox_driver_sys::pci::{
-    enumerate_pci_class, PciDevice, PciDeviceInfo, PciLocation, PCI_CLASS_DISPLAY,
-};
+use redox_driver_sys::pci::{enumerate_pci_all, PciDevice, PciDeviceInfo, PciLocation};
 
 const EINVAL: i32 = 22;
 const ENODEV: i32 = 19;
@@ -354,7 +352,7 @@ pub extern "C" fn pci_register_driver(drv: *mut PciDriver) -> i32 {
         }
     };
 
-    let devices = match enumerate_pci_class(PCI_CLASS_DISPLAY) {
+    let devices = match enumerate_pci_all() {
         Ok(devices) => devices,
         Err(error) => {
             log::warn!("pci_register_driver: PCI enumeration failed: {}", error);
@@ -365,7 +363,7 @@ pub extern "C" fn pci_register_driver(drv: *mut PciDriver) -> i32 {
     let Some((info, id_ptr)) = devices.into_iter().find_map(|candidate| {
         matching_id_entry(&candidate, driver.id_table).map(|id_ptr| (candidate, id_ptr))
     }) else {
-        log::info!("pci_register_driver: no matching PCI display device found");
+        log::info!("pci_register_driver: no matching PCI device found");
         return -ENODEV;
     };
 

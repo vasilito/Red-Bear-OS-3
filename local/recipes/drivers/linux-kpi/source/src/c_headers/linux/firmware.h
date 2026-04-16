@@ -1,6 +1,7 @@
 #ifndef _LINUX_FIRMWARE_H
 #define _LINUX_FIRMWARE_H
 
+#include <stddef.h>
 #include <linux/types.h>
 
 struct firmware {
@@ -22,5 +23,7 @@ extern int request_firmware_nowait(
 
 extern int request_firmware_direct(const struct firmware **fw,
                                    const char *name, struct device *dev);
+
+#define FW_ACTION_HOTPLUG 0
 
 #endif

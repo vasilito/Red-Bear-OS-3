@@ -1,7 +1,8 @@
 use core::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use redox_syscall::flag::{MAP_PRIVATE, O_CLOEXEC, PROT_READ, PROT_WRITE};
+use redox_syscall::data::Map;
+use redox_syscall::flag::{MapFlags, MAP_PRIVATE, O_CLOEXEC, PROT_READ, PROT_WRITE};
 use redox_syscall::PAGE_SIZE;
 use syscall as redox_syscall;
 
@@ -155,18 +156,15 @@ impl DmaBuffer {
         let region_fd = libredox::call::openat(mem_fd as usize, &path, O_CLOEXEC as i32, 0)
             .map_err(|e| DriverError::Io(std::io::Error::from_raw_os_error(e.errno())))?;
 
-        // Map it into our address space
-        let ptr = unsafe {
-            libredox::call::mmap(libredox::call::MmapArgs {
-                fd: region_fd as usize,
-                offset: 0,
-                length: size,
-                flags: MAP_PRIVATE.bits() as u32,
-                prot: (PROT_READ | PROT_WRITE).bits() as u32,
-                addr: core::ptr::null_mut(),
-            })
-        }
-        .map_err(|e| {
+        let map = Map {
+            offset: 0,
+            size,
+            flags: MapFlags::from_bits_truncate((MAP_PRIVATE | PROT_READ | PROT_WRITE).bits()),
+            address: 0,
+        };
+
+        // Map it into our address space through SYS_FMAP with combined map+prot flags.
+        let ptr = unsafe { redox_syscall::call::fmap(region_fd as usize, &map) }.map_err(|e| {
             let _ = libredox::call::close(region_fd as usize);
             DriverError::MappingFailed {
                 phys: 0,

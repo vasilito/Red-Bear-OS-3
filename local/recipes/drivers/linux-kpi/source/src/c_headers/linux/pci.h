@@ -24,7 +24,7 @@ struct pci_device_id {
 
 struct pci_dev {
     u16 vendor;
-    u16 device;
+    u16 device_id;
     u8  bus_number;
     u8  dev_number;
     u8  func_number;
@@ -33,7 +33,7 @@ struct pci_dev {
     u64 resource_start[6];
     u64 resource_len[6];
     void *driver_data;
-    struct device device;
+    struct device device_obj;
 };
 
 struct pci_driver {

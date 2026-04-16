@@ -1,3 +1,4 @@
+#[cfg(all(target_arch = "x86_64", target_os = "redox"))]
 use syscall as redox_syscall;
 
 use crate::Result;

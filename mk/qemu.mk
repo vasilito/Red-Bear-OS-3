@@ -23,7 +23,7 @@ ifeq ($(ARCH),i586)
 		kvm?=yes
 	endif
 else ifeq ($(ARCH),x86_64)
-	gpu?=vga
+	gpu?=virtio
 	uefi?=yes
 	VGA_SUPPORTED=yes
 	QEMU_ARCH=x86_64

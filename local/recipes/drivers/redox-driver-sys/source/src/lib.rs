@@ -12,14 +12,18 @@
 //!
 //! ```no_run
 //! use redox_driver_sys::pci::PciDevice;
+//! use redox_driver_sys::Result;
 //!
-//! // Open a PCI device by location
-//! let dev = PciDevice::open(0, 0x10, 0, 0)?;
-//! let vendor = dev.vendor_id();
-//! let bars = dev.parse_bars()?;
-//! if let Some(bar) = bars[0].memory_info() {
-//!     let mmio = dev.map_bar(0, bar.addr, bar.size)?;
-//!     let reg = mmio.read32(0);
+//! fn example() -> Result<()> {
+//!     // Open a PCI device by location
+//!     let mut dev = PciDevice::open(0, 0x10, 0, 0)?;
+//!     let _vendor = dev.vendor_id();
+//!     let bars = dev.parse_bars()?;
+//!     if let Some((addr, size)) = bars[0].memory_info() {
+//!         let mmio = dev.map_bar(0, addr, size)?;
+//!         let _reg = mmio.read32(0);
+//!     }
+//!     Ok(())
 //! }
 //! ```
 

@@ -219,6 +219,43 @@ index b3683125..be7db1be 100644
  pub fn feature_info() -> FeatureInfo {
      cpuid()
 diff --git a/src/context/memory.rs b/src/context/memory.rs
+--- a/src/context/memory.rs
++++ b/src/context/memory.rs
+@@
+     let new_flags = grant_flags.write(grant_flags.has_write() && allow_writable);
+-    let Some(flush) = (unsafe {
+-        addr_space
+-            .table
+-            .utable
+-            .map_phys(faulting_page.start_address(), frame.base(), new_flags)
+-    }) else {
+-        // TODO
+-        return Err(PfError::Oom);
+-    };
++    let flush = if faulting_frame_opt.is_some() {
++        let Some((_, _, flush)) = (unsafe {
++            addr_space
++                .table
++                .utable
++                .remap_with_full(faulting_page.start_address(), |_, _| {
++                    Some((frame.base(), new_flags))
++                })
++        }) else {
++            return Err(PfError::Oom);
++        };
++        flush
++    } else {
++        let Some(flush) = (unsafe {
++            addr_space
++                .table
++                .utable
++                .map_phys(faulting_page.start_address(), frame.base(), new_flags)
++        }) else {
++            return Err(PfError::Oom);
++        };
++        flush
++    };
+diff --git a/src/context/memory.rs b/src/context/memory.rs
 index 94519448..368efb0d 100644
 --- a/src/context/memory.rs
 +++ b/src/context/memory.rs

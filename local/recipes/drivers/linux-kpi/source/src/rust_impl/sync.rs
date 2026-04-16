@@ -33,6 +33,22 @@ pub extern "C" fn mutex_lock(m: *mut LinuxMutex) {
 }
 
 #[no_mangle]
+pub extern "C" fn mutex_trylock(m: *mut LinuxMutex) -> i32 {
+    if m.is_null() {
+        return 0;
+    }
+    if unsafe { &*m }
+        .state
+        .compare_exchange(UNLOCKED, LOCKED, Ordering::Acquire, Ordering::Relaxed)
+        .is_ok()
+    {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn mutex_unlock(m: *mut LinuxMutex) {
     if m.is_null() {
         return;
@@ -122,6 +138,18 @@ pub extern "C" fn local_irq_restore(flags: u64) {
 }
 
 #[no_mangle]
+pub extern "C" fn local_irq_disable() {
+    IRQ_DEPTH.fetch_add(1, Ordering::Acquire);
+}
+
+#[no_mangle]
+pub extern "C" fn local_irq_enable() {
+    let _ = IRQ_DEPTH.fetch_update(Ordering::AcqRel, Ordering::Relaxed, |depth| {
+        Some(depth.saturating_sub(1))
+    });
+}
+
+#[no_mangle]
 pub extern "C" fn irqs_disabled() -> bool {
     IRQ_DEPTH.load(Ordering::Acquire) > 0
 }
@@ -174,4 +202,30 @@ pub extern "C" fn reinit_completion(c: *mut Completion) {
         return;
     }
     unsafe { &*c }.done.store(0, Ordering::Release);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutex_trylock_reflects_lock_state() {
+        let mut lock = LinuxMutex {
+            state: AtomicU8::new(UNLOCKED),
+        };
+
+        assert_eq!(mutex_trylock(&mut lock), 1);
+        assert_eq!(mutex_trylock(&mut lock), 0);
+        mutex_unlock(&mut lock);
+        assert_eq!(mutex_trylock(&mut lock), 1);
+    }
+
+    #[test]
+    fn local_irq_disable_enable_tracks_depth() {
+        IRQ_DEPTH.store(0, Ordering::Release);
+        local_irq_disable();
+        assert!(irqs_disabled());
+        local_irq_enable();
+        assert!(!irqs_disabled());
+    }
 }

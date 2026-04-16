@@ -11,39 +11,13 @@ struct timer_list {
     unsigned char __opaque[64];
 };
 
-static inline void setup_timer(struct timer_list *timer,
-                               void (*function)(unsigned long),
-                               unsigned long data)
-{
-    timer->function = function;
-    timer->data = data;
-    timer->expires = 0;
-}
-
-static inline int mod_timer(struct timer_list *timer, unsigned long expires)
-{
-    (void)timer;
-    (void)expires;
-    return 0;
-}
-
-static inline int del_timer(struct timer_list *timer)
-{
-    (void)timer;
-    return 0;
-}
-
-static inline int del_timer_sync(struct timer_list *timer)
-{
-    (void)timer;
-    return 0;
-}
-
-static inline int timer_pending(const struct timer_list *timer)
-{
-    (void)timer;
-    return 0;
-}
+extern void setup_timer(struct timer_list *timer,
+                        void (*function)(unsigned long),
+                        unsigned long data);
+extern int mod_timer(struct timer_list *timer, unsigned long expires);
+extern int del_timer(struct timer_list *timer);
+extern int del_timer_sync(struct timer_list *timer);
+extern int timer_pending(const struct timer_list *timer);
 
 #define DEFINE_TIMER(_name, _function, _flags, _data) \
     struct timer_list _name = { .function = (_function), .data = (_data) }

@@ -585,7 +585,7 @@ impl std::io::Write for PciDevice {
     }
 }
 
-pub fn enumerate_pci_class(class: u8) -> Result<Vec<PciDeviceInfo>> {
+fn enumerate_pci_filtered(class: Option<u8>) -> Result<Vec<PciDeviceInfo>> {
     let entries = std::fs::read_dir("/scheme/pci")?;
     let mut devices = Vec::new();
 
@@ -609,8 +609,10 @@ pub fn enumerate_pci_class(class: u8) -> Result<Vec<PciDeviceInfo>> {
                 continue;
             }
             let class_code = data[0x0b];
-            if class_code != class {
-                continue;
+            if let Some(class) = class {
+                if class_code != class {
+                    continue;
+                }
             }
             let vendor_id = u16::from_le_bytes([data[0x00], data[0x01]]);
             let device_id = u16::from_le_bytes([data[0x02], data[0x03]]);
@@ -641,10 +643,21 @@ pub fn enumerate_pci_class(class: u8) -> Result<Vec<PciDeviceInfo>> {
     }
 
     log::debug!(
-        "PCI enumeration for class {class:#04x}: found {} devices",
+        "PCI enumeration{}: found {} devices",
+        class
+            .map(|class| format!(" for class {class:#04x}"))
+            .unwrap_or_default(),
         devices.len()
     );
     Ok(devices)
+}
+
+pub fn enumerate_pci_class(class: u8) -> Result<Vec<PciDeviceInfo>> {
+    enumerate_pci_filtered(Some(class))
+}
+
+pub fn enumerate_pci_all() -> Result<Vec<PciDeviceInfo>> {
+    enumerate_pci_filtered(None)
 }
 
 fn parse_scheme_entry(name: &str) -> Option<PciLocation> {

@@ -1,6 +1,7 @@
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
+use redox_syscall::data::Map;
 use redox_syscall::flag::{
     MAP_SHARED, O_CLOEXEC, O_RDONLY, O_RDWR, O_WRONLY, PROT_READ, PROT_WRITE,
 };
@@ -110,20 +111,19 @@ impl MmioRegion {
         let root_fd = ensure_memory_root()?;
         let mem_fd = root_fd.openat(&path, (O_CLOEXEC | mode) as i32, 0)?;
 
-        let ptr = unsafe {
-            libredox::call::mmap(libredox::call::MmapArgs {
-                fd: mem_fd.raw(),
-                offset: phys_addr,
-                length: aligned_size,
-                flags: MAP_SHARED.bits() as u32,
-                prot: mmap_prot.bits() as u32,
-                addr: ptr::null_mut(),
-            })
-        }
-        .map_err(|e| DriverError::MappingFailed {
-            phys: phys_addr,
-            size,
-            reason: format!("{e:?}"),
+        let map = Map {
+            offset: phys_addr as usize,
+            size: aligned_size,
+            flags: mmap_prot | redox_syscall::MapFlags::from_bits_truncate(MAP_SHARED.bits()),
+            address: 0,
+        };
+
+        let ptr = unsafe { redox_syscall::call::fmap(mem_fd.raw(), &map) }.map_err(|e| {
+            DriverError::MappingFailed {
+                phys: phys_addr,
+                size,
+                reason: format!("{e:?}"),
+            }
         })?;
 
         Ok(Self {

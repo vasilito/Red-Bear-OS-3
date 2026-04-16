@@ -1,6 +1,7 @@
 # Configuration file for the Rust/GCC cross-compilers, relibc and libtool
 
 PREFIX=prefix/$(TARGET)
+TOOLCHAIN_EXPORT_DIR?=$(ROOT)/build/toolchain-export/$(TARGET)
 
 PREFIX_INSTALL=$(PREFIX)/sysroot/
 PREFIX_PATH=$(ROOT)/$(PREFIX_INSTALL)/bin
@@ -24,6 +25,13 @@ export REDOXER_TOOLCHAIN=$(RUSTUP_TOOLCHAIN)
 PREFIX_CONFIG=CI=1 COOKBOOK_CLEAN_BUILD=true COOKBOOK_CLEAN_TARGET=false COOKBOOK_VERBOSE=true COOKBOOK_NONSTOP=false
 
 prefix: $(PREFIX)/sysroot
+
+export-toolchain: $(PREFIX)/sysroot FORCE
+ifeq ($(PODMAN_BUILD),1)
+	$(PODMAN_RUN) make $@ TOOLCHAIN_EXPORT_DIR="$(TOOLCHAIN_EXPORT_DIR)"
+else
+	"$(ROOT)/local/scripts/export-$(TARGET)-toolchain.sh" "$(TOOLCHAIN_EXPORT_DIR)"
+endif
 
 # Remove prefix builds and downloads
 prefix_clean:

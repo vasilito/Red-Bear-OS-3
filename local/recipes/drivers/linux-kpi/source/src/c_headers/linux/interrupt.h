@@ -3,29 +3,16 @@
 
 #include <linux/types.h>
 #include <linux/irq.h>
+#include <linux/spinlock.h>
 
-static inline int in_interrupt(void)
-{
-    return 0;
-}
+extern void local_irq_save(unsigned long *flags);
+extern void local_irq_restore(unsigned long flags);
+extern void local_irq_disable(void);
+extern void local_irq_enable(void);
+extern int irqs_disabled(void);
 
-static inline int in_irq(void)
-{
-    return 0;
-}
-
-static inline void local_irq_save(unsigned long *flags)
-{
-    (void)flags;
-}
-
-static inline void local_irq_restore(unsigned long flags)
-{
-    (void)flags;
-}
-
-static inline void local_irq_disable(void) {}
-static inline void local_irq_enable(void) {}
+static inline int in_interrupt(void) { return irqs_disabled(); }
+static inline int in_irq(void) { return irqs_disabled(); }
 
 #define disable_irq_nosync(irq) ((void)(irq))
 #define enable_irq(irq)         ((void)(irq))

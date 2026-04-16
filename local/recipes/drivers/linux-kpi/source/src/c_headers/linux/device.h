@@ -1,7 +1,7 @@
 #ifndef _LINUX_DEVICE_H
 #define _LINUX_DEVICE_H
 
-#include <linux/types.h>
+#include "types.h"
 #include <stddef.h>
 
 struct device_driver {
@@ -27,11 +27,7 @@ static inline void dev_set_drvdata(struct device *dev, void *data)
     dev->driver_data = data;
 }
 
-struct class {
-    const char *name;
-};
-
-extern struct device *devm_kzalloc(struct device *dev, size_t size, gfp_t flags);
+extern void *devm_kzalloc(struct device *dev, size_t size, gfp_t flags);
 extern void devm_kfree(struct device *dev, void *ptr);
 
 #endif

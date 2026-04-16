@@ -1353,3 +1353,540 @@ diff --git a/drivers/usb/xhcid/src/xhci/scheme.rs b/drivers/usb/xhcid/src/xhci/s
 +                    endpoint_count
 +                );
 +            }
+diff --git a/drivers/audio/ac97d/src/main.rs b/drivers/audio/ac97d/src/main.rs
+--- a/drivers/audio/ac97d/src/main.rs
++++ b/drivers/audio/ac97d/src/main.rs
+@@
+ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+     let pci_config = pcid_handle.config();
+ 
+     let mut name = pci_config.func.name();
+     name.push_str("_ac97");
++
++    common::setup_logging(
++        "audio",
++        "pci",
++        &name,
++        common::output_level(),
++        common::file_level(),
++    );
++
++    let bar0 = match pci_config.func.bars[0] {
++        pcid_interface::PciBar::Port(port) => port,
++        ref other => {
++            log::warn!(
++                "ac97d: unsupported BAR0 layout for {}: expected port BAR, found {}",
++                pci_config.func.display(),
++                other.display(),
++            );
++            std::process::exit(0);
++        }
++    };
++    let bar1 = match pci_config.func.bars[1] {
++        pcid_interface::PciBar::Port(port) => port,
++        ref other => {
++            log::warn!(
++                "ac97d: unsupported BAR1 layout for {}: expected port BAR, found {}",
++                pci_config.func.display(),
++                other.display(),
++            );
++            std::process::exit(0);
++        }
++    };
+-
+-    let bar0 = pci_config.func.bars[0].expect_port();
+-    let bar1 = pci_config.func.bars[1].expect_port();
+@@
+ println!(" + ac97 {}", pci_config.func.display());
+-
+-    common::setup_logging(
+-        "audio",
+-        "pci",
+-        &name,
+-        common::output_level(),
+-        common::file_level(),
+-    );
+diff --git a/drivers/input/ps2d/src/main.rs b/drivers/input/ps2d/src/main.rs
+--- a/drivers/input/ps2d/src/main.rs
++++ b/drivers/input/ps2d/src/main.rs
+@@
+ use common::acquire_port_io_rights;
+ use event::{user_data, EventQueue};
+ use inputd::ProducerHandle;
++use log::{error, warn};
+@@
+ mod controller;
+ mod mouse;
+ mod state;
+ mod vm;
++
++fn exit_bootsafe(daemon: &mut Option<daemon::Daemon>, reason: &str) -> ! {
++    warn!("ps2d: {}; disabling PS/2 input for this boot", reason);
++    if let Some(daemon) = daemon.take() {
++        daemon.ready();
++    }
++    process::exit(0);
++}
+@@
++    let mut daemon = Some(daemon);
++
++    if let Err(err) = acquire_port_io_rights() {
++        exit_bootsafe(&mut daemon, &format!("failed to get I/O permission: {err}"));
++    }
+ 
+-    let input = ProducerHandle::new().expect("ps2d: failed to open input producer");
++    let input = match ProducerHandle::new() {
++        Ok(input) => input,
++        Err(err) => exit_bootsafe(&mut daemon, &format!("failed to open input producer: {err}")),
++    };
+@@
+-    let event_queue: EventQueue<Source> =
+-        EventQueue::new().expect("ps2d: failed to create event queue");
++    let event_queue: EventQueue<Source> = match EventQueue::new() {
++        Ok(event_queue) => event_queue,
++        Err(err) => exit_bootsafe(&mut daemon, &format!("failed to create event queue: {err}")),
++    };
+@@
+-        .open("/scheme/serio/0")
+-        .expect("ps2d: failed to open /scheme/serio/0");
++        .open("/scheme/serio/0")
++        .unwrap_or_else(|err| {
++            exit_bootsafe(&mut daemon, &format!("failed to open /scheme/serio/0: {err}"))
++        });
+ 
+-    event_queue
+-        .subscribe(
+-            key_file.as_raw_fd() as usize,
+-            Source::Keyboard,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
++    if let Err(err) = event_queue.subscribe(
++        key_file.as_raw_fd() as usize,
++        Source::Keyboard,
++        event::EventFlags::READ,
++    ) {
++        exit_bootsafe(&mut daemon, &format!("failed to subscribe keyboard serio fd: {err}"));
++    }
+@@
+-        .open("/scheme/serio/1")
+-        .expect("ps2d: failed to open /scheme/serio/1");
++        .open("/scheme/serio/1")
++        .unwrap_or_else(|err| {
++            exit_bootsafe(&mut daemon, &format!("failed to open /scheme/serio/1: {err}"))
++        });
+ 
+-    event_queue
+-        .subscribe(
+-            mouse_file.as_raw_fd() as usize,
+-            Source::Mouse,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
++    if let Err(err) = event_queue.subscribe(
++        mouse_file.as_raw_fd() as usize,
++        Source::Mouse,
++        event::EventFlags::READ,
++    ) {
++        exit_bootsafe(&mut daemon, &format!("failed to subscribe mouse serio fd: {err}"));
++    }
+@@
+-        .open(format!("/scheme/time/{}", syscall::CLOCK_MONOTONIC))
+-        .expect("ps2d: failed to open /scheme/time");
++        .open(format!("/scheme/time/{}", syscall::CLOCK_MONOTONIC))
++        .unwrap_or_else(|err| {
++            exit_bootsafe(&mut daemon, &format!("failed to open /scheme/time: {err}"))
++        });
+ 
+-    event_queue
+-        .subscribe(
+-            time_file.as_raw_fd() as usize,
+-            Source::Time,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
++    if let Err(err) = event_queue.subscribe(
++        time_file.as_raw_fd() as usize,
++        Source::Time,
++        event::EventFlags::READ,
++    ) {
++        exit_bootsafe(&mut daemon, &format!("failed to subscribe timer fd: {err}"));
++    }
+ 
+-    libredox::call::setrens(0, 0).expect("ps2d: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        exit_bootsafe(&mut daemon, &format!("failed to enter null namespace: {err}"));
++    }
+ 
+-    daemon.ready();
+-
+-    let mut ps2d = Ps2d::new(input, time_file);
++    let mut ps2d = match Ps2d::new(input, time_file) {
++        Ok(ps2d) => ps2d,
++        Err(err) => exit_bootsafe(
++            &mut daemon,
++            &format!("PS/2 controller initialization failed: {err:?}"),
++        ),
++    };
++
++    daemon.take().unwrap().ready();
+ 
+     let mut data = [0; 256];
+-    for event in event_queue.map(|e| e.expect("ps2d: failed to get next event").user_data) {
++    for event in event_queue {
++        let event = match event {
++            Ok(event) => event.user_data,
++            Err(err) => {
++                error!("ps2d: failed to get next event: {err}");
++                break;
++            }
++        };
+         // There are some gotchas with ps/2 controllers that require this weird
+diff --git a/drivers/input/ps2d/src/state.rs b/drivers/input/ps2d/src/state.rs
+--- a/drivers/input/ps2d/src/state.rs
++++ b/drivers/input/ps2d/src/state.rs
+@@
+-use crate::controller::Ps2;
++use crate::controller::{Error as Ps2Error, Ps2};
+@@
+ impl Ps2d {
+-    pub fn new(input: ProducerHandle, time_file: File) -> Self {
++    pub fn new(input: ProducerHandle, time_file: File) -> Result<Self, Ps2Error> {
+         let mut ps2 = Ps2::new();
+-        ps2.init().expect("failed to initialize");
++        ps2.init()?;
+@@
+         if !this.vmmouse {
+             // This triggers initializing the mouse
+             this.handle_mouse(None);
+         }
+ 
+-        this
++        Ok(this)
+     }
+diff --git a/drivers/usb/xhcid/src/main.rs b/drivers/usb/xhcid/src/main.rs
+--- a/drivers/usb/xhcid/src/main.rs
++++ b/drivers/usb/xhcid/src/main.rs
+@@
++use std::convert::TryFrom;
+ use std::fs::File;
++use std::io;
+ use std::sync::Arc;
+ 
+ use pcid_interface::irq_helpers::read_bsp_apic_id;
+ #[cfg(target_arch = "x86_64")]
+-use pcid_interface::irq_helpers::{
+-    allocate_first_msi_interrupt_on_bsp, allocate_single_interrupt_vector_for_msi,
+-};
++use pcid_interface::irq_helpers::allocate_single_interrupt_vector;
+ use pcid_interface::{PciFeature, PciFeatureInfo, PciFunctionHandle};
++#[cfg(target_arch = "x86_64")]
++use pcid_interface::{MsiSetFeatureInfo, SetFeatureInfo};
+@@
+ mod usb;
+ mod xhci;
+ 
++#[cfg(target_arch = "x86_64")]
++fn allocate_msix_interrupt(
++    pcid_handle: &mut PciFunctionHandle,
++    msix_info: pcid_interface::msi::MsixInfo,
++) -> io::Result<File> {
++    let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
++    let destination_id = read_bsp_apic_id()?;
++    let (vector, interrupt_handle) = allocate_single_interrupt_vector(destination_id)?
++        .ok_or_else(|| io::Error::new(io::ErrorKind::WouldBlock, "no interrupt vectors left"))?;
++    let lapic_id = u8::try_from(destination_id)
++        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "BSP apic id out of range"))?;
++    let msg_addr_and_data = pcid_interface::msi::MsiAddrAndData {
++        addr: pcid_interface::msi::x86::message_address(lapic_id, false, false),
++        data: pcid_interface::msi::x86::message_data_edge_triggered(
++            pcid_interface::msi::x86::DeliveryMode::Fixed,
++            vector,
++        ),
++    };
++
++    let table_entry_pointer = info.table_entry_pointer(0);
++    table_entry_pointer.write_addr_and_data(msg_addr_and_data);
++    table_entry_pointer.unmask();
++
++    pcid_handle.enable_feature(PciFeature::MsiX);
++    log::debug!("Enabled MSI-X");
++
++    Ok(interrupt_handle)
++}
++
++#[cfg(target_arch = "x86_64")]
++fn allocate_msi_interrupt(pcid_handle: &mut PciFunctionHandle) -> io::Result<File> {
++    let destination_id = read_bsp_apic_id()?;
++    let (vector, interrupt_handle) = allocate_single_interrupt_vector(destination_id)?
++        .ok_or_else(|| io::Error::new(io::ErrorKind::WouldBlock, "no interrupt vectors left"))?;
++    let lapic_id = u8::try_from(destination_id)
++        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "BSP apic id out of range"))?;
++    let set_feature_info = MsiSetFeatureInfo {
++        multi_message_enable: Some(0),
++        message_address_and_data: Some(pcid_interface::msi::MsiAddrAndData {
++            addr: pcid_interface::msi::x86::message_address(lapic_id, false, false),
++            data: pcid_interface::msi::x86::message_data_edge_triggered(
++                pcid_interface::msi::x86::DeliveryMode::Fixed,
++                vector,
++            ),
++        }),
++        mask_bits: None,
++    };
++
++    pcid_handle.set_feature_info(SetFeatureInfo::Msi(set_feature_info));
++    pcid_handle.enable_feature(PciFeature::Msi);
++    log::debug!("Enabled MSI");
++
++    Ok(interrupt_handle)
++}
+@@
+     let has_msi = all_pci_features.iter().any(|feature| feature.is_msi());
+     let has_msix = all_pci_features.iter().any(|feature| feature.is_msix());
+ 
+     if has_msix {
+-        let msix_info = match pcid_handle.feature_info(PciFeature::MsiX) {
+-            PciFeatureInfo::Msi(_) => panic!(),
+-            PciFeatureInfo::MsiX(s) => s,
+-        };
+-        let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
+-
+-        // Allocate one msi vector.
+-
+-        let method = {
+-            // primary interrupter
+-            let k = 0;
+-
+-            let table_entry_pointer = info.table_entry_pointer(k);
+-
+-            let destination_id = read_bsp_apic_id().expect("xhcid: failed to read BSP apic id");
+-            let (msg_addr_and_data, interrupt_handle) =
+-                allocate_single_interrupt_vector_for_msi(destination_id);
+-            table_entry_pointer.write_addr_and_data(msg_addr_and_data);
+-            table_entry_pointer.unmask();
+-
+-            (Some(interrupt_handle), InterruptMethod::Msi)
+-        };
+-
+-        pcid_handle.enable_feature(PciFeature::MsiX);
+-        log::debug!("Enabled MSI-X");
+-
+-        method
+-    } else if has_msi {
+-        let interrupt_handle = allocate_first_msi_interrupt_on_bsp(pcid_handle);
+-        (Some(interrupt_handle), InterruptMethod::Msi)
+-    } else if let Some(irq) = pci_config.func.legacy_interrupt_line {
++        match pcid_handle.feature_info(PciFeature::MsiX) {
++            PciFeatureInfo::MsiX(msix_info) => match allocate_msix_interrupt(pcid_handle, msix_info)
++            {
++                Ok(interrupt_handle) => return (Some(interrupt_handle), InterruptMethod::Msi),
++                Err(err) => {
++                    log::warn!("xhcid: MSI-X setup failed, falling back: {err}");
++                }
++            },
++            feature_info => {
++                log::warn!(
++                    "xhcid: MSI-X feature probe returned unexpected descriptor {:?}; falling back",
++                    feature_info
++                );
++            }
++        }
++    }
++
++    if has_msi {
++        match allocate_msi_interrupt(pcid_handle) {
++            Ok(interrupt_handle) => return (Some(interrupt_handle), InterruptMethod::Msi),
++            Err(err) => {
++                log::warn!("xhcid: MSI setup failed, falling back: {err}");
++            }
++        }
++    }
++
++    if let Some(irq) = pci_config.func.legacy_interrupt_line {
+         log::debug!("Legacy IRQ {}", irq);
+@@
+     log::info!("XHCI {}", pci_config.func.display());
+ 
+     let scheme_name = format!("usb.{}", name);
+-    let socket = Socket::create().expect("xhcid: failed to create usb scheme");
++    let socket = match Socket::create() {
++        Ok(socket) => socket,
++        Err(err) => {
++            log::error!("xhcid: failed to create usb scheme: {err}");
++            std::process::exit(0);
++        }
++    };
+ 
+     let mut state = SchemeState::new();
+-    let hci = Arc::new(
+-        Xhci::<N>::new(scheme_name.clone(), address, interrupt_method, pcid_handle)
+-            .expect("xhcid: failed to allocate device"),
+-    );
+-    register_sync_scheme(&socket, &scheme_name, &mut &*hci)
+-        .expect("xhcid: failed to regsiter scheme to namespace");
++    let hci = match Xhci::<N>::new(scheme_name.clone(), address, interrupt_method, pcid_handle) {
++        Ok(hci) => Arc::new(hci),
++        Err(err) => {
++            log::error!("xhcid: failed to allocate device: {err}");
++            std::process::exit(0);
++        }
++    };
++    if let Err(err) = register_sync_scheme(&socket, &scheme_name, &mut &*hci) {
++        log::error!("xhcid: failed to register scheme to namespace: {err}");
++        std::process::exit(0);
++    }
+diff --git a/drivers/usb/xhcid/src/xhci/device_enumerator.rs b/drivers/usb/xhcid/src/xhci/device_enumerator.rs
+--- a/drivers/usb/xhcid/src/xhci/device_enumerator.rs
++++ b/drivers/usb/xhcid/src/xhci/device_enumerator.rs
+@@
+ impl<const N: usize> DeviceEnumerator<N> {
++    fn is_port_disabled_state(flags: &PortFlags) -> bool {
++        flags.contains(PortFlags::PP)
++            && flags.contains(PortFlags::CCS)
++            && !flags.contains(PortFlags::PED)
++            && !flags.contains(PortFlags::PR)
++    }
++
++    fn wait_for_stable_port_flags(
++        &self,
++        port_id: PortId,
++        mut flags: PortFlags,
++    ) -> Option<PortFlags> {
++        const MAX_ATTEMPTS: usize = 8;
++        const STABILIZE_DELAY: Duration = Duration::from_millis(20);
++
++        if flags.contains(PortFlags::PED) || Self::is_port_disabled_state(&flags) {
++            return Some(flags);
++        }
++
++        for attempt in 0..MAX_ATTEMPTS {
++            debug!(
++                "Port {} reported transient flags {:?}; waiting for a stable state ({}/{})",
++                port_id,
++                flags,
++                attempt + 1,
++                MAX_ATTEMPTS
++            );
++            std::thread::sleep(STABILIZE_DELAY);
++
++            flags = {
++                let ports = self.hci.ports.lock().unwrap();
++                let index = port_id.root_hub_port_index();
++                if index >= ports.len() {
++                    warn!(
++                        "Port {} disappeared while waiting for a stable state",
++                        port_id
++                    );
++                    return None;
++                }
++                ports[index].flags()
++            };
++
++            if flags.contains(PortFlags::PED) || Self::is_port_disabled_state(&flags) {
++                return Some(flags);
++            }
++        }
++
++        None
++    }
++
+     pub fn new(hci: Arc<Xhci<N>>) -> Self {
+         let request_queue = hci.device_enumerator_receiver.clone();
+         DeviceEnumerator { hci, request_queue }
+     }
+@@
+         loop {
+             debug!("Start Device Enumerator Loop");
+             let request = match self.request_queue.recv() {
+                 Ok(req) => req,
+-                Err(err) => {
+-                    panic!("Failed to received an enumeration request! error: {}", err)
+-                }
++                Err(err) => {
++                    warn!("xhcid: device enumerator shutting down: {}", err);
++                    return;
++                }
+             };
+@@
+-            if flags.contains(PortFlags::CCS) {
++            if flags.contains(PortFlags::CCS) {
++                let Some(flags) = self.wait_for_stable_port_flags(port_id, flags) else {
++                    warn!(
++                        "Port {} never reached a stable connected state; ignoring this change",
++                        port_id
++                    );
++                    continue;
++                };
++
+                 debug!(
+                     "Received Device Connect Port Status Change Event with port flags {:?}",
+                     flags
+                 );
+@@
+                 //If the port isn't enabled (i.e. it's a USB2 port), we need to reset it if it isn't resetting already
+                 //A USB3 port won't generate a Connect Status Change until it's already enabled, so this check
+                 //will always be skipped for USB3 ports
+                 if !flags.contains(PortFlags::PED) {
+-                    let disabled_state = flags.contains(PortFlags::PP)
+-                        && flags.contains(PortFlags::CCS)
+-                        && !flags.contains(PortFlags::PED)
+-                        && !flags.contains(PortFlags::PR);
+-
+-                    if !disabled_state {
+-                        panic!(
+-                            "Port {} isn't in the disabled state! Current flags: {:?}",
+-                            port_id, flags
+-                        );
+-                    } else {
+-                        debug!("Port {} has entered the disabled state.", port_id);
+-                    }
++                    debug!("Port {} has entered the disabled state.", port_id);
+@@
+                     if !enabled_state {
+                         warn!(
+                             "Port {} isn't in the enabled state! Current flags: {:?}",
+                             port_id, flags
+                         );
+-                    } else {
+-                        debug!(
+-                            "Port {} is in the enabled state. Proceeding with enumeration",
+-                            port_id
+-                        );
++                        continue;
+                     }
++                    debug!(
++                        "Port {} is in the enabled state. Proceeding with enumeration",
++                        port_id
++                    );
+                 }
+diff --git a/drivers/usb/xhcid/src/xhci/irq_reactor.rs b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
+--- a/drivers/usb/xhcid/src/xhci/irq_reactor.rs
++++ b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
+@@
+             let port_id = PortId {
+                 root_hub_port_num,
+                 route_string: 0,
+             };
+             trace!("Received Port Status Change Request on port {}", port_id);
+-            self.device_enumerator_sender
+-                .send(DeviceEnumerationRequest { port_id })
+-                .expect(
+-                    format!(
+-                        "Failed to transmit device numeration request on port {}",
+-                        port_id
+-                    )
+-                    .as_str(),
+-                );
++            if let Err(err) = self
++                .device_enumerator_sender
++                .send(DeviceEnumerationRequest { port_id })
++            {
++                warn!(
++                    "Failed to transmit device enumeration request on port {}: {}",
++                    port_id,
++                    err
++                );
++                return;
++            }
+             {
+                 let mut ports = self.hci.ports.lock().unwrap();
