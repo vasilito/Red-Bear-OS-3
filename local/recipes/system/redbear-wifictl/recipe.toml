@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/bin/redbear-wifictl" = "redbear-wifictl"
+"/usr/bin/wifictl" = "redbear-wifictl"

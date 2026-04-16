@@ -1,0 +1,12 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = [
+    "redox-driver-sys",
+    "linux-kpi",
+]
+
+[package.files]
+"/usr/lib/drivers/redbear-iwlwifi" = "redbear-iwlwifi"

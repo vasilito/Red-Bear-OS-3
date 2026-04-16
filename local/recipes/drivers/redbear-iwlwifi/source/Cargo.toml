@@ -1,0 +1,20 @@
+[package]
+name = "redbear-iwlwifi"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "redbear-iwlwifi"
+path = "src/main.rs"
+
+[dependencies]
+log = { version = "0.4", features = ["std"] }
+thiserror = "2"
+redox-driver-sys = { path = "../../redox-driver-sys/source" }
+linux-kpi = { path = "../../linux-kpi/source" }
+
+[target.'cfg(target_os = "redox")'.dependencies]
+redox-driver-sys = { path = "../../redox-driver-sys/source", features = ["redox"] }
+
+[build-dependencies]
+cc = "1"
