@@ -3,3 +3,7 @@ path = "source"
 
 [build]
 template = "cargo"
+
+[package.files]
+"/usr/bin/redbear-netctl" = "redbear-netctl"
+"/usr/bin/netctl" = "redbear-netctl"

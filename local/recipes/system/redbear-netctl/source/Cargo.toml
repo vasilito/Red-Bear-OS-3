@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "netctl"
-path = "src/main.rs"
-
-[[bin]]
 name = "redbear-netctl"
 path = "src/main.rs"
+
+[dev-dependencies]
+redbear-netctl-console = { path = "../../redbear-netctl-console/source" }

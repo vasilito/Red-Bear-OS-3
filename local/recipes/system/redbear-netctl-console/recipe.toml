@@ -1,0 +1,13 @@
+[source]
+path = "source"
+
+[package]
+dependencies = ["terminfo"]
+
+[build]
+template = "cargo"
+dependencies = ["ncursesw"]
+
+[package.files]
+"/usr/bin/redbear-netctl-console" = "redbear-netctl-console"
+"/usr/bin/netctl-console" = "redbear-netctl-console"

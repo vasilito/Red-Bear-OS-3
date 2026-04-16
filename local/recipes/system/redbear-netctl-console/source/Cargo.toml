@@ -1,0 +1,16 @@
+[package]
+name = "redbear-netctl-console"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "redbear_netctl_console"
+path = "src/lib.rs"
+
+[[bin]]
+name = "redbear-netctl-console"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = { version = "0.30", default-features = false, features = ["termion"] }
+termion = "4"
