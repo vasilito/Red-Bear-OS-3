@@ -6,7 +6,10 @@
 #   - redbear-release: Branding and identity (os-release, hostname, motd)
 #   - redox-driver-sys: Safe Rust driver infrastructure crate
 #   - linux-kpi: Linux Kernel Programming Interface compatibility layer
-#   - firmware-loader: AMD/Intel GPU firmware loading daemon
+#   - redbear-iwlwifi: bounded Intel Wi-Fi driver-side package
+#   - redbear-firmware: Linux-firmware-derived firmware bundle
+#   - firmware-loader: firmware loading daemon used by GPU and Wi-Fi bring-up
+#   - redbear-wifictl: Wi-Fi control daemon and scheme
 #   - redox-drm: DRM display driver (AMD + Intel)
 #   - evdevd: Event device daemon (input translation)
 #   - udev-shim: udev-compatible device enumeration shim
@@ -27,9 +30,12 @@ This package depends on all core Red Bear OS components.
 
 Installed components:
   - redbear-release: OS branding and identity
-  - redox-driver-sys: Driver infrastructure
-  - linux-kpi: Linux kernel API compatibility
-  - firmware-loader: GPU firmware daemon
+ - redox-driver-sys: Driver infrastructure
+ - linux-kpi: Linux kernel API compatibility
+  - redbear-iwlwifi: Intel Wi-Fi driver-side package
+  - redbear-firmware: Firmware bundle
+  - firmware-loader: firmware daemon
+  - redbear-wifictl: Wi-Fi control plane
   - redox-drm: DRM display driver (AMD + Intel)
   - evdevd: Input event translation
   - udev-shim: Device enumeration
@@ -45,8 +51,11 @@ dependencies = [
     "redbear-release",
     "redox-driver-sys",
     "linux-kpi",
+    "redbear-iwlwifi",
+    "redbear-firmware",
     "redox-drm",
     "firmware-loader",
+    "redbear-wifictl",
     "evdevd",
     "udev-shim",
 ]

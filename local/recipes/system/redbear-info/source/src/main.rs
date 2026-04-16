@@ -3,11 +3,10 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 use std::path::Path;
-#[cfg(test)]
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const RESET: &str = "\x1b[0m";
 const GREEN: &str = "\x1b[32m";
@@ -19,6 +18,7 @@ const RTL8125_VENDOR_ID: u16 = 0x10ec;
 const RTL8125_DEVICE_ID: u16 = 0x8125;
 const VIRTIO_NET_VENDOR_ID: u16 = 0x1af4;
 const VIRTIO_NET_DEVICE_ID: u16 = 0x1000;
+const BLUETOOTH_STATUS_FRESHNESS_SECS: u64 = 90;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputMode {
@@ -62,7 +62,29 @@ struct NetworkReport {
     default_route: Option<String>,
     active_profile: Option<String>,
     network_schemes: Vec<String>,
+    wifi_control_state: ProbeState,
+    wifi_interfaces: Vec<String>,
+    wifi_firmware_status: Option<String>,
+    wifi_transport_status: Option<String>,
+    wifi_transport_init_status: Option<String>,
+    wifi_activation_status: Option<String>,
+    wifi_connect_result: Option<String>,
+    wifi_disconnect_result: Option<String>,
+    wifi_scan_results: Vec<String>,
     claim_limit: &'static str,
+    bluetooth_transport_state: ProbeState,
+    bluetooth_control_state: ProbeState,
+    bluetooth_adapters: Vec<String>,
+    bluetooth_transport_status: Option<String>,
+    bluetooth_adapter_status: Option<String>,
+    bluetooth_scan_results: Vec<String>,
+    bluetooth_connection_state: Option<String>,
+    bluetooth_connect_result: Option<String>,
+    bluetooth_disconnect_result: Option<String>,
+    bluetooth_read_char_result: Option<String>,
+    bluetooth_bond_store_path: Option<String>,
+    bluetooth_bond_count: Option<usize>,
+    bluetooth_claim_limit: &'static str,
 }
 
 struct HardwareReport {
@@ -141,6 +163,46 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         test_hint: "netctl status",
         note: "Profiles and active profile tracking are readable; profile application remains a separate runtime action.",
         functional_probe: Some(probe_netctl_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-wifictl",
+        category: "Networking",
+        description: "Wi-Fi control daemon and scheme",
+        artifact_path: Some("/usr/bin/redbear-wifictl"),
+        control_path: Some("/scheme/wifictl"),
+        test_hint: "ls /scheme/wifictl/ && redbear-wifictl --connect wlan0 demo open && netctl start wifi-dhcp",
+        note: "Functional when the wifictl scheme is enumerable, reports interface state, and exposes the bounded connect path; this still does not prove real radio association or working Wi-Fi connectivity.",
+        functional_probe: Some(probe_wifictl_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-btusb",
+        category: "Bluetooth",
+        description: "Bounded USB Bluetooth transport daemon",
+        artifact_path: Some("/usr/bin/redbear-btusb"),
+        control_path: Some("/var/run/redbear-btusb/status"),
+        test_hint: "redbear-btusb --probe && redbear-btusb --status",
+        note: "Active when the explicit-startup btusb status file is visible; this does not prove controller initialization, USB-class autospawn, or a real BLE workload.",
+        functional_probe: Some(probe_btusb_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-btctl",
+        category: "Bluetooth",
+        description: "Bounded Bluetooth host/control daemon and scheme",
+        artifact_path: Some("/usr/bin/redbear-btctl"),
+        control_path: Some("/scheme/btctl"),
+        test_hint: "redbear-btctl --probe && redbear-btctl --status && redbear-btctl --scan && redbear-btctl --connect hci0 <bond-id> && redbear-btctl --read-char hci0 <bond-id> 0000180f-0000-1000-8000-00805f9b34fb 00002a19-0000-1000-8000-00805f9b34fb",
+        note: "Functional when the btctl scheme is enumerable and reports adapter state plus one experimental battery-sensor Battery Level read result; this still does not prove general device traffic, generic GATT, write/notify support, classic Bluetooth, or desktop integration.",
+        functional_probe: Some(probe_btctl_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-iwlwifi",
+        category: "Drivers",
+        description: "Bounded Intel Wi-Fi driver-side package",
+        artifact_path: Some("/usr/lib/drivers/redbear-iwlwifi"),
+        control_path: Some("/scheme/pci"),
+        test_hint: "redbear-iwlwifi --probe && redbear-iwlwifi --connect demo open",
+        note: "Functional when the Intel Wi-Fi driver package is installed and PCI inventory is accessible; bounded scan/connect actions may succeed, but this still does not prove real radio association or working connectivity.",
+        functional_probe: Some(probe_pci_surface),
     },
     IntegrationCheck {
         name: "redbear-netstat",
@@ -427,12 +489,6 @@ fn collect_network(runtime: &Runtime) -> NetworkReport {
         .filter(|name| name.starts_with("network."))
         .collect::<Vec<_>>();
 
-    let mac = read_trimmed(runtime, "/scheme/netcfg/ifaces/eth0/mac")
-        .filter(|value| !matches!(value.as_str(), "Not configured" | "Device not found"));
-
-    let address = read_trimmed(runtime, "/scheme/netcfg/ifaces/eth0/addr/list")
-        .filter(|value| !matches!(value.as_str(), "Not configured" | "Device not found"));
-
     let dns = read_trimmed(runtime, "/scheme/netcfg/resolv/nameserver")
         .or_else(|| read_trimmed(runtime, "/etc/net/dns"))
         .filter(|value| !value.is_empty());
@@ -442,6 +498,231 @@ fn collect_network(runtime: &Runtime) -> NetworkReport {
 
     let active_profile =
         read_trimmed(runtime, "/etc/netctl/active").filter(|value| !value.is_empty());
+
+    let active_interface = active_profile
+        .as_deref()
+        .and_then(|profile| active_profile_interface(runtime, profile));
+
+    let preferred_interface = active_interface.clone().or_else(|| {
+        runtime
+            .exists("/scheme/netcfg/ifaces/eth0/mac")
+            .then_some("eth0".to_string())
+    });
+
+    let mac = preferred_interface.as_ref().and_then(|iface| {
+        read_trimmed(runtime, &format!("/scheme/netcfg/ifaces/{iface}/mac"))
+            .filter(|value| !matches!(value.as_str(), "Not configured" | "Device not found"))
+    });
+
+    let address = preferred_interface.as_ref().and_then(|iface| {
+        read_trimmed(runtime, &format!("/scheme/netcfg/ifaces/{iface}/addr/list"))
+            .filter(|value| !matches!(value.as_str(), "Not configured" | "Device not found"))
+    });
+
+    let wifi_interfaces = runtime
+        .read_dir_names("/scheme/wifictl/ifaces")
+        .or_else(|| {
+            runtime
+                .read_to_string("/scheme/wifictl/ifaces")
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .unwrap_or_default();
+
+    let wifi_control_state = if runtime.exists("/scheme/wifictl") {
+        if wifi_interfaces.is_empty() {
+            ProbeState::Active
+        } else {
+            ProbeState::Functional
+        }
+    } else if runtime.exists("/usr/bin/redbear-wifictl") {
+        ProbeState::Present
+    } else {
+        ProbeState::Absent
+    };
+
+    let wifi_primary = wifi_interfaces.first().cloned();
+    let wifi_firmware_status = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/firmware-status"),
+        )
+    });
+    let wifi_transport_status = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/transport-status"),
+        )
+    });
+    let wifi_transport_init_status = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/transport-init-status"),
+        )
+    });
+    let wifi_activation_status = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/activation-status"),
+        )
+    });
+    let wifi_connect_result = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/connect-result"),
+        )
+    });
+    let wifi_disconnect_result = wifi_primary.as_ref().and_then(|iface| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/wifictl/ifaces/{iface}/disconnect-result"),
+        )
+    });
+    let wifi_scan_results = wifi_primary
+        .as_ref()
+        .and_then(|iface| {
+            runtime
+                .read_to_string(&format!("/scheme/wifictl/ifaces/{iface}/scan-results"))
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .unwrap_or_default();
+
+    let bluetooth_adapters = runtime
+        .read_dir_names("/scheme/btctl/adapters")
+        .or_else(|| {
+            runtime
+                .read_to_string("/scheme/btctl/adapters")
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .unwrap_or_default();
+
+    let bluetooth_transport_runtime_visible =
+        read_trimmed(runtime, "/var/run/redbear-btusb/status")
+            .map(|_| bluetooth_status_is_fresh(runtime, "/var/run/redbear-btusb/status"))
+            .unwrap_or(false);
+
+    let bluetooth_transport_state = if bluetooth_transport_runtime_visible {
+        ProbeState::Active
+    } else if runtime.exists("/usr/bin/redbear-btusb") {
+        ProbeState::Present
+    } else {
+        ProbeState::Absent
+    };
+
+    let bluetooth_control_state = if runtime.exists("/scheme/btctl") {
+        if bluetooth_adapters.is_empty() {
+            ProbeState::Active
+        } else {
+            ProbeState::Functional
+        }
+    } else if runtime.exists("/usr/bin/redbear-btctl") {
+        ProbeState::Present
+    } else {
+        ProbeState::Absent
+    };
+
+    let bluetooth_primary = bluetooth_adapters.first().cloned();
+    let bluetooth_transport_status = if bluetooth_transport_runtime_visible {
+        read_compact(runtime, "/var/run/redbear-btusb/status")
+    } else {
+        bluetooth_primary
+            .as_ref()
+            .and_then(|adapter| {
+                read_compact(
+                    runtime,
+                    &format!("/scheme/btctl/adapters/{adapter}/transport-status"),
+                )
+            })
+            .or_else(|| {
+                runtime.exists("/usr/bin/redbear-btusb").then_some(
+                    "transport=usb startup=explicit runtime_visibility=installed-only".to_string(),
+                )
+            })
+    };
+    let bluetooth_adapter_status = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_compact(runtime, &format!("/scheme/btctl/adapters/{adapter}/status"))
+    });
+    let bluetooth_scan_results = bluetooth_primary
+        .as_ref()
+        .and_then(|adapter| {
+            runtime
+                .read_to_string(&format!("/scheme/btctl/adapters/{adapter}/scan-results"))
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .unwrap_or_default();
+    let bluetooth_connection_state = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_compact(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/connection-state"),
+        )
+    });
+    let bluetooth_connect_result = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/connect-result"),
+        )
+    });
+    let bluetooth_disconnect_result = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/disconnect-result"),
+        )
+    });
+    let bluetooth_read_char_result = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/read-char-result"),
+        )
+    });
+    let bluetooth_bond_store_path = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_trimmed(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/bond-store-path"),
+        )
+        .or_else(|| {
+            let path = format!("/var/lib/bluetooth/{adapter}/bonds");
+            runtime.exists(&path).then_some(path)
+        })
+    });
+    let bluetooth_bond_count = bluetooth_primary.as_ref().and_then(|adapter| {
+        read_compact(
+            runtime,
+            &format!("/scheme/btctl/adapters/{adapter}/bond-count"),
+        )
+        .and_then(|content| parse_compact_key_value(&content, "bond_count"))
+        .and_then(|value| value.parse::<usize>().ok())
+        .or_else(|| {
+            let path = format!("/var/lib/bluetooth/{adapter}/bonds");
+            runtime.read_dir_names(&path).map(|entries| entries.len())
+        })
+    });
 
     let state = if runtime.exists("/scheme/netcfg") {
         if address.is_some() {
@@ -458,15 +739,57 @@ fn collect_network(runtime: &Runtime) -> NetworkReport {
     NetworkReport {
         state,
         connected: address.is_some(),
-        interface: runtime.exists("/scheme/netcfg/ifaces/eth0/mac").then_some("eth0".to_string()),
+        interface: preferred_interface,
         mac,
         address,
         dns,
         default_route,
         active_profile,
         network_schemes,
+        wifi_control_state,
+        wifi_interfaces,
+        wifi_firmware_status,
+        wifi_transport_status,
+        wifi_transport_init_status,
+        wifi_activation_status,
+        wifi_connect_result,
+        wifi_disconnect_result,
+        wifi_scan_results,
         claim_limit: "Connected means the local stack exposes a configured address; this does not prove external reachability.",
+        bluetooth_transport_state,
+        bluetooth_control_state,
+        bluetooth_adapters,
+        bluetooth_transport_status,
+        bluetooth_adapter_status,
+        bluetooth_scan_results,
+        bluetooth_connection_state,
+        bluetooth_connect_result,
+        bluetooth_disconnect_result,
+        bluetooth_read_char_result,
+        bluetooth_bond_store_path,
+        bluetooth_bond_count,
+        bluetooth_claim_limit: "Runtime-visible Bluetooth control evidence means the explicit-startup btusb/btctl surfaces, stub bond files, bounded connect/disconnect metadata, and one experimental battery-sensor Battery Level read result can be observed; this does not prove controller bring-up, general device traffic, generic GATT, real pairing, validated reconnect semantics, write support, or notify support beyond the experimental battery-sensor read-only workload.",
     }
+}
+
+fn active_profile_interface(runtime: &Runtime, profile: &str) -> Option<String> {
+    let content = runtime.read_to_string(&format!("/etc/netctl/{profile}"))?;
+    content.lines().find_map(|line| {
+        let line = line.trim();
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "Interface").then(|| parse_profile_scalar(value.trim()))
+    })
+}
+
+fn parse_profile_scalar(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
 }
 
 fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareReport {
@@ -543,7 +866,9 @@ fn inspect_integration<'a>(
     check: &'a IntegrationCheck,
 ) -> IntegrationStatus<'a> {
     let artifact_present = check.artifact_path.map(|path| runtime.exists(path));
-    let control_present = check.control_path.map(|path| runtime.exists(path));
+    let control_present = check
+        .control_path
+        .map(|path| control_surface_present(runtime, check, path));
 
     let mut evidence = Vec::new();
 
@@ -580,7 +905,13 @@ fn inspect_integration<'a>(
                     ProbeState::Functional
                 }
             }
-            None => derive_state(artifact_present, control_present),
+            None => {
+                if check.name == "redbear-btctl" && control_present == Some(true) {
+                    ProbeState::Active
+                } else {
+                    derive_state(artifact_present, control_present)
+                }
+            }
         }
     } else {
         derive_state(artifact_present, control_present)
@@ -605,6 +936,14 @@ fn derive_state(artifact_present: Option<bool>, control_present: Option<bool>) -
         ProbeState::Unobservable
     } else {
         ProbeState::Absent
+    }
+}
+
+fn control_surface_present(runtime: &Runtime, check: &IntegrationCheck, path: &str) -> bool {
+    if check.name == "redbear-btusb" {
+        runtime.exists(path) && bluetooth_status_is_fresh(runtime, path)
+    } else {
+        runtime.exists(path)
     }
 }
 
@@ -707,8 +1046,123 @@ fn print_table(report: &Report<'_>, verbose: bool) {
             report.network.network_schemes.join(", ")
         }
     );
+    println!(
+        "  Wi-Fi control: {}{}{}",
+        state_marker(report.network.wifi_control_state),
+        state_color(report.network.wifi_control_state),
+        state_label(report.network.wifi_control_state)
+    );
+    println!(
+        "  Wi-Fi interfaces: {}",
+        if report.network.wifi_interfaces.is_empty() {
+            "none".to_string()
+        } else {
+            report.network.wifi_interfaces.join(", ")
+        }
+    );
+    println!(
+        "  Wi-Fi firmware: {}",
+        display_or_unknown(report.network.wifi_firmware_status.as_deref())
+    );
+    println!(
+        "  Wi-Fi transport: {}",
+        display_or_unknown(report.network.wifi_transport_status.as_deref())
+    );
+    println!(
+        "  Wi-Fi transport init: {}",
+        display_or_unknown(report.network.wifi_transport_init_status.as_deref())
+    );
+    println!(
+        "  Wi-Fi activation: {}",
+        display_or_unknown(report.network.wifi_activation_status.as_deref())
+    );
+    println!(
+        "  Wi-Fi connect result: {}",
+        display_or_unknown(report.network.wifi_connect_result.as_deref())
+    );
+    println!(
+        "  Wi-Fi disconnect result: {}",
+        display_or_unknown(report.network.wifi_disconnect_result.as_deref())
+    );
+    println!(
+        "  Wi-Fi scan results: {}",
+        if report.network.wifi_scan_results.is_empty() {
+            "none".to_string()
+        } else {
+            report.network.wifi_scan_results.join(", ")
+        }
+    );
+    println!(
+        "  Bluetooth transport: {}{}{}",
+        state_marker(report.network.bluetooth_transport_state),
+        state_color(report.network.bluetooth_transport_state),
+        state_label(report.network.bluetooth_transport_state)
+    );
+    println!(
+        "  Bluetooth control: {}{}{}",
+        state_marker(report.network.bluetooth_control_state),
+        state_color(report.network.bluetooth_control_state),
+        state_label(report.network.bluetooth_control_state)
+    );
+    println!(
+        "  Bluetooth adapters: {}",
+        if report.network.bluetooth_adapters.is_empty() {
+            "none".to_string()
+        } else {
+            report.network.bluetooth_adapters.join(", ")
+        }
+    );
+    println!(
+        "  Bluetooth status: {}",
+        display_or_unknown(report.network.bluetooth_adapter_status.as_deref())
+    );
+    println!(
+        "  Bluetooth transport status: {}",
+        display_or_unknown(report.network.bluetooth_transport_status.as_deref())
+    );
+    println!(
+        "  Bluetooth scan results: {}",
+        if report.network.bluetooth_scan_results.is_empty() {
+            "none".to_string()
+        } else {
+            report.network.bluetooth_scan_results.join(", ")
+        }
+    );
+    println!(
+        "  Bluetooth connection state: {}",
+        display_or_unknown(report.network.bluetooth_connection_state.as_deref())
+    );
+    println!(
+        "  Bluetooth connect result: {}",
+        display_or_unknown(report.network.bluetooth_connect_result.as_deref())
+    );
+    println!(
+        "  Bluetooth disconnect result: {}",
+        display_or_unknown(report.network.bluetooth_disconnect_result.as_deref())
+    );
+    println!(
+        "  Bluetooth experimental BLE read: {}",
+        display_or_unknown(report.network.bluetooth_read_char_result.as_deref())
+    );
+    println!(
+        "  Bluetooth bond store: {}",
+        report
+            .network
+            .bluetooth_bond_store_path
+            .as_deref()
+            .unwrap_or("none")
+    );
+    println!(
+        "  Bluetooth bond count: {}",
+        report
+            .network
+            .bluetooth_bond_count
+            .map(|count| count.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    );
     if verbose {
-        println!("  Note: {}", report.network.claim_limit);
+        println!("  Network note: {}", report.network.claim_limit);
+        println!("  Bluetooth note: {}", report.network.bluetooth_claim_limit);
     }
     println!();
 
@@ -873,8 +1327,156 @@ fn print_json(report: &Report<'_>) {
     );
     push_json_string_field(
         &mut out,
-        "claim_limit",
-        report.network.claim_limit,
+        "wifi_control_state",
+        state_label(report.network.wifi_control_state),
+        true,
+        4,
+    );
+    push_json_string_array_field(
+        &mut out,
+        "wifi_interfaces",
+        &report.network.wifi_interfaces,
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_firmware_status",
+        report.network.wifi_firmware_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_transport_status",
+        report.network.wifi_transport_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_transport_init_status",
+        report.network.wifi_transport_init_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_activation_status",
+        report.network.wifi_activation_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_connect_result",
+        report.network.wifi_connect_result.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "wifi_disconnect_result",
+        report.network.wifi_disconnect_result.as_deref(),
+        true,
+        4,
+    );
+    push_json_string_array_field(
+        &mut out,
+        "wifi_scan_results",
+        &report.network.wifi_scan_results,
+        true,
+        4,
+    );
+    push_json_string_field(&mut out, "claim_limit", report.network.claim_limit, true, 4);
+    push_json_string_field(
+        &mut out,
+        "bluetooth_transport_state",
+        state_label(report.network.bluetooth_transport_state),
+        true,
+        4,
+    );
+    push_json_string_field(
+        &mut out,
+        "bluetooth_control_state",
+        state_label(report.network.bluetooth_control_state),
+        true,
+        4,
+    );
+    push_json_string_array_field(
+        &mut out,
+        "bluetooth_adapters",
+        &report.network.bluetooth_adapters,
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_transport_status",
+        report.network.bluetooth_transport_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_adapter_status",
+        report.network.bluetooth_adapter_status.as_deref(),
+        true,
+        4,
+    );
+    push_json_string_array_field(
+        &mut out,
+        "bluetooth_scan_results",
+        &report.network.bluetooth_scan_results,
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_connection_state",
+        report.network.bluetooth_connection_state.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_connect_result",
+        report.network.bluetooth_connect_result.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_disconnect_result",
+        report.network.bluetooth_disconnect_result.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_read_char_result",
+        report.network.bluetooth_read_char_result.as_deref(),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut out,
+        "bluetooth_bond_store_path",
+        report.network.bluetooth_bond_store_path.as_deref(),
+        true,
+        4,
+    );
+    push_json_optional_number_field(
+        &mut out,
+        "bluetooth_bond_count",
+        report.network.bluetooth_bond_count,
+        true,
+        4,
+    );
+    push_json_string_field(
+        &mut out,
+        "bluetooth_claim_limit",
+        report.network.bluetooth_claim_limit,
         false,
         4,
     );
@@ -1037,6 +1639,50 @@ fn read_trimmed(runtime: &Runtime, path: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn read_compact(runtime: &Runtime, path: &str) -> Option<String> {
+    runtime
+        .read_to_string(path)
+        .map(|value| {
+            value
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn parse_compact_key_value(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    content
+        .split_whitespace()
+        .find_map(|token| token.strip_prefix(&prefix).map(str::to_string))
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn bluetooth_status_is_fresh(runtime: &Runtime, path: &str) -> bool {
+    runtime
+        .read_to_string(path)
+        .and_then(|value| {
+            value.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("updated_at_epoch=")
+                    .and_then(|raw| raw.parse::<u64>().ok())
+            })
+        })
+        .map(|timestamp| {
+            current_epoch_seconds().saturating_sub(timestamp) <= BLUETOOTH_STATUS_FRESHNESS_SECS
+        })
+        .unwrap_or(false)
+}
+
 fn read_prefix_bytes(runtime: &Runtime, path: &str, max_len: usize) -> Option<Vec<u8>> {
     let mut file = fs::File::open(runtime.resolve(path)).ok()?;
     let mut bytes = vec![0_u8; max_len];
@@ -1165,6 +1811,75 @@ fn probe_evdev_scheme(
     _check: &IntegrationCheck,
 ) -> Option<String> {
     probe_named_scheme(runtime, "evdev")
+}
+
+fn probe_wifictl_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    let ifaces = runtime
+        .read_to_string("/scheme/wifictl/ifaces")
+        .or_else(|| {
+            runtime
+                .read_dir_names("/scheme/wifictl/ifaces")
+                .map(|entries| entries.join("\n"))
+        })?;
+    Some(format!(
+        "wifictl interface surface visible ({})",
+        ifaces.trim()
+    ))
+}
+
+fn probe_btctl_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    let adapters = runtime
+        .read_to_string("/scheme/btctl/adapters")
+        .or_else(|| {
+            runtime
+                .read_dir_names("/scheme/btctl/adapters")
+                .map(|entries| entries.join("\n"))
+        })?;
+    let primary_adapter = adapters
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let read_result = read_trimmed(
+        runtime,
+        &format!("/scheme/btctl/adapters/{primary_adapter}/read-char-result"),
+    )?;
+    read_result.starts_with("read_char_result=").then(|| {
+        format!(
+            "btctl adapter surface visible ({}) with bounded read result",
+            primary_adapter
+        )
+    })
+}
+
+fn probe_btusb_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    check: &IntegrationCheck,
+) -> Option<String> {
+    let path = check.control_path?;
+    bluetooth_status_is_fresh(runtime, path)
+        .then(|| format!("btusb status file is fresh at {path}"))
+}
+
+fn probe_pci_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    let entries = runtime.read_dir_names("/scheme/pci")?;
+    Some(format!("pci surface visible ({} entries)", entries.len()))
 }
 
 fn probe_iommu_scheme(
@@ -1339,6 +2054,26 @@ fn push_json_number_field(
     output.push('\n');
 }
 
+fn push_json_optional_number_field(
+    output: &mut String,
+    key: &str,
+    value: Option<usize>,
+    trailing_comma: bool,
+    indent: usize,
+) {
+    push_json_indent(output, indent);
+    push_json_string(output, key);
+    output.push_str(": ");
+    match value {
+        Some(value) => output.push_str(&value.to_string()),
+        None => output.push_str("null"),
+    }
+    if trailing_comma {
+        output.push(',');
+    }
+    output.push('\n');
+}
+
 fn push_json_string_array_field(
     output: &mut String,
     key: &str,
@@ -1388,6 +2123,15 @@ mod tests {
         fs::create_dir_all(root.join(path.trim_start_matches('/'))).unwrap();
     }
 
+    fn integration_state<'a>(report: &'a Report<'a>, name: &str) -> ProbeState {
+        report
+            .integrations
+            .iter()
+            .find(|integration| integration.check.name == name)
+            .map(|integration| integration.state)
+            .unwrap()
+    }
+
     #[test]
     fn network_report_uses_live_netcfg_surfaces() {
         let root = temp_root();
@@ -1415,6 +2159,93 @@ mod tests {
             "default via 192.168.10.1\n",
         );
         create_dir(&root, "/scheme/network.eth0_rtl8125");
+        create_dir(&root, "/scheme/wifictl/ifaces/wlan0");
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/firmware-status",
+            "firmware=present family=intel-bz-arrow-lake prepared=yes\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/transport-status",
+            "transport=pci memory_enabled=yes bus_master=yes bar0_present=yes irq_pin_present=yes\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/transport-init-status",
+            "transport_init=stub\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/activation-status",
+            "activation=stub\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/scan-results",
+            "demo-ssid\ndemo-open\n",
+        );
+        create_dir(&root, "/scheme/btctl/adapters/hci0");
+        create_dir(&root, "/var/run/redbear-btusb");
+        write_file(
+            &root,
+            "/var/run/redbear-btusb/status",
+            &format!(
+                "transport=usb\nstartup=explicit\nupdated_at_epoch={}\nruntime_visibility=runtime-visible\n",
+                current_epoch_seconds()
+            ),
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/status",
+            "status=adapter-visible\ntransport_status=transport=usb startup=explicit runtime_visibility=runtime-visible\nscan_results_count=2\nconnected_bond_count=1\nbond_count=1\nbond_store_path=/var/lib/bluetooth/hci0/bonds\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/transport-status",
+            "transport=usb startup=explicit runtime_visibility=runtime-visible\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/bond-store-path",
+            "/var/lib/bluetooth/hci0/bonds\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/bond-count",
+            "bond_count=1\nbond_store_path=/var/lib/bluetooth/hci0/bonds\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/scan-results",
+            "demo-beacon\ndemo-sensor\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/connection-state",
+            "connection_state=stub-connected\nconnected_bond_count=1\nconnected_bond_ids=AA:BB:CC:DD:EE:FF\nnote=stub-control-only-no-real-link-layer-beyond-experimental-battery-sensor-battery-level-read\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/connect-result",
+            "connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/disconnect-result",
+            "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/read-char-result",
+            "read_char_result=stub-value workload=battery-sensor-battery-level-read peripheral_class=ble-battery-sensor characteristic=battery-level bond_id=AA:BB:CC:DD:EE:FF service_uuid=0000180f-0000-1000-8000-00805f9b34fb char_uuid=00002a19-0000-1000-8000-00805f9b34fb access=read-only value_hex=57 value_percent=87\n",
+        );
+        create_dir(&root, "/var/lib/bluetooth/hci0/bonds");
+        write_file(
+            &root,
+            "/var/lib/bluetooth/hci0/bonds/aabbccddeeff.bond",
+            "bond_id=AA:BB:CC:DD:EE:FF\nalias=demo-sensor\ncreated_at_epoch=123\nsource=stub-cli\n",
+        );
         create_dir(&root, "/etc/netctl");
         write_file(&root, "/etc/netctl/active", "wired-static\n");
 
@@ -1436,6 +2267,331 @@ mod tests {
             .network_schemes
             .iter()
             .any(|name| name.contains("rtl8125")));
+        assert_eq!(report.network.wifi_control_state, ProbeState::Functional);
+        assert_eq!(report.network.wifi_interfaces, vec!["wlan0".to_string()]);
+        assert!(report
+            .network
+            .wifi_firmware_status
+            .as_deref()
+            .unwrap()
+            .contains("intel-bz-arrow-lake"));
+        assert!(report
+            .network
+            .wifi_transport_status
+            .as_deref()
+            .unwrap()
+            .contains("memory_enabled=yes"));
+        assert_eq!(
+            report.network.wifi_transport_init_status.as_deref(),
+            Some("transport_init=stub")
+        );
+        assert_eq!(
+            report.network.wifi_activation_status.as_deref(),
+            Some("activation=stub")
+        );
+        assert_eq!(
+            report.network.wifi_scan_results,
+            vec!["demo-ssid".to_string(), "demo-open".to_string()]
+        );
+        assert_eq!(report.network.bluetooth_transport_state, ProbeState::Active);
+        assert_eq!(
+            report.network.bluetooth_control_state,
+            ProbeState::Functional
+        );
+        assert_eq!(report.network.bluetooth_adapters, vec!["hci0".to_string()]);
+        assert!(report
+            .network
+            .bluetooth_transport_status
+            .as_deref()
+            .unwrap()
+            .contains("runtime_visibility=runtime-visible"));
+        assert!(report
+            .network
+            .bluetooth_adapter_status
+            .as_deref()
+            .unwrap()
+            .contains("status=adapter-visible"));
+        assert_eq!(
+            report.network.bluetooth_scan_results,
+            vec!["demo-beacon".to_string(), "demo-sensor".to_string()]
+        );
+        assert!(report
+            .network
+            .bluetooth_connection_state
+            .as_deref()
+            .unwrap()
+            .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF"));
+        assert_eq!(
+            report.network.bluetooth_connect_result.as_deref(),
+            Some("connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected")
+        );
+        assert_eq!(
+            report.network.bluetooth_disconnect_result.as_deref(),
+            Some(
+                "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected"
+            )
+        );
+        assert!(report
+            .network
+            .bluetooth_read_char_result
+            .as_deref()
+            .unwrap()
+            .contains("read_char_result=stub-value"));
+        assert!(report
+            .network
+            .bluetooth_read_char_result
+            .as_deref()
+            .unwrap()
+            .contains("workload=battery-sensor-battery-level-read"));
+        assert_eq!(
+            report.network.bluetooth_bond_store_path.as_deref(),
+            Some("/var/lib/bluetooth/hci0/bonds")
+        );
+        assert_eq!(report.network.bluetooth_bond_count, Some(1));
+        assert!(report
+            .network
+            .bluetooth_claim_limit
+            .contains("real pairing"));
+        assert!(report
+            .network
+            .bluetooth_claim_limit
+            .contains("general device traffic"));
+        assert!(report
+            .network
+            .bluetooth_claim_limit
+            .contains("generic GATT"));
+        assert!(report
+            .network
+            .bluetooth_claim_limit
+            .contains("write support"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn network_report_prefers_active_wifi_profile_interface() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/netcfg/ifaces/wlan0/addr");
+        write_file(
+            &root,
+            "/scheme/netcfg/ifaces/wlan0/addr/list",
+            "10.0.0.44/24\n",
+        );
+        write_file(
+            &root,
+            "/scheme/netcfg/ifaces/wlan0/mac",
+            "02:00:00:00:00:44\n",
+        );
+        write_file(&root, "/scheme/netcfg/resolv/nameserver", "9.9.9.9\n");
+        write_file(&root, "/scheme/netcfg/route/list", "default via 10.0.0.1\n");
+        create_dir(&root, "/scheme/wifictl/ifaces/wlan0");
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/firmware-status",
+            "firmware=present\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/transport-status",
+            "transport=active\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/transport-init-status",
+            "transport_init=ok\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/activation-status",
+            "activation=ok\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/connect-result",
+            "connect_result=bounded-associated ssid=demo security=wpa2-psk\n",
+        );
+        write_file(
+            &root,
+            "/scheme/wifictl/ifaces/wlan0/disconnect-result",
+            "disconnect_result=bounded-disconnected\n",
+        );
+        create_dir(&root, "/etc/netctl");
+        write_file(&root, "/etc/netctl/active", "wifi-dhcp\n");
+        write_file(
+            &root,
+            "/etc/netctl/wifi-dhcp",
+            "Description='Wi-Fi'\nInterface=wlan0\nConnection=wifi\nSSID='demo'\nSecurity=wpa2-psk\nKey='secret'\nIP=dhcp\n",
+        );
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(report.network.active_profile.as_deref(), Some("wifi-dhcp"));
+        assert_eq!(report.network.interface.as_deref(), Some("wlan0"));
+        assert_eq!(report.network.address.as_deref(), Some("10.0.0.44/24"));
+        assert_eq!(report.network.mac.as_deref(), Some("02:00:00:00:00:44"));
+        assert_eq!(report.network.dns.as_deref(), Some("9.9.9.9"));
+        assert_eq!(
+            report.network.wifi_connect_result.as_deref(),
+            Some("connect_result=bounded-associated ssid=demo security=wpa2-psk")
+        );
+        assert_eq!(
+            report.network.wifi_disconnect_result.as_deref(),
+            Some("disconnect_result=bounded-disconnected")
+        );
+    }
+
+    #[test]
+    fn bluetooth_reporting_distinguishes_installed_from_runtime_visible() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-btusb", "");
+        write_file(&root, "/usr/bin/redbear-btctl", "");
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(
+            report.network.bluetooth_transport_state,
+            ProbeState::Present
+        );
+        assert_eq!(report.network.bluetooth_control_state, ProbeState::Present);
+        assert_eq!(report.network.bluetooth_connection_state, None);
+        assert_eq!(report.network.bluetooth_connect_result, None);
+        assert_eq!(report.network.bluetooth_disconnect_result, None);
+        assert_eq!(report.network.bluetooth_read_char_result, None);
+        assert_eq!(report.network.bluetooth_bond_store_path, None);
+        assert_eq!(report.network.bluetooth_bond_count, None);
+        assert_eq!(
+            integration_state(&report, "redbear-btusb"),
+            ProbeState::Present
+        );
+        assert_eq!(
+            integration_state(&report, "redbear-btctl"),
+            ProbeState::Present
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bluetooth_bond_store_reporting_falls_back_to_filesystem_evidence() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-btctl", "");
+        create_dir(&root, "/scheme/btctl/adapters/hci0");
+        create_dir(&root, "/var/lib/bluetooth/hci0/bonds");
+        write_file(
+            &root,
+            "/var/lib/bluetooth/hci0/bonds/112233445566.bond",
+            "bond_id=11:22:33:44:55:66\ncreated_at_epoch=42\nsource=stub-cli\n",
+        );
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(
+            report.network.bluetooth_bond_store_path.as_deref(),
+            Some("/var/lib/bluetooth/hci0/bonds")
+        );
+        assert_eq!(report.network.bluetooth_bond_count, Some(1));
+        assert!(report
+            .network
+            .bluetooth_claim_limit
+            .contains("stub bond files"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bluetooth_connection_reporting_reads_bounded_control_surfaces() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-btctl", "");
+        create_dir(&root, "/scheme/btctl/adapters/hci0");
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/connection-state",
+            "connection_state=stub-connected\nconnected_bond_count=1\nconnected_bond_ids=AA:BB:CC:DD:EE:FF\nnote=stub-control-only-no-real-link-layer-beyond-experimental-battery-sensor-battery-level-read\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/connect-result",
+            "connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/disconnect-result",
+            "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected\n",
+        );
+        write_file(
+            &root,
+            "/scheme/btctl/adapters/hci0/read-char-result",
+            "read_char_result=stub-value workload=battery-sensor-battery-level-read peripheral_class=ble-battery-sensor characteristic=battery-level bond_id=AA:BB:CC:DD:EE:FF service_uuid=0000180f-0000-1000-8000-00805f9b34fb char_uuid=00002a19-0000-1000-8000-00805f9b34fb access=read-only value_hex=57 value_percent=87\n",
+        );
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert!(report
+            .network
+            .bluetooth_connection_state
+            .as_deref()
+            .unwrap()
+            .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF"));
+        assert_eq!(
+            report.network.bluetooth_connect_result.as_deref(),
+            Some("connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected")
+        );
+        assert_eq!(
+            report.network.bluetooth_disconnect_result.as_deref(),
+            Some(
+                "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected"
+            )
+        );
+        assert!(report
+            .network
+            .bluetooth_read_char_result
+            .as_deref()
+            .unwrap()
+            .contains("read_char_result=stub-value"));
+        assert!(report
+            .network
+            .bluetooth_read_char_result
+            .as_deref()
+            .unwrap()
+            .contains("peripheral_class=ble-battery-sensor"));
+        assert_eq!(
+            integration_state(&report, "redbear-btctl"),
+            ProbeState::Functional
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn btctl_integration_requires_bounded_read_result_for_functional_state() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-btctl", "");
+        create_dir(&root, "/scheme/btctl/adapters/hci0");
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(
+            report.network.bluetooth_control_state,
+            ProbeState::Functional
+        );
+        assert_eq!(
+            integration_state(&report, "redbear-btctl"),
+            ProbeState::Active
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stale_btusb_status_does_not_report_active_in_integrations() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-btusb", "");
+        write_file(&root, "/var/run/redbear-btusb/status", "transport=usb\nstartup=explicit\nupdated_at_epoch=1\nruntime_visibility=runtime-visible\n");
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(
+            report.network.bluetooth_transport_state,
+            ProbeState::Present
+        );
+        assert_eq!(
+            integration_state(&report, "redbear-btusb"),
+            ProbeState::Present
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1532,6 +2688,14 @@ mod tests {
             .integrations
             .iter()
             .any(|item| item.check.name == "redbear-netstat"));
+        assert!(report
+            .integrations
+            .iter()
+            .any(|item| item.check.name == "redbear-btusb"));
+        assert!(report
+            .integrations
+            .iter()
+            .any(|item| item.check.name == "redbear-btctl"));
         assert!(report
             .integrations
             .iter()
