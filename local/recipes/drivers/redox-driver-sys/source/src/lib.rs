@@ -33,6 +33,7 @@ pub mod irq;
 pub mod memory;
 pub mod pci;
 pub mod pcid_client;
+pub mod quirks;
 
 use syscall as redox_syscall;
 use thiserror::Error;

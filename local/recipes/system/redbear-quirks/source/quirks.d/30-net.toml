@@ -1,0 +1,26 @@
+# Network controller quirks.
+
+[[pci_quirk]]
+vendor = 0x10EC
+device = 0x8125
+flags = ["no_aspm"]
+
+[[pci_quirk]]
+vendor = 0x10EC
+device = 0x8168
+flags = ["no_aspm", "bus_master_delay"]
+
+[[pci_quirk]]
+vendor = 0x10EC
+device = 0x8139
+flags = ["no_pm", "dma_32bit_only"]
+
+[[pci_quirk]]
+vendor = 0x14E4
+device = 0x1657
+flags = ["no_aspm"]
+
+[[pci_quirk]]
+vendor = 0x14E4
+device = 0x16A1
+flags = ["no_aspm", "bad_eeprom"]

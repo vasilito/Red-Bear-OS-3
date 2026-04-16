@@ -1,0 +1,15 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+mkdir -p "${COOKBOOK_STAGE}/etc/quirks.d"
+
+cp "${COOKBOOK_SOURCE}/quirks.d/00-core.toml" "${COOKBOOK_STAGE}/etc/quirks.d/00-core.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/10-gpu.toml" "${COOKBOOK_STAGE}/etc/quirks.d/10-gpu.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/20-usb.toml" "${COOKBOOK_STAGE}/etc/quirks.d/20-usb.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/30-net.toml" "${COOKBOOK_STAGE}/etc/quirks.d/30-net.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/40-storage.toml" "${COOKBOOK_STAGE}/etc/quirks.d/40-storage.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/50-system.toml" "${COOKBOOK_STAGE}/etc/quirks.d/50-system.toml"
+"""

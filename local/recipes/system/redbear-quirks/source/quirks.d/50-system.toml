@@ -1,0 +1,51 @@
+# DMI-based system-level quirk overrides.
+# These entries are evaluated at runtime when /scheme/acpi/dmi is available.
+# ACPI table skip rules are also supported via [[acpi_table_quirk]] for narrow,
+# DMI-conditioned suppression of known bad firmware tables.
+
+[[dmi_system_quirk]]
+pci_vendor = 0x8086
+flags = ["no_aspm"]
+match.sys_vendor = "LENOVO"
+match.product_name = "ThinkPad X1 Carbon"
+
+[[dmi_system_quirk]]
+flags = ["no_msi"]
+match.sys_vendor = "Dell Inc."
+match.product_name = "OptiPlex 7090"
+
+[[dmi_system_quirk]]
+pci_vendor = 0x14E4
+flags = ["no_msix", "no_aspm"]
+match.sys_vendor = "Dell Inc."
+match.product_name = "PowerEdge R740"
+
+[[dmi_system_quirk]]
+pci_vendor = 0x1002
+flags = ["need_iommu", "no_aspm"]
+match.sys_vendor = "Framework"
+match.product_name = "Laptop 16"
+
+[[dmi_system_quirk]]
+pci_vendor = 0x8086
+flags = ["no_d3cold"]
+match.sys_vendor = "HP"
+match.product_name = "HP ProBook"
+
+[[dmi_system_quirk]]
+pci_vendor = 0x1002
+flags = ["no_aspm", "need_firmware"]
+match.sys_vendor = "ASUSTeK COMPUTER INC."
+match.board_name = "PRIME X570-PRO"
+
+[[dmi_system_quirk]]
+pci_vendor = 0x1022
+flags = ["reset_delay_ms"]
+match.sys_vendor = "Gigabyte Technology Co., Ltd."
+match.board_name = "X570 AORUS MASTER"
+
+# Example (uncomment when a concrete table-specific firmware bug is identified):
+# [[acpi_table_quirk]]
+# signature = "DMAR"
+# match.sys_vendor = "Example Vendor"
+# match.product_name = "Example Model"

@@ -1,0 +1,12 @@
+# Core chipset and bus controller quirks.
+# These apply to fundamental platform devices.
+
+[[pci_quirk]]
+vendor = 0x1022
+device = 0x1483
+flags = ["no_resource_reloc"]
+
+[[pci_quirk]]
+vendor = 0x8086
+class = 0x060400
+flags = ["no_resource_reloc"]

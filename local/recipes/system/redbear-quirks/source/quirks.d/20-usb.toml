@@ -1,0 +1,40 @@
+# USB controller and device quirks.
+
+[[usb_quirk]]
+vendor = 0x1A40
+product = 0x0101
+flags = ["no_lpm"]
+
+[[usb_quirk]]
+vendor = 0x2109
+product = 0x2813
+flags = ["no_lpm"]
+
+[[usb_quirk]]
+vendor = 0x2109
+product = 0x0815
+flags = ["no_u1u2"]
+
+[[usb_quirk]]
+vendor = 0x8087
+product = 0x0A2B
+flags = ["no_suspend", "need_reset"]
+
+[[usb_quirk]]
+vendor = 0x0A12
+flags = ["bad_descriptor", "no_set_config"]
+
+[[pci_quirk]]
+vendor = 0x1022
+device = 0x145C
+flags = ["no_msix"]
+
+[[pci_quirk]]
+vendor = 0x1022
+device = 0x1639
+flags = ["no_aspm"]
+
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x7AE0
+flags = ["reset_delay_ms"]

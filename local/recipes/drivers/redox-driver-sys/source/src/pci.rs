@@ -134,6 +134,8 @@ pub struct PciDeviceInfo {
     pub location: PciLocation,
     pub vendor_id: u16,
     pub device_id: u16,
+    pub subsystem_vendor_id: u16,
+    pub subsystem_device_id: u16,
     pub revision: u8,
     pub class_code: u8,
     pub subclass: u8,
@@ -170,6 +172,14 @@ impl PciDeviceInfo {
 
     pub fn find_memory_bar(&self, index: usize) -> Option<&PciBarInfo> {
         self.bars.iter().find(|b| b.index == index && b.is_memory())
+    }
+
+    pub fn quirks(&self) -> crate::quirks::PciQuirkFlags {
+        crate::quirks::lookup_pci_quirks(self)
+    }
+
+    pub fn has_quirk(&self, flag: crate::quirks::PciQuirkFlags) -> bool {
+        self.quirks().contains(flag)
     }
 }
 
@@ -351,10 +361,21 @@ impl PciDevice {
             Vec::new()
         };
 
+        let (subsystem_vendor_id, subsystem_device_id) = if header_type == PCI_HEADER_TYPE_NORMAL {
+            (
+                self.read_config_word(0x2C).unwrap_or(0xFFFF),
+                self.read_config_word(0x2E).unwrap_or(0xFFFF),
+            )
+        } else {
+            (0xFFFF, 0xFFFF)
+        };
+
         Ok(PciDeviceInfo {
             location: self.location,
             vendor_id,
             device_id,
+            subsystem_vendor_id,
+            subsystem_device_id,
             revision,
             class_code,
             subclass,
@@ -546,16 +567,19 @@ impl PciDevice {
         })
     }
 
+    /// Enable MSI-X by setting the MSI-X Enable bit (bit 14) in Message Control.
+    /// Per PCI spec §6.8.2, bit 14 enables MSI-X; bit 15 is Function Mask.
     pub fn enable_msix(&mut self, cap_offset: u8) -> Result<()> {
         let msg_ctrl = self.read_config_word(cap_offset as u64 + 2)?;
-        let new_ctrl = msg_ctrl | 0x8000;
+        let new_ctrl = msg_ctrl | 0x4000;
         self.write_config_word(cap_offset as u64 + 2, new_ctrl)?;
         Ok(())
     }
 
+    /// Disable MSI-X by clearing the MSI-X Enable bit (bit 14) in Message Control.
     pub fn disable_msix(&mut self, cap_offset: u8) -> Result<()> {
         let msg_ctrl = self.read_config_word(cap_offset as u64 + 2)?;
-        let new_ctrl = msg_ctrl & !0x8000;
+        let new_ctrl = msg_ctrl & !0x4000;
         self.write_config_word(cap_offset as u64 + 2, new_ctrl)?;
         Ok(())
     }
@@ -622,10 +646,22 @@ fn enumerate_pci_filtered(class: Option<u8>) -> Result<Vec<PciDeviceInfo>> {
             let header_type = data[0x0e] & 0x7F;
             let irq_line = data[0x3c];
 
+            let (subsystem_vendor_id, subsystem_device_id) =
+                if header_type == PCI_HEADER_TYPE_NORMAL && data.len() > 0x2F {
+                    (
+                        u16::from_le_bytes([data[0x2c], data[0x2d]]),
+                        u16::from_le_bytes([data[0x2e], data[0x2f]]),
+                    )
+                } else {
+                    (0xFFFF, 0xFFFF)
+                };
+
             devices.push(PciDeviceInfo {
                 location,
                 vendor_id,
                 device_id,
+                subsystem_vendor_id,
+                subsystem_device_id,
                 revision,
                 class_code,
                 subclass,

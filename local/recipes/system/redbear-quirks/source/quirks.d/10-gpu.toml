@@ -1,0 +1,31 @@
+# GPU display controller quirks.
+
+[[pci_quirk]]
+vendor = 0x1002
+class = 0x030000
+flags = ["no_d3cold", "need_firmware"]
+
+[[pci_quirk]]
+vendor = 0x8086
+class = 0x030000
+flags = ["need_firmware"]
+
+[[pci_quirk]]
+vendor = 0x10DE
+class = 0x030000
+flags = ["no_d3cold", "need_firmware"]
+
+[[pci_quirk]]
+vendor = 0x1002
+device = 0x744C
+flags = ["need_firmware", "need_iommu"]
+
+[[pci_quirk]]
+vendor = 0x1002
+device = 0x73EF
+flags = ["need_firmware", "dma_32bit_only"]
+
+[[usb_quirk]]
+vendor = 0x0BDA
+product = 0x8153
+flags = ["no_string_fetch"]

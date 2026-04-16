@@ -1,0 +1,11 @@
+# Storage controller quirks.
+
+[[pci_quirk]]
+vendor = 0x1B4B
+device = 0x9215
+flags = ["broken_bridge"]
+
+[[pci_quirk]]
+vendor = 0x1B4B
+device = 0x9230
+flags = ["broken_bridge", "no_aspm"]
