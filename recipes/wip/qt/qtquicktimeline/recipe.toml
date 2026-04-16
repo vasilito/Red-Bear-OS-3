@@ -1,20 +1,20 @@
-#TODO: Qt6 SCXML/StateMachine — cross-build recipe for the 6.11 Redox Qt stack. Runtime validation is still pending, and the optional QML/Quick-facing slice only builds when those Qt modules are present in the sysroot.
+#TODO: Qt6 Quick Timeline — cross-compiled for Redox on top of the verified QtQuick/QML substrate. Runtime validation of the staged Timeline QML import is still pending.
+# Provides: Qt Quick Timeline QML module and libQt6QuickTimeline for Qt Quick animation timelines.
 
 [source]
-tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtscxml-everywhere-src-6.11.0.tar.xz"
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtquicktimeline-everywhere-src-6.11.0.tar.xz"
 
 [build]
 template = "custom"
 dependencies = [
-    "qtbase",
+    "qtdeclarative",
 ]
 script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
-SCXML_HOST="${COOKBOOK_ROOT}/build/qt-scxml-host"
 
-# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} → usr/
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
 # but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
 for qtdir in plugins mkspecs metatypes modules; do
     if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
@@ -22,43 +22,13 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-if [ ! -d "${HOST_BUILD}/lib/cmake/Qt6ScxmlTools" ]; then
-    rm -rf "${SCXML_HOST}"
-    mkdir -p "${SCXML_HOST}"
-    env \
-        -u CPPFLAGS \
-        -u LDFLAGS \
-        -u PKG_CONFIG_ALLOW_CROSS \
-        -u PKG_CONFIG_PATH \
-        -u PKG_CONFIG_LIBDIR \
-        -u PKG_CONFIG_SYSROOT_DIR \
-        -u CFLAGS \
-        -u CXXFLAGS \
-        -u CFLAGS_x86_64_unknown_redox \
-        -u CXXFLAGS_x86_64_unknown_redox \
-        -u LDFLAGS_x86_64_unknown_redox \
-        cmake -S "${COOKBOOK_SOURCE}" -B "${SCXML_HOST}" \
-        -DCMAKE_C_COMPILER=/usr/bin/cc \
-        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
-        -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
-        -DQT_BUILD_EXAMPLES=OFF \
-        -DQT_BUILD_TESTS=OFF \
-        -DQT_GENERATE_SBOM=OFF \
-        -Wno-dev
-    cmake --build "${SCXML_HOST}" --target qscxmlc -j"${COOKBOOK_MAKE_JOBS}"
-
-    mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec" "${HOST_BUILD}/lib/cmake"
-    if [ -f "${SCXML_HOST}/bin/qscxmlc" ]; then
-        cp -a "${SCXML_HOST}/bin/qscxmlc" "${HOST_BUILD}/bin/"
-    elif [ -f "${SCXML_HOST}/libexec/qscxmlc" ]; then
-        cp -a "${SCXML_HOST}/libexec/qscxmlc" "${HOST_BUILD}/libexec/"
-        cp -a "${SCXML_HOST}/libexec/qscxmlc" "${HOST_BUILD}/bin/qscxmlc"
-    fi
-    cp -a "${SCXML_HOST}/lib/cmake/Qt6Scxml" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
-    cp -a "${SCXML_HOST}/lib/cmake/Qt6ScxmlPrivate" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
-    cp -a "${SCXML_HOST}/lib/cmake/Qt6ScxmlTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Quick" ] \
+    && [ ! -d "${COOKBOOK_SYSROOT}/usr/lib/cmake/Qt6Quick" ]; then
+    printf '%s\n' \
+        'qtquicktimeline requires a Qt Quick-enabled qtdeclarative sysroot (missing Qt6Quick).' >&2
+    printf '%s\n' \
+        'Rebuild the verified QtQuick/QML substrate before cooking qtquicktimeline.' >&2
+    exit 1
 fi
 
 rm -f CMakeCache.txt
@@ -87,14 +57,6 @@ for lib in lib/libQt6*.a; do
     [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
 done
 
-if [ -d "bin" ]; then
-    mkdir -p "${COOKBOOK_STAGE}/usr/bin"
-    cp -a bin/* "${COOKBOOK_STAGE}/usr/bin/" 2>/dev/null || true
-fi
-if [ -d "libexec" ]; then
-    mkdir -p "${COOKBOOK_STAGE}/usr/libexec"
-    cp -a libexec/* "${COOKBOOK_STAGE}/usr/libexec/" 2>/dev/null || true
-fi
 if [ -d "lib/cmake" ]; then
     mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
     cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
@@ -110,16 +72,10 @@ fi
 if [ -d "plugins" ]; then
     mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
     cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
-    mkdir -p "${COOKBOOK_STAGE}/plugins"
-    cp -a plugins/* "${COOKBOOK_STAGE}/plugins/" 2>/dev/null || true
 fi
 if [ -d "qml" ]; then
     mkdir -p "${COOKBOOK_STAGE}/usr/qml"
     cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
-fi
-if [ -d "translations" ]; then
-    mkdir -p "${COOKBOOK_STAGE}/usr/translations"
-    cp -a translations/* "${COOKBOOK_STAGE}/usr/translations/" 2>/dev/null || true
 fi
 
 for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
@@ -131,12 +87,6 @@ if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
 fi
 if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
     find "${COOKBOOK_STAGE}/usr/qml" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/bin" ]; then
-    find "${COOKBOOK_STAGE}/usr/bin" -type f -exec patchelf --remove-rpath {} + 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/libexec" ]; then
-    find "${COOKBOOK_STAGE}/usr/libexec" -type f -exec patchelf --remove-rpath {} + 2>/dev/null || true
 fi
 
 BUILD_DIR="${COOKBOOK_BUILD}"
