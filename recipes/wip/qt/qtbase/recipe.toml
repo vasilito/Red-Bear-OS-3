@@ -34,6 +34,25 @@ if [ -d "${RELIBC_STAGE_LIB}" ]; then
     export LDFLAGS="-L${RELIBC_STAGE_LIB} -Wl,-rpath-link,${RELIBC_STAGE_LIB} ${LDFLAGS}"
 fi
 
+export CFLAGS="${CFLAGS} -fcf-protection=none"
+export CXXFLAGS="${CXXFLAGS} -fcf-protection=none"
+
+# Mesa's Redox sysroot currently exposes GLES2 headers but not the GLES3 wrapper headers
+# that qtbase expects when building the ES-backed OpenGL path. Provide minimal forwarding
+# wrappers in the per-recipe sysroot so clean rebuilds do not fail on missing gl3*.h.
+mkdir -p "${COOKBOOK_SYSROOT}/include/GLES3"
+for hdr in gl3.h gl31.h gl32.h; do
+    if [ ! -f "${COOKBOOK_SYSROOT}/include/GLES3/${hdr}" ]; then
+        cat > "${COOKBOOK_SYSROOT}/include/GLES3/${hdr}" <<'GLES3_EOF'
+#ifndef REDBEAR_QT_GLES3_WRAPPER_H
+#define REDBEAR_QT_GLES3_WRAPPER_H
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#endif
+GLES3_EOF
+    fi
+done
+
 # ============================================================
 # Step 1: Build Qt host tools (moc, rcc, uic) on the host
 # These are needed for cross-compilation — Qt6 generates code
@@ -158,6 +177,15 @@ sed -i 's/^    add_subdirectory(network)/    # add_subdirectory(network) # disab
 # Disable TUIO touch plugin — depends on QtNetwork which is disabled
 sed -i 's/^    add_subdirectory(tuiotouch)/    # add_subdirectory(tuiotouch) # disabled for Redox (needs Network)/' \
     "${COOKBOOK_SOURCE}/src/plugins/generic/CMakeLists.txt"
+# Disable Wayland shm-emulation-server on Redox.
+# It requires QSharedMemory lock/unlock support, which is gated behind systemsemaphore
+# and is not available in the current Redox QtCore configuration.
+HWI_CMAKE="${COOKBOOK_SOURCE}/src/plugins/platforms/wayland/plugins/hardwareintegration/CMakeLists.txt"
+awk 'index($0, "if(QT_FEATURE_wayland_shm_emulation_server_buffer)") {
+         print "if(FALSE AND QT_FEATURE_wayland_shm_emulation_server_buffer) # disabled for Redox (no systemsemaphore-backed QSharedMemory locking)";
+         next
+     } { print }' "${HWI_CMAKE}" > "${HWI_CMAKE}.tmp"
+mv "${HWI_CMAKE}.tmp" "${HWI_CMAKE}"
 
 # QtGui needs the float16 shims — copy to gui dir and append to first SOURCES line
 cp "${COOKBOOK_SOURCE}/src/corelib/global/qt_float16_shims.c" \
@@ -189,13 +217,102 @@ awk '
 ' "${BUFI}" > "${BUFI}.tmp"
 mv "${BUFI}.tmp" "${BUFI}"
 
-# qtypes.h uses static_assert (C11 macro from <assert.h>) but forkfd_qt.c (C file)
-# includes qglobal→qtypes before assert.h. Add the include guard for C mode.
+# qtypes.h uses static_assert in C mode. relibc's assert.h does not currently expose the
+# expected macro there, so inject both the include and a bounded fallback macro for C only.
 QTYPES="${COOKBOOK_SOURCE}/src/corelib/global/qtypes.h"
-if ! grep -q 'assert.h' "${QTYPES}" 2>/dev/null; then
+if ! grep -q '#ifndef __cplusplus.*#include <assert.h>' "${QTYPES}" 2>/dev/null; then
     awk '/#ifndef __cplusplus/ { print; print "#include <assert.h>"; next } { print }' \
         "${QTYPES}" > "${QTYPES}.tmp"
     mv "${QTYPES}.tmp" "${QTYPES}"
+fi
+if ! grep -q '#define static_assert _Static_assert' "${QTYPES}" 2>/dev/null; then
+    awk '/#include <assert.h>/ { print; print "#ifndef static_assert"; print "#define static_assert _Static_assert"; print "#endif"; next } { print }' \
+        "${QTYPES}" > "${QTYPES}.tmp"
+    mv "${QTYPES}.tmp" "${QTYPES}"
+fi
+
+# For Redox diagnostics, turn Q_UNREACHABLE into a Qt assertion instead of a raw ud2 trap.
+# This preserves a useful file/line failure path while we narrow remaining early-startup issues.
+QASSERT_H="${COOKBOOK_SOURCE}/src/corelib/global/qassert.h"
+if ! grep -q 'Q_OS_REDOX' "${QASSERT_H}" 2>/dev/null; then
+    python - <<PY
+from pathlib import Path
+path = Path(r"${QASSERT_H}")
+lines = path.read_text().splitlines()
+start = None
+end = None
+for i, line in enumerate(lines):
+    if line == "// Q_UNREACHABLE_IMPL() and Q_ASSUME_IMPL() used below are defined in qcompilerdetection.h":
+        start = i
+    if start is not None and line == "#ifndef Q_UNREACHABLE_RETURN":
+        end = i
+        break
+if start is None or end is None or end <= start:
+    raise SystemExit("qassert.h Q_UNREACHABLE block not found")
+replacement = [
+    "// Q_UNREACHABLE_IMPL() and Q_ASSUME_IMPL() used below are defined in qcompilerdetection.h",
+    "#ifdef Q_OS_REDOX",
+    "#define Q_UNREACHABLE() " + chr(92),
+    "    do { " + chr(92),
+    '        QT_PREPEND_NAMESPACE(qt_assert_x)("Q_UNREACHABLE()", "Q_UNREACHABLE was reached", __FILE__, __LINE__); ' + chr(92),
+    "    } while (false)",
+    "#else",
+    "#define Q_UNREACHABLE() " + chr(92),
+    "    do {" + chr(92),
+    '        Q_ASSERT_X(false, "Q_UNREACHABLE()", "Q_UNREACHABLE was reached");' + chr(92),
+    "        Q_UNREACHABLE_IMPL();" + chr(92),
+    "    } while (false)",
+    "#endif",
+    "",
+]
+lines[start:end] = replacement
+path.write_text(chr(10).join(lines) + chr(10))
+PY
+fi
+
+# forkfd still needs waitid idtype constants on Redox. Provide source-level fallbacks near the
+# waitid consumer instead of relying on toolchain/env defines that clean builds may drop.
+FORKFD_C="${COOKBOOK_SOURCE}/src/3rdparty/forkfd/forkfd.c"
+if ! grep -q 'REDOX_WAITID_IDTYPE_SHIMS' "${FORKFD_C}" 2>/dev/null; then
+    awk '/#include <unistd.h>/ {
+            print;
+            print "#ifdef __redox__";
+            print "#define REDOX_WAITID_IDTYPE_SHIMS 1";
+            print "#ifndef P_ALL";
+            print "#define P_ALL 0";
+            print "#endif";
+            print "#ifndef P_PID";
+            print "#define P_PID 1";
+            print "#endif";
+            print "#ifndef P_PGID";
+            print "#define P_PGID 2";
+            print "#endif";
+            print "#endif";
+            next
+         } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
+    mv "${FORKFD_C}.tmp" "${FORKFD_C}"
+fi
+if ! grep -q 'REDOX_DISABLE_HAVE_WAITID' "${FORKFD_C}" 2>/dev/null; then
+    awk 'index($0, "#if !defined(WEXITED) || !defined(WNOWAIT)") {
+            print;
+            print "#ifdef __redox__";
+            print "#define REDOX_DISABLE_HAVE_WAITID 1";
+            print "#undef HAVE_WAITID";
+            print "#endif";
+            next
+         } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
+    mv "${FORKFD_C}.tmp" "${FORKFD_C}"
+fi
+if ! grep -q 'REDOX_FORCE_WAITPID_FALLBACK' "${FORKFD_C}" 2>/dev/null; then
+    awk 'index($0, "#if defined(__APPLE__)") {
+            print "#ifdef __redox__";
+            print "#define REDOX_FORCE_WAITPID_FALLBACK 1";
+            print "#undef HAVE_WAITID";
+            print "#endif";
+            print;
+            next
+         } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
+    mv "${FORKFD_C}.tmp" "${FORKFD_C}"
 fi
 
 # qprocess_unix.cpp needs sys/ioctl.h (for FIONREAD) but doesn't include it
@@ -205,6 +322,56 @@ if ! grep -q 'sys/ioctl.h' "${QP}" 2>/dev/null; then
         "${QP}" > "${QP}.tmp"
     mv "${QP}.tmp" "${QP}"
 fi
+if ! grep -q 'REDOX_VFORK_SHIM' "${QP}" 2>/dev/null; then
+    awk '/#include <unistd.h>/ {
+            print;
+            print "#ifdef __redox__";
+            print "#define REDOX_VFORK_SHIM 1";
+            print "#ifndef vfork";
+            print "#define vfork fork";
+            print "#endif";
+            print "#endif";
+            next
+         } { print }' "${QP}" > "${QP}.tmp"
+    mv "${QP}.tmp" "${QP}"
+fi
+
+# On Redox, keep Qt plugin metadata at the architectural baseline.
+# The x86 plugin arch-requirement path produces feature-level warnings at runtime
+# and can cause otherwise-present plugins to be rejected before load.
+QPLUGIN_H="${COOKBOOK_SOURCE}/src/corelib/plugin/qplugin.h"
+export QPLUGIN_H
+python - <<'PY'
+from pathlib import Path
+import os
+
+path = Path(os.environ["QPLUGIN_H"])
+text = path.read_text()
+needle = '''    static constexpr quint8 archRequirements()
+    {
+        quint8 v = 0;
+'''
+replacement = '''    static constexpr quint8 archRequirements()
+    {
+#ifdef Q_OS_REDOX
+        return 0;
+#else
+        quint8 v = 0;
+'''
+if needle in text and "#ifdef Q_OS_REDOX" not in text:
+    text = text.replace(needle, replacement, 1)
+    text = text.replace(
+        '''        return v;
+    }
+''',
+        '''        return v;
+#endif
+    }
+''',
+        1,
+    )
+path.write_text(text)
+PY
 
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
@@ -297,5 +464,5 @@ for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
     [ -f "${lib}" ] || continue
     patchelf --remove-rpath "${lib}" 2>/dev/null || true
 done
-find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --set-rpath '$ORIGIN/../../lib' {} + 2>/dev/null || true
 """

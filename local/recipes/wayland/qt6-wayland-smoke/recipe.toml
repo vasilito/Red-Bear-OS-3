@@ -1,0 +1,45 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "qtwayland",
+]
+script = """
+DYNAMIC_INIT
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ -d "${COOKBOOK_SYSROOT}/${qtdir}" ] && [ ! -L "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        rm -rf "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_NO_PRIVATE_MODULE_WARNING=ON \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"lib*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""
+
+[package.files]
+"/usr/bin/qt6-wayland-smoke" = "qt6-wayland-smoke"
+"/usr/bin/qt6-bootstrap-check" = "qt6-bootstrap-check"
+"/usr/bin/qt6-plugin-check" = "qt6-plugin-check"

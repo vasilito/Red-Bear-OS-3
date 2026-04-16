@@ -3,19 +3,124 @@
 # redox.patch restores the Redox compatibility stubs plus Meson scanner detection.
 [source]
 tar = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz"
-patches = [
-    "redox.patch"
-]
+
 [build]
-template = "meson"
+template = "custom"
 dependencies = [
     "relibc",
     "libffi",
     "expat",
     "libxml2",
 ]
-mesonflags = [
-    "-Ddocumentation=false",
-    "-Dtests=false",
-    "-Ddtd_validation=false",
-]
+script = """
+DYNAMIC_INIT
+
+python - <<'PY'
+import os
+from pathlib import Path
+
+source_root = Path(os.environ["COOKBOOK_SOURCE"])
+
+meson = source_root / "src/meson.build"
+meson_text = meson.read_text()
+meson_text = meson_text.replace(
+    '''\tscanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
+\twayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))''',
+    '''\twayland_scanner_for_build = find_program('wayland-scanner', native: true)''',
+)
+meson.write_text(meson_text)
+
+event_loop = source_root / "src/event-loop.c"
+event_text = event_loop.read_text()
+event_text = event_text.replace(
+    '''#include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>''',
+    '''#include <sys/epoll.h>
+#ifdef __redox__
+#include <sys/types.h>
+#ifndef SFD_CLOEXEC
+#define SFD_CLOEXEC O_CLOEXEC
+#endif
+#ifndef SFD_NONBLOCK
+#define SFD_NONBLOCK O_NONBLOCK
+#endif
+struct signalfd_siginfo {
+	uint8_t pad[128];
+};
+int signalfd(int fd, const sigset_t *mask, int flags);
+#ifndef TFD_CLOEXEC
+#define TFD_CLOEXEC O_CLOEXEC
+#endif
+#ifndef TFD_NONBLOCK
+#define TFD_NONBLOCK O_NONBLOCK
+#endif
+#ifndef TFD_TIMER_ABSTIME
+#define TFD_TIMER_ABSTIME TIMER_ABSTIME
+#endif
+int timerfd_create(int clockid, int flags);
+int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
+#else
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
+#endif''',
+)
+if "TFD_TIMER_ABSTIME" not in event_text:
+    event_text = event_text.replace(
+        '''#ifndef TFD_NONBLOCK
+#define TFD_NONBLOCK O_NONBLOCK
+#endif
+int timerfd_create''',
+        '''#ifndef TFD_NONBLOCK
+#define TFD_NONBLOCK O_NONBLOCK
+#endif
+#ifndef TFD_TIMER_ABSTIME
+#define TFD_TIMER_ABSTIME TIMER_ABSTIME
+#endif
+int timerfd_create''',
+    )
+event_loop.write_text(event_text)
+
+server = source_root / "src/wayland-server.c"
+server_text = server.read_text()
+server_text = server_text.replace(
+    '''#include <fcntl.h>
+#include <sys/eventfd.h>''',
+    '''#include <fcntl.h>
+#ifdef __redox__
+#ifndef EFD_CLOEXEC
+#define EFD_CLOEXEC O_CLOEXEC
+#endif
+#ifndef EFD_NONBLOCK
+#define EFD_NONBLOCK O_NONBLOCK
+#endif
+int eventfd(unsigned int initval, int flags);
+#else
+#include <sys/eventfd.h>
+#endif''',
+)
+server.write_text(server_text)
+
+connection = source_root / "src/connection.c"
+connection_text = connection.read_text()
+connection_text = connection_text.replace(
+    '''#include <ffi.h>
+
+#include "wayland-util.h"''',
+    '''#include <ffi.h>
+
+#ifdef __redox__
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+FILE *open_memstream(char **bufp, size_t *sizep);
+#endif
+
+#include "wayland-util.h"''',
+)
+connection.write_text(connection_text)
+PY
+
+COOKBOOK_MESON_FLAGS+=("-Ddocumentation=false" "-Dtests=false" "-Ddtd_validation=false")
+cookbook_meson
+"""

@@ -32,6 +32,16 @@ if [ -f "${SERVER_H}" ] && ! grep -q 'QT_CONFIG(opengl)' "${SERVER_H}" 2>/dev/nu
     :
 fi
 
+# Disable compositor shm-emulation-server on Redox.
+# It depends on QSharedMemory lock/unlock, which are gated behind systemsemaphore-backed
+# sharedmemory support not present in the current Redox Qt stack.
+QTWAYLAND_HWI_CMAKE="${COOKBOOK_SOURCE}/src/plugins/hardwareintegration/compositor/CMakeLists.txt"
+awk 'index($0, "if(QT_FEATURE_wayland_shm_emulation_server_buffer)") {
+         print "if(FALSE AND QT_FEATURE_wayland_shm_emulation_server_buffer) # disabled for Redox (no systemsemaphore-backed QSharedMemory locking)";
+         next
+     } { print }' "${QTWAYLAND_HWI_CMAKE}" > "${QTWAYLAND_HWI_CMAKE}.tmp"
+mv "${QTWAYLAND_HWI_CMAKE}.tmp" "${QTWAYLAND_HWI_CMAKE}"
+
 # Create dummy SBOM to satisfy Qt's install-time reference
 mkdir -p "${COOKBOOK_BUILD}/qt_sbom/sbom"
 if [ -f "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/x86_64-unknown-redox/build/qt_sbom/staging-qtbase.spdx.in" ]; then

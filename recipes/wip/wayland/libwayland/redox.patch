@@ -1,6 +1,6 @@
-diff -ruwN source-old/src/meson.build source/src/meson.build
---- source-old/src/meson.build	2025-07-06 13:11:26.000000000 +0100
-+++ source/src/meson.build	2026-04-14 19:30:00.000000000 +0100
+diff --git a/src/meson.build b/src/meson.build
+--- a/src/meson.build
++++ b/src/meson.build
 @@ -81,8 +81,7 @@
  endif
  
@@ -9,5 +9,79 @@ diff -ruwN source-old/src/meson.build source/src/meson.build
 -	wayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
 +	wayland_scanner_for_build = find_program('wayland-scanner', native: true)
  else
-	wayland_scanner_for_build = wayland_scanner
+ 	wayland_scanner_for_build = wayland_scanner
  endif
+diff --git a/src/event-loop.c b/src/event-loop.c
+--- a/src/event-loop.c
++++ b/src/event-loop.c
+@@ -35,7 +35,32 @@
+ #include <sys/socket.h>
+ #include <sys/un.h>
+ #include <sys/epoll.h>
++#ifdef __redox__
++#include <sys/types.h>
++#ifndef SFD_CLOEXEC
++#define SFD_CLOEXEC O_CLOEXEC
++#endif
++#ifndef SFD_NONBLOCK
++#define SFD_NONBLOCK O_NONBLOCK
++#endif
++struct signalfd_siginfo {
++	uint8_t pad[128];
++};
++int signalfd(int fd, const sigset_t *mask, int flags);
++#else
+ #include <sys/signalfd.h>
++#endif
+ #ifdef __redox__
+ #ifndef TFD_CLOEXEC
+ #define TFD_CLOEXEC O_CLOEXEC
+ #endif
+ #ifndef TFD_NONBLOCK
+ #define TFD_NONBLOCK O_NONBLOCK
+ #endif
+ int timerfd_create(int clockid, int flags);
+ int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
+ #else
+ #include <sys/timerfd.h>
+ #endif
+ #include <unistd.h>
+ #include "timespec-util.h"
+diff --git a/src/wayland-server.c b/src/wayland-server.c
+--- a/src/wayland-server.c
++++ b/src/wayland-server.c
+@@ -39,7 +39,17 @@
+ #include <dlfcn.h>
+ #include <sys/time.h>
+ #include <fcntl.h>
++#ifdef __redox__
++#ifndef EFD_CLOEXEC
++#define EFD_CLOEXEC O_CLOEXEC
++#endif
++#ifndef EFD_NONBLOCK
++#define EFD_NONBLOCK O_NONBLOCK
++#endif
++int eventfd(unsigned int initval, int flags);
++#else
+ #include <sys/eventfd.h>
++#endif
+ #include <sys/file.h>
+ #include <sys/stat.h>
+ 
+diff --git a/src/connection.c b/src/connection.c
+--- a/src/connection.c
++++ b/src/connection.c
+@@ -40,6 +40,13 @@
+ #include <time.h>
+ #include <ffi.h>
+ 
++#ifdef __redox__
++#ifndef MSG_NOSIGNAL
++#define MSG_NOSIGNAL 0
++#endif
++FILE *open_memstream(char **bufp, size_t *sizep);
++#endif
++
+ #include "wayland-util.h"
+ #include "wayland-private.h"
+ #include "wayland-os.h"

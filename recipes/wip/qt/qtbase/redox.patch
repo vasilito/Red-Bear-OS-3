@@ -258,7 +258,128 @@ diff -ruwN source-old/src/corelib/io/qstorageinfo_unix.cpp source/src/corelib/io
 +#elif defined(Q_OS_HAIKU) || defined(Q_OS_CYGWIN)
  #  define QT_STATFSBUF struct statvfs
  #  define QT_STATFS    ::statvfs
+
+diff -ruwN source-old/configure.cmake source/configure.cmake
+--- source-old/configure.cmake	2024-12-02 05:39:06.000000000 +0000
++++ source/configure.cmake	2026-04-15 00:00:00.000000000 +0000
+@@ -1233,7 +1233,7 @@
+ qt_feature("intelcet" PRIVATE
+     LABEL "Using Intel Control-flow Enforcement Technology (CET)"
+     AUTODETECT ON
+-    CONDITION TEST_intelcet
++    CONDITION TEST_intelcet AND NOT REDOX
+ )
+ qt_feature_config("intelcet" QMAKE_PUBLIC_CONFIG)
+ qt_feature("glibc_fortify_source" PRIVATE
+diff -ruwN source-old/cmake/QtBaseConfigureTests.cmake source/cmake/QtBaseConfigureTests.cmake
+--- source-old/cmake/QtBaseConfigureTests.cmake	2024-12-02 05:39:06.000000000 +0000
++++ source/cmake/QtBaseConfigureTests.cmake	2026-04-16 00:00:00.000000000 +0000
+@@ -265,4 +265,23 @@
+     set(TEST_subarch_sse4_1 FALSE CACHE BOOL INTERNAL FORCE)
+     set(TEST_subarch_sse4_2 FALSE CACHE BOOL INTERNAL FORCE)
+ endif()
++if(REDOX)
++    set(QT_FEATURE_avx OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx2 OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_f16c OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512f OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512er OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512cd OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512pf OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512dq OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512bw OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512vl OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512ifma OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512vbmi OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_avx512vbmi2 OFF CACHE BOOL INTERNAL FORCE)
++    set(QT_FEATURE_vaes OFF CACHE BOOL INTERNAL FORCE)
++    set(TEST_subarch_avx FALSE CACHE BOOL INTERNAL FORCE)
++    set(TEST_subarch_avx2 FALSE CACHE BOOL INTERNAL FORCE)
++    set(TEST_subarch_avx512vbmi2 FALSE CACHE BOOL INTERNAL FORCE)
++endif()
+ qt_run_qtbase_config_tests()
+
+diff -ruwN source-old/src/corelib/plugin/qelfparser_p.cpp source/src/corelib/plugin/qelfparser_p.cpp
+--- source-old/src/corelib/plugin/qelfparser_p.cpp	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/plugin/qelfparser_p.cpp	2026-04-15 00:00:00.000000000 +0000
+@@ -177,5 +177,8 @@
+     static bool checkElfVersion(const uchar *ident)
+     {
++#ifdef Q_OS_REDOX
++        return true;
++#endif
+         uchar elfversion = ident[EI_VERSION];
+         return elfversion == EV_CURRENT;
+     }
+@@ -258,4 +261,7 @@
+     static bool checkFileVersion(const Ehdr &header)
+     {
++#ifdef Q_OS_REDOX
++        return true;
++#endif
+         return header.e_version == EV_CURRENT;
+     }
+
+diff -ruwN source-old/src/corelib/plugin/qlibrary.cpp source/src/corelib/plugin/qlibrary.cpp
+--- source-old/src/corelib/plugin/qlibrary.cpp	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/plugin/qlibrary.cpp	2026-04-16 00:00:00.000000000 +0000
+@@ -232,24 +232,35 @@
+     qsizetype fdlen = qMin(file.size(), MaxMemoryMapSize);
+-    const char *filedata = reinterpret_cast<char *>(file.map(0, fdlen));
++    const char *filedata = nullptr;
++    QByteArray data;
++
++#ifdef Q_OS_REDOX
++    data = file.read(qMin<qsizetype>(fdlen, 64 * 1024 * 1024));
++    filedata = data.constData();
++    fdlen = data.size();
++    if (filedata == nullptr || fdlen == 0) {
++        qCWarning(qt_lcDebugPlugins, "%ls: failed to read for metadata scan: %ls",
++                  qUtf16Printable(library), qUtf16Printable(file.errorString()));
++        return {};
++    }
++#else
++    filedata = reinterpret_cast<char *>(file.map(0, fdlen));
++#endif
+ 
+ #ifdef Q_OS_UNIX
+     if (filedata == nullptr) {
+         // If we can't mmap(), then the dynamic loader won't be able to either.
+         // This can't be used as a plugin.
+         qCWarning(qt_lcDebugPlugins, "%ls: failed to map to memory: %ls",
+                   qUtf16Printable(library), qUtf16Printable(file.errorString()));
+         return {};
+     }
  #else
+-    QByteArray data;
+     if (filedata == nullptr) {
+         // It's unknown at this point whether Windows supports LoadLibrary() on
+         // files that fail to CreateFileMapping / MapViewOfFile, so we err on
+         // the side of doing a regular read into memory (up to 64 MB).
+         data = file.read(64 * 1024 * 1024);
+         filedata = data.constData();
+         fdlen = data.size();
+     }
+ #endif
+ 
+     QString errMsg = library;
+
+diff -ruwN source-old/src/corelib/global/qsimd.cpp source/src/corelib/global/qsimd.cpp
+--- source-old/src/corelib/global/qsimd.cpp	2024-12-02 05:39:06.000000000 +0000
++++ source/src/corelib/global/qsimd.cpp	2026-04-16 00:00:00.000000000 +0000
+@@ -377,7 +377,11 @@
+ static void xgetbv(uint in, uint &eax, uint &edx)
+ {
+-#if (defined(Q_CC_GNU) && !defined(Q_CC_EMSCRIPTEN)) || defined(Q_CC_GHS)
++#ifdef Q_OS_REDOX
++    Q_UNUSED(in);
++    eax = 0;
++    edx = 0;
++#elif (defined(Q_CC_GNU) && !defined(Q_CC_EMSCRIPTEN)) || defined(Q_CC_GHS)
+     asm (".byte 0x0F, 0x01, 0xD0" // xgetbv instruction
+         : "=a" (eax), "=d" (edx)
+         : "c" (in));
+
 diff -ruwN source-old/src/corelib/io/qfilesystemengine_unix.cpp source/src/corelib/io/qfilesystemengine_unix.cpp
 --- source-old/src/corelib/io/qfilesystemengine_unix.cpp	2024-12-02 05:39:06.000000000 +0000
 +++ source/src/corelib/io/qfilesystemengine_unix.cpp	2026-04-13 00:00:00.000000000 +0000
