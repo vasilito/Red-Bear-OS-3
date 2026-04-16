@@ -19,7 +19,7 @@ Use the matrix below as the authoritative phase summary before reading the older
 | P2 DRM / AMD+Intel display | Complete in-tree, hardware validation pending | `local/docs/P2-AMD-GPU-DISPLAY.md`, `local/recipes/gpu/redox-drm/`, `local/recipes/gpu/amdgpu/` |
 | P3 POSIX + input | Implemented in-tree; consumer-visible `signalfd`/`timerfd`/`eventfd`/`open_memstream` header-export path fixed in this repo pass; runtime validation still pending | `recipes/core/relibc/source/src/header/`, `recipes/core/relibc/source/include/sys/signalfd.h`, `local/patches/relibc/`, `local/recipes/system/evdevd/`, `local/recipes/system/udev-shim/` |
 | P4 Wayland stack | Partially complete | `recipes/wip/wayland/`, `recipes/wip/libs/other/libinput/`, `recipes/wip/services/seatd/` |
-| P5 AMD acceleration / IOMMU | Partial | `local/recipes/gpu/amdgpu/`, `local/recipes/system/iommu/` (now buildable via surfaced recipe) |
+| P5 AMD acceleration / IOMMU | Partial, but no longer blocked on basic QEMU first-use proof | `local/recipes/gpu/amdgpu/`, `local/recipes/system/iommu/` |
 | P6 KDE Plasma | In progress with mixed real builds and stubs/shims | `config/redbear-kde.toml`, `local/recipes/kde/`, `local/docs/QT6-PORT-STATUS.md` |
 
 ### Ordered Remaining Gaps
@@ -27,7 +27,7 @@ Use the matrix below as the authoritative phase summary before reading the older
 1. **Validate the completed P3→P4 bridge in practice**: `libwayland` now rebuilds with `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, and `MSG_NOSIGNAL` restored, but compositor/runtime validation is still outstanding.
 2. **Complete P4 runtime path**: libinput/seatd/GBM/Wayland compositor integration is still incomplete even though the base libraries now build, `seatd` now builds for Redox, and the KDE runtime config now starts a seatd service.
 3. **Separate KDE real builds from scaffolding**: parts of the KDE stack are genuine builds, while others are shimmed or stubbed only to satisfy dependency resolution.
-4. **Hardware validation remains open** for AMD/Intel DRM and the IOMMU path, even though the IOMMU daemon now builds.
+4. **Hardware validation remains open** for AMD/Intel DRM and the IOMMU path, even though the IOMMU daemon now builds and its guest-driven QEMU first-use proof passes.
 
 ### P7 Note
 

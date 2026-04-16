@@ -275,7 +275,7 @@ Graphics stack (PRIMARY DELIVERABLE):
 KWin recipe updated with 40 dependencies (all KF6 + Mesa + libdrm + libinput + qtwayland).
 plasma-workspace, plasma-desktop recipes created.
 
-### Phase 4 — Graphics Stack (✅ COMPLETE)
+### Phase 4 — Graphics Stack (✅ build-side complete, 🚧 runtime incomplete)
 
 Mesa EGL+GBM+GLES2 built:
 - libEGL.so (225KB) — platforms: redox, surfaceless, drm
@@ -295,12 +295,25 @@ Qt6 OpenGL enabled:
 - libQt6EglFSDeviceIntegration.so — EGLFS platform integration
 - EGLFS KMS plugin for direct DRM/KMS rendering
 
-### Phase 4b — Qt6 OpenGL Enablement (✅ COMPLETE)
+Current truth for Phase 4:
+
+- the graphics stack now builds end to end: Mesa EGL+GBM+GLES2, libdrm amdgpu, Qt6 OpenGL/EGL,
+  and qtwayland all stage successfully
+- the current `redbear-wayland` validation profile is still a bounded smallvil-first runtime path,
+  not proof of a hardware-accelerated desktop session
+- the current QEMU validation harness is still software-rendered (`llvmpipe`) and should be treated
+  as a bounded regression/test path, not as the final acceleration proof target
+- the in-repo Phase 4 runtime check currently still fails in `qt6-bootstrap-check` during early Qt
+  startup, so even the bounded software-path runtime proof remains incomplete
+- true hardware-accelerated desktop readiness still requires kernel DMA-BUF fd passing plus real
+  AMD/Intel hardware validation through the DRM → GBM/EGL → compositor → Qt client path
+
+### Phase 4b — Qt6 OpenGL Enablement (✅ build-side complete, 🚧 runtime incomplete)
 
 qtbase rebuilt with `-DFEATURE_opengl=ON -DINPUT_opengl=es2 -DFEATURE_egl=ON`
 Qt cmake summary: EGL=yes, OpenGL=yes, "OpenGL ES 2.0=yes, EGLFS GBM=yes"
 
-### Phase 5 — KDE Plasma (🔄 IN PROGRESS)
+### Phase 5 — KDE Plasma / desktop-session layer (🔄 IN PROGRESS)
 
 KDE Plasma packages built:
 - kf6-kwayland ✅ BUILT
@@ -327,7 +340,7 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
     └── Phase 2b ✅ (qtwayland built)
     └── Phase 2c ✅ (libevdev + libinput built)
     └── Phase 3 ✅ (KF6 — ALL 32 frameworks built)
-    └── Phase 4 ✅ (Mesa EGL+GBM+GLES2, Qt6 OpenGL+EGL, libdrm amdgpu)
+    └── Phase 4 ✅ build-side / 🚧 runtime (Mesa EGL+GBM+GLES2, Qt6 OpenGL+EGL, libdrm amdgpu)
     └── Phase 5 🔄 (kdecoration ✅, kf6-kwayland ✅, kirigami stub-only, KWin still blocked on shimmed/scaffolded deps)
 ```
 

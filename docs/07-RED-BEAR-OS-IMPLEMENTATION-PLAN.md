@@ -324,10 +324,17 @@ Goal:
 
 Current state:
 
-- Wi-Fi is still missing,
-- prerequisites exist,
-- `linux-kpi` is only a partial low-level aid, not the Wi-Fi architecture itself,
-- a native control plane is still required.
+- one bounded experimental Intel Wi-Fi path is now in-tree,
+- the corresponding tracked validation profile is `redbear-wifi-experimental`,
+- `linux-kpi` now carries early wireless-subsystem compatibility scaffolding in addition to the
+  earlier low-level helper layer,
+- the native control-plane/profile/reporting stack now has bounded scan/connect/disconnect flows,
+  including profile-manager start/stop wiring for the current Wi-Fi path,
+- packaged in-target Wi-Fi validation/capture commands now exist for the current bounded Intel path
+  (`redbear-phase5-wifi-check`, `redbear-phase5-wifi-link-check`, `redbear-phase5-wifi-capture`,
+  `redbear-phase5-wifi-run`, `redbear-phase5-wifi-analyze`),
+- real hardware scan/auth/association/data-path proof is still missing,
+- `linux-kpi` is still not the Wi-Fi architecture by itself.
 
 Canonical plan:
 
@@ -337,6 +344,8 @@ Acceptance:
 
 - one experimental Wi-Fi family is packaged and evidence-backed,
 - post-association handoff to the existing network stack is real,
+- the bounded station-mode lifecycle is visible through driver, control-daemon, profile-manager,
+  and runtime-reporting surfaces,
 - desktop-facing Wi-Fi claims remain honest and bounded.
 
 ### 6. Bluetooth
@@ -347,8 +356,10 @@ Goal:
 
 Current state:
 
-- Bluetooth is still missing,
+- one bounded in-tree BLE-first experimental slice now exists,
 - architecture direction is documented,
+- the currently credible implementation target is one bounded BLE-first host-side slice rather than
+  broad desktop Bluetooth parity,
 - transport dependency on USB maturity remains explicit.
 
 Canonical plan:
@@ -357,8 +368,8 @@ Canonical plan:
 
 Acceptance:
 
-- one controller path, one host path, and one bounded user-facing workflow exist with experimental
-  support language.
+- one controller path, one host path, and one bounded BLE-first user-facing workflow exist with
+  experimental support language.
 
 ### 7. Graphics, Wayland, and desktop/session compatibility
 

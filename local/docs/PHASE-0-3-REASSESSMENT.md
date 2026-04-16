@@ -188,7 +188,7 @@ real gap is **runtime and downstream-consumer validation**:
   login prompt over the serial console.
 - `pcid-spawner` successfully spawned `virtio-netd` during the guest boot sequence.
 - `firmware-loader` registered `scheme:firmware` without crashing, even with an empty
-  `/usr/firmware/` directory.
+`/lib/firmware/` directory.
 - `evdevd` registered `scheme:evdev` and `udev-shim` registered `scheme:udev` during the same
   guest boot.
 - `redbear-info --json` inside the guest reported `virtio_net_present: true`, a configured

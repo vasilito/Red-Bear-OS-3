@@ -239,7 +239,7 @@ See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
 | ACPI reboot | ✅ | Reset register + keyboard controller fallback |
 | ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
 | x2APIC/SMP | ✅ | Multi-core works |
-| IOMMU | ❌ | No AMD-Vi support |
+| IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
 | AMD GPU | 🚧 | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
 
 ### Phased Roadmap

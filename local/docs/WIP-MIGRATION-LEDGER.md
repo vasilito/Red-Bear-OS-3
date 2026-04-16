@@ -33,6 +33,7 @@ This is a repo-governance document, not a subsystem deep dive.
 | `seatd` runtime path | **mixed-transition** | recipe-level decision still local | It builds and is integrated into KDE-facing configs, but runtime trust still trails the packaging story. |
 | `redox-driver-sys` | **local-overlay-owner** | local overlay | Red Bear-owned driver substrate. |
 | `linux-kpi` | **local-overlay-owner** | local overlay | Red Bear-owned compatibility layer. |
+| `redbear-iwlwifi` | **local-overlay-owner** | local overlay | Bounded Intel Wi-Fi driver-side package below the native Red Bear Wi-Fi control plane; current scope is probe, status, firmware prepare, transport probe/init, NIC activation, bounded scan/connect/disconnect lifecycle, and retry. |
 | `redox-drm` / `amdgpu` | **local-overlay-owner** | local overlay | Red Bear-owned graphics/driver work. |
 | `firmware-loader` | **local-overlay-owner** | local overlay | Red Bear-owned runtime infrastructure. |
 | relibc compatibility overlays | **mixed-transition** | upstream + local overlay | Prefer upstream where available; keep only the overlays that still prove necessary after fresh-source reapply and downstream rebuild. |

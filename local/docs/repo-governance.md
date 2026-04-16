@@ -19,8 +19,10 @@ reproducible, reviewable, and upstream-friendly.
 Tracked Red Bear profiles are:
 
 - `redbear-minimal`
+- `redbear-bluetooth-experimental`
 - `redbear-desktop`
 - `redbear-full`
+- `redbear-wayland`
 - `redbear-kde`
 - `redbear-live`
 
@@ -54,6 +56,11 @@ why it is intentionally excluded.
 
 Primary validation baseline: console, storage, package flow, and wired networking.
 
+### `redbear-bluetooth-experimental`
+
+First bounded Bluetooth validation profile: explicit-startup, USB-attached, BLE-first, and
+experimental only.
+
 ### `redbear-desktop`
 
 Main integration profile for desktop-oriented Red Bear services without making KDE the default.
@@ -61,6 +68,10 @@ Main integration profile for desktop-oriented Red Bear services without making K
 ### `redbear-full`
 
 Expanded desktop/integration target that includes more runtime pieces and graphics-path bring-up.
+
+### `redbear-wayland`
+
+Dedicated Wayland runtime validation profile layered above the current Red Bear service baseline.
 
 ### `redbear-kde`
 

@@ -34,13 +34,15 @@ are hardware-validated at runtime.
 
 - **Identity** — OS name, version, hostname
 - **Networking** — stack state, connected flag, interface, MAC, IP/CIDR, DNS, default route,
-  active `netctl` profile, visible `network.*` schemes
+  active `netctl` profile, visible `network.*` schemes, Wi-Fi control/firmware/transport surfaces,
+  and bounded Bluetooth transport/control visibility
 - **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility
 - **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility,
   VirtIO NIC visibility for VM baselines
 - **Integrations** — tools, daemons, and integration paths such as `lspci`, `lsusb`, `netctl`,
-  `pcid-spawner`, `smolnetd`, `firmware-loader`, `udev-shim`, `evdevd`, `redox-drm`, and the
-  native RTL8125 and VirtIO networking paths
+  `pcid-spawner`, `smolnetd`, `firmware-loader`, `udev-shim`, `evdevd`, `redox-drm`,
+  `redbear-wifictl`, `redbear-btusb`, `redbear-btctl`, and the native RTL8125 and VirtIO
+  networking paths
 
 For Phase 3 runtime validation, `udev-shim` is expected at `/usr/bin/udev-shim` and `evdevd` is
 expected at both `/usr/bin/evdevd` and `/usr/lib/drivers/evdevd` so service execution and runtime
@@ -65,6 +67,9 @@ That includes new:
 - services
 - hardware integration paths
 - configuration layers that users rely on to debug a running image
+
+Recent examples include the Wi-Fi control-plane surfaces and the bounded Bluetooth first-slice
+surfaces, both of which extend the runtime report without over-claiming hardware validation.
 
 The goal is for `redbear-info` to remain the first command users run when they need to understand
 the state of a Red Bear system.

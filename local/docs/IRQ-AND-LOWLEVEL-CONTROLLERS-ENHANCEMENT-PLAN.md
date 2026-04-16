@@ -124,7 +124,7 @@ Current runtime-proof entrypoint now present in-tree:
 
 ### 3. IOMMU and interrupt remapping
 
-IOMMU is the most important low-level controller area that is still incomplete in practice.
+IOMMU was the most important low-level controller area that was still incomplete in practice.
 
 - The implementation direction is correct.
 - The data structures and register model are already documented deeply.
@@ -132,15 +132,17 @@ IOMMU is the most important low-level controller area that is still incomplete i
   only partially integrated: the daemon now searches common IVRS table locations automatically, but
   full platform-native discovery and hardware validation are still open.
 - The current QEMU path now reaches AMD-Vi unit detection and `scheme:iommu` registration without
-  crashing at daemon startup, but unit initialization is still deferred and real hardware validation
-  remains open.
-- The current guest-driven first-use proof now reaches AMD-Vi MMIO reads in QEMU (`control=0x0`,
-  `status=0x0`), but still dies during the completion path with a CPU-side page fault while touching
-  the completion-store region. That narrows the remaining blocker to DMA mapping/page-coverage
-  behavior rather than to missing discovery, missing scheme wiring, or unreadable MMIO registers.
+  crashing at daemon startup.
+- The current guest-driven first-use proof now completes successfully in QEMU: it reaches readable
+  and writable AMD-Vi MMIO, initializes both discovered units, and drains the event path without
+  faulting.
+- The critical blockers that previously stopped this path were fixed in the shared mapping layers,
+  not just in the userspace `iommu` daemon: physically contiguous DMA allocations now preserve
+  writable mappings, and MMIO mappings now use the explicit `fmap` path with the intended protection
+  bits.
 
-This makes IOMMU the highest-value long-term controller enhancement area after basic MSI-X runtime
-validation.
+This leaves IOMMU as a hardware-validation and deeper interrupt-remapping quality area, rather than
+as an immediate QEMU runtime blocker.
 
 ### 4. Input/controller path
 
@@ -241,7 +243,7 @@ Current runtime-validation surface now present in-tree:
 
 ### IOMMU / interrupt remapping
 
-**State**: the biggest completeness gap.
+**State**: QEMU runtime proof present; broader hardware validation still open.
 
 Concrete checked-in owner:
 
@@ -255,8 +257,6 @@ Open enhancement items:
 - interrupt remapping validation under device load
 - explicit distinction between “daemon builds” and “controller works”
 - replacement of `IOMMU_IVRS_PATH`-only discovery with real system discovery/integration
-- diagnosis/fix for the remaining QEMU first-use blocker where completion-store CPU access faults
-  even after MMIO reads and multiple completion-store placement strategies succeed structurally
 
 Current implementation improvement:
 
@@ -265,8 +265,8 @@ Current implementation improvement:
 - daemon startup now defers AMD-Vi unit initialization until first scheme use, which keeps the
   QEMU validation path alive long enough to prove detection plus `scheme:iommu` registration
 - a guest-driven self-test path now exists (`/usr/bin/iommu --self-test-init` via
-  `redbear-phase-iommu-check` / `test-iommu-qemu.sh`) and proves that the remaining failure is in
-  runtime completion/DMA-page handling, not in daemon startup or bare MMIO readability
+  `redbear-phase-iommu-check` / `test-iommu-qemu.sh`) and now proves first-use unit initialization
+  and event-drain completion in QEMU
 
 ### Legacy IRQ ownership and dispatch map
 
@@ -450,25 +450,28 @@ Why fifth:
 
 Important, but less immediately blocking than MSI-X and IOMMU.
 
-## Priority 6 — xHCI interrupt restoration
+## Priority 6 — xHCI interrupt-path hardening
 
 This is Priority 6 **within the low-level controller plan itself**, not within the repository-wide
 subsystem order. At the repo-wide level, low-level controller quality remains ahead of USB/Wi-Fi/
 Bluetooth because these later subsystems depend on the controller/runtime proof work documented
 here.
 
-Goal: move USB host-controller operation from polling back to real interrupt-driven behavior.
+Goal: keep USB host-controller operation on the restored interrupt-driven path and harden the proof
+surface beyond the current narrow QEMU validation.
 
 Deliverables:
 
-- restore the actual `get_int_method` path in `xhcid`
+- keep the actual `get_int_method` path in `xhcid` healthy
 - validate MSI/MSI-X or INTx behavior for xHCI on real hardware and/or QEMU
-- update docs so USB controller quality is not overstated while polling remains active
+- update docs so USB controller quality is not overstated while broader runtime and hardware
+  validation remain open
 
 Why sixth:
 
-This is a real completeness gap in an important low-level controller, but it is narrower in scope
-than the cross-cutting MSI-X and IOMMU priorities above.
+This remains a real completeness gap in an important low-level controller, but it is now narrower in
+scope than the cross-cutting MSI-X and IOMMU priorities above because the interrupt path itself is
+already restored and QEMU-proven.
 
 ## Execution Plan
 
@@ -533,8 +536,7 @@ runtime-evidence surface:
 - `local/scripts/test-xhci-irq-qemu.sh --check` — xHCI interrupt-mode proof from QEMU boot logs
 - `local/scripts/test-msix-qemu.sh` — live MSI-X proof via `virtio-net`
 - `local/scripts/test-iommu-qemu.sh --check` — AMD IOMMU device visibility plus guest boot reachability
-- `local/scripts/test-usb-storage-qemu.sh` — USB mass-storage autospawn probe (currently still an
-  active blocker path)
+- `local/scripts/test-usb-storage-qemu.sh` — USB mass-storage autospawn probe
 
 ## Bottom Line
 

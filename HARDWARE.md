@@ -52,11 +52,19 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
 
 This section contain limitations that apply to any status.
 
-- ACPI support is incomplete (some things are hardcoded on the kernel to work)
-- Wi-Fi and Bluetooth aren't supported yet
-- AMD, NVIDIA, ARM, and PowerVR GPUs aren't supported yet (only BIOS VESA and UEFI GOP)
+- ACPI bring-up is materially complete for the current boot baseline, but broader platform coverage
+  and hardware validation are still uneven across machines
+- Wi-Fi broad support is not available yet; bounded Intel Wi-Fi scaffolding and validation paths now
+  cover probe/status/prepare/init/activate plus bounded scan/connect/disconnect/retry surfaces, but
+  validated real wireless connectivity support remains incomplete
+- Bluetooth broad support is not available yet; one bounded in-tree BLE-first experimental slice
+  exists, but broad controller or desktop parity remains incomplete
+- Broad hardware-validated GPU acceleration is not supported yet; the default proven path remains
+  BIOS VESA and UEFI GOP, even though Red Bear now carries compile-oriented AMD/Intel DRM work in
+  the local overlay
 - I2C devices aren't supported yet (PS/2 or USB devices should be used)
-- USB support varies on each device model because some USB devices require specific drivers (use input devices with standardized controls for more compatibility)
+- USB support still varies by machine and device class, but Red Bear now has QEMU-proven xHCI
+  interrupt-mode and USB mass-storage autospawn paths
 - Automatic operating system discovery is not implemented in the boot loader yet (remember this before installing Red Bear OS)
 
 ## Contribute to this document

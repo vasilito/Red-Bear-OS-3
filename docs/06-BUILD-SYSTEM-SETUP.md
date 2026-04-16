@@ -123,6 +123,26 @@ make all
 
 This produces `build/x86_64/desktop/harddrive.img`.
 
+### Export External Toolchain
+
+After `make prefix`, you can export a relocatable external cross toolchain that provides
+`x86_64-unknown-redox-gcc` and the related host-side wrappers in one directory:
+
+```bash
+make export-toolchain TARGET=x86_64-unknown-redox
+source build/toolchain-export/x86_64-unknown-redox/activate.sh
+x86_64-unknown-redox-gcc --version
+```
+
+To export somewhere else:
+
+```bash
+make export-toolchain TARGET=x86_64-unknown-redox \
+  TOOLCHAIN_EXPORT_DIR=/opt/redbear/toolchains/x86_64-unknown-redox
+```
+
+For the full layout and rationale, see `local/docs/EXTERNAL-TOOLCHAIN.md`.
+
 ### Build with Specific Config
 
 ```bash

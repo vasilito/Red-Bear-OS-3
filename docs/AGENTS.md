@@ -43,6 +43,7 @@ docs/
 | Which docs are current vs historical? | README | Document Status Matrix |
 | What is the current WIP ownership policy? | local/docs/WIP-MIGRATION-LEDGER.md | Entire document |
 | What do the main sync/fetch/apply/build scripts actually guarantee? | local/docs/SCRIPT-BEHAVIOR-MATRIX.md | Entire document |
+| What is the current Wi-Fi architecture and validation path? | local/docs/WIFI-IMPLEMENTATION-PLAN.md / local/docs/WIFI-VALIDATION-RUNBOOK.md | Entire document |
 | What is the current desktop-stack truth? | local/docs/DESKTOP-STACK-CURRENT-STATUS.md | Entire document |
 | What is the current Qt/KF6 status? | local/docs/QT6-PORT-STATUS.md | Entire document |
 | What's missing for Wayland? | 02 | Status correction + ordered remaining gaps |

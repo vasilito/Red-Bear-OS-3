@@ -132,10 +132,11 @@ driven wired setup.
 
 ### GPU Driver Status
 
-- **No hardware-accelerated GPU drivers**
-- Only BIOS VESA and UEFI GOP framebuffers
-- Experimental Intel modesetting (Kaby Lake, Tiger Lake) — no acceleration
-- AMD, NVIDIA, ARM, PowerVR: not supported
+- Broad hardware-validated GPU acceleration is not yet available as a general support claim.
+- BIOS VESA and UEFI GOP framebuffers remain the default proven display path.
+- Experimental Intel modesetting exists.
+- Red Bear also carries compile/integration-oriented AMD and Intel DRM work in its local overlay,
+  but that should not be read as broad hardware-validated acceleration support yet.
 
 ## 4. Orbital Display Server
 

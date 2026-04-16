@@ -40,8 +40,8 @@ The current limitations are material:
 - USB support varies by machine, including known `xhcid` panic cases
 - hub/topology handling is partial
 - HID is still wired through the legacy mixed-stream `inputd` path
-- USB mass storage exists in-tree and autospawn is now re-enabled for validation, but the current
-  blocker has moved to post-spawn runtime stability rather than driver matching.
+- USB mass storage exists in-tree and now autospawns successfully in the current QEMU validation
+  path, but broader runtime stability and wider class/topology validation are still open.
 - there is no evidence of validated support for broader USB classes or modern USB-C / dual-role
   scope
 
@@ -59,7 +59,7 @@ The current limitations are material:
 | libusb | **builds / experimental** | WIP, compiled but not tested |
 | usbutils | **broken / experimental** | WIP, compilation error |
 | EHCI/OHCI/UHCI | **absent / undocumented** | No evidence present in-tree |
-| USB networking/audio/video/Bluetooth classes | **absent / undocumented** | No evidence of working support |
+| USB networking/audio/video/Bluetooth classes | **partial / experimental** | Broad class support remains incomplete, but one bounded explicit-startup USB-attached Bluetooth slice now exists |
 | Device mode / OTG / dual-role / USB-C / PD / alt-modes / USB4 | **absent / undocumented** | No evidence present |
 
 ## Evidence Already In Tree
@@ -90,8 +90,8 @@ The current limitations are material:
 - `recipes/core/base/source/drivers/usb/xhcid/src/xhci/irq_reactor.rs` now contains event-ring growth logic, but the restored interrupt path still needs stronger validation under sustained runtime load
 - `recipes/core/base/source/drivers/usb/xhcid/drivers.toml` now re-enables USB SCSI autospawn with
   explicit protocol matching for BOT (`0x50`)
-- `recipes/core/base/source/drivers/COMMUNITY-HW.md` still claims there is no Redox xHCI driver,
-  which means inherited USB docs cannot be treated as uniformly current
+- `recipes/core/base/source/drivers/COMMUNITY-HW.md` is a historical/community request ledger and
+  cannot be treated as a canonical current-state source for xHCI support
 
 ## Current Gaps and Limits
 
@@ -368,7 +368,8 @@ Prefer language such as:
 - “xHCI host support is present but experimental”
 - “USB enumeration and HID-adjacent host paths exist in-tree”
 - “USB support remains controller-variable”
-- “USB storage support exists in-tree but is not currently enabled as a default working path”
+- “USB storage support exists in-tree and is QEMU-proven for the current validation path, but is
+  not yet a broad hardware support claim”
 
 ## Summary
 

@@ -32,9 +32,9 @@ take 5+ years.
 | ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
-| IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that reaches MMIO reads; the remaining blocker is a CPU-side completion/DMA-page fault during init, and real hardware validation is still missing |
+| IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
 | AMD GPU | 🚧 In progress | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
-| Wi-Fi/BT | ❌ Missing | No wireless support |
+| Wi-Fi/BT | 🚧 In progress | Repo now carries bounded wireless scaffolding: one experimental in-tree Bluetooth slice exists, and a bounded Intel Wi-Fi scaffold exists elsewhere, but validated wireless connectivity support is still incomplete |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |
 
 ### Known AMD-Specific Issues
@@ -129,7 +129,9 @@ local/recipes/system/firmware-loader/
 | SMC | Power management | `smu_*_bin.bin` |
 | DMCUB | Display controller | `dcn_*_dmcub.bin` |
 
-**Storage**: `local/firmware/amdgpu/` (fetched via `local/scripts/fetch-firmware.sh`)
+**Storage**: staged into `/lib/firmware/amdgpu/` for runtime loading. The current local helper
+script still fetches AMD blobs from linux-firmware, but the runtime path should now be read as
+`/lib/firmware/amdgpu/`, not `/usr/firmware/amdgpu/`.
 
 ### P1-3: linux-kpi Compatibility Headers
 

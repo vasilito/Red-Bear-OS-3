@@ -99,7 +99,9 @@ The current subsystem order is not arbitrary.
 - **Low-level controllers / IRQ quality** are first-class because they block reliable driver/runtime validation.
 - **USB** is first-class because Bluetooth and wider device support depend on controller and hotplug maturity.
 - **Wi-Fi** is first-class because Red Bear still lacks any native wireless driver/control plane.
-- **Bluetooth** is first-class because it remains fully missing and depends on either USB maturity or another controller path.
+- **Bluetooth** is first-class because broad support is still incomplete, depends on USB maturity or
+  another controller path, and currently exists only as one bounded BLE-first experimental slice
+  rather than broad desktop parity.
 
 The current blocker chain is:
 
@@ -167,9 +169,10 @@ native `usb.*` schemes exposed by `xhcid`, so there is no dependency on the unfi
 ## Networking
 
 Red Bear ships the existing native Redox wired networking path (`pcid-spawner` → NIC daemon →
-`smolnetd`/`dhcpd`/`netcfg`) together with a small Redox-native `netctl` compatibility command.
-Profiles live under `/etc/netctl`, the shipped examples live under `/etc/netctl/examples`, and the
-boot service applies the enabled profile with `netctl --boot`.
+`smolnetd`/`dhcpd`/`netcfg`) together with a small Redox-native `netctl` compatibility command and
+the `redbear-netctl-console` ncurses client for the bounded Wi‑Fi profile flow. Profiles live under
+`/etc/netctl`, the shipped examples live under `/etc/netctl/examples`, live Wi‑Fi actions go
+through `/scheme/wifictl`, and the boot service applies the enabled profile with `netctl --boot`.
 
 RTL8125 is wired into the existing native Realtek autoload path by matching `10ec:8125` in the
 `rtl8168d` driver config. This keeps the implementation in the Redox userspace driver model rather

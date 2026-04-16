@@ -133,7 +133,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
-│   │   ├── system/            ← cub, evdevd, udev-shim, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-meta
+│   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-meta
 │   │   ├── wayland/           ← Wayland compositor (Phase 4)
 │   │   └── kde/               ← KDE Plasma (Phase 6)
 │   ├── patches/
@@ -152,6 +152,17 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── build-amd.sh       ← Legacy AMD-specific build (use build-redbear.sh)
 │   │   ├── test-amd-gpu.sh    ← AMD GPU test script
 │   │   ├── test-baremetal.sh  ← Bare metal test script
+│   │   ├── build-redbear-wifictl-redox.sh ← Build redbear-wifictl for the Redox target with the repo toolchain
+│   │   ├── test-iwlwifi-driver-runtime.sh ← Bounded Intel driver lifecycle check inside a target runtime
+│   │   ├── test-wifi-control-runtime.sh ← Bounded Wi-Fi control/profile runtime check inside a target runtime
+│   │   ├── test-wifi-baremetal-runtime.sh ← Strongest in-repo Wi-Fi runtime check on a real Red Bear target
+│   │   ├── validate-wifi-vfio-host.sh ← Host-side VFIO passthrough readiness check for Intel Wi-Fi validation
+│   │   ├── prepare-wifi-vfio.sh ← Bind/unbind Intel Wi-Fi PCI function for VFIO validation
+│   │   ├── test-wifi-passthrough-qemu.sh ← QEMU/VFIO Wi-Fi validation harness with in-guest checks
+│   │   ├── run-wifi-passthrough-validation.sh ← One-shot host wrapper for the full Wi-Fi passthrough validation flow
+│   │   ├── package-wifi-validation-artifacts.sh ← Package Wi-Fi validation artifacts into one host-side tarball
+│   │   ├── summarize-wifi-validation-artifacts.sh ← Summarize captured Wi-Fi validation artifacts for quick triage
+│   │   ├── finalize-wifi-validation-run.sh ← Analyze a Wi-Fi capture bundle and package the final evidence set
 │   │   ├── validate-vm-network-baseline.sh ← Static repo-level VM networking baseline check
 │   │   ├── test-vm-network-qemu.sh ← QEMU launcher for the VirtIO VM networking baseline
 │   │   └── test-vm-network-runtime.sh ← In-guest runtime check for the VM networking baseline
@@ -187,7 +198,8 @@ redox-master/                  ← git pull updates mainline Redox
 
 # The current xHCI proof checks for an interrupt-driven mode in boot logs.
 # The current MSI-X proof uses the live virtio-net path in QEMU.
-# The current IOMMU proof checks for the AMD IOMMU device plus guest boot reachability.
+# The current IOMMU proof runs a guest-driven first-use self-test and checks that discovered
+# AMD-Vi units initialize and drain events successfully in QEMU.
 # The USB storage proof currently verifies whether usbscsid autospawns without hitting crash-class errors.
 
 # Phase 4 Wayland runtime validation
@@ -201,6 +213,21 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/test-phase5-network-qemu.sh --check
 # Then run inside the guest:
 #   redbear-phase5-network-check
+
+# Bounded Intel Wi-Fi runtime validation (real target or passthrough guest)
+# Host preparation for VFIO-backed guests:
+#   sudo ./local/scripts/validate-wifi-vfio-host.sh --host-pci 0000:xx:yy.z --expect-driver iwlwifi
+#   sudo ./local/scripts/prepare-wifi-vfio.sh bind 0000:xx:yy.z
+# Guest/target packaged checks:
+#   redbear-phase5-wifi-check
+#   redbear-phase5-wifi-link-check
+#   redbear-phase5-wifi-run wifi-open-bounded wlan0 /tmp/redbear-phase5-wifi-capture.json
+#   redbear-phase5-wifi-capture wifi-open-bounded wlan0 /tmp/redbear-phase5-wifi-capture.json
+#   redbear-phase5-wifi-analyze /tmp/redbear-phase5-wifi-capture.json
+# Helper scripts:
+#   ./local/scripts/test-wifi-baremetal-runtime.sh
+#   ./local/scripts/test-wifi-passthrough-qemu.sh --host-pci 0000:xx:yy.z --check --capture-output ./wifi-passthrough-capture.json
+#   ./local/scripts/finalize-wifi-validation-run.sh ./wifi-passthrough-capture.json ./wifi-passthrough-artifacts.tar.gz
 
 # Phase 6 KDE session-surface validation
 ./local/scripts/build-redbear.sh redbear-kde
@@ -247,6 +274,8 @@ When mainline updates affect our work:
   including the bounded role of `linux-kpi` and the native wireless control-plane direction.
 - `local/docs/USB-IMPLEMENTATION-PLAN.md` and `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` should
   also be treated as first-class subsystem plans, not as side notes.
+- `local/docs/WIFI-VALIDATION-RUNBOOK.md` is the canonical operator runbook for bare-metal and
+  VFIO-backed Intel Wi-Fi validation, packaged checkers, and capture artifacts.
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` is the current umbrella plan for
   IRQ delivery, MSI/MSI-X quality, IOMMU validation, and other low-level controller completeness work.
 

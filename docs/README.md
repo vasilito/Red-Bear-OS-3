@@ -49,22 +49,32 @@ current local subsystem plan.
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Historical KDE implementation path plus deeper KDE-specific rationale |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
 | 07 | [Red Bear OS Implementation Plan](07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) | Canonical public implementation plan focused on profiles, packaging, validation, and staged hardware enablement |
+| 08 | [Firmware in Red Bear OS](firmware.md) | Canonical firmware packaging, licensing, and runtime-loading policy |
 
-## Related Red Bear-local plans
+## Related Red Bear-local current-state plans
 
 - `../local/docs/USB-IMPLEMENTATION-PLAN.md` — current USB completeness and rollout plan
 - `../local/docs/WIFI-IMPLEMENTATION-PLAN.md` — current Wi-Fi architecture and rollout plan
+- `../local/docs/WIFI-VALIDATION-RUNBOOK.md` — canonical operator path for bare-metal/VFIO Wi-Fi validation and evidence capture
+- `../local/docs/WIFICTL-SCHEME-REFERENCE.md` — bounded `/scheme/wifictl` interface reference for the current Wi-Fi control surface
+- `../local/recipes/system/redbear-netctl-console/source/` — Redox-native ncurses terminal client for the bounded Wi-Fi profile flow
+- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — guarantees and non-guarantees for the main Wi-Fi and Bluetooth validation helpers plus core repo scripts
 - `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
+- `../local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` — canonical operator path for the bounded Bluetooth Battery Level QEMU validation slice
 - `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — current low-level controller and IRQ blocker plan
 - `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap; historical AMD-first sequencing, not current platform-priority policy
-- `../local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership and upstream-vs-local migration ledger
-- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
 - `../local/docs/PROJECT-DOCUMENTATION-ASSESSMENT.md` — current assessment of documentation quality, canon, and remaining cleanup priorities
 - `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
 
 These local Red Bear plans should be treated as first-class subsystem references for USB, Wi-Fi,
 Bluetooth, and low-level controller work. They carry blocker detail that the public docs summarize
 at a higher level.
+
+## Related Red Bear-local governance docs
+
+- `../local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership and upstream-vs-local migration ledger
+- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
+- `../local/docs/EXTERNAL-TOOLCHAIN.md` — how to export a relocatable external `x86_64-unknown-redox-gcc` toolchain from the built prefix
 
 ## Current State Summary (as of 2026-04-15)
 
@@ -83,9 +93,12 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
 - **GPU drivers**: redox-drm scheme daemon and AMD+Intel compile-oriented paths exist; hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
-- **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, and RTL8125 is wired into the existing Realtek autoload path
+- **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
+- **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
+- **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload is now QEMU-validated through a packaged in-guest checker plus a host harness; broad desktop Bluetooth parity is still incomplete
 - **KDE**: `redbear-kde.toml` exists and the recipe tree is populated, but the runtime stack is still incomplete.
-- **Linux driver compat**: linux-kpi (31 C headers + 13 Rust FFI), redox-driver-sys, firmware-loader all compile.
+- **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
+- **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.
 
 ## Quick Start
 

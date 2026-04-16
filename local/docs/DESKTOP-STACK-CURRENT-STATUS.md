@@ -43,7 +43,7 @@ stack are runtime-trusted rather than just build-visible?”
 | Qt6 core stack | **builds** | `qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland` are in-tree build surfaces |
 | KF6 frameworks | **mixed but strong build progress** | many frameworks build; some higher-level pieces still rely on bounded or reduced recipes |
 | KWin / Plasma session | **experimental / incomplete runtime** | recipe/config wiring exists, but runtime trust still trails build success |
-| Mesa / hardware graphics path | **partial** | software path exists; hardware-validated Wayland graphics path still lags |
+| Mesa / hardware graphics path | **partial** | software path exists; current QEMU validation still shows llvmpipe, and hardware-validated Wayland graphics path still lags |
 | Input stack | **build-visible and partly wired** | `evdevd`, `libevdev`, `libinput`, `seatd` are present, but runtime trust is still narrower than full desktop support |
 | D-Bus session/system plumbing | **builds / wired into profiles** | present in desktop-facing profiles, but not equal to full desktop integration completeness |
 
@@ -95,6 +95,23 @@ That gap is the main thing older docs sometimes blur.
 ### 2. Graphics/runtime validation is still thinner than package progress
 
 The software-rendered stack is much further along than the hardware-validated stack.
+
+Current QEMU truth:
+
+- the tracked `redbear-wayland` test harness still uses `-vga std`
+- the live compositor path currently reports `GL Renderer: "llvmpipe (LLVM 21.1.2, 256 bits)"`
+- therefore the current QEMU Wayland proof is still a software-rendered runtime slice, not a
+  hardware-accelerated desktop proof
+- QEMU should be treated as a bounded regression/test harness for Wayland/Qt bring-up, not as the
+  primary proof target for the final hardware-accelerated desktop claim
+
+The real hardware-accelerated acceptance target remains the bare-metal/runtime-driver path:
+
+- `redox-drm` detects and drives the target GPU family
+- Mesa GBM/EGL/GLES2 uses that runtime graphics path
+- the compositor and Qt Wayland clients run stably on top of it
+- runtime evidence shows the desktop path is using the real accelerated stack rather than a
+  software fallback
 
 The desktop stack therefore should not over-claim hardware-ready Wayland/KDE support yet.
 

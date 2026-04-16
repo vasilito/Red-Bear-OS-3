@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document defines the current Bluetooth state in Red Bear OS and lays out a conservative,
-implementation-focused roadmap for adding Bluetooth support.
+This document defines the current Bluetooth state in Red Bear OS, assesses what the repo now proves
+through its bounded first slice, and lays out the conservative roadmap beyond that slice.
 
-The goal is not to imply that Bluetooth already exists in-tree. The goal is to describe what the
-repo currently proves, what it does not prove, and how Red Bear can grow from **no Bluetooth
-support** to a realistic, host-side Bluetooth stack that fits the existing Redox/Red Bear
-architecture.
+The goal is to describe what the repo currently proves, what it does not prove, what parts of the
+Bluetooth stack are credible versus not credible today, and how Red Bear can grow from **one
+bounded experimental Bluetooth slice** toward broader support without overstating current runtime
+validation.
 
 ## Validation States
 
@@ -24,10 +24,28 @@ This repo should not treat planned scope as equivalent to implemented support.
 
 ### Summary
 
-Bluetooth is currently **missing** in Red Bear OS.
+Broad Bluetooth support is still **missing** in Red Bear OS, but the repo now carries one bounded
+experimental first slice.
 
-The repo has no first-class Bluetooth daemon, no controller transport path, no host stack, no
-documented app-facing Bluetooth API, and no profile that can honestly claim Bluetooth support.
+That bounded slice is now **QEMU-validated for its claimed scope** through the packaged
+`redbear-bluetooth-battery-check` helper and the host-side
+`./local/scripts/test-bluetooth-qemu.sh --check` harness. That validation is still narrow and does
+not promote the repo to generic Bluetooth maturity.
+
+That first in-tree slice is deliberately narrow:
+
+- standalone profile: `config/redbear-bluetooth-experimental.toml`
+- transport daemon: `local/recipes/drivers/redbear-btusb/`
+- host/control daemon: `local/recipes/system/redbear-btctl/`
+- packaged in-guest checker: `redbear-bluetooth-battery-check`
+- host QEMU harness: `local/scripts/test-bluetooth-qemu.sh`
+- startup model: explicit startup only
+- transport model: USB-attached only
+- protocol scope: BLE-first only
+- autospawn model: **not** wired to USB-class autospawn yet
+
+This does **not** mean Red Bear has broad Bluetooth support. It means the repo now has one
+experimental, profile-scoped bring-up surface instead of zero in-tree Bluetooth components.
 
 What the repo *does* have is enough adjacent infrastructure to make a Bluetooth port plausible:
 
@@ -37,24 +55,41 @@ What the repo *does* have is enough adjacent infrastructure to make a Bluetooth 
 - D-Bus plumbing for later desktop compatibility work
 - an evolving input and hotplug model that could later absorb Bluetooth HID devices
 
+### Feasibility Summary
+
+Implementing Bluetooth from scratch in Red Bear is **possible**, but only in a narrow, staged
+sense.
+
+The currently credible interpretation is:
+
+- **feasible**: one experimental USB-attached controller path, one native host daemon, one BLE-first
+  workload, one CLI/control surface, one hardware-specific validation slice
+- **not yet credible**: broad controller coverage, full classic-Bluetooth parity, Bluetooth audio,
+  or a desktop-equivalent BlueZ replacement in the first pass
+
+So the answer is not “Bluetooth from scratch is unrealistic,” but it is also not “Bluetooth is just
+one more driver.” The feasible first target is a deliberately small subsystem slice.
+
 ### Current Status Matrix
 
 | Area | State | Notes |
 |---|---|---|
-| Bluetooth controller support | **missing** | No HCI transport daemon in-tree |
-| Bluetooth host stack | **missing** | No L2CAP / ATT / SMP / GATT / RFCOMM stack evidence |
-| Pairing / bond database | **missing** | No Bluetooth-specific persistence path documented |
+| Bluetooth controller support | **experimental bounded slice** | `redbear-btusb` provides explicit-startup USB transport probing/status plus a daemon path that is now exercised repeatedly in QEMU for the bounded Battery Level slice |
+| Bluetooth host stack | **experimental bounded slice** | `redbear-btctl` provides a BLE-first CLI/scheme surface with stub-backed scan plus bounded connect/disconnect control for stored bond IDs; the packaged checker now reruns that slice repeatedly and covers daemon-restart honesty in QEMU |
+| Pairing / bond database | **experimental bounded slice** | `redbear-btctl` now persists conservative stub bond records under `/var/lib/bluetooth/<adapter>/bonds/`; connect/disconnect control targets those records, and the checker now verifies cleanup honesty, but this is still storage/control plumbing only, not real pairing or generic reconnect validation |
 | Desktop Bluetooth API | **missing** | D-Bus exists generally, but no Bluetooth API/service exists |
 | Bluetooth HID | **missing** | Could later build on input modernization work |
 | Bluetooth audio | **missing** | Also blocked by broader desktop audio compatibility work |
-| Runtime diagnostics | **partial prerequisite exists** | `redbear-info` model exists, but no Bluetooth integration exists |
+| Runtime diagnostics | **partial implemented** | `redbear-info` now reports the bounded Bluetooth transport/control surfaces conservatively |
 
 ## Evidence Already In Tree
 
 ### Direct negative evidence
 
-- `HARDWARE.md` says Wi-Fi and Bluetooth are not supported yet
-- `local/docs/AMD-FIRST-INTEGRATION.md` marks `Wi-Fi/BT` as missing
+- `HARDWARE.md` says broad Wi-Fi and Bluetooth support is still incomplete even though bounded
+  in-tree scaffolding now exists
+- `local/docs/AMD-FIRST-INTEGRATION.md` treats `Wi-Fi/BT` as in progress with bounded wireless
+  scaffolding present but validated connectivity still incomplete
 
 ### Positive architectural prerequisites
 
@@ -64,6 +99,8 @@ What the repo *does* have is enough adjacent infrastructure to make a Bluetooth 
   profile-scoped and evidence-backed
 - `local/docs/PROFILE-MATRIX.md` defines the validation-language model a future Bluetooth path must
   use
+- `local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` now records the canonical QEMU operator path for the
+  current bounded Battery Level slice
 - `local/docs/INPUT-SCHEME-ENHANCEMENT.md` shows the direction of travel for per-device, hotplug,
   named input sources, which is relevant to later Bluetooth HID support
 - `config/redbear-kde.toml` and related profile wiring already show D-Bus and desktop-session
@@ -86,7 +123,22 @@ At minimum, Red Bear would need:
 
 This makes Bluetooth more like networking than like a single peripheral driver.
 
-### 1.1 Minimum Native Subsystem Shape
+### 1.1 From-Scratch Scope Reality
+
+Starting from zero, the minimum Red Bear-native Bluetooth stack is still several layers:
+
+- controller transport
+- HCI command/event handling
+- adapter management
+- LE scanning and connection lifecycle
+- pairing / bonding policy and persistence
+- ATT/GATT client work for the first useful BLE workload
+- some observable user control/reporting surface
+
+That means “from scratch” should be read as “new native subsystem assembly from several bounded
+components,” not as “write a single daemon and call Bluetooth done.”
+
+### 1.2 Minimum Native Subsystem Shape
 
 The smallest Red Bear-native Bluetooth subsystem should be split into these pieces:
 
@@ -109,7 +161,26 @@ The repo's existing system model strongly favors:
 That means Bluetooth should be implemented as a native Red Bear subsystem, not described as a
 wholesale Linux/BlueZ drop-in.
 
-### 2.1 Repo Placement Guidance
+### 2.1 BlueZ-equivalent replacement is not the first feasible target
+
+Red Bear should not frame the initial work as “reimplement BlueZ.”
+
+That would pull in a much larger surface:
+
+- broad controller/transport coverage
+- full classic + BLE host functionality
+- stable D-Bus compatibility shape
+- profile breadth beyond the first bounded use case
+- much more policy and persistence behavior than the repo currently needs for an initial milestone
+
+The first feasible target is instead:
+
+- native Red Bear controller transport daemon
+- native Red Bear host daemon
+- small native CLI/control path
+- later compatibility shim only if real desktop consumers require one
+
+### 2.2 Repo Placement Guidance
 
 Unless upstream Redox grows a first-class Bluetooth path first, the initial Red Bear work should
 live under `local/`:
@@ -133,7 +204,21 @@ The first realistic milestone is much smaller:
 - one limited workload
 - experimental support language only
 
-### 3.1 First-Milestone Dependency
+### 3.1 BLE-first is materially more feasible than classic-first
+
+The repo should treat **BLE-first** as the credible from-scratch path.
+
+Why:
+
+- it keeps the first useful workload smaller
+- it avoids early pressure for classic-audio and broader profile parity
+- it matches the repo's current “bounded experimental slice first” discipline
+- it reduces the amount of early compatibility behavior that must be correct before any user value
+  appears
+
+Classic Bluetooth should therefore be treated as a later expansion, not as the first milestone.
+
+### 3.2 First-Milestone Dependency
 
 If the first supported controller is USB-attached, then Bluetooth Phase B1 depends directly on the
 USB plan's controller and hotplug baseline work.
@@ -141,6 +226,18 @@ USB plan's controller and hotplug baseline work.
 In practice that means Bluetooth should not claim a validated first controller path until the USB
 stack can already support that controller family with stable enumeration, attach/detach behavior,
 and honest runtime diagnostics.
+
+### 3.3 Most credible first controller family
+
+The most credible first controller family is:
+
+- one **USB-attached BLE-capable adapter family** with simple host-facing initialization behavior
+
+The least credible early targets are:
+
+- UART-attached laptop-integrated controllers that require new board-specific transport bring-up
+- broad “internal laptop Bluetooth” claims across mixed Intel/Realtek/MediaTek controller families
+- controller families that immediately force a large firmware and vendor-protocol surface
 
 ### 4. Bluetooth scope depends on adjacent subsystems
 
@@ -151,6 +248,60 @@ unfinished for desktop use.
 
 That means the Bluetooth roadmap must stay sequenced and should not over-promise audio or broad
 desktop integration early.
+
+### 4.1 Native host-side Bluetooth is still required even if transport uses compatibility glue
+
+The Wi-Fi plan already establishes an important repo rule: a compatibility layer can be useful below
+the subsystem boundary, but it does not remove the need for a native Red Bear control plane.
+
+Bluetooth should follow the same rule.
+
+That means:
+
+- transport-side glue or borrowed implementation ideas are acceptable
+- but adapter management, support language, diagnostics, persistence, and user-visible control
+  should still be modeled as native Red Bear runtime services
+
+### 4.2 Bluetooth is gated more by USB maturity than by D-Bus presence
+
+The repo already has D-Bus packages, but that does **not** make Bluetooth close to done.
+
+The more important blockers are still:
+
+- low-level controller/runtime trust
+- USB controller correctness and hotplug quality
+- a first real transport path
+- native host-daemon correctness
+
+So Bluetooth feasibility should be tied to controller/runtime credibility first, and only later to
+desktop compatibility.
+
+## Recommended From-Scratch Interpretation
+
+The currently recommended interpretation of “implement Bluetooth from scratch” in this repo is:
+
+1. do **not** start by chasing broad desktop Bluetooth parity
+2. do **not** start by promising internal laptop Bluetooth across all machines
+3. do start with one USB-attached adapter family
+4. do build one native controller transport daemon plus one native host daemon
+5. do target one BLE-first workflow
+6. do keep all support language experimental and hardware-specific until real runtime proof exists
+
+This is the narrowest version of “from scratch” that is still technically meaningful and worth
+shipping.
+
+## Recommended First Deliverable
+
+The first deliverable Red Bear should actually target is:
+
+- one standalone `redbear-bluetooth-experimental` profile slice
+- one USB Bluetooth transport daemon
+- one host/control daemon with bounded scan/status reporting
+- one CLI-oriented control path
+- one BLE-first workflow boundary
+- one validation helper script plus one named runtime surface contract
+
+That is small enough to be plausible and large enough to count as real Bluetooth work.
 
 ## Implementation Plan
 
@@ -169,7 +320,7 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 
 **What to do**:
 
-- declare Bluetooth support as absent today
+- declare broad Bluetooth support as incomplete today while one bounded experimental slice exists
 - define validation labels and support language for future Bluetooth work
 - freeze the first milestone as **host-side, experimental, one controller family, one limited use
   case**
@@ -193,7 +344,7 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 
 **Recommended first target**:
 
-- one USB-attached Bluetooth controller family
+- one USB-attached Bluetooth controller family, BLE-first
 
 **Why**:
 
@@ -206,6 +357,8 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 - implement one controller transport daemon
 - expose adapter presence and basic control through a Red Bear-native runtime surface
 - ensure the daemon fits the userspace service/scheme model
+- keep the first daemon/controller contract narrow enough that the host daemon can be built around
+  one stable transport instead of a generic multi-transport abstraction from day one
 
 **Where**:
 
@@ -222,6 +375,8 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
   once a Bluetooth USB class match is ready
 - before that exists, the first milestone may use explicit Red Bear service startup so the transport
   daemon can be validated without pretending that USB class autospawn is already solved
+- the first in-tree slice now follows exactly that bounded rule: explicit startup only, with no
+  claim that `xhcid` or another USB class matcher autospawns Bluetooth yet
 - if Red Bear adds that xHCI class match before it exists upstream, it should be carried as a Red
   Bear base patch rather than as an unqualified direct tree edit
 
@@ -241,6 +396,8 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 
 - one supported Bluetooth controller can be detected and initialized repeatedly
 - controller presence can be reported honestly at runtime
+- attach/detach behavior is good enough that controller disappearance does not require reboot to
+  recover the service path
 
 ---
 
@@ -254,6 +411,7 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 - support scanning and connect/disconnect for one limited workload
 - add persistent pairing/bond storage only once the storage path is explicitly defined
 - keep the control surface small and Red Bear-native
+- keep classic-Bluetooth scope and audio/profile breadth explicitly out of this phase
 
 **Where**:
 
@@ -270,9 +428,20 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 - bond database lifecycle rooted at `/var/lib/bluetooth/`
 - failure reporting suitable for later `redbear-info` integration
 
+**Current in-tree bounded slice**:
+
+- `redbear-btctl` now ships a minimal file-backed bond store rooted at `/var/lib/bluetooth/<adapter>/bonds/`
+- the CLI can add/list/remove **stub** bond records and reload them across process restarts
+- the btctl scheme now exposes bounded connect/disconnect control plus read surfaces for connection state and last connect/disconnect results
+- the bounded connect path only targets existing stub bond records and keeps connected bond IDs in daemon memory per adapter
+- `redbear-info` now reports the bond-store path/count plus bounded connection/result metadata conservatively
+- this is explicitly **not** real pairing, link-key exchange, trusted-device policy, validated reconnect behavior, real device traffic, or B3 BLE workload support
+
 **Exit criteria**:
 
 - the daemon can rediscover and reconnect to at least one target device class across repeated runs
+- the daemon's runtime state is observable enough that future `redbear-info` integration is
+  straightforward rather than guesswork
 
 ---
 
@@ -283,23 +452,39 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 **Recommended first workload**:
 
 - BLE-first rather than full classic Bluetooth parity
+- specifically, one experimental **battery-sensor Battery Level read** using Battery Service
+  `0000180f-0000-1000-8000-00805f9b34fb` and Battery Level characteristic
+  `00002a19-0000-1000-8000-00805f9b34fb`
+
+**Examples of acceptable first workloads**:
+
+- one BLE sensor/control workflow
+- one bounded BLE peripheral interaction that needs scan/connect/read/write/notify
+
+**Examples of bad first-workload choices**:
+
+- generic “all BLE works”
+- Bluetooth audio
+- broad HID support before the input plan matures
 
 **What to do**:
 
 - add scan/connect support for one BLE device type
-- expose minimal read/write/notify behavior if the chosen workload needs it
+- expose only the minimal behavior the chosen workload needs
+- for the current B3 slice, that means **read only** for the experimental battery-sensor workload;
+  this slice does **not** claim write support or notify support
 - keep support language experimental and hardware-specific
 
 **Where**:
 
 - host-daemon implementation under `local/recipes/system/`
-- package-group wiring in one explicitly experimental Red Bear package-group slice named
-  `bluetooth-experimental`
+- tracked profile wiring in one explicitly experimental Red Bear profile slice named
+  `redbear-bluetooth-experimental`
 - validation helper in `local/scripts/`
 
 **Recommended support slice**:
 
-- start as one explicitly experimental package-group addition named `bluetooth-experimental`
+- start as one explicitly experimental tracked profile named `redbear-bluetooth-experimental`
   rather than claiming Bluetooth generically across all Red Bear images
 
 **Exit criteria**:
@@ -393,8 +578,8 @@ expects them instead of importing a whole foreign subsystem model blindly.
 
 **Recommended first support language**:
 
-- one explicitly experimental Red Bear package-group slice named `bluetooth-experimental` for the
-  first supported controller + workload combination
+- one explicitly experimental Red Bear profile named `redbear-bluetooth-experimental` for the first
+  supported controller + workload combination
 
 **Where**:
 
@@ -408,13 +593,19 @@ expects them instead of importing a whole foreign subsystem model blindly.
 - at least one profile can honestly claim validated experimental Bluetooth support for named
   hardware and named workload scope
 
+**Current in-tree interpretation**:
+
+- the repo now satisfies the narrower QEMU-scoped version of this exit criterion for one packaged,
+  stub-backed Battery Level workload on `redbear-bluetooth-experimental`
+- it does **not** satisfy a broader real-hardware or generic BLE exit criterion yet
+
 ## Support-Language Guidance
 
 Until B1 through B3 exist, Red Bear should use language such as:
 
-- “Bluetooth is not supported yet”
-- “Bluetooth remains missing in-tree”
-- “Bluetooth is a future implementation workstream”
+- “Bluetooth is not broadly supported yet”
+- “only the bounded experimental Bluetooth slice exists in-tree”
+- “Bluetooth remains a future implementation workstream beyond the documented first slice”
 
 Once B1 through B3 begin to land, prefer:
 
@@ -431,11 +622,26 @@ unless the repo has profile-scoped validation evidence to justify those claims.
 
 ## Summary
 
-Bluetooth in Red Bear today is not partial support — it is **missing**.
+Bluetooth in Red Bear today is still not broad support.
+
+What now exists is one bounded experimental first slice: explicit-startup, USB-attached,
+BLE-first, profile-scoped to `redbear-bluetooth-experimental`, with conservative stub bond-store
+persistence rooted at `/var/lib/bluetooth/<adapter>/bonds/` plus bounded connect/disconnect control
+that only targets those stored stub bond IDs, plus one experimental battery-sensor Battery Level
+read result for the exact Battery Service / Battery Level UUID pair above. That slice can now be
+built, booted in QEMU, exercised by the packaged `redbear-bluetooth-battery-check` helper, rerun in
+one boot, and rerun after a clean reboot without changing the bounded support claim.
 
 What makes it feasible is not any existing Bluetooth stack, but the surrounding Red Bear
 architecture: userspace daemons, runtime services, diagnostic discipline, profile-scoped support
-language, and an evolving per-device input model.
+language, firmware/runtime-service patterns, and an evolving per-device input model.
+
+The practical feasibility judgment is:
+
+- **yes**, Bluetooth from scratch is possible in Red Bear
+- **but only** as a bounded BLE-first, transport-constrained, experimental subsystem slice
+- **and no**, the current repo does not justify treating broad Bluetooth or desktop Bluetooth parity
+  as a near-term from-scratch target
 
 That means the right Bluetooth implementation plan is conservative and staged:
 

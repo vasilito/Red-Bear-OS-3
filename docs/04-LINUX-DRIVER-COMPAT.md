@@ -16,7 +16,45 @@
 | `redox-drm` | Present and compiling in `local/recipes/gpu/redox-drm/` |
 | Intel path | Compile-oriented, no hardware validation yet |
 | AMD path | Compile-oriented via `amdgpu` + AMD DC port, no hardware validation yet |
-| IOMMU | Partial — daemon now builds, hardware validation still TODO in `local/recipes/system/iommu/` |
+| IOMMU | QEMU first-use proof present — daemon builds, AMD-Vi units initialize in QEMU, real hardware validation still open |
+
+### Wi-Fi-facing note
+
+Although this document is primarily about the LinuxKPI path for GPU-class drivers, the same compat
+layer is now being exercised more directly by the bounded Intel Wi-Fi transport port as well.
+
+In particular, the current tree now carries LinuxKPI-backed direct/async firmware helpers plus
+exported timer, mutex, and IRQ save/restore bindings that the in-tree Intel Wi-Fi transport shim
+can consume through actual Linux-style headers. That is still intentionally below the cfg80211 /
+mac80211 boundary, but it makes the transport-facing Linux driver port more realistic than a pure
+compile-only placeholder.
+
+The tree now also contains the first explicit wireless-subsystem compatibility scaffolding inside
+`linux-kpi` itself: initial `sk_buff`, `net_device`, `cfg80211` / `wiphy`, and `mac80211`
+registration surfaces that compile and pass host-side crate tests. This should still be read as
+foundational compatibility work, not as proof that Red Bear now has a complete Linux wireless stack
+or working Intel Wi‑Fi connectivity.
+
+On top of that, the bounded Intel path now also carries the first station-mode compatibility slice:
+driver-side scan/connect/disconnect actions, control-daemon connect/disconnect flows, profile-
+manager orchestration, and runtime-reporting surfaces that exercise those new LinuxKPI wireless
+compatibility surfaces in host-side tests. This is still intentionally below real hardware
+scan/auth/association/data-path proof.
+
+Concrete repo entry points for that current bounded Wi‑Fi path are:
+
+- `local/recipes/drivers/redbear-iwlwifi/` — bounded Intel driver-side package
+- `local/recipes/system/redbear-wifictl/` — native Wi‑Fi control daemon and `/scheme/wifictl`
+- `local/recipes/system/redbear-netctl/` — profile-manager orchestration and post-association handoff
+- `local/recipes/system/redbear-info/` — runtime-reporting surface for Wi‑Fi lifecycle state
+- `local/recipes/system/redbear-hwutils/` — packaged Wi‑Fi validation, capture, and analysis tools
+- `local/docs/WIFI-IMPLEMENTATION-PLAN.md` and `local/docs/WIFI-VALIDATION-RUNBOOK.md` — current
+  architecture and operator validation path
+
+The validation claim here should also be read narrowly: the repo now has a clean host-side
+`linux-kpi` test suite, passing bounded Intel shim/control-plane tests in the dependent crates, and
+one host-side CLI flow test for the current Intel path. This is not a claim that a full Linux
+Wi‑Fi stack is validated.
 
 ## Goal
 
