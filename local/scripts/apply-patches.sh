@@ -80,6 +80,8 @@ symlink "../../local/recipes/branding/redbear-release" "recipes/branding/redbear
 # Drivers
 mkdir -p recipes/drivers
 symlink "../../local/recipes/drivers/linux-kpi"       "recipes/drivers/linux-kpi"
+symlink "../../local/recipes/drivers/redbear-btusb"   "recipes/drivers/redbear-btusb"
+symlink "../../local/recipes/drivers/redbear-iwlwifi" "recipes/drivers/redbear-iwlwifi"
 symlink "../../local/recipes/drivers/redox-driver-sys" "recipes/drivers/redox-driver-sys"
 
 # GPU
@@ -99,12 +101,16 @@ symlink "../../local/recipes/libs/libxcvt-stub"        "recipes/libs/libxcvt-stu
 mkdir -p recipes/system
 symlink "../../local/recipes/system/cub"              "recipes/system/cub"
 symlink "../../local/recipes/system/evdevd"           "recipes/system/evdevd"
+symlink "../../local/recipes/system/redbear-firmware" "recipes/system/redbear-firmware"
 symlink "../../local/recipes/system/firmware-loader"  "recipes/system/firmware-loader"
 symlink "../../local/recipes/system/iommu"            "recipes/system/iommu"
 symlink "../../local/recipes/system/redbear-hwutils"  "recipes/system/redbear-hwutils"
 symlink "../../local/recipes/system/redbear-info"     "recipes/system/redbear-info"
+symlink "../../local/recipes/system/redbear-btctl"    "recipes/system/redbear-btctl"
 symlink "../../local/recipes/system/redbear-netstat"  "recipes/system/redbear-netstat"
 symlink "../../local/recipes/system/redbear-netctl"   "recipes/system/redbear-netctl"
+symlink "../../local/recipes/system/redbear-netctl-console" "recipes/system/redbear-netctl-console"
+symlink "../../local/recipes/system/redbear-wifictl"  "recipes/system/redbear-wifictl"
 symlink "../../local/recipes/system/redbear-traceroute" "recipes/system/redbear-traceroute"
 symlink "../../local/recipes/system/redbear-mtr"      "recipes/system/redbear-mtr"
 symlink "../../local/recipes/system/redbear-nmap"     "recipes/system/redbear-nmap"
@@ -114,6 +120,10 @@ symlink "../../local/recipes/system/udev-shim"        "recipes/system/udev-shim"
 # Core additions
 mkdir -p recipes/core
 symlink "../../local/recipes/core/ext4d" "recipes/core/ext4d"
+
+# Wayland additions
+mkdir -p recipes/wip/wayland
+symlink "../../../local/recipes/wayland/qt6-wayland-smoke" "recipes/wip/wayland/qt6-wayland-smoke"
 
 # KDE / Phase 6 recipes
 mkdir -p recipes/kde

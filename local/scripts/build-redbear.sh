@@ -4,6 +4,7 @@
 # Usage:
 #   ./local/scripts/build-redbear.sh                     # Default: redbear-desktop
 #   ./local/scripts/build-redbear.sh redbear-minimal     # Minimal validation baseline
+#   ./local/scripts/build-redbear.sh redbear-bluetooth-experimental # First bounded Bluetooth slice
 #   ./local/scripts/build-redbear.sh redbear-full        # Full Red Bear integration target
 #   ./local/scripts/build-redbear.sh redbear-wayland     # Wayland runtime validation profile
 #   ./local/scripts/build-redbear.sh redbear-kde         # KDE Plasma bring-up target
@@ -24,11 +25,11 @@ JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
 
 case "$CONFIG" in
-    redbear-desktop|redbear-minimal|redbear-full|redbear-wayland|redbear-kde|redbear-live)
+    redbear-desktop|redbear-minimal|redbear-bluetooth-experimental|redbear-full|redbear-wayland|redbear-kde|redbear-live)
         ;;
     *)
         echo "ERROR: Unknown config '$CONFIG'"
-        echo "Supported: redbear-desktop, redbear-minimal, redbear-full, redbear-wayland, redbear-kde, redbear-live"
+        echo "Supported: redbear-desktop, redbear-minimal, redbear-bluetooth-experimental, redbear-full, redbear-wayland, redbear-kde, redbear-live"
         exit 1
         ;;
 esac

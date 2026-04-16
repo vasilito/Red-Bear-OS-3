@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Launch the Phase 4 Wayland path in QEMU using the repo's Wayland profile.
+# This script validates the current bounded software-path Wayland runtime slice.
+# It does NOT currently prove a hardware-accelerated desktop path in QEMU.
 
 set -euo pipefail
 
@@ -36,6 +38,11 @@ Examples:
 
 Expected runtime path:
   orbital -> orbital-wayland -> smallvil -> wayland-session
+
+Important:
+  the current harness uses '-vga std' and today still surfaces llvmpipe in-guest.
+  Treat this as a Phase 4 software-path/runtime smoke check and regression harness.
+  Hardware-accelerated desktop proof is a separate bare-metal/runtime-driver milestone.
 USAGE
 }
 
@@ -93,6 +100,7 @@ echo "  redbear-info --json"
 echo "  netctl status"
 echo "  redbear-phase4-wayland-check"
 echo "  smallvil should be the primary compositor path"
+echo "  qt6-wayland-smoke should leave a success marker via wayland-session"
 echo
 
 if [[ "$check_mode" -eq 1 ]]; then
@@ -110,6 +118,13 @@ expect "Red Bear OS Phase 4 Wayland Runtime Check"
 expect "orbital-wayland"
 expect "wayland-session"
 expect "smallvil"
+expect "/home/root/.qt6-bootstrap-minimal.ok"
+expect "/home/root/.qt6-plugin-minimal.ok"
+expect "/home/root/.qt6-wayland-smoke-minimal.ok"
+expect "/home/root/.qt6-wayland-smoke-offscreen.ok"
+expect "/home/root/.qt6-wayland-smoke-wayland.ok"
+expect "/home/root/.qt6-wayland-smoke.ok"
+expect "qt6-wayland-smoke"
 expect "virtio_net_present"
 send "shutdown\r"
 expect eof
