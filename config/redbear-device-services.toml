@@ -1,9 +1,9 @@
 # Red Bear OS shared device-service wiring
 #
-# Shared by profiles that ship the firmware/input compatibility stack.
+# Shared by profiles that ship the firmware/input/Wi-Fi control compatibility stack.
 
 [[files]]
-path = "/usr/firmware"
+path = "/lib/firmware"
 data = ""
 directory = true
 mode = 0o755
@@ -34,6 +34,21 @@ requires_weak = [
 [service]
 cmd = "udev-shim"
 type = { scheme = "udev" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/11_wifictl.service"
+data = """
+[unit]
+description = "Wi-Fi control daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+    "05_firmware-loader.service",
+]
+
+[service]
+cmd = "redbear-wifictl"
+type = { scheme = "wifictl" }
 """
 
 [[files]]

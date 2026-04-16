@@ -4,3 +4,6 @@
 # Run:   ./local/scripts/test-phase4-wayland-qemu.sh
 
 include = ["wayland.toml"]
+
+[packages]
+qt6-wayland-smoke = {}

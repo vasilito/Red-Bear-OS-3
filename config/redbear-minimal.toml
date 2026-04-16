@@ -17,6 +17,7 @@ redbear-hwutils = {}
 
 # Redox-native netctl compatibility command
 redbear-netctl = {}
+redbear-netctl-console = {}
 
 # Native network reporting and connect-scan tools
 redbear-netstat = {}
@@ -24,8 +25,10 @@ redbear-traceroute = {}
 redbear-mtr = {}
 redbear-nmap = {}
 
-# Firmware loading
+# Firmware loading + Wi-Fi control plane
+redbear-firmware = {}
 firmware-loader = {}
+redbear-wifictl = {}
 
 # Input/runtime service prerequisites
 evdevd = {}
@@ -50,12 +53,27 @@ path = "/usr/lib/init.d/30_console"
 data = ""
 
 [[files]]
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate console VT"
+requires_weak = [
+    "10_net.target",
+]
+
+[service]
+cmd = "inputd"
+args = ["-A", "2"]
+type = "oneshot"
+"""
+
+[[files]]
 path = "/usr/lib/init.d/30_console.service"
 data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "10_net.target",
+    "29_activate_console.service",
 ]
 
 [service]

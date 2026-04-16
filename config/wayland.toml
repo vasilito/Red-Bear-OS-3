@@ -56,6 +56,21 @@ type = "oneshot_async"
 """
 
 [[files]]
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate Orbital VT"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "inputd"
+args = ["-A", "3"]
+type = "oneshot"
+"""
+
+[[files]]
 path = "/usr/lib/init.d/31_debug_console.service"
 data = """
 [unit]
@@ -80,6 +95,9 @@ data = """
 export DISPLAY=""
 export COSMIC_BACKEND=winit
 export HOME=/root
+export QT_PLUGIN_PATH=/usr/plugins
+export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
+export QML2_IMPORT_PATH=/usr/qml
 export RUST_BACKTRACE=full
 export RUST_LOG=debug
 export XCURSOR_THEME=Pop
@@ -98,7 +116,7 @@ if test -d /usr/share/glib-2.0/schemas
 end
 
 # Default to the smaller Smithay path first.
-smallvil -c wayland-session
+smallvil -c /usr/bin/wayland-session
 """
 
 [[files]]
@@ -109,11 +127,83 @@ data = """
 
 # env G_MAIN_POLL_DEBUG=1 G_MESSAGES_DEBUG=all LD_DEBUG=all WEBKIT_DEBUG=all MiniBrowser&
 printenv
+let session_started = "/home/root/.wayland-session.started"
+rm -f $session_started
+echo "started" > $session_started
+export QT_PLUGIN_PATH=/usr/plugins
+export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
+export QML2_IMPORT_PATH=/usr/qml
+let smoke_ok = "/home/root/.qt6-wayland-smoke.ok"
+let smoke_err = "/home/root/.qt6-wayland-smoke.err"
+let smoke_log = "/home/root/.qt6-wayland-smoke.log"
+let bootstrap_ok = "/home/root/.qt6-bootstrap-minimal.ok"
+let bootstrap_log = "/home/root/.qt6-bootstrap-minimal.log"
+let plugin_ok = "/home/root/.qt6-plugin-minimal.ok"
+let plugin_err = "/home/root/.qt6-plugin-minimal.err"
+let plugin_log = "/home/root/.qt6-plugin-minimal.log"
+let smoke_minimal_ok = "/home/root/.qt6-wayland-smoke-minimal.ok"
+let smoke_offscreen_ok = "/home/root/.qt6-wayland-smoke-offscreen.ok"
+let smoke_wayland_ok = "/home/root/.qt6-wayland-smoke-wayland.ok"
+let smoke_minimal_log = "/home/root/.qt6-wayland-smoke-minimal.log"
+let smoke_offscreen_log = "/home/root/.qt6-wayland-smoke-offscreen.log"
+let smoke_wayland_log = "/home/root/.qt6-wayland-smoke-wayland.log"
+rm -f $smoke_ok $smoke_err
+rm -f $smoke_log
+rm -f $bootstrap_ok $bootstrap_log
+rm -f $plugin_ok $plugin_err $plugin_log
+rm -f $smoke_minimal_ok $smoke_offscreen_ok $smoke_wayland_ok
+rm -f $smoke_minimal_log $smoke_offscreen_log $smoke_wayland_log
 #wayland-rs_simple_window
 #winit-wayland_window
 #softbuffer-wayland_animation
 #iced-wayland_sctk_lazy
 #gtk3-widget-factory
+if which qt6-wayland-smoke >/scheme/null
+    if test -f /usr/plugins/platforms/libqminimal.so
+        echo "=== qminimal ELF header (guest) ==="
+        stat /usr/plugins/platforms/libqminimal.so
+        dd if=/usr/plugins/platforms/libqminimal.so bs=64 count=1 | od -An -tx1
+    else
+        echo "=== qminimal ELF header (guest) missing ==="
+    end
+    if env LD_DEBUG=all QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=minimal qt6-bootstrap-check > $bootstrap_log ^> $bootstrap_log
+        touch $bootstrap_ok
+    else
+        if test -f $bootstrap_log
+            cat $bootstrap_log
+        end
+        echo "qt6-bootstrap-check minimal failed; see $bootstrap_log" > $smoke_err
+    end
+
+    if env LD_DEBUG=all QT_DEBUG_PLUGINS=1 QT_PLUGIN_PATH=/usr/plugins QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms qt6-plugin-check /usr/plugins/platforms/libqminimal.so > $plugin_log ^> $plugin_log
+        touch $plugin_ok
+    else
+        if test -f $plugin_log
+            cat $plugin_log
+        end
+        echo "qt6-plugin-check failed; see $plugin_log" > $plugin_err
+        echo "qt6-plugin-check failed; see $plugin_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=minimal qt6-wayland-smoke > $smoke_minimal_log ^> $smoke_minimal_log
+        touch $smoke_minimal_ok
+    else
+        echo "qt6-wayland-smoke minimal failed; see $smoke_minimal_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=offscreen qt6-wayland-smoke > $smoke_offscreen_log ^> $smoke_offscreen_log
+        touch $smoke_offscreen_ok
+    else
+        echo "qt6-wayland-smoke offscreen failed; see $smoke_offscreen_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=wayland qt6-wayland-smoke > $smoke_wayland_log ^> $smoke_wayland_log
+        touch $smoke_wayland_ok
+        touch $smoke_ok
+    else
+        echo "qt6-wayland-smoke wayland failed; see $smoke_wayland_log" > $smoke_err
+    end
+end
 """
 
 

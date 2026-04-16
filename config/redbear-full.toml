@@ -30,6 +30,7 @@ redbear-hwutils = {}
 
 # Redox-native netctl compatibility command
 redbear-netctl = {}
+redbear-netctl-console = {}
 
 # Native network reporting and connect-scan tools
 redbear-netstat = {}
@@ -43,8 +44,10 @@ mc = {}
 # ext4 filesystem support (our custom port)
 ext4d = {}
 
-# Firmware loading
+# Firmware loading + Wi-Fi control plane
+redbear-firmware = {}
 firmware-loader = {}
+redbear-wifictl = {}
 
 # Input layer
 evdevd = {}
@@ -76,7 +79,7 @@ qtbase = {}
 
 # Firmware directory for AMD/Intel GPU blobs
 [[files]]
-path = "/usr/firmware/amdgpu"
+path = "/lib/firmware/amdgpu"
 data = ""
 directory = true
 mode = 0o755
@@ -116,6 +119,21 @@ requires_weak = [
 cmd = "getty"
 args = ["2"]
 type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate Orbital VT"
+requires_weak = [
+    "20_orbital.service",
+]
+
+[service]
+cmd = "inputd"
+args = ["-A", "3"]
+type = "oneshot"
 """
 
 [[files]]
