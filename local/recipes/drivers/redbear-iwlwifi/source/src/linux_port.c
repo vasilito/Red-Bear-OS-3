@@ -1,3 +1,5 @@
+#include "../../../linux-kpi/source/src/c_headers/linux/types.h"
+#include "../../../linux-kpi/source/src/c_headers/linux/ieee80211.h"
 #include "../../../linux-kpi/source/src/c_headers/linux/atomic.h"
 #include "../../../linux-kpi/source/src/c_headers/linux/dma-mapping.h"
 #include "../../../linux-kpi/source/src/c_headers/linux/errno.h"
@@ -80,6 +82,7 @@
 
 #define IWL_FH_RSCSR_CHNL0_RBDCB_BASE_REG 0x0A80U
 #define IWL_FH_RSCSR_CHNL0_STTS_WPTR_REG 0x0A20U
+#define IWL_FH_RSCSR_CHNL0_RBDCB_WPTR_REG 0x0A88U
 #define IWL_FH_MEM_RCSR_CHNL0_CONFIG_REG 0x0A00U
 #define IWL_FH_TCSR_CHNL_TX_CONFIG_REG(_q) (0x0D00U + ((_q) * 0x20U))
 #define IWL_HBUS_TARG_WRPTR 0x060U
@@ -131,6 +134,14 @@ struct rb_iwl_fw_boot_cmd {
     u32 fw_build;
     u32 dma_mask;
     u32 device_family;
+};
+
+struct rb_iwl_key {
+    u32 cipher;
+    u8 key[32];
+    u8 key_len;
+    u8 key_idx;
+    int valid;
 };
 
 /* DMA ring descriptor */
@@ -240,6 +251,7 @@ struct iwl_trans_pcie {
     struct ieee80211_bss_conf bss_conf;
     struct rb_iwl_fw_blob_info fw_info;
     struct rb_iwl_fw_blob_info pnvm_info;
+    struct rb_iwl_key keys[4];
     char fw_name_storage[RB_IWL_MAX_FW_NAME];
     char pnvm_name_storage[RB_IWL_MAX_FW_NAME];
     char last_ssid[IEEE80211_MAX_SSID_LEN + 1];
@@ -268,6 +280,7 @@ struct iwl_trans_pcie {
     int scan_active;
     int scheduled_scan_active;
     int connected;
+    int connecting;
     int irq_tested;
     int dma_tested;
 };
@@ -292,6 +305,8 @@ static void iwl_pcie_rxq_restock(struct iwl_trans_pcie *trans);
 static int iwl_pcie_send_cmd(struct iwl_trans_pcie *trans, void *cmd, int len);
 static void iwl_pcie_cmd_response(struct iwl_trans_pcie *trans);
 static u32 iwl_pcie_isr(int irq, void *dev_id);
+static void iwl_pcie_tasklet(unsigned long data);
+static void rb_iwlwifi_release_irqs(struct iwl_trans_pcie *trans);
 static void iwl_pcie_tasklet(unsigned long data);
 static void iwl_ops_tx(struct ieee80211_hw *hw, struct sk_buff *skb);
 static int iwl_ops_start(struct ieee80211_hw *hw);
@@ -387,6 +402,57 @@ static void rb_iwlwifi_copy_name(char *dst, size_t dst_len, const char *src)
         len = dst_len - 1;
     memcpy(dst, src, len);
     dst[len] = '\0';
+}
+
+static inline void rb_iwlwifi_cpu_relax(void)
+{
+    __asm__ volatile("" ::: "memory");
+}
+
+static void rb_iwlwifi_update_fw_info(struct rb_iwl_fw_blob_info *info,
+                                      const struct firmware *fw_blob)
+{
+    const u8 *data;
+    u32 magic;
+
+    if (!info || !fw_blob || !fw_blob->data || fw_blob->size < 20)
+        return;
+
+    data = fw_blob->data;
+    magic = (u32)data[0] | ((u32)data[1] << 8) |
+            ((u32)data[2] << 16) | ((u32)data[3] << 24);
+    if (magic != 0x0A4F5749U)
+        return;
+
+    info->magic = magic;
+    info->version = (u32)data[4] | ((u32)data[5] << 8) |
+                    ((u32)data[6] << 16) | ((u32)data[7] << 24);
+    info->build = (u32)data[8] | ((u32)data[9] << 8) |
+                  ((u32)data[10] << 16) | ((u32)data[11] << 24);
+    info->api = (info->version >> 8) & 0xFFU;
+    info->size = fw_blob->size;
+}
+
+static u16 rb_iwlwifi_current_freq(const struct iwl_trans_pcie *trans)
+{
+    if (!trans)
+        return 0;
+    if (trans->bss_conf.chandef.center_freq != 0)
+        return (u16)trans->bss_conf.chandef.center_freq;
+    if (trans->bss_conf.chandef.channel)
+        return ((struct ieee80211_channel *)trans->bss_conf.chandef.channel)->center_freq;
+    return 2412;
+}
+
+static u32 rb_iwlwifi_current_band(const struct iwl_trans_pcie *trans)
+{
+    if (!trans)
+        return NL80211_BAND_2GHZ;
+    if (trans->bss_conf.chandef.channel)
+        return ((struct ieee80211_channel *)trans->bss_conf.chandef.channel)->band;
+    if (trans->bss_conf.chandef.band != 0)
+        return (u32)trans->bss_conf.chandef.band;
+    return NL80211_BAND_2GHZ;
 }
 
 static const char *rb_iwlwifi_family_name(int family)
@@ -536,6 +602,8 @@ static struct iwl_trans_pcie *rb_iwlwifi_alloc_transport(struct pci_dev *dev)
     trans->irq = -1;
     trans->command_timeout = RB_IWL_CMD_TIMEOUT;
     trans->ops = &iwl_mac80211_ops;
+    trans->bss_conf.chandef.center_freq = 2412;
+    trans->bss_conf.chandef.band = NL80211_BAND_2GHZ;
     rb_iwlwifi_default_mac(trans);
     list_add_tail(&trans->link, &rb_iwlwifi_transports);
     return trans;
@@ -568,7 +636,8 @@ static int rb_iwlwifi_parse_fw_blob(const struct firmware *fw, struct rb_iwl_fw_
     info->api = (info->version >> 8) & 0xFFU;
     info->size = fw->size;
 
-    if (info->magic == 0 || info->magic == 0xFFFFFFFFU)
+    /* Intel firmware TLV magic: "IWO\x0a" — exact match required */
+    if (info->magic != 0x0A4F5749U)
         return -EINVAL;
     if (info->version == 0)
         return -EINVAL;
@@ -649,6 +718,17 @@ static int rb_iwlwifi_request_irqs(struct iwl_trans_pcie *trans)
     if (trans->irq <= 0)
         return -ENODEV;
 
+    if (request_irq(trans->irq, iwl_pcie_isr, 0, iwl_pci_driver.name, trans) != 0) {
+        if (trans->num_irq_vectors > 0)
+            pci_free_irq_vectors(trans->pci_dev);
+        else
+            pci_disable_msi(trans->pci_dev);
+        trans->irq = -1;
+        trans->num_irq_vectors = 0;
+        trans->msix_enabled = 0;
+        return -ENODEV;
+    }
+
     trans->svc_flags |= RB_IWL_SVC_IRQ_READY;
     return 0;
 }
@@ -657,6 +737,9 @@ static void rb_iwlwifi_release_irqs(struct iwl_trans_pcie *trans)
 {
     if (!trans)
         return;
+
+    if (trans->irq > 0)
+        free_irq(trans->irq, trans);
 
     if (trans->num_irq_vectors > 0)
         pci_free_irq_vectors(trans->pci_dev);
@@ -701,6 +784,8 @@ static void rb_iwlwifi_start_dma(struct iwl_trans_pcie *trans)
     iwl_trans_write32(trans, IWL_FH_RSCSR_CHNL0_RBDCB_BASE_REG, lower_32_bits(trans->rx_queue.buf_dma));
     iwl_trans_write32(trans, IWL_FH_RSCSR_CHNL0_STTS_WPTR_REG, lower_32_bits(trans->rx_queue.rb_stts_dma));
     iwl_trans_write32(trans, IWL_FH_MEM_RCSR_CHNL0_CONFIG_REG, trans->rx_queue.n_rb);
+    iwl_trans_write32(trans, IWL_FH_RSCSR_CHNL0_RBDCB_WPTR_REG,
+                      (u32)trans->rx_queue.write_ptr & 0xFFFU);
     iwl_trans_write32(trans, IWL_HBUS_TARG_WRPTR, 0);
     trans->svc_flags |= RB_IWL_SVC_DMA_READY;
 }
@@ -733,12 +818,19 @@ static int rb_iwlwifi_register_mac80211_locked(struct iwl_trans_pcie *trans)
         trans->wiphy->max_scan_ie_len = 512;
     }
 
-    if (ieee80211_register_hw(trans->hw) != 0)
+    if (ieee80211_register_hw(trans->hw) != 0) {
+        ieee80211_free_hw(trans->hw);
+        trans->hw = NULL;
         return -EIO;
+    }
 
     trans->netdev = alloc_netdev_mqs(0, "wlan%d", 0, NULL, 1, 1);
-    if (!trans->netdev)
+    if (!trans->netdev) {
+        ieee80211_unregister_hw(trans->hw);
+        ieee80211_free_hw(trans->hw);
+        trans->hw = NULL;
         return -ENOMEM;
+    }
 
     memcpy(trans->netdev->dev_addr, trans->mac_addr, sizeof(trans->mac_addr));
     trans->netdev->addr_len = sizeof(trans->mac_addr);
@@ -748,17 +840,29 @@ static int rb_iwlwifi_register_mac80211_locked(struct iwl_trans_pcie *trans)
     trans->wdev.iftype = NL80211_IFTYPE_STATION;
     trans->netdev->ieee80211_ptr = &trans->wdev;
 
-    if (register_netdev(trans->netdev) != 0)
+    if (register_netdev(trans->netdev) != 0) {
+        free_netdev(trans->netdev);
+        trans->netdev = NULL;
+        ieee80211_unregister_hw(trans->hw);
+        ieee80211_free_hw(trans->hw);
+        trans->hw = NULL;
         return -EIO;
+    }
 
     trans->vif = kzalloc(sizeof(*trans->vif), GFP_KERNEL);
-    if (!trans->vif)
+    if (!trans->vif) {
+        unregister_netdev(trans->netdev);
+        free_netdev(trans->netdev);
+        trans->netdev = NULL;
+        ieee80211_unregister_hw(trans->hw);
+        ieee80211_free_hw(trans->hw);
+        trans->hw = NULL;
         return -ENOMEM;
+    }
     memcpy(trans->vif->addr, trans->mac_addr, sizeof(trans->mac_addr));
     trans->vif->type = NL80211_IFTYPE_STATION;
 
     memset(&trans->station, 0, sizeof(trans->station));
-    memcpy(trans->station.addr, trans->current_bssid, sizeof(trans->current_bssid));
     trans->station.aid = 1;
 
     netif_carrier_off(trans->netdev);
@@ -810,6 +914,8 @@ static int rb_iwlwifi_do_prepare(struct iwl_trans_pcie *trans, const char *ucode
         return rc;
 
     rc = rb_iwlwifi_parse_fw_blob(fw, &trans->fw_info);
+    if (!rc)
+        rb_iwlwifi_update_fw_info(&trans->fw_info, fw);
     release_firmware(fw);
     if (rc)
         return rc;
@@ -823,11 +929,18 @@ static int rb_iwlwifi_do_prepare(struct iwl_trans_pcie *trans, const char *ucode
         if (rc)
             return rc;
         rc = rb_iwlwifi_parse_fw_blob(fw, &trans->pnvm_info);
+        if (!rc)
+            rb_iwlwifi_update_fw_info(&trans->pnvm_info, fw);
         release_firmware(fw);
-        if (rc)
-            return rc;
-        rb_iwlwifi_copy_name(trans->pnvm_name_storage, sizeof(trans->pnvm_name_storage), pnvm);
-        trans->pnvm_name = trans->pnvm_name_storage;
+        if (rc) {
+            pr_warn("prepare: PNVM parse failed (rc=%d), proceeding without PNVM\n", rc);
+            memset(&trans->pnvm_info, 0, sizeof(trans->pnvm_info));
+            trans->pnvm_name_storage[0] = '\0';
+            trans->pnvm_name = trans->pnvm_name_storage;
+        } else {
+            rb_iwlwifi_copy_name(trans->pnvm_name_storage, sizeof(trans->pnvm_name_storage), pnvm);
+            trans->pnvm_name = trans->pnvm_name_storage;
+        }
     } else {
         memset(&trans->pnvm_info, 0, sizeof(trans->pnvm_info));
         trans->pnvm_name_storage[0] = '\0';
@@ -854,8 +967,10 @@ static int rb_iwlwifi_probe_transport(struct iwl_trans_pcie *trans, unsigned int
     pci_set_master(trans->pci_dev);
 
     rc = rb_iwlwifi_map_bar(trans, bar);
-    if (rc)
+    if (rc) {
+        pci_disable_device(trans->pci_dev);
         return rc;
+    }
 
     trans->device_family = rb_iwlwifi_family_from_device(trans->pci_dev, bz_family);
     access_req = trans->device_family == RB_IWL_DEVICE_FAMILY_BZ ?
@@ -892,26 +1007,37 @@ static int iwl_pcie_transport_init(struct iwl_trans_pcie *trans)
         return -ENOMEM;
     trans->rb_pool = dma_pool_create("iwlwifi-rb", &trans->pci_dev->device_obj,
                                      RB_IWL_RX_BUF_SIZE, 64, 0);
-    if (!trans->rb_pool)
+    if (!trans->rb_pool) {
+        dma_pool_destroy(trans->tfds_pool);
+        trans->tfds_pool = NULL;
         return -ENOMEM;
+    }
 
     rc = iwl_pcie_tx_alloc(trans);
-    if (rc)
+    if (rc) {
+        iwl_pcie_transport_free(trans);
         return rc;
+    }
     rc = iwl_pcie_rx_alloc(trans);
-    if (rc)
+    if (rc) {
+        iwl_pcie_transport_free(trans);
         return rc;
+    }
     rc = iwl_pcie_rxq_init(trans);
-    if (rc)
+    if (rc) {
+        iwl_pcie_transport_free(trans);
         return rc;
+    }
 
     init_waitqueue_head(&trans->wait_command_queue);
     trans->cmd_queue_write = 0;
     trans->cmd_queue_read = 0;
-    trans->command_complete = 0;
+    __atomic_store_n(&trans->command_complete, 1, __ATOMIC_SEQ_CST);
+    trans->last_cmd_id = 0;
+    trans->last_cmd_cookie = 0;
+    trans->last_cmd_status = 0;
     trans->transport_inited = 1;
     trans->svc_flags |= RB_IWL_SVC_INIT | RB_IWL_SVC_DMA_READY;
-    trans->dma_tested = 1;
     return 0;
 }
 
@@ -1081,8 +1207,14 @@ static int iwl_pcie_txq_init(struct iwl_trans_pcie *trans, int queue_id, int slo
         return -ENOMEM;
 
     txq->skbs = kcalloc((size_t)slots_num, sizeof(*txq->skbs), GFP_KERNEL);
-    if (!txq->skbs)
+    if (!txq->skbs) {
+        dma_free_coherent(&trans->pci_dev->device_obj,
+                          sizeof(struct iwl_tfd) * (size_t)slots_num,
+                          txq->tfds, txq->tfds_dma);
+        txq->tfds = NULL;
+        txq->tfds_dma = 0;
         return -ENOMEM;
+    }
 
     memset(txq->tfds, 0, sizeof(struct iwl_tfd) * (size_t)slots_num);
     return 0;
@@ -1102,8 +1234,11 @@ static int iwl_pcie_rx_alloc(struct iwl_trans_pcie *trans)
 
     trans->rx_queue.rb_stts = dma_alloc_coherent(&trans->pci_dev->device_obj,
                                                  64, &trans->rx_queue.rb_stts_dma, GFP_KERNEL);
-    if (!trans->rx_queue.rb_stts)
+    if (!trans->rx_queue.rb_stts) {
+        kfree(trans->rx_queue.rx_bufs);
+        trans->rx_queue.rx_bufs = NULL;
         return -ENOMEM;
+    }
 
     trans->rx_queue.read_ptr = 0;
     trans->rx_queue.write_ptr = 0;
@@ -1119,6 +1254,8 @@ static int iwl_pcie_rxq_init(struct iwl_trans_pcie *trans)
 
     memset(trans->rx_queue.rb_stts, 0, 64);
     iwl_pcie_rxq_alloc_rbs(trans);
+    if (trans->rx_queue.n_rb_in_use == 0)
+        return -ENOMEM;
     return 0;
 }
 
@@ -1148,6 +1285,10 @@ static int iwl_pcie_tx_skb(struct iwl_trans_pcie *trans, int queue_id, struct sk
     }
 
     if (iwl_pcie_txq_space(txq) <= 0) {
+        if (queue_id == RB_IWL_CMD_QUEUE) {
+            spin_unlock_irqrestore(&txq->lock, flags);
+            return -EAGAIN;
+        }
         skb_queue_tail(&txq->overflow_q, skb);
         txq->need_update = 1;
         spin_unlock_irqrestore(&txq->lock, flags);
@@ -1186,21 +1327,21 @@ static void iwl_pcie_txq_reclaim(struct iwl_trans_pcie *trans, int queue_id, int
 
     txq = &trans->tx_queues[queue_id];
     spin_lock_irqsave(&txq->lock, &flags);
-    while (txq->read_ptr != ssn) {
+    while (txq->read_ptr != ssn && txq->read_ptr != txq->write_ptr) {
         int index = txq->read_ptr;
-        if (!txq->skbs[index])
-            break;
-        dma_unmap_single(&trans->pci_dev->device_obj,
-                         rb_iwlwifi_unpack_tb_addr(txq->tfds[index].tbs[0]),
-                         rb_iwlwifi_unpack_tb_len(txq->tfds[index].tbs[0]),
-                         DMA_TO_DEVICE);
-        kfree_skb(txq->skbs[index]);
-        txq->skbs[index] = NULL;
+        if (txq->skbs && txq->skbs[index]) {
+            if (txq->tfds && txq->tfds[index].num_tbs > 0) {
+                dma_unmap_single(&trans->pci_dev->device_obj,
+                                 rb_iwlwifi_unpack_tb_addr(txq->tfds[index].tbs[0]),
+                                 rb_iwlwifi_unpack_tb_len(txq->tfds[index].tbs[0]),
+                                 DMA_TO_DEVICE);
+            }
+            kfree_skb(txq->skbs[index]);
+            txq->skbs[index] = NULL;
+        }
         memset(&txq->tfds[index], 0, sizeof(txq->tfds[index]));
         txq->read_ptr = (txq->read_ptr + 1) % txq->n_tfd;
         trans->tx_reclaim_count++;
-        if (txq->read_ptr == txq->write_ptr)
-            break;
     }
 
     while (iwl_pcie_txq_space(txq) > 0 && !skb_queue_empty(&txq->overflow_q)) {
@@ -1225,7 +1366,7 @@ static int iwl_pcie_txq_check_stuck(struct iwl_trans_pcie *trans, int queue_id)
         return 0;
 
     txq = &trans->tx_queues[queue_id];
-    return txq->active && txq->need_update && txq->write_ptr != txq->read_ptr && trans->irq <= 0;
+    return txq->active && txq->need_update && txq->write_ptr != txq->read_ptr;
 }
 
 /* Allocate and post receive buffers to hardware */
@@ -1255,20 +1396,11 @@ static void iwl_pcie_rxq_alloc_rbs(struct iwl_trans_pcie *trans)
 
 static void rb_iwlwifi_report_scan_result(struct iwl_trans_pcie *trans)
 {
-    static const u8 fake_frame[] = {
-        0x80, 0x00, 0x00, 0x00,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0x02, 0x11, 0x22, 0x33, 0x44, 0x55,
-        0x02, 0x11, 0x22, 0x33, 0x44, 0x55,
-    };
-
-    if (!trans->mac80211_registered)
+    if (!trans || !trans->wiphy || trans->scan_results_count == 0)
         return;
 
-    cfg80211_rx_mgmt(&trans->wdev, 2412, -42, fake_frame, sizeof(fake_frame), GFP_KERNEL);
-    cfg80211_sched_scan_results(trans->wiphy, trans->scan_generation);
-    ieee80211_scan_completed(trans->hw, false);
-    trans->scan_results_count++;
+    if (trans->scheduled_scan_active)
+        cfg80211_sched_scan_results(trans->wiphy, trans->scan_generation);
 }
 
 /* Handle RX interrupt — process received frames */
@@ -1280,44 +1412,178 @@ static void iwl_pcie_rx_handle(struct iwl_trans_pcie *trans)
     spin_lock_irqsave(&rxq->lock, &flags);
     while (rxq->read_ptr != rxq->write_ptr && rxq->n_rb_in_use > 0) {
         struct iwl_rx_buffer *buf = &rxq->rx_bufs[rxq->read_ptr];
-        if (buf->addr) {
+        if (buf->addr && buf->size >= 24) {
+            struct ieee80211_rx_status rx_status;
+            u8 *frame;
+            u16 frame_control;
+            u8 frame_type;
+            u8 frame_subtype;
+            u8 *addr2;
+            u8 *addr3;
+
             dma_sync_single_for_cpu(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
-            memset(buf->addr, 0, min_t(u32, buf->size, 64U));
+            rmb();
+
+            frame = (u8 *)buf->addr;
+            frame_control = (u16)frame[0] | ((u16)frame[1] << 8);
+            frame_type = (u8)((frame_control >> 2) & 0x3U);
+            frame_subtype = (u8)((frame_control >> 4) & 0xFU);
+            addr2 = &frame[10];
+            addr3 = &frame[16];
+
+            memset(&rx_status, 0, sizeof(rx_status));
+            rx_status.freq = rb_iwlwifi_current_freq(trans);
+            rx_status.band = rb_iwlwifi_current_band(trans);
+            rx_status.signal = -42;
+            rx_status.rate_idx = 0;
+
+            if (trans->hw) {
+                struct sk_buff *rx_skb = dev_alloc_skb(buf->size + sizeof(rx_status) + 2U);
+                if (rx_skb) {
+                    memcpy(rx_skb->head, &rx_status, sizeof(rx_status));
+                    skb_reserve(rx_skb, (unsigned int)sizeof(rx_status) + 2U);
+                    memcpy(skb_put(rx_skb, buf->size), buf->addr, buf->size);
+                    ieee80211_rx_irqsafe(trans->hw, rx_skb);
+                } else {
+                    pr_warn("rx_handle: failed to allocate skb, skipping frame\n");
+                    dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr,
+                                               buf->size, DMA_FROM_DEVICE);
+                    break;
+                }
+            }
+
+            if (trans->scan_active && trans->wiphy &&
+                frame_type == 0U && (frame_subtype == 8U || frame_subtype == 5U)) {
+                u16 beacon_interval = 0;
+                u16 capability = 0;
+                const u8 *ies = frame;
+                size_t ies_len = buf->size;
+                struct cfg80211_bss *bss;
+
+                if (buf->size >= 36) {
+                    beacon_interval = (u16)frame[32] | ((u16)frame[33] << 8);
+                    capability = (u16)frame[34] | ((u16)frame[35] << 8);
+                    ies = &frame[36];
+                    ies_len = buf->size - 36U;
+                }
+
+                bss = cfg80211_inform_bss(trans->wiphy, &trans->wdev,
+                                          (u32)rx_status.freq,
+                                          addr3, 0, capability, beacon_interval,
+                                          ies, ies_len, rx_status.signal,
+                                          GFP_KERNEL);
+                if (bss) {
+                    cfg80211_put_bss(bss);
+                    trans->scan_results_count++;
+                }
+            }
+
+            if (frame_type == 0U && frame_subtype == 1U && trans->connecting) {
+                memcpy(trans->current_bssid, addr2, sizeof(trans->current_bssid));
+                memcpy(trans->station.addr, addr2, sizeof(trans->station.addr));
+                memcpy(trans->bss_conf.bssid, addr2, sizeof(trans->bss_conf.bssid));
+            }
+
             dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
         }
         rxq->read_ptr = (rxq->read_ptr + 1) % (int)rxq->n_rb;
+        rxq->n_rb_in_use--;
         trans->rx_processed_count++;
-        if (trans->scan_active)
-            break;
     }
     spin_unlock_irqrestore(&rxq->lock, flags);
 
-    if (trans->scan_active) {
-        rb_iwlwifi_report_scan_result(trans);
-        trans->scan_active = 0;
-        trans->svc_flags &= ~RB_IWL_SVC_SCAN_ACTIVE;
-    }
+    if (trans->hw)
+        ieee80211_rx_drain(trans->hw);
+
+    if (trans->scan_active)
+        iwl_pcie_rxq_restock(trans);
 }
 
 /* Replenish RX buffers */
 static void iwl_pcie_rxq_restock(struct iwl_trans_pcie *trans)
 {
+    struct iwl_rx_queue *rxq;
     if (!trans)
         return;
+    rxq = &trans->rx_queue;
 
-    if (trans->rx_queue.n_rb_in_use < trans->rx_queue.n_rb / 2)
+    if (rxq->n_rb_in_use < rxq->n_rb / 2) {
         iwl_pcie_rxq_alloc_rbs(trans);
+        if (trans->mmio_base) {
+            iwl_trans_write32(trans, IWL_FH_RSCSR_CHNL0_RBDCB_WPTR_REG,
+                              (u32)rxq->write_ptr & 0xFFFU);
+        }
+    }
 }
 
 /* Handle command response */
 static void iwl_pcie_cmd_response(struct iwl_trans_pcie *trans)
 {
-    trans->last_cmd_status = 0;
-    trans->command_complete = 1;
+    struct iwl_rx_queue *rxq = &trans->rx_queue;
+
+    if (__atomic_load_n(&trans->last_cmd_id, __ATOMIC_SEQ_CST) == 0xFFFF) {
+        pr_warn("cmd_response: discarding stale response for timed-out command");
+        if (rxq->rx_bufs && rxq->read_ptr != rxq->write_ptr) {
+            struct iwl_rx_buffer *buf = &rxq->rx_bufs[rxq->read_ptr];
+            if (buf->addr && buf->dma_addr)
+                dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
+            rxq->read_ptr = (rxq->read_ptr + 1) % (int)rxq->n_rb;
+            if (rxq->n_rb_in_use > 0)
+                rxq->n_rb_in_use--;
+        }
+        iwl_pcie_rxq_restock(trans);
+        return;
+    }
+
+    if (rxq->read_ptr == rxq->write_ptr || !rxq->rx_bufs) {
+        __atomic_store_n(&trans->last_cmd_status, -ENOENT, __ATOMIC_RELEASE);
+        __atomic_store_n(&trans->command_complete, 1, __ATOMIC_SEQ_CST);
+        wake_up(&trans->wait_command_queue);
+        return;
+    }
+
+    if (rxq->rx_bufs[rxq->read_ptr].addr &&
+        rxq->rx_bufs[rxq->read_ptr].size >= sizeof(struct rb_iwl_cmd_hdr)) {
+        struct iwl_rx_buffer *buf = &rxq->rx_bufs[rxq->read_ptr];
+        struct rb_iwl_cmd_hdr *resp;
+
+        dma_sync_single_for_cpu(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
+        resp = (struct rb_iwl_cmd_hdr *)buf->addr;
+        if (__atomic_load_n(&trans->last_cmd_id, __ATOMIC_ACQUIRE) == 0xFFFF) {
+            pr_warn("iwl_pcie_cmd_response: discarding stale response for timed-out command");
+            dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
+            rxq->read_ptr = (rxq->read_ptr + 1) % (int)rxq->n_rb;
+            if (rxq->n_rb_in_use > 0)
+                rxq->n_rb_in_use--;
+            iwl_pcie_rxq_restock(trans);
+            return;
+        } else if (resp->id == __atomic_load_n(&trans->last_cmd_id, __ATOMIC_ACQUIRE) &&
+            resp->cookie == __atomic_load_n(&trans->last_cmd_cookie, __ATOMIC_ACQUIRE)) {
+            __atomic_store_n(&trans->last_cmd_status, (int)resp->flags, __ATOMIC_RELEASE);
+            __atomic_store_n(&trans->last_cmd_cookie, resp->cookie, __ATOMIC_RELEASE);
+        } else {
+            pr_warn("iwl_pcie_cmd_response: response id/cookie mismatch, discarding");
+            dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
+            rxq->read_ptr = (rxq->read_ptr + 1) % (int)rxq->n_rb;
+            if (rxq->n_rb_in_use > 0)
+                rxq->n_rb_in_use--;
+            iwl_pcie_rxq_restock(trans);
+            return;
+        }
+        dma_sync_single_for_device(&trans->pci_dev->device_obj, buf->dma_addr, buf->size, DMA_FROM_DEVICE);
+        rxq->read_ptr = (rxq->read_ptr + 1) % (int)rxq->n_rb;
+        if (rxq->n_rb_in_use > 0)
+            rxq->n_rb_in_use--;
+    } else {
+        __atomic_store_n(&trans->last_cmd_status, -EIO, __ATOMIC_RELEASE);
+    }
+
+    __atomic_store_n(&trans->command_complete, 1, __ATOMIC_SEQ_CST);
     if (trans->cmd_queue_read != trans->cmd_queue_write) {
         trans->cmd_queue_read = (trans->cmd_queue_read + 1) % RB_IWL_CMD_SLOTS;
         iwl_pcie_txq_reclaim(trans, RB_IWL_CMD_QUEUE, trans->cmd_queue_read);
     }
+    iwl_pcie_rxq_restock(trans);
     wake_up(&trans->wait_command_queue);
 }
 
@@ -1335,15 +1601,21 @@ static void iwl_pcie_tasklet(unsigned long data)
     trans->pending_interrupt_cause = 0;
     trans->last_interrupt_cause = cause;
 
-    if (cause & RB_IWL_INT_CMD)
-        iwl_pcie_cmd_response(trans);
+    if (cause & (RB_IWL_INT_RX | RB_IWL_INT_SCAN)) {
+        iwl_pcie_rx_handle(trans);
+        iwl_pcie_rxq_restock(trans);
+    }
     if (cause & RB_IWL_INT_TX) {
         for (q = 0; q < trans->num_tx_queues; ++q)
             iwl_pcie_txq_reclaim(trans, q, trans->tx_queues[q].write_ptr);
     }
-    if (cause & (RB_IWL_INT_RX | RB_IWL_INT_SCAN)) {
-        iwl_pcie_rx_handle(trans);
-        iwl_pcie_rxq_restock(trans);
+    if (cause & RB_IWL_INT_CMD)
+        iwl_pcie_cmd_response(trans);
+    if (cause & RB_IWL_INT_ERROR) {
+        trans->nic_active = 0;
+        trans->fw_running = 0;
+        if (trans->netdev)
+            netif_carrier_off(trans->netdev);
     }
 
     trans->irq_tested = 1;
@@ -1352,22 +1624,24 @@ static void iwl_pcie_tasklet(unsigned long data)
 /* ISR — read interrupt cause, schedule processing */
 static u32 iwl_pcie_isr(int irq, void *dev_id)
 {
-    struct iwl_trans_pcie *trans = dev_id;
-    u32 cause;
+    struct iwl_trans_pcie *trans = (struct iwl_trans_pcie *)dev_id;
+    u32 inta;
+    u32 inta_mask;
 
     (void)irq;
-    if (!trans)
+    if (!trans || !trans->mmio_base)
         return 0;
 
-    cause = trans->pending_interrupt_cause;
-    if (!cause && trans->mmio_base)
-        cause = iwl_trans_read32(trans, IWL_CSR_INT);
-    if (!cause)
+    inta = iwl_trans_read32(trans, IWL_CSR_INT);
+    inta_mask = iwl_trans_read32(trans, IWL_CSR_INT_MASK);
+    inta &= inta_mask;
+    if (!inta)
         return 0;
 
-    trans->pending_interrupt_cause = cause;
+    iwl_trans_write32(trans, IWL_CSR_INT, inta);
+    trans->pending_interrupt_cause = inta;
     iwl_pcie_tasklet((unsigned long)trans);
-    return cause;
+    return inta;
 }
 
 /* Send a firmware command and wait for response */
@@ -1376,11 +1650,18 @@ static int iwl_pcie_send_cmd(struct iwl_trans_pcie *trans, void *cmd, int len)
     struct rb_iwl_cmd_hdr *hdr = cmd;
     struct sk_buff *skb;
     int rc;
+    u64 deadline;
 
     if (!trans || !cmd || len <= 0)
         return -EINVAL;
     if (!trans->transport_inited)
         return -EINVAL;
+    if (__atomic_load_n(&trans->command_complete, __ATOMIC_SEQ_CST) == 0 &&
+        __atomic_load_n(&trans->last_cmd_id, __ATOMIC_SEQ_CST) != 0) {
+        pr_warn("iwl_pcie_send_cmd: command %d still pending, rejecting new cmd %d",
+                (int)__atomic_load_n(&trans->last_cmd_id, __ATOMIC_SEQ_CST), ((struct rb_iwl_cmd_hdr *)cmd)->id);
+        return -EBUSY;
+    }
 
     skb = alloc_skb((unsigned int)len + 64U, GFP_KERNEL);
     if (!skb)
@@ -1388,29 +1669,42 @@ static int iwl_pcie_send_cmd(struct iwl_trans_pcie *trans, void *cmd, int len)
 
     skb_reserve(skb, 32U);
     memcpy(skb_put(skb, (unsigned int)len), cmd, (size_t)len);
-    trans->command_complete = 0;
-    trans->last_cmd_id = hdr->id;
-    trans->last_cmd_cookie = hdr->cookie;
     trans->cmd_meta[trans->cmd_queue_write].flags = hdr->flags;
     trans->cmd_meta[trans->cmd_queue_write].source = cmd;
+
+    __atomic_store_n(&trans->last_cmd_id, hdr->id, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&trans->last_cmd_cookie, hdr->cookie, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&trans->last_cmd_status, -1, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&trans->command_complete, 0, __ATOMIC_SEQ_CST);
+
+    iwl_pcie_txq_reclaim(trans, RB_IWL_CMD_QUEUE, trans->cmd_queue_write);
 
     rc = iwl_pcie_tx_skb(trans, RB_IWL_CMD_QUEUE, skb);
     if (rc) {
         kfree_skb(skb);
+        __atomic_store_n(&trans->command_complete, 1, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&trans->last_cmd_id, 0, __ATOMIC_SEQ_CST);
         return rc;
     }
 
     trans->cmd_queue_write = (trans->cmd_queue_write + 1) % RB_IWL_CMD_SLOTS;
-    trans->pending_interrupt_cause |= RB_IWL_INT_CMD | RB_IWL_INT_TX;
-    if (hdr->id == RB_IWL_CMD_SCAN)
-        trans->pending_interrupt_cause |= RB_IWL_INT_RX | RB_IWL_INT_SCAN;
-    rc = (int)iwl_pcie_isr(trans->irq, trans);
-    if (rc == 0)
-        return -ETIMEDOUT;
-    if (!wait_event_timeout(trans->wait_command_queue, trans->command_complete, trans->command_timeout))
-        return -ETIMEDOUT;
 
-    return trans->last_cmd_status;
+    deadline = jiffies + msecs_to_jiffies((unsigned long)trans->command_timeout);
+    wait_event_timeout(trans->wait_command_queue,
+        __atomic_load_n(&trans->command_complete, __ATOMIC_SEQ_CST),
+        deadline - jiffies);
+
+    if (!__atomic_load_n(&trans->command_complete, __ATOMIC_SEQ_CST)) {
+        __atomic_store_n(&trans->last_cmd_status, -ETIMEDOUT, __ATOMIC_SEQ_CST);
+        pr_warn("iwl_pcie_send_cmd: command 0x%02x timed out after %lu ms",
+                __atomic_load_n(&trans->last_cmd_id, __ATOMIC_SEQ_CST), (unsigned long)trans->command_timeout);
+        __atomic_store_n(&trans->last_cmd_cookie, 0, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&trans->last_cmd_id, 0xFFFF, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&trans->command_complete, 1, __ATOMIC_SEQ_CST);
+        return -ETIMEDOUT;
+    }
+
+    return __atomic_load_n(&trans->last_cmd_status, __ATOMIC_SEQ_CST);
 }
 
 static struct iwl_trans_pcie *iwl_hw_to_trans(struct ieee80211_hw *hw)
@@ -1426,15 +1720,30 @@ static int rb_iwlwifi_choose_txq(struct iwl_trans_pcie *trans)
         if (trans->tx_queues[q].active)
             return q;
     }
-    return RB_IWL_CMD_QUEUE;
+    return -1;
 }
 
 static void iwl_ops_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 {
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
+    int txq;
     if (!trans || !skb)
         return;
-    (void)iwl_pcie_tx_skb(trans, rb_iwlwifi_choose_txq(trans), skb);
+    txq = rb_iwlwifi_choose_txq(trans);
+    if (txq < 0) {
+        pr_warn("iwl_ops_tx: no active data TX queue, dropping frame");
+        kfree_skb(skb);
+        return;
+    }
+    {
+        int rc = iwl_pcie_tx_skb(trans, txq, skb);
+        if (rc == -EAGAIN) {
+            pr_debug("iwl_ops_tx: queue %d full, skb queued to overflow", txq);
+        } else if (rc) {
+            pr_warn("iwl_ops_tx: TX failed on queue %d (rc=%d)", txq, rc);
+            kfree_skb(skb);
+        }
+    }
 }
 
 static int iwl_ops_start(struct ieee80211_hw *hw)
@@ -1442,7 +1751,7 @@ static int iwl_ops_start(struct ieee80211_hw *hw)
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
     if (!trans)
         return -ENODEV;
-    trans->fw_running = 1;
+    trans->fw_running = trans->nic_active ? 1 : 0;
     return 0;
 }
 
@@ -1451,6 +1760,7 @@ static void iwl_ops_stop(struct ieee80211_hw *hw)
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
     if (!trans)
         return;
+    trans->nic_active = 0;
     trans->fw_running = 0;
     if (trans->netdev)
         netif_carrier_off(trans->netdev);
@@ -1481,7 +1791,7 @@ static int iwl_ops_config(struct ieee80211_hw *hw, u32 changed)
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
     if (!trans)
         return -ENODEV;
-    trans->bss_conf.beacon_int = (u16)(100U + (changed & 0xFFU));
+    (void)changed;
     return 0;
 }
 
@@ -1492,9 +1802,34 @@ static void iwl_ops_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_v
     (void)vif;
     if (!trans || !info)
         return;
-    trans->bss_conf = *info;
-    if (changed & BSS_CHANGED_ASSOC)
+
+    if (changed & BSS_CHANGED_ASSOC) {
+        trans->bss_conf.assoc = info->assoc;
+        trans->bss_conf.aid = info->aid;
         trans->connected = info->assoc ? 1 : 0;
+        trans->wdev.connected = info->assoc;
+        if (info->assoc)
+            trans->svc_flags |= RB_IWL_SVC_CONNECTED;
+        else
+            trans->svc_flags &= ~RB_IWL_SVC_CONNECTED;
+    }
+    if (changed & BSS_CHANGED_BSSID) {
+        memcpy(trans->current_bssid, info->bssid, sizeof(trans->current_bssid));
+        memcpy(trans->station.addr, info->bssid, sizeof(trans->station.addr));
+        memcpy(trans->bss_conf.bssid, info->bssid, sizeof(trans->bss_conf.bssid));
+        memcpy(trans->wdev.last_bssid, info->bssid, sizeof(trans->wdev.last_bssid));
+        trans->wdev.has_bssid = true;
+    }
+    if (changed & BSS_CHANGED_BEACON_INT)
+        trans->bss_conf.beacon_int = info->beacon_int;
+    if (changed & BSS_CHANGED_BASIC_RATES)
+        trans->bss_conf.basic_rates = info->basic_rates;
+    if (changed & BSS_CHANGED_BANDWIDTH)
+        trans->bss_conf.bandwidth = info->bandwidth;
+
+    trans->bss_conf.chandef.center_freq = info->chandef.center_freq;
+    trans->bss_conf.chandef.band = info->chandef.band;
+    trans->bss_conf.chandef.channel = info->chandef.channel;
 }
 
 static int iwl_ops_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
@@ -1502,18 +1837,28 @@ static int iwl_ops_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
                              enum ieee80211_sta_state new_state)
 {
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
-    struct station_parameters params;
 
     (void)vif;
     if (!trans || !sta)
         return -EINVAL;
+    if ((u32)new_state < IEEE80211_STA_NOTEXIST || (u32)new_state > IEEE80211_STA_AUTHORIZED)
+        return -EINVAL;
+    if ((u32)old_state > (u32)new_state && new_state != IEEE80211_STA_NOTEXIST)
+        return -EINVAL;
 
-    if (old_state != new_state)
-        trans->station = *sta;
+    if (new_state == IEEE80211_STA_AUTHORIZED) {
+        memcpy(trans->station.addr, sta->addr, sizeof(trans->station.addr));
+        trans->station.aid = sta->aid;
+        trans->connected = 1;
+        if (trans->netdev) {
+            struct station_parameters params;
 
-    if (new_state == IEEE80211_STA_AUTHORIZED && trans->netdev) {
-        memset(&params, 0, sizeof(params));
-        cfg80211_new_sta(trans->netdev, sta->addr, &params, GFP_KERNEL);
+            memset(&params, 0, sizeof(params));
+            cfg80211_new_sta(trans->netdev, sta->addr, &params, GFP_KERNEL);
+        }
+    } else if (new_state == IEEE80211_STA_NOTEXIST) {
+        memset(&trans->station, 0, sizeof(trans->station));
+        trans->connected = 0;
     }
 
     return 0;
@@ -1526,12 +1871,28 @@ static int iwl_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
     (void)vif;
     (void)sta;
-    if (!trans)
-        return -ENODEV;
-    if (cmd == DISABLE_KEY)
+    if (!trans || !key)
+        return -EINVAL;
+    if (key->key_idx >= 4)
+        return -ENOSPC;
+
+    if (cmd == SET_KEY) {
+        trans->keys[key->key_idx].cipher = key->cipher;
+        trans->keys[key->key_idx].key_len = (u8)min_t(u32, key->key_len, 32U);
+        if (key->key)
+            memcpy(trans->keys[key->key_idx].key,
+                   key->key,
+                   trans->keys[key->key_idx].key_len);
+        trans->keys[key->key_idx].key_idx = key->key_idx;
+        trans->keys[key->key_idx].valid = 1;
+        rb_iwlwifi_copy_name(trans->last_security,
+                             sizeof(trans->last_security),
+                             key->cipher ? "wpa2-psk" : "open");
+    } else {
+        memset(&trans->keys[key->key_idx], 0, sizeof(trans->keys[key->key_idx]));
         trans->last_security[0] = '\0';
-    else if (key)
-        rb_iwlwifi_copy_name(trans->last_security, sizeof(trans->last_security), key->cipher ? "wpa2-psk" : "open");
+    }
+
     return 0;
 }
 
@@ -1539,12 +1900,12 @@ static void iwl_ops_sw_scan_start(struct ieee80211_hw *hw, struct ieee80211_vif 
 {
     struct iwl_trans_pcie *trans = iwl_hw_to_trans(hw);
     (void)vif;
+    (void)mac_addr;
     if (!trans)
         return;
+    trans->scan_results_count = 0;
     trans->scan_active = 1;
     trans->svc_flags |= RB_IWL_SVC_SCAN_ACTIVE;
-    if (mac_addr)
-        memcpy(trans->current_bssid, mac_addr, sizeof(trans->current_bssid));
 }
 
 static void iwl_ops_sw_scan_complete(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
@@ -1553,6 +1914,7 @@ static void iwl_ops_sw_scan_complete(struct ieee80211_hw *hw, struct ieee80211_v
     (void)vif;
     if (!trans)
         return;
+    rb_iwlwifi_report_scan_result(trans);
     trans->scan_active = 0;
     trans->svc_flags &= ~RB_IWL_SVC_SCAN_ACTIVE;
 }
@@ -1600,8 +1962,10 @@ static int rb_iwlwifi_activate_locked(struct iwl_trans_pcie *trans)
         return rc;
 
     rc = rb_iwlwifi_fw_boot(trans);
-    if (rc)
+    if (rc) {
+        rb_iwlwifi_release_irqs(trans);
         return rc;
+    }
 
     rb_iwlwifi_start_dma(trans);
     iwl_trans_write32(trans, IWL_CSR_INT_MASK, RB_IWL_INT_RX | RB_IWL_INT_TX | RB_IWL_INT_CMD | RB_IWL_INT_SCAN);
@@ -1640,12 +2004,23 @@ static int rb_iwlwifi_full_init_locked(struct iwl_trans_pcie *trans, unsigned in
         return rc;
 
     rc = rb_iwlwifi_activate_locked(trans);
-    if (rc)
+    if (rc) {
+        trans->nic_active = 0;
+        trans->fw_running = 0;
+        trans->svc_flags &= ~RB_IWL_SVC_ACTIVE;
+        iwl_pcie_transport_free(trans);
         return rc;
+    }
 
     rc = rb_iwlwifi_register_mac80211_locked(trans);
-    if (rc)
+    if (rc) {
+        rb_iwlwifi_stop_dma(trans);
+        rb_iwlwifi_release_irqs(trans);
+        trans->nic_active = 0;
+        trans->fw_running = 0;
+        iwl_pcie_transport_free(trans);
         return rc;
+    }
 
     return 0;
 }
@@ -1837,8 +2212,11 @@ int rb_iwlwifi_linux_activate_nic(struct pci_dev *dev, unsigned int bar, int bz_
         rc = rb_iwlwifi_probe_transport(trans, bar, bz_family);
     if (!rc)
         rc = iwl_pcie_transport_init(trans);
-    if (!rc)
+    if (!rc) {
         rc = rb_iwlwifi_activate_locked(trans);
+        if (rc)
+            iwl_pcie_transport_free(trans);
+    }
     if (!rc) {
         rb_iwlwifi_format_out(out, out_len,
                               "linux_kpi_activate=ok irq=%d vectors=%d msix=%d fw_version=%u dma_ready=%d int_mask=0x%08x",
@@ -1857,8 +2235,6 @@ int rb_iwlwifi_linux_scan(struct pci_dev *dev, const char *ssid, char *out, unsi
 {
     struct iwl_trans_pcie *trans;
     struct rb_iwl_scan_cmd cmd;
-    struct cfg80211_scan_request request;
-    struct cfg80211_scan_info info;
     int rc;
     size_t ssid_len = ssid ? strlen(ssid) : 0;
     int i;
@@ -1885,24 +2261,24 @@ int rb_iwlwifi_linux_scan(struct pci_dev *dev, const char *ssid, char *out, unsi
             cmd.channels[i] = (u16)(2412 + i * 5);
 
         trans->scan_generation = (u32)atomic_add_return(1, &rb_iwlwifi_scan_cookie);
+        trans->svc_flags |= RB_IWL_SVC_SCAN_ACTIVE;
+        trans->scan_results_count = 0;
         iwl_ops_sw_scan_start(trans->hw, trans->vif, trans->mac_addr);
         rc = iwl_pcie_send_cmd(trans, &cmd, sizeof(cmd));
-        memset(&request, 0, sizeof(request));
-        memset(&info, 0, sizeof(info));
-        request.wiphy = trans->wiphy;
-        request.wdev = &trans->wdev;
-        request.n_ssids = cmd.ssid_len ? 1U : 0U;
-        request.n_channels = cmd.n_channels;
-        cfg80211_scan_done(&request, &info);
+        if (rc == -ETIMEDOUT) {
+            rb_iwlwifi_format_out(out, out_len,
+                                  "linux_kpi_scan=timeout ssid=%s generation=%u",
+                                  ssid && ssid[0] ? ssid : "broadcast",
+                                  trans->scan_generation);
+            rc = 0;
+        } else if (rc == 0) {
+            rb_iwlwifi_format_out(out, out_len,
+                                  "linux_kpi_scan=dispatched ssid=%s generation=%u",
+                                  ssid && ssid[0] ? ssid : "broadcast",
+                                  trans->scan_generation);
+        }
+        trans->svc_flags &= ~RB_IWL_SVC_SCAN_ACTIVE;
         iwl_ops_sw_scan_complete(trans->hw, trans->vif);
-    }
-    if (!rc) {
-        rb_iwlwifi_format_out(out, out_len,
-                              "linux_kpi_scan=ok ssid=%s generation=%u results=%u carrier=%s",
-                              ssid && ssid[0] ? ssid : "broadcast",
-                              trans->scan_generation,
-                              trans->scan_results_count,
-                              trans->netdev && netif_carrier_ok(trans->netdev) ? "up" : "down");
     }
     mutex_unlock(&rb_iwlwifi_transport_lock);
     return rc;
@@ -1931,6 +2307,10 @@ int rb_iwlwifi_linux_connect(struct pci_dev *dev, const char *ssid, const char *
     if (!rc)
         rc = rb_iwlwifi_full_init_locked(trans, 0, 0, NULL, NULL);
     if (!rc) {
+        trans->connecting = 1;
+        memset(trans->current_bssid, 0, sizeof(trans->current_bssid));
+        memset(trans->station.addr, 0, sizeof(trans->station.addr));
+        memset(trans->bss_conf.bssid, 0, sizeof(trans->bss_conf.bssid));
         memset(&cmd, 0, sizeof(cmd));
         cmd.hdr.id = RB_IWL_CMD_ASSOC;
         cmd.hdr.len = sizeof(cmd);
@@ -1943,28 +2323,50 @@ int rb_iwlwifi_linux_connect(struct pci_dev *dev, const char *ssid, const char *
         cmd.security_len = (u32)strlen(cmd.security);
         cmd.key_len = (u32)strlen(cmd.key);
 
-        memcpy(trans->current_bssid, "\x02\xaa\xbb\xcc\xdd\xee", 6);
-        memcpy(trans->station.addr, trans->current_bssid, 6);
         rb_iwlwifi_copy_name(trans->last_ssid, sizeof(trans->last_ssid), ssid);
         rb_iwlwifi_copy_name(trans->last_security, sizeof(trans->last_security), security);
 
         rc = iwl_pcie_send_cmd(trans, &cmd, sizeof(cmd));
-        if (!rc) {
-            memset(&sta_params, 0, sizeof(sta_params));
-            iwl_ops_add_interface(trans->hw, trans->vif);
-            trans->bss_conf.assoc = true;
-            trans->bss_conf.aid = 1;
-            iwl_ops_bss_info_changed(trans->hw, trans->vif, &trans->bss_conf,
-                                     BSS_CHANGED_ASSOC | BSS_CHANGED_BSSID);
-            iwl_ops_sta_state(trans->hw, trans->vif, &trans->station,
-                              IEEE80211_STA_ASSOC, IEEE80211_STA_AUTHORIZED);
-            (void)ieee80211_start_tx_ba_session(&trans->station, 0, 0);
-            cfg80211_new_sta(trans->netdev, trans->station.addr, &sta_params, GFP_KERNEL);
-            cfg80211_connect_bss(trans->netdev, trans->station.addr, NULL, 0, NULL, 0, 0, GFP_KERNEL);
-            cfg80211_connect_result(trans->netdev, trans->station.addr, NULL, 0, NULL, 0, 0, GFP_KERNEL);
-            netif_carrier_on(trans->netdev);
-            trans->connected = 1;
-            trans->svc_flags |= RB_IWL_SVC_CONNECTED;
+        if (rc == 0 && __atomic_load_n(&trans->last_cmd_status, __ATOMIC_SEQ_CST) == 0 &&
+            __atomic_load_n(&trans->command_complete, __ATOMIC_SEQ_CST)) {
+            int has_bssid = 0;
+            for (int bi = 0; bi < 6; ++bi) {
+                if (trans->current_bssid[bi] != 0) {
+                    has_bssid = 1;
+                    break;
+                }
+            }
+            if (!has_bssid) {
+                rc = -ENOTCONN;
+                rb_iwlwifi_format_out(out, out_len,
+                                      "linux_kpi_connect=no_bssid ssid=%s security=%s",
+                                      ssid, security);
+            } else {
+                memset(&sta_params, 0, sizeof(sta_params));
+                iwl_ops_add_interface(trans->hw, trans->vif);
+                trans->bss_conf.assoc = true;
+                trans->bss_conf.aid = 1;
+                iwl_ops_bss_info_changed(trans->hw, trans->vif, &trans->bss_conf,
+                                          BSS_CHANGED_ASSOC | BSS_CHANGED_BSSID);
+                iwl_ops_sta_state(trans->hw, trans->vif, &trans->station,
+                                  IEEE80211_STA_ASSOC, IEEE80211_STA_AUTHORIZED);
+                rc = ieee80211_start_tx_ba_session(&trans->station, 0, 0);
+                if (rc)
+                    pr_warn("connect: block-ack session start failed (rc=%d), proceeding without aggregation\n", rc);
+                cfg80211_new_sta(trans->netdev, trans->station.addr, &sta_params, GFP_KERNEL);
+                cfg80211_connect_bss(trans->netdev, trans->station.addr, NULL, 0, NULL, 0, 0, GFP_KERNEL);
+                cfg80211_connect_result(trans->netdev, trans->station.addr, NULL, 0, NULL, 0, 0, GFP_KERNEL);
+                netif_carrier_on(trans->netdev);
+                trans->connected = 1;
+                trans->svc_flags |= RB_IWL_SVC_CONNECTED;
+            }
+        } else if (rc == 0) {
+            rc = -ETIMEDOUT;
+            memset(trans->current_bssid, 0, sizeof(trans->current_bssid));
+            memset(trans->station.addr, 0, sizeof(trans->station.addr));
+            rb_iwlwifi_format_out(out, out_len,
+                                  "linux_kpi_connect=timeout ssid=%s security=%s",
+                                  ssid, security);
         }
     }
     if (!rc) {
@@ -1975,6 +2377,8 @@ int rb_iwlwifi_linux_connect(struct pci_dev *dev, const char *ssid, const char *
                               (unsigned long)(key ? strlen(key) : 0),
                               trans->netdev && netif_carrier_ok(trans->netdev) ? "up" : "down");
     }
+    if (trans)
+        trans->connecting = 0;
     mutex_unlock(&rb_iwlwifi_transport_lock);
     return rc;
 }
@@ -1990,21 +2394,27 @@ int rb_iwlwifi_linux_disconnect(struct pci_dev *dev, char *out, unsigned long ou
 
     mutex_lock(&rb_iwlwifi_transport_lock);
     rc = rb_iwlwifi_require_transport(dev, &trans);
-    if (!rc && !trans->nic_active)
-        rc = -ENODEV;
+    if (!rc)
+        rc = rb_iwlwifi_full_init_locked(trans, 0, 0, NULL, NULL);
     if (!rc) {
+        trans->connecting = 0;
         memset(&cmd, 0, sizeof(cmd));
         cmd.hdr.id = RB_IWL_CMD_DISCONNECT;
         cmd.hdr.len = sizeof(cmd);
         cmd.hdr.cookie = (u32)atomic_add_return(1, &rb_iwlwifi_cmd_cookie);
-        cmd.reason = 3;
+        cmd.reason = 3; /* WLAN_REASON_DEAUTH_LEAVING — client-initiated disconnect */
         rc = iwl_pcie_send_cmd(trans, &cmd, sizeof(cmd));
         if (!rc) {
-            (void)ieee80211_stop_tx_ba_session(&trans->station, 0);
+            rc = ieee80211_stop_tx_ba_session(&trans->station, 0);
+            if (rc)
+                pr_warn("disconnect: block-ack session stop failed (rc=%d)\n", rc);
             cfg80211_disconnected(trans->netdev, 0, NULL, 0, true, GFP_KERNEL);
             netif_carrier_off(trans->netdev);
             trans->connected = 0;
             trans->bss_conf.assoc = false;
+            memset(trans->current_bssid, 0, sizeof(trans->current_bssid));
+            memset(trans->station.addr, 0, sizeof(trans->station.addr));
+            memset(trans->bss_conf.bssid, 0, sizeof(trans->bss_conf.bssid));
             iwl_ops_bss_info_changed(trans->hw, trans->vif, &trans->bss_conf, BSS_CHANGED_ASSOC);
             trans->svc_flags &= ~RB_IWL_SVC_CONNECTED;
             trans->last_ssid[0] = '\0';

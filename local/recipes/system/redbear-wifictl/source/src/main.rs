@@ -8,9 +8,9 @@ use std::path::Path;
 use std::process;
 
 use backend::{Backend, IntelBackend, NoDeviceBackend, StubBackend};
-#[cfg(target_os = "redox")]
-use log::info;
 use log::LevelFilter;
+#[cfg(target_os = "redox")]
+use log::{error, info};
 #[cfg(target_os = "redox")]
 use redox_scheme::{scheme::SchemeSync, SignalBehavior, Socket};
 #[cfg(target_os = "redox")]
@@ -382,29 +382,52 @@ fn main() {
     #[cfg(target_os = "redox")]
     {
         let notify_fd = unsafe { get_init_notify_fd() };
-        let socket = Socket::create().expect("redbear-wifictl: failed to create scheme socket");
+        let socket = match Socket::create() {
+            Ok(s) => s,
+            Err(err) => {
+                error!("redbear-wifictl: failed to create scheme socket: {err}");
+                process::exit(1);
+            }
+        };
         let mut scheme = WifiCtlScheme::new(build_backend());
         let mut state = redox_scheme::scheme::SchemeState::new();
 
         notify_scheme_ready(notify_fd, &socket, &mut scheme);
-        libredox::call::setrens(0, 0).expect("redbear-wifictl: failed to enter null namespace");
-        info!("redbear-wifictl: registered scheme:wifictl");
+        match libredox::call::setrens(0, 0) {
+            Ok(_) => info!("redbear-wifictl: registered scheme:wifictl"),
+            Err(err) => {
+                error!("redbear-wifictl: failed to enter null namespace: {err}");
+                process::exit(1);
+            }
+        }
 
-        while let Some(request) = socket
-            .next_request(SignalBehavior::Restart)
-            .expect("redbear-wifictl: failed to read scheme request")
-        {
+        let mut exit_code = 0;
+        loop {
+            let request = match socket.next_request(SignalBehavior::Restart) {
+                Ok(Some(req)) => req,
+                Ok(None) => {
+                    info!("redbear-wifictl: scheme socket closed, shutting down");
+                    break;
+                }
+                Err(err) => {
+                    error!("redbear-wifictl: failed to read scheme request: {err}");
+                    exit_code = 1;
+                    break;
+                }
+            };
             match request.kind() {
                 redox_scheme::RequestKind::Call(request) => {
                     let response = request.handle_sync(&mut scheme, &mut state);
-                    socket
-                        .write_response(response, SignalBehavior::Restart)
-                        .expect("redbear-wifictl: failed to write response");
+                    if let Err(err) = socket.write_response(response, SignalBehavior::Restart) {
+                        error!("redbear-wifictl: failed to write response: {err}");
+                        exit_code = 1;
+                        break;
+                    }
                 }
                 _ => {}
             }
         }
 
-        process::exit(0);
+        process::exit(exit_code);
     }
 }

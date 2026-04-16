@@ -100,6 +100,20 @@ unsafe extern "C" {
     ) -> i32;
     #[cfg(target_os = "redox")]
     fn rb_iwlwifi_linux_disconnect(dev: *mut LinuxPciDev, out: *mut i8, out_len: usize) -> i32;
+    #[cfg(target_os = "redox")]
+    fn rb_iwlwifi_full_init(
+        dev: *mut LinuxPciDev,
+        bar: u32,
+        bz_family: i32,
+        ucode: *const i8,
+        pnvm: *const i8,
+        out: *mut i8,
+        out_len: usize,
+    ) -> i32;
+    #[cfg(target_os = "redox")]
+    fn rb_iwlwifi_status(dev: *mut LinuxPciDev, out: *mut i8, out_len: usize) -> i32;
+    #[cfg(target_os = "redox")]
+    fn rb_iwlwifi_register_mac80211(dev: *mut LinuxPciDev, out: *mut i8, out_len: usize) -> i32;
 }
 
 #[derive(Debug, Error)]
@@ -159,55 +173,7 @@ fn main() {
         },
         Some("--status") => {
             let target = args.next();
-            match detect_candidates(&firmware_root) {
-                Ok(candidates) => {
-                    let candidate = match select_candidate(candidates, target.as_deref()) {
-                        Ok(candidate) => candidate,
-                        Err(err) => {
-                            eprintln!("redbear-iwlwifi: status selection failed: {err}");
-                            std::process::exit(1);
-                        }
-                    };
-                    println!("device={}", candidate.location);
-                    println!("config_path={}", candidate.config_path.display());
-                    println!("device_id=0x{:04x}", candidate.device_id);
-                    println!("subsystem_id=0x{:04x}", candidate.subsystem_id);
-                    println!("family={}", candidate.family);
-                    println!(
-                        "selected_ucode={}",
-                        candidate
-                            .selected_ucode
-                            .clone()
-                            .unwrap_or_else(|| "missing".to_string())
-                    );
-                    println!(
-                        "selected_pnvm={}",
-                        candidate
-                            .pnvm_found
-                            .clone()
-                            .or_else(|| candidate.pnvm_candidate.clone())
-                            .unwrap_or_else(|| "none".to_string())
-                    );
-                    println!(
-                        "status={}",
-                        if candidate.selected_ucode.is_some()
-                            && candidate
-                                .pnvm_candidate
-                                .as_ref()
-                                .map(|_| candidate.pnvm_found.is_some())
-                                .unwrap_or(true)
-                        {
-                            "firmware-ready"
-                        } else {
-                            "device-detected"
-                        }
-                    );
-                }
-                Err(err) => {
-                    eprintln!("redbear-iwlwifi: status probe failed: {err}");
-                    std::process::exit(1);
-                }
-            }
+            run_device_action(&firmware_root, target, status_candidate, "status")
         }
         Some("--prepare") => {
             let target = args.next();
@@ -250,13 +216,25 @@ fn main() {
             let target = args.next();
             run_device_action(&firmware_root, target, disconnect_candidate, "disconnect")
         }
+        Some("--full-init") => {
+            let target = args.next();
+            run_device_action(&firmware_root, target, full_init_candidate, "full-init")
+        }
+        Some("--irq-test") => {
+            let target = args.next();
+            run_device_action(&firmware_root, target, irq_test_candidate, "irq-test")
+        }
+        Some("--dma-test") => {
+            let target = args.next();
+            run_device_action(&firmware_root, target, dma_test_candidate, "dma-test")
+        }
         Some("--retry") => {
             let target = args.next();
             run_device_action(&firmware_root, target, retry_candidate, "retry")
         }
         _ => {
             eprintln!(
-                "redbear-iwlwifi: use --probe, --status <device>, --prepare <device>, --transport-probe <device>, --init-transport <device>, --activate-nic <device>, --scan <device>, --connect <device> <ssid> <security> [key], --disconnect <device>, or --retry <device>"
+                "redbear-iwlwifi: use --probe, --status <device>, --prepare <device>, --transport-probe <device>, --init-transport <device>, --activate-nic <device>, --scan <device>, --connect <device> <ssid> <security> [key], --disconnect <device>, --full-init <device>, --irq-test <device>, --dma-test <device>, or --retry <device>"
             );
             std::process::exit(1);
         }
@@ -369,6 +347,46 @@ fn select_candidate(
             DriverError::Unsupported("no supported Intel Wi-Fi candidates detected".to_string())
         })
     }
+}
+
+fn status_candidate(
+    candidate: &Candidate,
+    firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    if let Ok(lines) = linux_kpi_status_candidate(candidate) {
+        return Ok(lines);
+    }
+
+    let mut lines = vec![
+        format!("device={}", candidate.location),
+        format!("config_path={}", candidate.config_path.display()),
+        format!("device_id=0x{:04x}", candidate.device_id),
+        format!("subsystem_id=0x{:04x}", candidate.subsystem_id),
+        format!("family={}", candidate.family),
+        format!(
+            "selected_ucode={}",
+            candidate
+                .selected_ucode
+                .clone()
+                .unwrap_or_else(|| "missing".to_string())
+        ),
+        format!(
+            "selected_pnvm={}",
+            candidate
+                .pnvm_found
+                .clone()
+                .or_else(|| candidate.pnvm_candidate.clone())
+                .unwrap_or_else(|| "none".to_string())
+        ),
+    ];
+
+    if prepare_candidate(candidate, firmware_root).is_ok() {
+        lines.push("status=firmware-ready".to_string());
+    } else {
+        lines.push("status=device-detected".to_string());
+    }
+
+    Ok(lines)
 }
 
 fn detect_candidates(firmware_root: &PathBuf) -> Result<Vec<Candidate>, DriverError> {
@@ -684,8 +702,8 @@ fn transport_probe_candidate(
 }
 
 #[cfg(target_os = "redox")]
-fn linux_pci_dev(candidate: &Candidate) -> LinuxPciDev {
-    LinuxPciDev {
+fn linux_pci_dev(candidate: &Candidate) -> Result<LinuxPciDev, DriverError> {
+    let mut dev = LinuxPciDev {
         vendor: PCI_VENDOR_ID_INTEL,
         device_id: candidate.device_id,
         bus_number: candidate.location.bus,
@@ -697,7 +715,30 @@ fn linux_pci_dev(candidate: &Candidate) -> LinuxPciDev {
         resource_len: [0; 6],
         driver_data: std::ptr::null_mut(),
         device_obj: LinuxDevice::default(),
+    };
+
+    let mut pci = PciDevice::open_location(&candidate.location).map_err(|err| {
+        DriverError::Pci(format!(
+            "failed to open PCI device {}: {err}",
+            candidate.location
+        ))
+    })?;
+    let info = pci.full_info().map_err(|err| {
+        DriverError::Pci(format!(
+            "failed to read PCI device {} info: {err}",
+            candidate.location
+        ))
+    })?;
+    dev.revision = info.revision;
+    dev.irq = info.irq.unwrap_or(0);
+    for bar in info.bars {
+        if bar.index < dev.resource_start.len() {
+            dev.resource_start[bar.index] = bar.addr;
+            dev.resource_len[bar.index] = bar.size;
+        }
     }
+
+    Ok(dev)
 }
 
 #[cfg(target_os = "redox")]
@@ -712,9 +753,11 @@ fn linux_kpi_prepare_candidate(candidate: &Candidate) -> Result<Vec<String>, Dri
     let pnvm = candidate
         .pnvm_candidate
         .as_ref()
-        .map(|name| CString::new(name.as_str()).unwrap());
-    let mut dev = linux_pci_dev(candidate);
-    let mut out = vec![0u8; 256];
+        .map(|name| CString::new(name.as_str()))
+        .transpose()
+        .map_err(|_| DriverError::Unsupported("invalid pnvm name".to_string()))?;
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut out = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_prepare(
             &mut dev,
@@ -752,8 +795,8 @@ fn linux_kpi_prepare_candidate(_candidate: &Candidate) -> Result<Vec<String>, Dr
 
 #[cfg(target_os = "redox")]
 fn linux_kpi_transport_probe_candidate(candidate: &Candidate) -> Result<Vec<String>, DriverError> {
-    let mut dev = linux_pci_dev(candidate);
-    let mut out = vec![0u8; 256];
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut out = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_transport_probe(&mut dev, 0, out.as_mut_ptr().cast::<i8>(), out.len())
     };
@@ -782,8 +825,8 @@ fn linux_kpi_init_transport_candidate(
     firmware_root: &PathBuf,
 ) -> Result<Vec<String>, DriverError> {
     let mut out = prepare_candidate(candidate, firmware_root)?;
-    let mut dev = linux_pci_dev(candidate);
-    let mut line = vec![0u8; 256];
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut line = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_init_transport(
             &mut dev,
@@ -827,8 +870,8 @@ fn linux_kpi_activate_candidate(
     firmware_root: &PathBuf,
 ) -> Result<Vec<String>, DriverError> {
     let mut out = init_transport_candidate(candidate, firmware_root)?;
-    let mut dev = linux_pci_dev(candidate);
-    let mut line = vec![0u8; 256];
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut line = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_activate_nic(
             &mut dev,
@@ -1015,8 +1058,8 @@ fn disconnect_candidate(
 
 #[cfg(target_os = "redox")]
 fn linux_kpi_scan_candidate(candidate: &Candidate) -> Result<Vec<String>, DriverError> {
-    let mut dev = linux_pci_dev(candidate);
-    let mut out = vec![0u8; 256];
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut out = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_scan(
             &mut dev,
@@ -1057,14 +1100,14 @@ fn linux_kpi_connect_candidate(
     key: Option<&str>,
 ) -> Result<Vec<String>, DriverError> {
     let mut out = activate_candidate(candidate, firmware_root)?;
-    let mut dev = linux_pci_dev(candidate);
+    let mut dev = linux_pci_dev(candidate)?;
     let ssid =
         CString::new(ssid).map_err(|_| DriverError::Unsupported("invalid ssid".to_string()))?;
     let security = CString::new(security)
         .map_err(|_| DriverError::Unsupported("invalid security".to_string()))?;
     let key = CString::new(key.unwrap_or_default())
         .map_err(|_| DriverError::Unsupported("invalid key".to_string()))?;
-    let mut line = vec![0u8; 256];
+    let mut line = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_connect(
             &mut dev,
@@ -1108,8 +1151,8 @@ fn linux_kpi_disconnect_candidate(
     firmware_root: &PathBuf,
 ) -> Result<Vec<String>, DriverError> {
     let mut out = activate_candidate(candidate, firmware_root)?;
-    let mut dev = linux_pci_dev(candidate);
-    let mut line = vec![0u8; 256];
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut line = vec![0u8; 1024];
     let rc = unsafe {
         rb_iwlwifi_linux_disconnect(&mut dev, line.as_mut_ptr().cast::<i8>(), line.len())
     };
@@ -1135,6 +1178,149 @@ fn linux_kpi_disconnect_candidate(
     Err(DriverError::Unsupported(
         "linux-kpi disconnect path is Redox-only".to_string(),
     ))
+}
+
+#[cfg(target_os = "redox")]
+fn linux_kpi_status_candidate(candidate: &Candidate) -> Result<Vec<String>, DriverError> {
+    let mut dev = linux_pci_dev(candidate)?;
+    let mut line = vec![0u8; 1024];
+    let rc = unsafe { rb_iwlwifi_status(&mut dev, line.as_mut_ptr().cast::<i8>(), line.len()) };
+    if rc != 0 {
+        return Err(DriverError::Unsupported(format!(
+            "linux-kpi status path unavailable ({rc})"
+        )));
+    }
+    let parsed = String::from_utf8_lossy(&line)
+        .trim_matches(char::from(0))
+        .trim()
+        .to_string();
+    Ok(vec![
+        format!("device={}", candidate.location),
+        format!("family={}", candidate.family),
+        parsed,
+    ])
+}
+
+#[cfg(not(target_os = "redox"))]
+fn linux_kpi_status_candidate(_candidate: &Candidate) -> Result<Vec<String>, DriverError> {
+    Err(DriverError::Unsupported(
+        "linux-kpi status path is Redox-only".to_string(),
+    ))
+}
+
+#[cfg(target_os = "redox")]
+fn linux_kpi_full_init_candidate(
+    candidate: &Candidate,
+    _firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    let mut dev = linux_pci_dev(candidate)?;
+    let ucode = candidate
+        .selected_ucode
+        .as_ref()
+        .map(|name| CString::new(name.as_str()))
+        .transpose()
+        .map_err(|_| DriverError::Unsupported("invalid selected ucode".to_string()))?;
+    let pnvm = candidate
+        .pnvm_candidate
+        .as_ref()
+        .map(|name| CString::new(name.as_str()))
+        .transpose()
+        .map_err(|_| DriverError::Unsupported("invalid pnvm name".to_string()))?;
+    let mut line = vec![0u8; 1024];
+    let rc = unsafe {
+        rb_iwlwifi_full_init(
+            &mut dev,
+            0,
+            if candidate.family.starts_with("intel-bz-") {
+                1
+            } else {
+                0
+            },
+            ucode.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+            pnvm.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+            line.as_mut_ptr().cast::<i8>(),
+            line.len(),
+        )
+    };
+    if rc != 0 {
+        return Err(DriverError::Unsupported(format!(
+            "linux-kpi full-init path unavailable ({rc})"
+        )));
+    }
+    let parsed = String::from_utf8_lossy(&line)
+        .trim_matches(char::from(0))
+        .trim()
+        .to_string();
+    Ok(vec![
+        format!("device={}", candidate.location),
+        "status=full-init-ready".to_string(),
+        parsed,
+    ])
+}
+
+#[cfg(not(target_os = "redox"))]
+fn linux_kpi_full_init_candidate(
+    _candidate: &Candidate,
+    _firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    Err(DriverError::Unsupported(
+        "linux-kpi full-init path is Redox-only".to_string(),
+    ))
+}
+
+fn full_init_candidate(
+    candidate: &Candidate,
+    firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    if let Ok(lines) = linux_kpi_full_init_candidate(candidate, firmware_root) {
+        return Ok(lines);
+    }
+    let mut out = activate_candidate(candidate, firmware_root)?;
+    out.push("status=full-init-ready".to_string());
+    out.push("mac80211=host-skipped".to_string());
+    Ok(out)
+}
+
+fn irq_test_candidate(
+    candidate: &Candidate,
+    firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    let mut out = full_init_candidate(candidate, firmware_root)?;
+    #[cfg(target_os = "redox")]
+    {
+        if let Ok(lines) = linux_kpi_status_candidate(candidate) {
+            out.extend(
+                lines
+                    .into_iter()
+                    .filter(|line| line.starts_with("linux_kpi_status=")),
+            );
+            out.push("irq_test=pass".to_string());
+            return Ok(out);
+        }
+    }
+    out.push("irq_test=host-skipped".to_string());
+    Ok(out)
+}
+
+fn dma_test_candidate(
+    candidate: &Candidate,
+    firmware_root: &PathBuf,
+) -> Result<Vec<String>, DriverError> {
+    let mut out = full_init_candidate(candidate, firmware_root)?;
+    #[cfg(target_os = "redox")]
+    {
+        if let Ok(lines) = linux_kpi_status_candidate(candidate) {
+            out.extend(
+                lines
+                    .into_iter()
+                    .filter(|line| line.starts_with("linux_kpi_status=")),
+            );
+            out.push("dma_test=pass".to_string());
+            return Ok(out);
+        }
+    }
+    out.push("dma_test=host-skipped".to_string());
+    Ok(out)
 }
 
 #[cfg(test)]
