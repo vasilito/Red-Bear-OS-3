@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ptr;
+use std::sync::atomic::{fence, Ordering};
 use std::sync::Mutex;
 
 type PhysAddr = u64;
@@ -24,28 +25,26 @@ pub extern "C" fn ioremap(phys: PhysAddr, size: usize) -> *mut u8 {
         size
     );
 
-    let ptr = match redox_driver_sys::memory::MmioRegion::map(
+    match redox_driver_sys::memory::MmioRegion::map(
         phys,
         size,
         redox_driver_sys::memory::CacheType::DeviceMemory,
         redox_driver_sys::memory::MmioProt::READ_WRITE,
     ) {
         Ok(region) => {
-            let p = region.as_ptr() as *mut u8;
-            let s = region.size();
+            let ptr = region.as_ptr() as *mut u8;
+            let size = region.size();
             if let Ok(mut tracker) = MMIO_MAP_TRACKER.lock() {
-                tracker.insert(p as usize, MappedRegion { size: s });
+                tracker.insert(ptr as usize, MappedRegion { size });
             }
             std::mem::forget(region);
-            p
+            ptr
         }
         Err(e) => {
             log::error!("ioremap: failed to map {:#x}+{:#x}: {:?}", phys, size, e);
             ptr::null_mut()
         }
-    };
-
-    ptr
+    }
 }
 
 #[no_mangle]
@@ -123,4 +122,70 @@ pub extern "C" fn writew(val: u16, addr: *mut u8) {
         return;
     }
     unsafe { ptr::write_volatile(addr as *mut u16, val) };
+}
+
+#[no_mangle]
+pub extern "C" fn memcpy_toio(dst: *mut u8, src: *const u8, count: usize) {
+    if dst.is_null() || src.is_null() || count == 0 {
+        return;
+    }
+    unsafe { ptr::copy_nonoverlapping(src, dst, count) };
+}
+
+#[no_mangle]
+pub extern "C" fn memcpy_fromio(dst: *mut u8, src: *const u8, count: usize) {
+    if dst.is_null() || src.is_null() || count == 0 {
+        return;
+    }
+    unsafe { ptr::copy_nonoverlapping(src, dst, count) };
+}
+
+#[no_mangle]
+pub extern "C" fn memset_io(dst: *mut u8, val: u8, count: usize) {
+    if dst.is_null() || count == 0 {
+        return;
+    }
+    unsafe { ptr::write_bytes(dst, val, count) };
+}
+
+#[no_mangle]
+pub extern "C" fn mb() {
+    fence(Ordering::SeqCst);
+}
+
+#[no_mangle]
+pub extern "C" fn rmb() {
+    fence(Ordering::Acquire);
+}
+
+#[no_mangle]
+pub extern "C" fn wmb() {
+    fence(Ordering::Release);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn io_copy_helpers_move_bytes() {
+        let mut dst = [0u8; 8];
+        let src = [1u8, 2, 3, 4, 5, 6, 7, 8];
+        memcpy_toio(dst.as_mut_ptr(), src.as_ptr(), src.len());
+        assert_eq!(dst, src);
+
+        let mut second = [0u8; 8];
+        memcpy_fromio(second.as_mut_ptr(), dst.as_ptr(), dst.len());
+        assert_eq!(second, src);
+
+        memset_io(second.as_mut_ptr(), 0xaa, second.len());
+        assert_eq!(second, [0xaa; 8]);
+    }
+
+    #[test]
+    fn io_barriers_are_callable() {
+        mb();
+        rmb();
+        wmb();
+    }
 }

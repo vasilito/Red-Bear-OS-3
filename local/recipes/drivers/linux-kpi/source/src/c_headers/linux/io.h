@@ -1,7 +1,7 @@
 #ifndef _LINUX_IO_H
 #define _LINUX_IO_H
 
-#include <linux/types.h>
+#include "types.h"
 #include <stddef.h>
 
 extern void *ioremap(phys_addr_t phys_addr, size_t size);
@@ -29,6 +29,21 @@ static inline void memcpy_fromio(void *dst, const void *src, size_t count)
 static inline void memset_io(void *dst, int c, size_t count)
 {
     __builtin_memset(dst, c, count);
+}
+
+static inline void mb(void)
+{
+    __sync_synchronize();
+}
+
+static inline void rmb(void)
+{
+    __sync_synchronize();
+}
+
+static inline void wmb(void)
+{
+    __sync_synchronize();
 }
 
 #define ioread8(addr)    readb(addr)

@@ -1,9 +1,27 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
 
 use super::net::{netif_carrier_off, netif_carrier_on, NetDevice};
+
+#[derive(Clone, Default)]
+struct WirelessEventState {
+    new_sta: Option<[u8; 6]>,
+    mgmt_rx_freq: u32,
+    mgmt_rx_signal: i32,
+    mgmt_rx_len: usize,
+    mgmt_tx_cookie: u64,
+    mgmt_tx_len: usize,
+    mgmt_tx_ack: bool,
+    sched_scan_reqid: u64,
+}
+
+lazy_static::lazy_static! {
+    static ref WIRELESS_EVENTS: Mutex<HashMap<usize, WirelessEventState>> = Mutex::new(HashMap::new());
+}
 
 #[repr(C)]
 pub struct Wiphy {
@@ -76,6 +94,15 @@ pub struct StationParameters {
     pub sta_flags_set: u32,
 }
 
+fn update_event_state<F>(key: usize, update: F)
+where
+    F: FnOnce(&mut WirelessEventState),
+{
+    if let Ok(mut events) = WIRELESS_EVENTS.lock() {
+        update(events.entry(key).or_default());
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn wiphy_new_nm(
     _ops: *const c_void,
@@ -113,6 +140,9 @@ pub extern "C" fn wiphy_new_nm(
 pub extern "C" fn wiphy_free(wiphy: *mut Wiphy) {
     if wiphy.is_null() {
         return;
+    }
+    if let Ok(mut events) = WIRELESS_EVENTS.lock() {
+        events.remove(&(wiphy as usize));
     }
     unsafe {
         let wiphy_box = Box::from_raw(wiphy);
@@ -283,6 +313,254 @@ pub extern "C" fn cfg80211_ready_on_channel(
 ) {
 }
 
+#[repr(C)]
+pub struct Ieee80211Channel {
+    pub band: u32,
+    pub center_freq: u16,
+    pub hw_value: u16,
+    pub flags: u32,
+    pub max_power: i8,
+    pub max_reg_power: i8,
+    pub max_antenna_gain: i8,
+    pub beacon_found: bool,
+}
+
+pub const NL80211_BAND_2GHZ: u32 = 0;
+pub const NL80211_BAND_5GHZ: u32 = 1;
+pub const NL80211_BAND_6GHZ: u32 = 2;
+
+pub const IEEE80211_CHAN_DISABLED: u32 = 1 << 0;
+pub const IEEE80211_CHAN_NO_IR: u32 = 1 << 1;
+pub const IEEE80211_CHAN_RADAR: u32 = 1 << 2;
+pub const IEEE80211_CHAN_NO_HT40PLUS: u32 = 1 << 3;
+pub const IEEE80211_CHAN_NO_HT40MINUS: u32 = 1 << 4;
+pub const IEEE80211_CHAN_NO_OFDM: u32 = 1 << 5;
+pub const IEEE80211_CHAN_NO_80MHZ: u32 = 1 << 6;
+pub const IEEE80211_CHAN_NO_160MHZ: u32 = 1 << 7;
+
+#[repr(C)]
+pub struct Ieee80211Rate {
+    pub flags: u32,
+    pub bitrate: u16,
+    pub hw_value: u16,
+    pub hw_value_short: u16,
+}
+
+pub const IEEE80211_RATE_SHORT_PREAMBLE: u32 = 1 << 0;
+pub const IEEE80211_RATE_MANDATORY: u32 = 1 << 1;
+pub const IEEE80211_RATE_ERP_G: u32 = 1 << 2;
+
+#[repr(C)]
+pub struct Ieee80211SupportedBand {
+    pub channels: *mut Ieee80211Channel,
+    pub n_channels: usize,
+    pub bitrates: *mut Ieee80211Rate,
+    pub n_bitrates: usize,
+    pub ht_cap: *mut c_void,
+    pub vht_cap: *mut c_void,
+}
+
+#[no_mangle]
+pub extern "C" fn wiphy_bands_append(
+    wiphy: *mut Wiphy,
+    band_idx: u32,
+    band: *mut Ieee80211SupportedBand,
+) -> i32 {
+    if wiphy.is_null() || band.is_null() {
+        return -22;
+    }
+
+    if band_idx > NL80211_BAND_6GHZ {
+        return -22;
+    }
+
+    let band_ref = unsafe { &*band };
+    if band_ref.n_channels == 0 || band_ref.channels.is_null() {
+        return -22;
+    }
+
+    0
+}
+
+#[repr(C)]
+pub struct Cfg80211Bss {
+    pub bssid: [u8; 6],
+    pub channel: *mut Ieee80211Channel,
+    pub signal: i16,
+    pub capability: u16,
+    pub beacon_interval: u16,
+    pub ies: *const u8,
+    pub ies_len: usize,
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_inform_bss(
+    wiphy: *mut Wiphy,
+    wdev: *mut WirelessDev,
+    _freq: u32,
+    bssid: *const u8,
+    _tsf: u64,
+    capability: u16,
+    beacon_interval: u16,
+    ies: *const u8,
+    ies_len: usize,
+    signal: i32,
+    _gfp: u32,
+) -> *mut Cfg80211Bss {
+    if wiphy.is_null() || wdev.is_null() || bssid.is_null() {
+        return ptr::null_mut();
+    }
+
+    let mut bssid_bytes = [0; 6];
+    unsafe {
+        ptr::copy_nonoverlapping(bssid, bssid_bytes.as_mut_ptr(), bssid_bytes.len());
+    }
+
+    let bss = Box::new(Cfg80211Bss {
+        bssid: bssid_bytes,
+        channel: ptr::null_mut(),
+        signal: signal.clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+        capability,
+        beacon_interval,
+        ies,
+        ies_len,
+    });
+    Box::into_raw(bss)
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_put_bss(bss: *mut Cfg80211Bss) {
+    if bss.is_null() {
+        return;
+    }
+
+    unsafe {
+        drop(Box::from_raw(bss));
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_get_bss(
+    wiphy: *mut Wiphy,
+    band: u32,
+    _bssid: *const u8,
+    _ssid: *const u8,
+    _ssid_len: usize,
+    _bss_type: u32,
+    _privacy: u32,
+) -> *mut Cfg80211Bss {
+    if wiphy.is_null() || band > NL80211_BAND_6GHZ {
+        return ptr::null_mut();
+    }
+
+    ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_new_sta(
+    dev: *mut c_void,
+    mac_addr: *const u8,
+    _params: *const StationParameters,
+    _gfp: u32,
+) {
+    if dev.is_null() || mac_addr.is_null() {
+        return;
+    }
+
+    let wdev = netdev_to_wireless_dev(dev);
+    if wdev.is_null() || unsafe { (*wdev).wiphy }.is_null() {
+        return;
+    }
+
+    let mut addr = [0u8; 6];
+    unsafe { ptr::copy_nonoverlapping(mac_addr, addr.as_mut_ptr(), addr.len()) };
+    update_event_state(unsafe { (*wdev).wiphy as usize }, |state| {
+        state.new_sta = Some(addr)
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_rx_mgmt(
+    wdev: *mut WirelessDev,
+    freq: u32,
+    sig_dbm: i32,
+    buf: *const u8,
+    len: usize,
+    _gfp: u32,
+) {
+    if wdev.is_null() || (buf.is_null() && len != 0) {
+        return;
+    }
+
+    update_event_state(wdev as usize, |state| {
+        state.mgmt_rx_freq = freq;
+        state.mgmt_rx_signal = sig_dbm;
+        state.mgmt_rx_len = len;
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_mgmt_tx_status(
+    wdev: *mut WirelessDev,
+    cookie: u64,
+    buf: *const u8,
+    len: usize,
+    ack: bool,
+    _gfp: u32,
+) {
+    if wdev.is_null() || (buf.is_null() && len != 0) {
+        return;
+    }
+
+    update_event_state(wdev as usize, |state| {
+        state.mgmt_tx_cookie = cookie;
+        state.mgmt_tx_len = len;
+        state.mgmt_tx_ack = ack;
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn cfg80211_sched_scan_results(wiphy: *mut Wiphy, reqid: u64) {
+    if wiphy.is_null() {
+        return;
+    }
+    update_event_state(wiphy as usize, |state| state.sched_scan_reqid = reqid);
+}
+
+#[no_mangle]
+pub extern "C" fn ieee80211_channel_to_frequency(chan: u32, band: u32) -> u32 {
+    match band {
+        NL80211_BAND_2GHZ => match chan {
+            14 => 2484,
+            1..=13 => 2407 + chan * 5,
+            _ => 0,
+        },
+        NL80211_BAND_5GHZ => 5000 + chan * 5,
+        NL80211_BAND_6GHZ => {
+            if chan == 2 {
+                5935
+            } else if chan >= 1 {
+                5950 + chan * 5
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ieee80211_frequency_to_channel(freq: u32) -> u32 {
+    match freq {
+        2484 => 14,
+        2412..=2472 => (freq - 2407) / 5,
+        5000..=5895 => (freq - 5000) / 5,
+        5935 => 2,
+        5955..=7115 => (freq - 5950) / 5,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,7 +581,7 @@ mod tests {
 
     #[test]
     fn scan_and_connect_lifecycle_updates_wireless_state() {
-        let name = CString::new("wlan%d").unwrap();
+        let name = CString::new("wlan%d").expect("valid test CString");
         let dev = alloc_netdev_mqs(0, name.as_ptr().cast::<u8>(), 0, None, 1, 1);
         assert!(!dev.is_null());
 
@@ -362,6 +640,80 @@ mod tests {
         assert_eq!(wdev.last_reason, 7);
         assert!(wdev.locally_generated);
         assert_eq!(netif_carrier_ok(dev), 0);
+
+        wiphy_free(wiphy);
+        free_netdev(dev);
+    }
+
+    #[test]
+    fn ieee80211_channel_creation_and_flags_work() {
+        let channel = Ieee80211Channel {
+            band: NL80211_BAND_5GHZ,
+            center_freq: 5180,
+            hw_value: 36,
+            flags: IEEE80211_CHAN_NO_IR | IEEE80211_CHAN_RADAR | IEEE80211_CHAN_NO_80MHZ,
+            max_power: 20,
+            max_reg_power: 23,
+            max_antenna_gain: 6,
+            beacon_found: true,
+        };
+
+        assert_eq!(channel.band, NL80211_BAND_5GHZ);
+        assert_eq!(channel.center_freq, 5180);
+        assert_eq!(channel.hw_value, 36);
+        assert_ne!(channel.flags & IEEE80211_CHAN_NO_IR, 0);
+        assert_ne!(channel.flags & IEEE80211_CHAN_RADAR, 0);
+        assert_ne!(channel.flags & IEEE80211_CHAN_NO_80MHZ, 0);
+        assert_eq!(channel.flags & IEEE80211_CHAN_DISABLED, 0);
+        assert!(channel.beacon_found);
+    }
+
+    #[test]
+    fn cfg80211_events_and_channel_frequency_conversions_work() {
+        let name = CString::new("wlan%d").expect("valid test CString");
+        let dev = alloc_netdev_mqs(0, name.as_ptr().cast::<u8>(), 0, None, 1, 1);
+        assert!(!dev.is_null());
+        let wiphy = wiphy_new_nm(ptr::null(), 0, ptr::null());
+        assert!(!wiphy.is_null());
+        let mut wdev = WirelessDev {
+            wiphy,
+            netdev: dev.cast::<c_void>(),
+            iftype: 0,
+            scan_in_flight: false,
+            scan_aborted: false,
+            connecting: false,
+            connected: false,
+            locally_generated: false,
+            last_status: 0,
+            last_reason: 0,
+            has_bssid: false,
+            last_bssid: [0; 6],
+        };
+        unsafe { (*dev).ieee80211_ptr = (&mut wdev as *mut WirelessDev).cast::<c_void>() };
+
+        let sta = [6u8, 5, 4, 3, 2, 1];
+        cfg80211_new_sta(dev.cast::<c_void>(), sta.as_ptr(), ptr::null(), 0);
+        cfg80211_rx_mgmt(&mut wdev, 2412, -42, sta.as_ptr(), sta.len(), 0);
+        cfg80211_mgmt_tx_status(&mut wdev, 99, sta.as_ptr(), sta.len(), true, 0);
+        cfg80211_sched_scan_results(wiphy, 1234);
+
+        let events = WIRELESS_EVENTS.lock().expect("wireless events lock");
+        let wiphy_state = events.get(&(wiphy as usize)).expect("wiphy event state");
+        assert_eq!(wiphy_state.new_sta, Some(sta));
+        assert_eq!(wiphy_state.sched_scan_reqid, 1234);
+        let wdev_state = events
+            .get(&((&mut wdev as *mut WirelessDev) as usize))
+            .expect("wdev event state");
+        assert_eq!(wdev_state.mgmt_rx_freq, 2412);
+        assert_eq!(wdev_state.mgmt_rx_signal, -42);
+        assert_eq!(wdev_state.mgmt_tx_cookie, 99);
+        assert!(wdev_state.mgmt_tx_ack);
+        drop(events);
+
+        assert_eq!(ieee80211_channel_to_frequency(1, NL80211_BAND_2GHZ), 2412);
+        assert_eq!(ieee80211_channel_to_frequency(36, NL80211_BAND_5GHZ), 5180);
+        assert_eq!(ieee80211_frequency_to_channel(2484), 14);
+        assert_eq!(ieee80211_frequency_to_channel(5955), 1);
 
         wiphy_free(wiphy);
         free_netdev(dev);

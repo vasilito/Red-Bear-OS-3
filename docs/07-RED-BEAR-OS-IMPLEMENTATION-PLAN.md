@@ -387,9 +387,11 @@ Current state:
 
 Canonical references:
 
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path from console to hardware-accelerated KDE Plasma on Wayland
 - `local/docs/QT6-PORT-STATUS.md`
-- `docs/03-WAYLAND-ON-REDOX.md`
-- `docs/05-KDE-PLASMA-ON-REDOX.md`
+- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md`
+- `docs/03-WAYLAND-ON-REDOX.md` — historical Wayland implementation rationale
+- `docs/05-KDE-PLASMA-ON-REDOX.md` — historical KDE implementation rationale
 
 Acceptance:
 
@@ -418,6 +420,7 @@ Acceptance:
 
 The current subsystem plans to treat as first-class are:
 
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path plan
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - `local/docs/USB-IMPLEMENTATION-PLAN.md`
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`

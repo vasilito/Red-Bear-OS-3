@@ -5,6 +5,12 @@ Technical documentation for Red Bear OS as an overlay distribution on top of Red
 This index is the entry point for the documentation set. Its main job is to make the
 current/canonical versus historical/reference split obvious.
 
+> **Status note (2026-04-16):** The canonical desktop path document is now
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. It consolidates the Wayland, KDE, and GPU roadmap
+> into one honest implementation plan. The historical docs below (01–05) remain useful for
+> architecture reference and implementation rationale, but they should be read together with the
+> new plan and the current local subsystem docs.
+
 > **Status note (2026-04-14):** several documents below are historical implementation plans whose
 > original "missing / not started" language is now stale. The repo already contains substantial
 > Red Bear OS work under `local/`; use each document's top-level status notes together with
@@ -31,7 +37,7 @@ current/canonical versus historical/reference split obvious.
 | Document set | Role |
 |---|---|
 | `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
-| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md` | canonical current Red Bear subsystem plans and status |
+| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | canonical current Red Bear subsystem plans and status |
 | `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
 | `docs/02-GAP-ANALYSIS.md`, `docs/03-WAYLAND-ON-REDOX.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
 
@@ -81,6 +87,7 @@ at a higher level.
 This summary is only a quick orientation layer. For canonical current-state detail, prefer:
 
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` for repository-wide execution order,
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path from console to KDE Plasma on Wayland,
 - `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for desktop build/runtime truth,
 - `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.

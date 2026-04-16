@@ -2,7 +2,7 @@
 #define _LINUX_FIRMWARE_H
 
 #include <stddef.h>
-#include <linux/types.h>
+#include "types.h"
 
 struct firmware {
     size_t size;

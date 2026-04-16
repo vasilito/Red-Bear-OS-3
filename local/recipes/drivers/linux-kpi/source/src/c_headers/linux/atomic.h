@@ -42,6 +42,26 @@ static inline void atomic_sub(int i, atomic_t *v)
     __sync_fetch_and_sub(&v->counter, i);
 }
 
+static inline int atomic_inc_and_test(atomic_t *v)
+{
+    return __sync_add_and_fetch(&v->counter, 1) == 0;
+}
+
+static inline int atomic_dec_and_test(atomic_t *v)
+{
+    return __sync_sub_and_fetch(&v->counter, 1) == 0;
+}
+
+static inline int atomic_add_return(int i, atomic_t *v)
+{
+    return __sync_add_and_fetch(&v->counter, i);
+}
+
+static inline int atomic_sub_return(int i, atomic_t *v)
+{
+    return __sync_sub_and_fetch(&v->counter, i);
+}
+
 static inline int atomic_inc_return(atomic_t *v)
 {
     return __sync_add_and_fetch(&v->counter, 1);
@@ -71,11 +91,6 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
 }
 
 #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
-
-static inline int atomic_dec_and_test(atomic_t *v)
-{
-    return __sync_sub_and_fetch(&v->counter, 1) == 0;
-}
 
 #define smp_mb()  __sync_synchronize()
 #define smp_rmb() __sync_synchronize()

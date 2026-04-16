@@ -53,6 +53,7 @@ The current public roadmap and execution model live in the
 For readers landing on GitHub, the most useful entry points are:
 
 - [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
+- [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — canonical path from console boot to hardware-accelerated KDE Plasma on Wayland
 - [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
 - [WIP Migration Ledger](./local/docs/WIP-MIGRATION-LEDGER.md) — how Red Bear currently treats upstream WIP versus local overlays
 - [Script Behavior Matrix](./local/docs/SCRIPT-BEHAVIOR-MATRIX.md) — what the main sync/fetch/apply/build scripts do and do not guarantee

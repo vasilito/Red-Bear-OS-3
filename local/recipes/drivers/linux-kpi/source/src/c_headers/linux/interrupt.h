@@ -1,9 +1,9 @@
 #ifndef _LINUX_INTERRUPT_H
 #define _LINUX_INTERRUPT_H
 
-#include <linux/types.h>
-#include <linux/irq.h>
-#include <linux/spinlock.h>
+#include "types.h"
+#include "irq.h"
+#include "spinlock.h"
 
 extern void local_irq_save(unsigned long *flags);
 extern void local_irq_restore(unsigned long flags);

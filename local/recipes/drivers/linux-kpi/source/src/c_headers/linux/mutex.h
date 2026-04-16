@@ -1,7 +1,7 @@
 #ifndef _LINUX_MUTEX_H
 #define _LINUX_MUTEX_H
 
-#include <linux/types.h>
+#include "types.h"
 
 struct mutex {
     unsigned char __opaque[64];

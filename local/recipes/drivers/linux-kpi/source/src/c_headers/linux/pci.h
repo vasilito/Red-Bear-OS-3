@@ -1,9 +1,9 @@
 #ifndef _LINUX_PCI_H
 #define _LINUX_PCI_H
 
-#include <linux/types.h>
-#include <linux/device.h>
-#include <linux/io.h>
+#include "types.h"
+#include "device.h"
+#include "io.h"
 #include <stddef.h>
 
 #define PCI_VENDOR_ID_AMD    0x1002U
@@ -11,6 +11,12 @@
 #define PCI_VENDOR_ID_NVIDIA 0x10DEU
 
 #define PCI_ANY_ID (~0U)
+
+/* MSI/MSI-X support */
+#define PCI_IRQ_MSI      1U
+#define PCI_IRQ_MSIX     2U
+#define PCI_IRQ_LEGACY   4U
+#define PCI_IRQ_NOLEGACY 8U
 
 struct pci_device_id {
     u32 vendor;
@@ -49,6 +55,11 @@ struct pci_driver {
 extern int  pci_enable_device(struct pci_dev *dev);
 extern void pci_disable_device(struct pci_dev *dev);
 extern void pci_set_master(struct pci_dev *dev);
+extern int  pci_alloc_irq_vectors(struct pci_dev *dev, int min_vecs, int max_vecs, unsigned int flags);
+extern void pci_free_irq_vectors(struct pci_dev *dev);
+extern int  pci_irq_vector(struct pci_dev *dev, unsigned int nr);
+extern int  pci_enable_msi(struct pci_dev *dev);
+extern void pci_disable_msi(struct pci_dev *dev);
 
 extern void *pci_iomap(struct pci_dev *dev, unsigned int bar, size_t max_len);
 extern void  pci_iounmap(struct pci_dev *dev, void *addr, size_t size);

@@ -1,7 +1,7 @@
 #ifndef _LINUX_SPINLOCK_H
 #define _LINUX_SPINLOCK_H
 
-#include <linux/types.h>
+#include "types.h"
 
 typedef struct spinlock {
     volatile unsigned char __locked;

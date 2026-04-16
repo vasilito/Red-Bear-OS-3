@@ -1,12 +1,14 @@
 #ifndef _LINUX_WAIT_H
 #define _LINUX_WAIT_H
 
-#include <linux/types.h>
-#include <linux/compiler.h>
+#include "types.h"
+#include "compiler.h"
 
 struct wait_queue_head {
     unsigned char __opaque[128];
 };
+
+typedef struct wait_queue_head wait_queue_head_t;
 
 static inline void init_waitqueue_head(struct wait_queue_head *wq)
 {

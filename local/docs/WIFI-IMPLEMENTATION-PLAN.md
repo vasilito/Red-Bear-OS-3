@@ -46,7 +46,7 @@ What the repo *does* have is a meaningful set of prerequisites:
 | Area | State | Notes |
 |---|---|---|
 | Wi-Fi controller support | **experimental bounded slice exists** | `redbear-iwlwifi` provides an Intel-only bounded driver-side package, not validated Wi-Fi connectivity |
-| Linux wireless stack compatibility | **early compatibility scaffolding exists** | `linux-kpi` now carries initial `cfg80211` / `wiphy` / `mac80211` registration and station-mode compatibility scaffolding, but not a complete Linux wireless stack |
+| Linux wireless stack compatibility | **early compatibility scaffolding exists** | `linux-kpi` now carries `cfg80211` / `wiphy` / `mac80211` registration, station-mode scaffolding, channel/band/rate/BSS definitions, and RX/TX data-path structures (24 tests pass), but not a complete Linux wireless stack |
 | Firmware loading | **partial prerequisite exists** | `firmware-loader` can serve firmware blobs generically |
 | Wireless control plane | **experimental bounded slice exists** | `redbear-wifictl` and `redbear-netctl` expose bounded prepare/init/activate/scan orchestration, not real association support |
 | Post-association IP path | **present** | Native `smolnetd` / `netcfg` / `dhcpd` / `redbear-netctl` path exists |
@@ -338,7 +338,14 @@ The current tree now has the first explicit step in that direction as well:
   registration/setup, keeps carrier down until connect success, and routes
   `ieee80211_queue_work()` through the bounded LinuxKPI workqueue instead of silently dropping
   deferred work
-- this new scaffolding is compile- and host-test-validated inside the `linux-kpi` crate
+- the wireless scaffolding now also includes channel/band/rate definitions
+  (`Ieee80211Channel`, `Ieee80211Rate`, `Ieee80211SupportedBand` with NL80211 band constants
+  and IEEE80211 channel/rate flags), BSS information reporting (`Cfg80211Bss`,
+  `cfg80211_inform_bss`/`get_bss`/`put_bss`), RX/TX data-path structures (`Ieee80211RxStatus`,
+  `Ieee80211TxInfo` with RX/TX flag constants, `ieee80211_rx_irqsafe`/`tx_status`),
+  channel definition creation (`ieee80211_chandef_create`), and STA state-transition constants
+  (`IEEE80211_STA_NOTEXIST` through `IEEE80211_STA_AUTHORIZED`)
+- all scaffolding is compile- and host-test-validated inside the `linux-kpi` crate (24 tests pass)
 - this is still **not** a claim that Red Bear now has a working Linux wireless stack
 
 ### Boundary where a full Linux port becomes too expensive
@@ -391,11 +398,13 @@ mac80211/nl80211 remain out of scope for the current milestone.
 The current validation story for this slice is intentionally narrow and should be described that
 way:
 
-- the `linux-kpi` host-side test suite now runs cleanly in this repo, including the Wi‑Fi-facing
-  helper changes in this slice: `request_firmware_direct`, `request_firmware_nowait`,
-  `mutex_trylock`, IRQ-depth tracking, variable private-allocation lifetime tracking, station-mode
-  scan/connect/disconnect lifecycle assertions, workqueue-backed `ieee80211_queue_work()`, the new
-  `sk_buff` headroom/tailroom helpers, and the existing memory tests
+- the `linux-kpi` host-side test suite now runs cleanly in this repo (24 tests pass), including
+  the Wi‑Fi-facing helper changes in this slice: `request_firmware_direct`,
+  `request_firmware_nowait`, `mutex_trylock`, IRQ-depth tracking, variable private-allocation
+  lifetime tracking, station-mode scan/connect/disconnect lifecycle assertions,
+  workqueue-backed `ieee80211_queue_work()`, `sk_buff` headroom/tailroom helpers, channel/band
+  creation and flag tests, RX status default and flag combination tests, `ieee80211_get_tid` null
+  safety, and the existing memory tests
 - `redbear-iwlwifi` host-side tests now smoke-test the bounded firmware/transport/activation/scan/
   retry actions used by the current Intel path
 - `redbear-iwlwifi` also now has a binary-level host-side CLI smoke test for the current bounded

@@ -1,7 +1,7 @@
 #ifndef _LINUX_JIFFIES_H
 #define _LINUX_JIFFIES_H
 
-#include <linux/types.h>
+#include "types.h"
 #include <time.h>
 
 static inline u64 redox_get_jiffies(void)

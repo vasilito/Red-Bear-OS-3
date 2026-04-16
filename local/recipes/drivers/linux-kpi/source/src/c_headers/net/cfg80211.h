@@ -98,6 +98,11 @@ extern void cfg80211_connect_bss(struct net_device *dev,
                                  size_t resp_ie_len,
                                  u16 status,
                                  gfp_t gfp);
+extern void cfg80211_new_sta(struct net_device *dev, const u8 *mac_addr,
+                             struct station_parameters *params, gfp_t gfp);
+extern void cfg80211_rx_mgmt(struct wireless_dev *wdev, u32 freq, int sig_dbm,
+                             const u8 *buf, size_t len, gfp_t gfp);
+extern void cfg80211_sched_scan_results(struct wiphy *wiphy, u64 reqid);
 extern void cfg80211_ready_on_channel(struct wireless_dev *wdev,
                                       u64 cookie,
                                       struct ieee80211_channel *chan,

@@ -1,8 +1,8 @@
 #ifndef _LINUX_TIMER_H
 #define _LINUX_TIMER_H
 
-#include <linux/types.h>
-#include <linux/compiler.h>
+#include "types.h"
+#include "compiler.h"
 
 struct timer_list {
     void (*function)(unsigned long data);

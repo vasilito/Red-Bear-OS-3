@@ -11,6 +11,7 @@ pub use rust_impl::drm_shim;
 pub use rust_impl::firmware;
 pub use rust_impl::io;
 pub use rust_impl::irq;
+pub use rust_impl::list;
 pub use rust_impl::mac80211;
 pub use rust_impl::memory;
 pub use rust_impl::net;

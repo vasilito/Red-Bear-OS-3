@@ -277,7 +277,7 @@ All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 - QEMU used for testing (make qemu). VirtualBox also supported
 - The `repo` binary (cookbook CLI) may crash with TUI in non-interactive environments — use `CI=1`
 - No git submodules — external repos managed via recipe source URLs and repo manifests
-- File `INTEGRATION_REPORT.md` contains detailed integration status from a previous analysis
+- Historical integration report removed (2026-04-16); see `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for current state
 
 ## SUBSYSTEM PRIORITY AND ORDER
 

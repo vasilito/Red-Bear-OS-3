@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::raw::c_ulong;
 use std::ptr;
 use std::sync::Mutex;
@@ -7,7 +8,13 @@ use redox_driver_sys::pci::{enumerate_pci_all, PciDevice, PciDeviceInfo, PciLoca
 const EINVAL: i32 = 22;
 const ENODEV: i32 = 19;
 const EIO: i32 = 5;
+const EBUSY: i32 = 16;
 const PCI_ANY_ID: u32 = !0;
+
+pub const PCI_IRQ_MSI: u32 = 1;
+pub const PCI_IRQ_MSIX: u32 = 2;
+pub const PCI_IRQ_LEGACY: u32 = 4;
+pub const PCI_IRQ_NOLEGACY: u32 = 8;
 
 #[repr(C)]
 #[derive(Default)]
@@ -46,6 +53,14 @@ pub struct PciDeviceId {
     driver_data: c_ulong,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct MsixEntry {
+    pub vector: u32,
+    pub entry: u16,
+    pub _pad: u16,
+}
+
 impl Default for PciDev {
     fn default() -> Self {
         PciDev {
@@ -71,9 +86,16 @@ struct CurrentDevice {
     ptr: usize,
 }
 
+#[derive(Clone)]
+struct AllocatedVectors {
+    _flags: u32,
+    vectors: Vec<i32>,
+}
+
 lazy_static::lazy_static! {
     static ref CURRENT_DEVICE: Mutex<Option<CurrentDevice>> = Mutex::new(None);
     static ref REGISTERED_PROBE: Mutex<Option<PciDriverProbe>> = Mutex::new(None);
+    static ref IRQ_VECTORS: Mutex<HashMap<usize, AllocatedVectors>> = Mutex::new(HashMap::new());
 }
 
 pub const PCI_VENDOR_ID_AMD: u16 = 0x1002;
@@ -104,6 +126,12 @@ fn open_current_device(dev: *mut PciDev) -> Result<PciDevice, i32> {
         log::warn!("pci: failed to open PCI device {}: {}", location, error);
         -ENODEV
     })
+}
+
+fn clear_irq_vectors_for_ptr(dev_ptr: usize) {
+    if let Ok(mut vectors) = IRQ_VECTORS.lock() {
+        vectors.remove(&dev_ptr);
+    }
 }
 
 fn matches_id(info: &PciDeviceInfo, id: &PciDeviceId) -> bool {
@@ -180,6 +208,7 @@ fn replace_current_device(location: PciLocation, dev_ptr: *mut PciDev) {
             location,
             ptr: dev_ptr as usize,
         }) {
+            clear_irq_vectors_for_ptr(previous.ptr);
             unsafe { drop(Box::from_raw(previous.ptr as *mut PciDev)) };
         }
     }
@@ -188,9 +217,51 @@ fn replace_current_device(location: PciLocation, dev_ptr: *mut PciDev) {
 fn clear_current_device() {
     if let Ok(mut state) = CURRENT_DEVICE.lock() {
         if let Some(previous) = state.take() {
+            clear_irq_vectors_for_ptr(previous.ptr);
             unsafe { drop(Box::from_raw(previous.ptr as *mut PciDev)) };
         }
     }
+}
+
+fn allocate_vectors(dev: *mut PciDev, min_vecs: i32, max_vecs: i32, flags: u32) -> i32 {
+    if dev.is_null() || min_vecs <= 0 || max_vecs <= 0 || min_vecs > max_vecs {
+        return -EINVAL;
+    }
+    if flags & (PCI_IRQ_MSI | PCI_IRQ_MSIX | PCI_IRQ_LEGACY) == 0 {
+        return -EINVAL;
+    }
+
+    let base_irq = unsafe { (*dev).irq as i32 };
+    if base_irq <= 0 {
+        return -ENODEV;
+    }
+
+    let dev_key = dev as usize;
+    let Ok(mut vectors) = IRQ_VECTORS.lock() else {
+        return -EINVAL;
+    };
+    if vectors.contains_key(&dev_key) {
+        return -EBUSY;
+    }
+
+    let count = if flags & PCI_IRQ_MSIX != 0 {
+        max_vecs
+    } else {
+        1
+    };
+    if count < min_vecs {
+        return -EINVAL;
+    }
+
+    let allocated = (0..count).map(|index| base_irq + index).collect::<Vec<_>>();
+    vectors.insert(
+        dev_key,
+        AllocatedVectors {
+            _flags: flags,
+            vectors: allocated,
+        },
+    );
+    count
 }
 
 #[no_mangle]
@@ -338,6 +409,82 @@ pub struct PciDriver {
 }
 
 #[no_mangle]
+pub extern "C" fn pci_alloc_irq_vectors(
+    dev: *mut PciDev,
+    min_vecs: i32,
+    max_vecs: i32,
+    flags: u32,
+) -> i32 {
+    allocate_vectors(dev, min_vecs, max_vecs, flags)
+}
+
+#[no_mangle]
+pub extern "C" fn pci_free_irq_vectors(dev: *mut PciDev) {
+    if dev.is_null() {
+        return;
+    }
+    clear_irq_vectors_for_ptr(dev as usize);
+}
+
+#[no_mangle]
+pub extern "C" fn pci_irq_vector(dev: *mut PciDev, vector_idx: i32) -> i32 {
+    if dev.is_null() || vector_idx < 0 {
+        return -EINVAL;
+    }
+
+    let Ok(vectors) = IRQ_VECTORS.lock() else {
+        return -EINVAL;
+    };
+    let Some(allocated) = vectors.get(&(dev as usize)) else {
+        return -EINVAL;
+    };
+    allocated
+        .vectors
+        .get(vector_idx as usize)
+        .copied()
+        .unwrap_or(-EINVAL)
+}
+
+#[no_mangle]
+pub extern "C" fn pci_enable_msi(dev: *mut PciDev) -> i32 {
+    pci_alloc_irq_vectors(dev, 1, 1, PCI_IRQ_MSI)
+}
+
+#[no_mangle]
+pub extern "C" fn pci_disable_msi(dev: *mut PciDev) {
+    pci_free_irq_vectors(dev);
+}
+
+#[no_mangle]
+pub extern "C" fn pci_enable_msix_range(
+    dev: *mut PciDev,
+    entries: *mut MsixEntry,
+    minvec: i32,
+    maxvec: i32,
+) -> i32 {
+    if entries.is_null() {
+        return -EINVAL;
+    }
+
+    let count = pci_alloc_irq_vectors(dev, minvec, maxvec, PCI_IRQ_MSIX);
+    if count < 0 {
+        return count;
+    }
+
+    for index in 0..count {
+        unsafe {
+            (*entries.add(index as usize)).vector = pci_irq_vector(dev, index) as u32;
+        }
+    }
+    count
+}
+
+#[no_mangle]
+pub extern "C" fn pci_disable_msix(dev: *mut PciDev) {
+    pci_free_irq_vectors(dev);
+}
+
+#[no_mangle]
 pub extern "C" fn pci_register_driver(drv: *mut PciDriver) -> i32 {
     if drv.is_null() {
         return -EINVAL;
@@ -438,4 +585,50 @@ pub extern "C" fn pci_unregister_driver(drv: *mut PciDriver) {
         *registered_probe = None;
     }
     log::info!("pci_unregister_driver: cleared registered PCI driver state");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_dev(irq: u32) -> PciDev {
+        PciDev {
+            irq,
+            ..PciDev::default()
+        }
+    }
+
+    #[test]
+    fn pci_irq_vector_lifecycle_works() {
+        let mut dev = test_dev(32);
+        assert_eq!(pci_alloc_irq_vectors(&mut dev, 1, 1, PCI_IRQ_MSI), 1);
+        assert_eq!(pci_irq_vector(&mut dev, 0), 32);
+        assert_eq!(pci_alloc_irq_vectors(&mut dev, 1, 1, PCI_IRQ_MSI), -16);
+        pci_free_irq_vectors(&mut dev);
+        assert_eq!(pci_irq_vector(&mut dev, 0), -22);
+    }
+
+    #[test]
+    fn pci_msix_range_populates_entries() {
+        let mut dev = test_dev(40);
+        let mut entries = [MsixEntry::default(); 3];
+        assert_eq!(
+            pci_enable_msix_range(&mut dev, entries.as_mut_ptr(), 2, 3),
+            3
+        );
+        assert_eq!(entries[0].vector, 40);
+        assert_eq!(entries[1].vector, 41);
+        assert_eq!(entries[2].vector, 42);
+        pci_disable_msix(&mut dev);
+    }
+
+    #[test]
+    fn pci_rejects_invalid_irq_vector_requests() {
+        let mut dev = test_dev(0);
+        assert_eq!(pci_enable_msi(&mut dev), -19);
+        assert_eq!(
+            pci_alloc_irq_vectors(ptr::null_mut(), 1, 1, PCI_IRQ_MSI),
+            -22
+        );
+    }
 }
