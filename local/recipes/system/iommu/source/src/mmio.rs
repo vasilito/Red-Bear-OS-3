@@ -27,7 +27,7 @@ pub mod control {
     pub const EVENT_LOG_EN: u32 = 1 << 2;
     pub const EVENT_INT_EN: u32 = 1 << 3;
     pub const COM_WAIT_INT_EN: u32 = 1 << 4;
-    pub const CMD_BUF_EN: u32 = 1 << 5;
+    pub const CMD_BUF_EN: u32 = 1 << 12;
     pub const PPR_LOG_EN: u32 = 1 << 6;
     pub const PPR_INT_EN: u32 = 1 << 7;
     pub const PPR_EN: u32 = 1 << 8;
@@ -46,12 +46,14 @@ pub mod control {
 }
 
 pub mod status {
-    pub const IOMMU_RUNNING: u32 = 1 << 0;
-    pub const EVENT_OVERFLOW: u32 = 1 << 1;
-    pub const EVENT_LOG_INT: u32 = 1 << 2;
-    pub const COM_WAIT_INT: u32 = 1 << 3;
-    pub const PPR_OVERFLOW: u32 = 1 << 4;
-    pub const PPR_INT: u32 = 1 << 5;
+    pub const EVENT_OVERFLOW: u32 = 1 << 0;
+    pub const EVENT_LOG_INT: u32 = 1 << 1;
+    pub const COM_WAIT_INT: u32 = 1 << 2;
+    pub const EVT_RUN: u32 = 1 << 3;
+    pub const CMDBUF_RUN: u32 = 1 << 4;
+    pub const PPR_LOG_OVERFLOW: u32 = 1 << 5;
+    pub const PPR_LOG_INT: u32 = 1 << 6;
+    pub const PPR_RUN: u32 = 1 << 7;
 }
 
 pub mod ext_feature {

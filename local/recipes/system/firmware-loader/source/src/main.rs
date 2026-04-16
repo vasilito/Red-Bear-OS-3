@@ -2,14 +2,17 @@ mod blob;
 mod scheme;
 
 use std::env;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+#[cfg(target_os = "redox")]
+use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::process;
 
 use log::{error, info, LevelFilter, Metadata, Record};
+#[cfg(target_os = "redox")]
 use redox_scheme::{scheme::SchemeSync, SignalBehavior, Socket};
 
 use blob::FirmwareRegistry;
+#[cfg(target_os = "redox")]
 use scheme::FirmwareScheme;
 
 struct StderrLogger {
@@ -38,9 +41,10 @@ fn init_logging(level: LevelFilter) {
 }
 
 fn default_firmware_dir() -> PathBuf {
-    PathBuf::from("/usr/firmware/")
+    PathBuf::from("/lib/firmware/")
 }
 
+#[cfg(target_os = "redox")]
 unsafe fn get_init_notify_fd() -> RawFd {
     let fd: RawFd = env::var("INIT_NOTIFY")
         .expect("firmware-loader: INIT_NOTIFY not set")
@@ -50,6 +54,7 @@ unsafe fn get_init_notify_fd() -> RawFd {
     fd
 }
 
+#[cfg(target_os = "redox")]
 fn notify_scheme_ready(notify_fd: RawFd, socket: &Socket, scheme: &mut FirmwareScheme) {
     let cap_id = scheme
         .scheme_root()
@@ -67,6 +72,7 @@ fn notify_scheme_ready(notify_fd: RawFd, socket: &Socket, scheme: &mut FirmwareS
     .expect("firmware-loader: failed to notify init that scheme is ready");
 }
 
+#[cfg(target_os = "redox")]
 fn run_daemon(notify_fd: RawFd, registry: FirmwareRegistry) -> ! {
     let socket = Socket::create().expect("firmware-loader: failed to create scheme socket");
     let mut scheme = FirmwareScheme::new(registry);
@@ -137,6 +143,25 @@ fn main() {
         firmware_dir.display()
     );
 
-    let notify_fd = unsafe { get_init_notify_fd() };
-    run_daemon(notify_fd, registry);
+    if env::args().nth(1).as_deref() == Some("--probe") {
+        println!("count={}", registry.len());
+        let mut keys = registry.list_keys();
+        keys.sort_unstable();
+        for key in keys.into_iter().take(16) {
+            println!("firmware={key}");
+        }
+        return;
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    {
+        eprintln!("firmware-loader: daemon mode is only supported on Redox; use --probe on host");
+        process::exit(1);
+    }
+
+    #[cfg(target_os = "redox")]
+    {
+        let notify_fd = unsafe { get_init_notify_fd() };
+        run_daemon(notify_fd, registry);
+    }
 }

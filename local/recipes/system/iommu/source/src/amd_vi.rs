@@ -92,15 +92,6 @@ impl AmdViUnit {
         })?;
         self.mmio = Some(MmioMapping { region });
 
-        let control_initial = self.mmio_read32(offsets::CONTROL)?;
-        let status_initial = self.mmio_read32(offsets::STATUS)?;
-        info!(
-            "amd-vi: unit {} initial control={:#x} status={:#x}",
-            self.info.unit_id(),
-            control_initial,
-            status_initial
-        );
-
         self.disable_unit()?;
 
         let device_table = DeviceTable::new().map_err(|err| err.to_string())?;
@@ -126,12 +117,6 @@ impl AmdViUnit {
         if ext & ext_feature::NX_SUP != 0 {
             control_value |= control::NX_EN;
         }
-        let control_before = self.mmio_read32(offsets::CONTROL)?;
-        info!(
-            "amd-vi: unit {} control register before enable write = {:#x}",
-            self.info.unit_id(),
-            control_before
-        );
         self.mmio_write32(offsets::CONTROL, control_value)?;
 
         self.mmio_write32(offsets::CONTROL, control_value | control::IOMMU_ENABLE)?;
@@ -218,8 +203,10 @@ impl AmdViUnit {
     }
 
     fn wait_for_running(&self, expected: bool) -> Result<(), String> {
+        let expected_mask = status::CMDBUF_RUN | status::EVT_RUN;
         for _ in 0..100_000 {
-            let running = self.mmio_read32(offsets::STATUS)? & status::IOMMU_RUNNING != 0;
+            let status = self.mmio_read32(offsets::STATUS)?;
+            let running = (status & expected_mask) == expected_mask;
             if running == expected {
                 return Ok(());
             }
@@ -227,8 +214,10 @@ impl AmdViUnit {
         }
 
         Err(format!(
-            "timed out waiting for AMD-Vi unit {} running={expected}",
-            self.info.unit_id()
+            "timed out waiting for AMD-Vi unit {} running={expected} (status={:#x}, expected_mask={:#x})",
+            self.info.unit_id(),
+            self.mmio_read32(offsets::STATUS).unwrap_or_default(),
+            expected_mask,
         ))
     }
 

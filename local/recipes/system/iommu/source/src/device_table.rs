@@ -7,7 +7,7 @@ use redox_driver_sys::dma::DmaBuffer;
 pub const DEVICE_TABLE_ENTRIES: usize = 65_536;
 pub const DTE_SIZE: usize = 32;
 
-const DEVICE_TABLE_BYTES: usize = DEVICE_TABLE_ENTRIES * DTE_SIZE;
+pub const DEVICE_TABLE_BYTES: usize = DEVICE_TABLE_ENTRIES * DTE_SIZE;
 
 const DTE_VALID_BIT: u64 = 1 << 0;
 const DTE_TRANSLATION_VALID_BIT: u64 = 1 << 1;

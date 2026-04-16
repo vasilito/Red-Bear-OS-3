@@ -10,8 +10,10 @@ use syscall::{EventFlags, Stat, MODE_FILE};
 
 use crate::blob::FirmwareRegistry;
 
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 const SCHEME_ROOT_ID: usize = 1;
 
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 struct Handle {
     blob_key: String,
     data: Arc<Vec<u8>>,
@@ -19,12 +21,14 @@ struct Handle {
     closed: bool,
 }
 
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 pub struct FirmwareScheme {
     registry: FirmwareRegistry,
     next_id: usize,
     handles: BTreeMap<usize, Handle>,
 }
 
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 impl FirmwareScheme {
     pub fn new(registry: FirmwareRegistry) -> Self {
         FirmwareScheme {
@@ -56,15 +60,11 @@ fn resolve_key(path: &str) -> Option<String> {
         );
         return None;
     }
-    let key = if cleaned.ends_with(".bin") {
-        cleaned.trim_end_matches(".bin").to_string()
-    } else {
-        cleaned.to_string()
-    };
-    // Final sanity: key must be purely alphanumeric with /, -, _
+    let key = cleaned.to_string();
+    // Final sanity: key must be purely alphanumeric with /, -, _, .
     if !key
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '/' || c == '-' || c == '_')
+        .all(|c| c.is_alphanumeric() || c == '/' || c == '-' || c == '_' || c == '.')
     {
         log::warn!(
             "firmware-loader: rejecting invalid characters in key: {:?}",
@@ -160,7 +160,7 @@ impl SchemeSync for FirmwareScheme {
 
     fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
         let handle = self.handle(id)?;
-        let path = format!("firmware:/{}.bin", handle.blob_key);
+        let path = format!("firmware:/{}", handle.blob_key);
         let bytes = path.as_bytes();
         let len = bytes.len().min(buf.len());
         buf[..len].copy_from_slice(&bytes[..len]);
@@ -257,5 +257,26 @@ impl SchemeSync for FirmwareScheme {
                 self.handles.remove(&id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_key;
+
+    #[test]
+    fn accepts_real_firmware_extensions() {
+        assert_eq!(
+            resolve_key("iwlwifi-bz-b0-gf-a0-92.ucode").as_deref(),
+            Some("iwlwifi-bz-b0-gf-a0-92.ucode")
+        );
+        assert_eq!(
+            resolve_key("iwlwifi-bz-b0-gf-a0.pnvm").as_deref(),
+            Some("iwlwifi-bz-b0-gf-a0.pnvm")
+        );
+        assert_eq!(
+            resolve_key("amdgpu/psp_13_0_0_sos.bin").as_deref(),
+            Some("amdgpu/psp_13_0_0_sos.bin")
+        );
     }
 }

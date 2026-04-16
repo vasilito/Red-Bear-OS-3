@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use log::{info, warn};
 use thiserror::Error;
 
+#[allow(dead_code)]
 #[derive(Error, Debug)]
 pub enum BlobError {
     #[error("firmware directory not found: {0}")]
@@ -22,12 +23,14 @@ pub enum BlobError {
     },
 }
 
+#[allow(dead_code)]
 pub struct FirmwareBlob {
     #[allow(dead_code)]
     pub name: String,
     pub path: PathBuf,
 }
 
+#[allow(dead_code)]
 pub struct FirmwareRegistry {
     base_dir: PathBuf,
     blobs: HashMap<String, FirmwareBlob>,
@@ -67,10 +70,12 @@ impl FirmwareRegistry {
         &self.base_dir
     }
 
+    #[allow(dead_code)]
     pub fn contains(&self, key: &str) -> bool {
         self.blobs.contains_key(key)
     }
 
+    #[allow(dead_code)]
     pub fn load(&self, key: &str) -> Result<Arc<Vec<u8>>, BlobError> {
         {
             let cache = self.cache.lock().map_err(|e| BlobError::ReadError {
@@ -113,10 +118,6 @@ impl FirmwareRegistry {
 
     pub fn len(&self) -> usize {
         self.blobs.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.blobs.is_empty()
     }
 
     #[allow(dead_code)]
@@ -162,12 +163,15 @@ fn discover_firmware(base_dir: &Path) -> Result<HashMap<String, FirmwareBlob>, B
                     format!("{}/{}", prefix, file_name)
                 };
                 stack.push((path, new_prefix));
-            } else if metadata.is_file() && file_name.ends_with(".bin") {
-                let stem = file_name.trim_end_matches(".bin");
+            } else if metadata.is_file() {
+                if is_metadata_file(&file_name) {
+                    continue;
+                }
+
                 let key = if prefix.is_empty() {
-                    stem.to_string()
+                    file_name.to_string()
                 } else {
-                    format!("{}/{}", prefix, stem)
+                    format!("{}/{}", prefix, file_name)
                 };
 
                 blobs.insert(key.clone(), FirmwareBlob { name: key, path });
@@ -176,4 +180,47 @@ fn discover_firmware(base_dir: &Path) -> Result<HashMap<String, FirmwareBlob>, B
     }
 
     Ok(blobs)
+}
+
+fn is_metadata_file(file_name: &str) -> bool {
+    matches!(
+        file_name,
+        "WHENCE" | "README" | "README.md" | "check_whence.py" | "Makefile"
+    ) || file_name.starts_with("LICENCE")
+        || file_name.starts_with("LICENSE")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_root(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{stamp}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn discovers_ucode_pnvm_and_bin_but_skips_license_metadata() {
+        let root = temp_root("rbos-fw-discover");
+        fs::write(root.join("demo.bin"), []).unwrap();
+        fs::write(root.join("iwlwifi-bz-b0-gf-a0-92.ucode"), []).unwrap();
+        fs::write(root.join("iwlwifi-bz-b0-gf-a0.pnvm"), []).unwrap();
+        fs::write(root.join("LICENCE.test"), "license").unwrap();
+        fs::write(root.join("WHENCE"), "meta").unwrap();
+
+        let blobs = discover_firmware(&root).unwrap();
+        assert!(blobs.contains_key("demo.bin"));
+        assert!(blobs.contains_key("iwlwifi-bz-b0-gf-a0-92.ucode"));
+        assert!(blobs.contains_key("iwlwifi-bz-b0-gf-a0.pnvm"));
+        assert!(!blobs.contains_key("LICENCE.test"));
+        assert!(!blobs.contains_key("WHENCE"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }
