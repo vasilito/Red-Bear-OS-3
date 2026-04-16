@@ -1,7 +1,8 @@
 # Red Bear OS Wayland Validation Profile
 #
 # Build: ./local/scripts/build-redbear.sh redbear-wayland
-# Run:   ./local/scripts/test-phase4-wayland-qemu.sh
+# Phase 1 substrate validation: ./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
+# Phase 2 Wayland validation:    ./local/scripts/test-phase4-wayland-qemu.sh
 
 include = ["wayland.toml"]
 

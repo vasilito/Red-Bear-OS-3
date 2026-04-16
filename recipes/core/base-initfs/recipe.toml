@@ -95,7 +95,7 @@ done
 cp "${COOKBOOK_SYSROOT}/usr/bin/redoxfs" "${COOKBOOK_BUILD}/initfs/bin"
 
 ARCH="$(echo "${GNU_TARGET}" | cut -d - -f1)"
-RUSTFLAGS="$RUSTFLAGS -Ctarget-feature=+crt-static" cargo \
+RUSTFLAGS="$RUSTFLAGS -Ctarget-feature=+crt-static -Clink-arg=-nostartfiles -Clink-arg=-nostdlib" cargo \
     -Zbuild-std=core,alloc,compiler_builtins \
     -Zbuild-std-features=compiler-builtins-mem build \
     --target "${TARGET}" \
@@ -104,6 +104,7 @@ RUSTFLAGS="$RUSTFLAGS -Ctarget-feature=+crt-static" cargo \
     --target-dir "${COOKBOOK_BUILD}"
 "${GNU_TARGET}-ld" \
     -o "${COOKBOOK_BUILD}/bootstrap" \
+    -nostdlib \
     --gc-sections \
     -T "${COOKBOOK_SOURCE}/bootstrap/src/${ARCH}.ld" \
     -z max-page-size=4096 \

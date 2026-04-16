@@ -3,7 +3,8 @@
 # Live:  make live CONFIG_NAME=redbear-kde
 #
 # KDE Plasma 6 session with Wayland compositor
-# Requires: D-Bus, libinput, Mesa, Qt6, KF6, KWin, plasma-workspace
+# Current state: KWin + KF6 + Qt6 + Mesa + D-Bus + seatd
+# Future: add plasma-workspace, plasma-desktop when their deps are resolved
 
 include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
@@ -89,7 +90,7 @@ kf6-kcmutils = {}
 kf6-kwayland = {}
 kdecoration = {}
 
-# KDE session surface (Phase 6 slice)
+# KDE session surface (v2.0 Phases 3–4)
 kwin = {}
 
 # Graphics
@@ -118,18 +119,6 @@ cmd = "dbus-daemon"
 args = ["--system"]
 type = "oneshot_async"
 """
-
-[[files]]
-path = "/var/lib/dbus"
-data = ""
-directory = true
-mode = 0o755
-
-[[files]]
-path = "/run/dbus"
-data = ""
-directory = true
-mode = 0o755
 
 [[files]]
 path = "/var/lib/dbus"
@@ -250,11 +239,6 @@ fi
 
 # Start D-Bus session bus
 eval $(dbus-launch --sh-syntax)
-
-# Start KWin Wayland compositor
-kwin_wayland --replace &
-
-sleep 2
 
 # Start KWin Wayland compositor
 kwin_wayland --replace

@@ -2,6 +2,9 @@
 #
 # Shared by profiles that ship the firmware/input/Wi-Fi control compatibility stack.
 
+[packages]
+redbear-quirks = {}
+
 [[files]]
 path = "/lib/firmware"
 data = ""
