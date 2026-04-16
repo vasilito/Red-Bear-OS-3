@@ -1,0 +1,10 @@
+debian/
+dist/
+release/
+contrib/*.db
+contrib/*.txt
+
+# Normal intermediate files
+*.orig
+*.patch
+*.rej

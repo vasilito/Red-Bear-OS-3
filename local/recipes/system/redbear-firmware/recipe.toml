@@ -1,0 +1,61 @@
+[source]
+# Local overlay recipe. Firmware sources are fetched during the custom build step into a shared
+# cache, then staged into /lib/firmware.
+path = "source"
+upstream = "https://gitlab.com/kernel-firmware/linux-firmware.git"
+
+[build]
+template = "custom"
+script = """
+FIRMWARE_URL="https://gitlab.com/kernel-firmware/linux-firmware/-/archive/main/linux-firmware-main.tar.gz"
+CACHE_DIR="${COOKBOOK_ROOT}/build/redbear-firmware-cache"
+ARCHIVE="${CACHE_DIR}/linux-firmware-main.tar.gz"
+EXTRACTED="${CACHE_DIR}/linux-firmware-main"
+
+mkdir -p "${CACHE_DIR}"
+
+if [ ! -f "${ARCHIVE}" ]; then
+    wget -O "${ARCHIVE}" "${FIRMWARE_URL}"
+fi
+
+rm -rf "${EXTRACTED}"
+mkdir -p "${EXTRACTED}"
+tar -xf "${ARCHIVE}" -C "${EXTRACTED}" --strip-components=1
+
+mkdir -p "${COOKBOOK_STAGE}/lib/firmware"
+mkdir -p "${COOKBOOK_STAGE}/lib/firmware/LICENSES"
+
+# Install all firmware payloads from linux-firmware while keeping license metadata separate.
+while IFS= read -r -d '' file; do
+    rel="${file#${EXTRACTED}/}"
+    case "$(basename "$rel")" in
+        README|README.md|Makefile|check_whence.py)
+            continue
+            ;;
+        LICENCE*|LICENSE*)
+            install -Dm0644 "$file" "${COOKBOOK_STAGE}/lib/firmware/LICENSES/$(basename "$rel")"
+            continue
+            ;;
+        WHENCE)
+            install -Dm0644 "$file" "${COOKBOOK_STAGE}/lib/firmware/LICENSES/WHENCE"
+            continue
+            ;;
+    esac
+    install -Dm0644 "$file" "${COOKBOOK_STAGE}/lib/firmware/${rel}"
+done < <(find "${EXTRACTED}" -type f -print0)
+
+cat > "${COOKBOOK_STAGE}/lib/firmware/LICENSES/index.txt" <<'EOF'
+Red Bear firmware bundle
+========================
+
+Firmware under /lib/firmware is third-party upstream firmware from linux-firmware.
+Licenses vary by vendor and artifact.
+
+See:
+- /lib/firmware/LICENSES/WHENCE
+- /lib/firmware/LICENSES/LICENCE.*
+- /lib/firmware/LICENSES/LICENSE*
+
+Firmware is redistributed unmodified and remains under its own licenses.
+EOF
+"""
