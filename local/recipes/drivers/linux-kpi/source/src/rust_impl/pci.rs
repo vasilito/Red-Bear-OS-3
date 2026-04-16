@@ -128,6 +128,46 @@ fn open_current_device(dev: *mut PciDev) -> Result<PciDevice, i32> {
     })
 }
 
+fn quirk_location_from_dev(dev: &PciDev) -> PciLocation {
+    PciLocation {
+        segment: 0,
+        bus: dev.bus,
+        device: dev.dev,
+        function: dev.func,
+    }
+}
+
+fn quirk_info_from_dev(dev: &PciDev) -> PciDeviceInfo {
+    let location = quirk_location_from_dev(dev);
+    let mut info = PciDeviceInfo {
+        location,
+        vendor_id: dev.vendor,
+        device_id: dev.device,
+        subsystem_vendor_id: redox_driver_sys::quirks::PCI_QUIRK_ANY_ID,
+        subsystem_device_id: redox_driver_sys::quirks::PCI_QUIRK_ANY_ID,
+        revision: dev.revision,
+        class_code: 0,
+        subclass: 0,
+        prog_if: 0,
+        header_type: 0,
+        irq: if dev.irq != 0 && dev.irq != u32::from(u8::MAX) {
+            Some(dev.irq)
+        } else {
+            None
+        },
+        bars: Vec::new(),
+        capabilities: Vec::new(),
+    };
+
+    if let Ok(mut pci) = PciDevice::open_location(&location) {
+        if let Ok(full_info) = pci.full_info() {
+            info = full_info;
+        }
+    }
+
+    info
+}
+
 fn clear_irq_vectors_for_ptr(dev_ptr: usize) {
     if let Ok(mut vectors) = IRQ_VECTORS.lock() {
         vectors.remove(&dev_ptr);
@@ -300,7 +340,7 @@ pub extern "C" fn pci_iomap(dev: *mut PciDev, bar: u32, max_len: usize) -> *mut 
     if len == 0 {
         return ptr::null_mut();
     }
-    log::warn!("pci_iomap: bar={} len={} — using heap fallback", bar, len);
+    log::debug!("pci_iomap: bar={} len={} — mapping via ioremap", bar, len);
     super::io::ioremap(unsafe { (*dev).bars[bar as usize] }, len)
 }
 
@@ -378,7 +418,28 @@ pub extern "C" fn pci_set_master(dev: *mut PciDev) {
     if dev.is_null() {
         return;
     }
-    log::info!("pci_set_master");
+
+    let mut cmd: u32 = 0;
+    let rc = pci_read_config_dword(dev, 0x04, &mut cmd);
+    if rc != 0 {
+        log::warn!("pci_set_master: failed to read command register");
+        return;
+    }
+
+    if cmd & 0x04 != 0 {
+        return;
+    }
+
+    cmd = (cmd & 0x0000_FFFF) | 0x04;
+    let rc = pci_write_config_dword(dev, 0x04, cmd);
+    if rc != 0 {
+        log::warn!("pci_set_master: failed to write command register");
+        return;
+    }
+    log::info!(
+        "pci_set_master: enabled bus mastering (cmd={:#06x})",
+        cmd & 0xFFFF
+    );
 }
 
 #[no_mangle]
@@ -395,6 +456,21 @@ pub extern "C" fn pci_resource_len(dev: *const PciDev, bar: u32) -> u64 {
         return 0;
     }
     unsafe { (*dev).bar_sizes[bar as usize] }
+}
+
+#[no_mangle]
+pub extern "C" fn pci_get_quirk_flags(dev: *mut PciDev) -> u64 {
+    if dev.is_null() {
+        return 0;
+    }
+
+    let info = quirk_info_from_dev(unsafe { &*dev });
+    redox_driver_sys::quirks::lookup_pci_quirks(&info).bits()
+}
+
+#[no_mangle]
+pub extern "C" fn pci_has_quirk(dev: *mut PciDev, flag: u64) -> bool {
+    (pci_get_quirk_flags(dev) & flag) != 0
 }
 
 pub type PciDriverProbe = extern "C" fn(*mut PciDev, *const PciDeviceId) -> i32;

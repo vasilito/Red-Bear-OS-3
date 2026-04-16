@@ -9,6 +9,7 @@
 
 struct ieee80211_hw {
     struct wiphy *wiphy;
+    const struct ieee80211_ops *ops;
     void *priv;
     int registered;
     u32 extra_tx_headroom;
@@ -32,6 +33,25 @@ struct ieee80211_bss_conf {
     bool assoc;
     u16 aid;
     u16 beacon_int;
+    u8 bssid[6];
+    u32 basic_rates;
+    u8 bandwidth;
+    struct {
+        u32 center_freq;
+        u16 band;
+        void *channel;
+    } chandef;
+};
+
+struct ieee80211_rx_status {
+    u16 freq;
+    u32 band;
+    s8 signal;
+    s8 noise;
+    u8 rate_idx;
+    u32 flag;
+    u8 antenna;
+    u32 rx_flags;
 };
 
 enum ieee80211_sta_state {
@@ -62,8 +82,13 @@ struct ieee80211_ops {
     int  (*set_key)(struct ieee80211_hw *hw, enum set_key_cmd cmd,
                     struct ieee80211_vif *vif, struct ieee80211_sta *sta,
                     struct key_params *key);
+    int  (*ampdu_action)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+                         struct ieee80211_sta *sta, u16 action, u16 tid, u16 ssn);
     void (*sw_scan_start)(struct ieee80211_hw *hw, struct ieee80211_vif *vif, const u8 *mac_addr);
     void (*sw_scan_complete)(struct ieee80211_hw *hw, struct ieee80211_vif *vif);
+    u64  (*prepare_multicast)(struct ieee80211_hw *hw, void *mc_list);
+    void (*configure_filter)(struct ieee80211_hw *hw, u32 changed_flags,
+                             u32 *total_flags, u64 multicast);
     int  (*sched_scan_start)(struct ieee80211_hw *hw, struct ieee80211_vif *vif, void *req);
     void (*sched_scan_stop)(struct ieee80211_hw *hw, struct ieee80211_vif *vif);
 };
@@ -87,6 +112,11 @@ extern void ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted);
 extern void ieee80211_connection_loss(struct ieee80211_vif *vif);
 extern int  ieee80211_start_tx_ba_session(struct ieee80211_sta *sta, u16 tid, u16 timeout);
 extern int  ieee80211_stop_tx_ba_session(struct ieee80211_sta *sta, u16 tid);
+extern int  ieee80211_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+                                struct ieee80211_sta *sta, u32 old_state, u32 new_state);
+extern struct ieee80211_sta *ieee80211_find_sta(struct ieee80211_hw *hw, const u8 *addr);
 extern void ieee80211_beacon_loss(struct ieee80211_vif *vif);
+extern void ieee80211_rx_irqsafe(struct ieee80211_hw *hw, struct sk_buff *skb);
+extern size_t ieee80211_rx_drain(struct ieee80211_hw *hw);
 
 #endif

@@ -1,4 +1,5 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
 use std::sync::atomic::{fence, Ordering};
@@ -10,6 +11,7 @@ lazy_static::lazy_static! {
             .ok()
             .map(|fd| fd)
     };
+    static ref DMA_MASK_TRACKER: Mutex<HashMap<usize, u64>> = Mutex::new(HashMap::new());
 }
 
 #[cfg(target_os = "redox")]
@@ -157,15 +159,38 @@ pub extern "C" fn dma_map_single(_dev: *mut u8, ptr: *mut u8, _size: usize, _dir
 }
 
 #[no_mangle]
-pub extern "C" fn dma_unmap_single(_dev: *mut u8, _addr: u64, _size: usize, _dir: u32) {}
+pub extern "C" fn dma_unmap_single(_dev: *mut u8, addr: u64, _size: usize, _dir: u32) {
+    if addr == 0 {
+        return;
+    }
+    log::trace!("dma_unmap_single: addr={:#x}", addr);
+}
 
 #[no_mangle]
-pub extern "C" fn dma_set_mask(_dev: *mut u8, _mask: u64) -> i32 {
+pub extern "C" fn dma_set_mask(dev: *mut u8, mask: u64) -> i32 {
+    if dev.is_null() {
+        return -22;
+    }
+    if let Ok(mut tracker) = DMA_MASK_TRACKER.lock() {
+        tracker.insert(dev as usize, mask);
+    }
+    log::debug!("dma_set_mask: dev={:#x} mask={:#x}", dev as usize, mask);
     0
 }
 
 #[no_mangle]
-pub extern "C" fn dma_set_coherent_mask(_dev: *mut u8, _mask: u64) -> i32 {
+pub extern "C" fn dma_set_coherent_mask(dev: *mut u8, mask: u64) -> i32 {
+    if dev.is_null() {
+        return -22;
+    }
+    if let Ok(mut tracker) = DMA_MASK_TRACKER.lock() {
+        tracker.insert(dev as usize | 0x1, mask);
+    }
+    log::debug!(
+        "dma_set_coherent_mask: dev={:#x} mask={:#x}",
+        dev as usize,
+        mask
+    );
     0
 }
 
@@ -338,7 +363,12 @@ pub extern "C" fn dma_map_page(
 }
 
 #[no_mangle]
-pub extern "C" fn dma_unmap_page(_dev: *mut u8, _addr: u64, _size: usize, _dir: u32) {}
+pub extern "C" fn dma_unmap_page(_dev: *mut u8, addr: u64, _size: usize, _dir: u32) {
+    if addr == 0 {
+        return;
+    }
+    log::trace!("dma_unmap_page: addr={:#x}", addr);
+}
 
 #[no_mangle]
 pub extern "C" fn dma_mapping_error(_dev: *mut u8, addr: u64) -> i32 {

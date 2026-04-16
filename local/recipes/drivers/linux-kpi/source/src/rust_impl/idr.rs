@@ -149,3 +149,95 @@ pub extern "C" fn idr_destroy(idr: *mut Idr) {
     idr_ref.map.clear();
     idr_ref.next_id = 0;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idr_alloc_and_find_round_trip() {
+        let mut idr = std::mem::MaybeUninit::<Idr>::uninit();
+        idr_init(idr.as_mut_ptr());
+
+        let ptr1: *mut u8 = 0x1000 as *mut u8;
+        let id1 = idr_alloc(idr.as_mut_ptr(), ptr1, 1, 0, 0);
+        assert!(id1 >= 1, "allocated ID should be >= start");
+
+        assert_eq!(idr_find(idr.as_mut_ptr(), id1 as u32), ptr1);
+        assert_eq!(idr_find(idr.as_mut_ptr(), 9999), std::ptr::null_mut());
+
+        idr_destroy(idr.as_mut_ptr());
+    }
+
+    #[test]
+    fn idr_remove_frees_slot() {
+        let mut idr = std::mem::MaybeUninit::<Idr>::uninit();
+        idr_init(idr.as_mut_ptr());
+
+        let ptr1: *mut u8 = 0x2000 as *mut u8;
+        let id1 = idr_alloc(idr.as_mut_ptr(), ptr1, 10, 0, 0);
+        assert!(id1 >= 10);
+
+        idr_remove(idr.as_mut_ptr(), id1 as u32);
+        assert_eq!(idr_find(idr.as_mut_ptr(), id1 as u32), std::ptr::null_mut());
+
+        idr_destroy(idr.as_mut_ptr());
+    }
+
+    #[test]
+    fn idr_alloc_with_bounded_range() {
+        let mut idr = std::mem::MaybeUninit::<Idr>::uninit();
+        idr_init(idr.as_mut_ptr());
+
+        let ptr1: *mut u8 = 0x3000 as *mut u8;
+        let id1 = idr_alloc(idr.as_mut_ptr(), ptr1, 5, 8, 0);
+        assert!(id1 >= 5 && id1 < 8, "ID should be in [5, 8)");
+
+        idr_destroy(idr.as_mut_ptr());
+    }
+
+    #[test]
+    fn idr_alloc_returns_enospc_when_full() {
+        let mut idr = std::mem::MaybeUninit::<Idr>::uninit();
+        idr_init(idr.as_mut_ptr());
+
+        let ptr1: *mut u8 = 0x4000 as *mut u8;
+        let id1 = idr_alloc(idr.as_mut_ptr(), ptr1, 1, 2, 0);
+        assert_eq!(id1, 1);
+
+        let ptr2: *mut u8 = 0x4001 as *mut u8;
+        let id2 = idr_alloc(idr.as_mut_ptr(), ptr2, 1, 2, 0);
+        assert_eq!(id2, -ENOSPC);
+
+        idr_destroy(idr.as_mut_ptr());
+    }
+
+    #[test]
+    fn idr_null_pointers_are_safe() {
+        assert_eq!(
+            idr_alloc(std::ptr::null_mut(), std::ptr::null_mut(), 1, 0, 0),
+            -EINVAL
+        );
+        assert_eq!(idr_find(std::ptr::null_mut(), 1), std::ptr::null_mut());
+        idr_remove(std::ptr::null_mut(), 1);
+        idr_destroy(std::ptr::null_mut());
+        idr_init(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn idr_alloc_reuses_removed_id() {
+        let mut idr = std::mem::MaybeUninit::<Idr>::uninit();
+        idr_init(idr.as_mut_ptr());
+
+        let ptr1: *mut u8 = 0x5000 as *mut u8;
+        let id1 = idr_alloc(idr.as_mut_ptr(), ptr1, 1, 0, 0);
+
+        idr_remove(idr.as_mut_ptr(), id1 as u32);
+
+        let ptr2: *mut u8 = 0x5001 as *mut u8;
+        let id2 = idr_alloc(idr.as_mut_ptr(), ptr2, 1, 0, 0);
+        assert_eq!(id2, id1, "should reuse removed ID");
+
+        idr_destroy(idr.as_mut_ptr());
+    }
+}

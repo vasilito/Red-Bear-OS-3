@@ -9,6 +9,12 @@ enum nl80211_iftype {
     NL80211_IFTYPE_MONITOR = 6,
 };
 
+enum nl80211_band {
+    NL80211_BAND_2GHZ = 0,
+    NL80211_BAND_5GHZ = 1,
+    NL80211_BAND_6GHZ = 2,
+};
+
 enum nl80211_commands {
     NL80211_CMD_UNSPEC = 0,
     NL80211_CMD_TRIGGER_SCAN = 33,

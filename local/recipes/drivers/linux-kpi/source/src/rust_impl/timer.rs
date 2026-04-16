@@ -169,7 +169,21 @@ pub extern "C" fn mod_timer(timer: *mut TimerList, expires: u64) -> i32 {
     let data_addr = entry.data.load(Ordering::Acquire) as usize;
     let entry_for_thread = entry.clone();
     let handle = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(delay));
+        let start = std::time::Instant::now();
+        let total = Duration::from_millis(delay);
+        loop {
+            let elapsed = start.elapsed();
+            if elapsed >= total {
+                break;
+            }
+            if !entry_for_thread.active.load(Ordering::Acquire) {
+                return;
+            }
+            if entry_for_thread.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
 
         if !entry_for_thread.active.load(Ordering::Acquire) {
             return;
@@ -252,5 +266,159 @@ pub extern "C" fn timer_pending(timer: *const TimerList) -> i32 {
         Some(entry) if entry.active.load(Ordering::Acquire) => 1,
         Some(_) => 0,
         None => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    extern "C" fn test_timer_callback(_data: c_ulong) {}
+
+    #[test]
+    fn setup_timer_initializes_struct() {
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), test_timer_callback, 42);
+
+        let timer_ref = unsafe { &*timer.as_ptr() };
+        assert_eq!(timer_ref.expires.load(Ordering::Acquire), 0);
+        assert!(!timer_ref.active.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn setup_timer_null_pointer_is_safe() {
+        setup_timer(std::ptr::null_mut(), test_timer_callback, 0);
+    }
+
+    #[test]
+    fn mod_timer_returns_was_active() {
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), test_timer_callback, 0);
+
+        let was_active = mod_timer(timer.as_mut_ptr(), current_jiffies() + 30000);
+        assert_eq!(
+            was_active, 0,
+            "first mod_timer should return 0 (was inactive)"
+        );
+
+        let was_active = mod_timer(timer.as_mut_ptr(), current_jiffies() + 30000);
+        assert_eq!(
+            was_active, 1,
+            "second mod_timer should return 1 (was active)"
+        );
+
+        del_timer_sync(timer.as_mut_ptr());
+    }
+
+    #[test]
+    fn mod_timer_null_pointer_returns_zero() {
+        assert_eq!(mod_timer(std::ptr::null_mut(), 1000), 0);
+    }
+
+    #[test]
+    fn del_timer_cancels_active_timer() {
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), test_timer_callback, 0);
+        mod_timer(timer.as_mut_ptr(), current_jiffies() + 30000);
+
+        let result = del_timer_sync(timer.as_mut_ptr());
+        assert_eq!(result, 1, "del_timer should return 1 for active timer");
+    }
+
+    #[test]
+    fn del_timer_null_pointer_returns_zero() {
+        assert_eq!(del_timer(std::ptr::null_mut()), 0);
+    }
+
+    #[test]
+    fn del_timer_sync_cancels_long_timer() {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn counting_callback(_data: c_ulong) {
+            COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), counting_callback, 0);
+
+        COUNTER.store(0, Ordering::Relaxed);
+        mod_timer(timer.as_mut_ptr(), current_jiffies() + 30000);
+
+        let result = del_timer_sync(timer.as_mut_ptr());
+        assert_eq!(result, 1, "del_timer_sync should return 1 for active timer");
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            COUNTER.load(Ordering::Relaxed),
+            0,
+            "callback should not have fired after cancel"
+        );
+    }
+
+    #[test]
+    fn del_timer_returns_zero_for_inactive() {
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), test_timer_callback, 0);
+
+        assert_eq!(
+            del_timer(timer.as_mut_ptr()),
+            0,
+            "del_timer on inactive timer should return 0"
+        );
+    }
+
+    #[test]
+    fn timer_pending_null_returns_zero() {
+        assert_eq!(timer_pending(std::ptr::null()), 0);
+    }
+
+    #[test]
+    fn timer_pending_reflects_state() {
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), test_timer_callback, 0);
+
+        assert_eq!(
+            timer_pending(timer.as_ptr()),
+            0,
+            "new timer should not be pending"
+        );
+
+        mod_timer(timer.as_mut_ptr(), current_jiffies() + 30000);
+        assert_eq!(
+            timer_pending(timer.as_ptr()),
+            1,
+            "armed timer should be pending"
+        );
+
+        del_timer_sync(timer.as_mut_ptr());
+        assert_eq!(
+            timer_pending(timer.as_ptr()),
+            0,
+            "cancelled timer should not be pending"
+        );
+    }
+
+    #[test]
+    fn mod_timer_fires_callback() {
+        static FIRE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn fire_callback(_data: c_ulong) {
+            FIRE_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let mut timer = std::mem::MaybeUninit::<TimerList>::uninit();
+        setup_timer(timer.as_mut_ptr(), fire_callback, 0);
+
+        FIRE_COUNT.store(0, Ordering::Relaxed);
+        mod_timer(timer.as_mut_ptr(), current_jiffies());
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            FIRE_COUNT.load(Ordering::Relaxed) >= 1,
+            "callback should have fired"
+        );
+
+        del_timer_sync(timer.as_mut_ptr());
     }
 }

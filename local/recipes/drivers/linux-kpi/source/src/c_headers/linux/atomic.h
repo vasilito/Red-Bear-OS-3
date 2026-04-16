@@ -1,7 +1,7 @@
 #ifndef _LINUX_ATOMIC_H
 #define _LINUX_ATOMIC_H
 
-#include <linux/types.h>
+#include "types.h"
 
 typedef struct {
     volatile int counter;

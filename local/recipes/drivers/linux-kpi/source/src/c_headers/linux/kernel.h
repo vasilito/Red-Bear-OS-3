@@ -1,8 +1,8 @@
 #ifndef _LINUX_KERNEL_H
 #define _LINUX_KERNEL_H
 
-#include <linux/compiler.h>
-#include <linux/types.h>
+#include "compiler.h"
+#include "types.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <unistd.h>

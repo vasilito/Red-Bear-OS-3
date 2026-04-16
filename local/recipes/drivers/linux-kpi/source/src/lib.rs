@@ -17,5 +17,7 @@ pub use rust_impl::memory;
 pub use rust_impl::net;
 pub use rust_impl::pci;
 pub use rust_impl::sync;
+pub use rust_impl::timer;
+pub use rust_impl::wait;
 pub use rust_impl::wireless;
 pub use rust_impl::workqueue;

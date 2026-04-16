@@ -14,8 +14,9 @@ extern int irqs_disabled(void);
 static inline int in_interrupt(void) { return irqs_disabled(); }
 static inline int in_irq(void) { return irqs_disabled(); }
 
-#define disable_irq_nosync(irq) ((void)(irq))
-#define enable_irq(irq)         ((void)(irq))
+extern void disable_irq(unsigned int irq);
+extern void disable_irq_nosync(unsigned int irq);
+extern void enable_irq(unsigned int irq);
 
 #define IRQF_NO_SUSPEND     0x0000U
 #define IRQF_FORCE_RESUME   0x0000U

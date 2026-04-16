@@ -17,6 +17,7 @@ pub type IrqHandler = extern "C" fn(i32, *mut u8) -> u32;
 
 struct IrqEntry {
     cancel: Arc<AtomicBool>,
+    masked: Arc<AtomicBool>,
     fd: Option<File>,
     handle: Option<std::thread::JoinHandle<()>>,
 }
@@ -51,7 +52,9 @@ pub extern "C" fn request_irq(
     };
 
     let cancel = Arc::new(AtomicBool::new(false));
+    let masked = Arc::new(AtomicBool::new(false));
     let cancel_clone = Arc::clone(&cancel);
+    let masked_clone = Arc::clone(&masked);
     let send_dev_id = SendU8Ptr(dev_id);
 
     let handle = std::thread::spawn(move || {
@@ -69,6 +72,9 @@ pub extern "C" fn request_irq(
                     if cancel_clone.load(Ordering::Acquire) {
                         break;
                     }
+                    if masked_clone.load(Ordering::Acquire) {
+                        continue;
+                    }
                     handler(irq as i32, send_dev_id.as_ptr());
                 }
             }
@@ -77,6 +83,7 @@ pub extern "C" fn request_irq(
 
     let entry = IrqEntry {
         cancel: Arc::clone(&cancel),
+        masked: Arc::clone(&masked),
         fd: Some(fd),
         handle: Some(handle),
     };
@@ -120,7 +127,102 @@ pub extern "C" fn free_irq(irq: u32, _dev_id: *mut u8) {
 }
 
 #[no_mangle]
-pub extern "C" fn enable_irq(_irq: u32) {}
+pub extern "C" fn disable_irq_nosync(irq: u32) {
+    disable_irq(irq)
+}
 
 #[no_mangle]
-pub extern "C" fn disable_irq(_irq: u32) {}
+pub extern "C" fn enable_irq(irq: u32) {
+    if let Ok(table) = IRQ_TABLE.lock() {
+        if let Some(entry) = table.get(&irq) {
+            entry.masked.store(false, Ordering::Release);
+            log::trace!("enable_irq: unmasked IRQ {}", irq);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn disable_irq(irq: u32) {
+    if let Ok(table) = IRQ_TABLE.lock() {
+        if let Some(entry) = table.get(&irq) {
+            entry.masked.store(true, Ordering::Release);
+            log::trace!("disable_irq: masked IRQ {}", irq);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_irq_returns_error_without_scheme() {
+        let result = request_irq(99, test_handler, 0, std::ptr::null(), std::ptr::null_mut());
+        assert_eq!(
+            result, -22,
+            "request_irq should return -EINVAL without /scheme/irq/"
+        );
+    }
+
+    #[test]
+    fn free_irq_on_unregistered_is_safe() {
+        free_irq(42, std::ptr::null_mut());
+    }
+
+    #[test]
+    fn enable_irq_on_unregistered_is_noop() {
+        enable_irq(42);
+    }
+
+    #[test]
+    fn disable_irq_on_unregistered_is_noop() {
+        disable_irq(42);
+    }
+
+    #[test]
+    fn disable_irq_nosync_is_equivalent_to_disable_irq() {
+        // Insert a synthetic entry directly, then verify disable_irq_nosync
+        // sets the same masked state as disable_irq.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let masked = Arc::new(AtomicBool::new(false));
+
+        let entry = IrqEntry {
+            cancel,
+            masked: Arc::clone(&masked),
+            fd: None,
+            handle: None,
+        };
+
+        {
+            let mut table = IRQ_TABLE.lock().unwrap();
+            table.insert(200, entry);
+        }
+
+        disable_irq_nosync(200);
+        assert!(
+            masked.load(Ordering::Acquire),
+            "disable_irq_nosync should set masked=true"
+        );
+
+        enable_irq(200);
+        assert!(
+            !masked.load(Ordering::Acquire),
+            "enable_irq should set masked=false"
+        );
+
+        disable_irq(200);
+        assert!(
+            masked.load(Ordering::Acquire),
+            "disable_irq should set masked=true"
+        );
+
+        {
+            let mut table = IRQ_TABLE.lock().unwrap();
+            table.remove(&200);
+        }
+    }
+
+    extern "C" fn test_handler(_irq: i32, _dev_id: *mut u8) -> u32 {
+        0
+    }
+}

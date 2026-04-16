@@ -1,7 +1,7 @@
 #ifndef _LINUX_SLAB_H
 #define _LINUX_SLAB_H
 
-#include <linux/types.h>
+#include "types.h"
 #include <stddef.h>
 
 #define GFP_KERNEL  0U

@@ -19,7 +19,11 @@ static inline void init_waitqueue_head(struct wait_queue_head *wq)
     do { while (!(condition)) { __asm__ volatile("pause"); } } while(0)
 
 #define wait_event_timeout(wq, condition, timeout) \
-    ({ (void)(wq); (condition) ? 1 : 0; })
+    ({ (void)(wq); unsigned long _deadline = jiffies + (timeout); \
+       int _ret = 0; \
+       while (!(_ret = !!(condition)) && time_before(jiffies, _deadline)) { \
+           __asm__ volatile("pause"); \
+       } _ret; })
 
 #define wait_event_interruptible(wq, condition) \
     ({ (void)(wq); (condition) ? 0 : -512; })

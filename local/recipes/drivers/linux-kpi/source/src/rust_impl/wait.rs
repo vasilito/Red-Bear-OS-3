@@ -184,3 +184,135 @@ pub extern "C" fn wait_event_timeout(
 ) -> i32 {
     wait_event_timeout_impl(wq, || condition(), timeout_ms)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+
+    #[derive(Copy, Clone)]
+    struct SendWq(*mut WaitQueueHead);
+    unsafe impl Send for SendWq {}
+    impl SendWq {
+        fn ptr(&self) -> *mut WaitQueueHead {
+            self.0
+        }
+    }
+
+    #[test]
+    fn init_waitqueue_head_initializes() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+        let wq_ref = unsafe { &*wq.as_ptr() };
+        let guard = wq_ref.mutex.lock().unwrap();
+        assert!(!*guard);
+    }
+
+    #[test]
+    fn init_waitqueue_head_null_is_safe() {
+        init_waitqueue_head(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn wake_up_null_is_safe() {
+        wake_up(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn wait_event_unblocks_on_wake_up() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+        let send = SendWq(wq.as_mut_ptr());
+
+        static WOKE: AtomicBool = AtomicBool::new(false);
+        WOKE.store(false, AtomicOrdering::Relaxed);
+
+        extern "C" fn cond_check_woke() -> bool {
+            WOKE.load(AtomicOrdering::Relaxed)
+        }
+
+        let handle = std::thread::spawn(move || {
+            wait_event(send.ptr(), cond_check_woke);
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(!handle.is_finished());
+
+        WOKE.store(true, AtomicOrdering::Relaxed);
+        wake_up(wq.as_mut_ptr());
+
+        handle.join().expect("wait_event thread should complete");
+    }
+
+    #[test]
+    fn wait_event_returns_immediately_when_condition_true() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+
+        extern "C" fn cond_true() -> bool {
+            true
+        }
+
+        let send = SendWq(wq.as_mut_ptr());
+        let handle = std::thread::spawn(move || {
+            wait_event(send.ptr(), cond_true);
+        });
+
+        assert!(handle.join().is_ok());
+    }
+
+    #[test]
+    fn wait_event_timeout_returns_one_when_condition_met() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+
+        extern "C" fn cond_true() -> bool {
+            true
+        }
+
+        assert_eq!(wait_event_timeout(wq.as_mut_ptr(), cond_true, 100), 1);
+    }
+
+    #[test]
+    fn wait_event_timeout_returns_zero_on_timeout() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+
+        extern "C" fn cond_false() -> bool {
+            false
+        }
+
+        assert_eq!(wait_event_timeout(wq.as_mut_ptr(), cond_false, 10), 0);
+    }
+
+    #[test]
+    fn wait_event_timeout_wakes_early() {
+        let mut wq = std::mem::MaybeUninit::<WaitQueueHead>::uninit();
+        init_waitqueue_head(wq.as_mut_ptr());
+        let send = SendWq(wq.as_mut_ptr());
+
+        static WOKE: AtomicBool = AtomicBool::new(false);
+        WOKE.store(false, AtomicOrdering::Relaxed);
+
+        extern "C" fn cond_check() -> bool {
+            WOKE.load(AtomicOrdering::Relaxed)
+        }
+
+        let handle = std::thread::spawn(move || wait_event_timeout(send.ptr(), cond_check, 5000));
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        WOKE.store(true, AtomicOrdering::Relaxed);
+        wake_up(wq.as_mut_ptr());
+
+        let result = handle.join().expect("thread should complete");
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn wait_event_timeout_null_returns_zero() {
+        extern "C" fn cond_true() -> bool {
+            true
+        }
+        assert_eq!(wait_event_timeout(std::ptr::null_mut(), cond_true, 100), 0);
+    }
+}

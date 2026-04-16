@@ -13,14 +13,31 @@ struct WirelessEventState {
     mgmt_rx_freq: u32,
     mgmt_rx_signal: i32,
     mgmt_rx_len: usize,
+    mgmt_rx_data: Vec<u8>,
     mgmt_tx_cookie: u64,
     mgmt_tx_len: usize,
     mgmt_tx_ack: bool,
+    mgmt_tx_data: Vec<u8>,
     sched_scan_reqid: u64,
+    roc_cookie: u64,
+    roc_chan_freq: u16,
+    roc_band: u32,
+    roc_duration: u32,
+    roc_active: bool,
 }
+
+#[repr(C)]
+pub struct WiphyBands {
+    bands: [usize; 3],
+}
+
+unsafe impl Send for WiphyBands {}
 
 lazy_static::lazy_static! {
     static ref WIRELESS_EVENTS: Mutex<HashMap<usize, WirelessEventState>> = Mutex::new(HashMap::new());
+    static ref BSS_REGISTRY: Mutex<Vec<Box<Cfg80211Bss>>> = Mutex::new(Vec::new());
+    static ref BSS_IES: Mutex<HashMap<usize, Vec<u8>>> = Mutex::new(HashMap::new());
+    static ref WIPY_BANDS_MAP: Mutex<HashMap<usize, WiphyBands>> = Mutex::new(HashMap::new());
 }
 
 #[repr(C)]
@@ -74,6 +91,7 @@ pub struct KeyParams {
     pub key: *const u8,
     pub key_len: u8,
     pub cipher: u32,
+    pub key_idx: u8,
 }
 
 #[repr(C)]
@@ -141,8 +159,23 @@ pub extern "C" fn wiphy_free(wiphy: *mut Wiphy) {
     if wiphy.is_null() {
         return;
     }
+    let wiphy_key = wiphy as usize;
     if let Ok(mut events) = WIRELESS_EVENTS.lock() {
-        events.remove(&(wiphy as usize));
+        events.remove(&wiphy_key);
+    }
+    if let Ok(mut registry) = BSS_REGISTRY.lock() {
+        if let Ok(mut ies_map) = BSS_IES.lock() {
+            for entry in registry.iter() {
+                if entry.wiphy == wiphy_key {
+                    let ptr = entry.as_ref() as *const Cfg80211Bss as usize;
+                    ies_map.remove(&ptr);
+                }
+            }
+        }
+        registry.retain(|e| e.wiphy != wiphy_key);
+    }
+    if let Ok(mut bands_map) = WIPY_BANDS_MAP.lock() {
+        bands_map.remove(&wiphy_key);
     }
     unsafe {
         let wiphy_box = Box::from_raw(wiphy);
@@ -304,13 +337,37 @@ pub extern "C" fn cfg80211_connect_bss(
 
 #[no_mangle]
 pub extern "C" fn cfg80211_ready_on_channel(
-    _wdev: *mut WirelessDev,
-    _cookie: u64,
-    _chan: *mut c_void,
+    wdev: *mut WirelessDev,
+    cookie: u64,
+    chan: *mut c_void,
     _chan_type: u32,
-    _duration: u32,
+    duration: u32,
     _gfp: u32,
 ) {
+    if wdev.is_null() {
+        return;
+    }
+    let key = wdev as usize;
+    let (freq, band) = if chan.is_null() {
+        (0u16, 0u32)
+    } else {
+        let ch = chan.cast::<Ieee80211Channel>();
+        unsafe { ((*ch).center_freq, (*ch).band) }
+    };
+    update_event_state(key, |state| {
+        state.roc_cookie = cookie;
+        state.roc_chan_freq = freq;
+        state.roc_band = band;
+        state.roc_duration = duration;
+        state.roc_active = true;
+    });
+    log::trace!(
+        "cfg80211_ready_on_channel: wdev={:#x} cookie={} freq={} duration={}",
+        key,
+        cookie,
+        freq,
+        duration
+    );
 }
 
 #[repr(C)]
@@ -379,6 +436,14 @@ pub extern "C" fn wiphy_bands_append(
         return -22;
     }
 
+    let key = wiphy as usize;
+    if let Ok(mut map) = WIPY_BANDS_MAP.lock() {
+        let entry = map
+            .entry(key)
+            .or_insert_with(|| WiphyBands { bands: [0; 3] });
+        entry.bands[band_idx as usize] = band as usize;
+    }
+
     0
 }
 
@@ -391,7 +456,10 @@ pub struct Cfg80211Bss {
     pub beacon_interval: u16,
     pub ies: *const u8,
     pub ies_len: usize,
+    wiphy: usize,
 }
+
+unsafe impl Send for Cfg80211Bss {}
 
 #[no_mangle]
 pub extern "C" fn cfg80211_inform_bss(
@@ -416,16 +484,65 @@ pub extern "C" fn cfg80211_inform_bss(
         ptr::copy_nonoverlapping(bssid, bssid_bytes.as_mut_ptr(), bssid_bytes.len());
     }
 
+    let Ok(mut registry) = BSS_REGISTRY.lock() else {
+        log::warn!("cfg80211_inform_bss: registry lock failed");
+        return ptr::null_mut();
+    };
+
+    let clamped_signal = signal.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+
+    let ies_owned: Vec<u8> = if !ies.is_null() && ies_len > 0 {
+        unsafe { std::slice::from_raw_parts(ies, ies_len) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
+    for entry in registry.iter_mut() {
+        if entry.bssid == bssid_bytes && entry.wiphy == wiphy as usize {
+            entry.signal = clamped_signal;
+            entry.capability = capability;
+            entry.beacon_interval = beacon_interval;
+            let entry_ptr = entry.as_ref() as *const Cfg80211Bss as usize;
+            if let Ok(mut ies_map) = BSS_IES.lock() {
+                entry.ies_len = ies_owned.len();
+                if ies_owned.is_empty() {
+                    entry.ies = ptr::null();
+                    ies_map.remove(&entry_ptr);
+                } else {
+                    let stored = ies_map.entry(entry_ptr).or_default();
+                    stored.clear();
+                    stored.extend_from_slice(&ies_owned);
+                    entry.ies = stored.as_ptr();
+                }
+            }
+            return entry.as_ref() as *const Cfg80211Bss as *mut Cfg80211Bss;
+        }
+    }
+
     let bss = Box::new(Cfg80211Bss {
         bssid: bssid_bytes,
         channel: ptr::null_mut(),
-        signal: signal.clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+        signal: clamped_signal,
         capability,
         beacon_interval,
-        ies,
-        ies_len,
+        ies: ptr::null(),
+        ies_len: 0,
+        wiphy: wiphy as usize,
     });
-    Box::into_raw(bss)
+    registry.push(bss);
+    let entry = match registry.last_mut() {
+        Some(e) => e,
+        None => return ptr::null_mut(),
+    };
+    let entry_ptr = entry.as_ref() as *const Cfg80211Bss as usize;
+    if let Ok(mut ies_map) = BSS_IES.lock() {
+        if !ies_owned.is_empty() {
+            ies_map.insert(entry_ptr, ies_owned);
+            entry.ies = ies_map[&entry_ptr].as_ptr();
+            entry.ies_len = ies_map[&entry_ptr].len();
+        }
+    }
+    entry.as_ref() as *const Cfg80211Bss as *mut Cfg80211Bss
 }
 
 #[no_mangle]
@@ -433,24 +550,96 @@ pub extern "C" fn cfg80211_put_bss(bss: *mut Cfg80211Bss) {
     if bss.is_null() {
         return;
     }
-
-    unsafe {
-        drop(Box::from_raw(bss));
+    let bss_addr = bss as usize;
+    let Ok(mut registry) = BSS_REGISTRY.lock() else {
+        log::warn!("cfg80211_put_bss: registry lock failed");
+        return;
+    };
+    let before = registry.len();
+    registry.retain(|entry| entry.as_ref() as *const Cfg80211Bss as usize != bss_addr);
+    let removed = before != registry.len();
+    if removed {
+        if let Ok(mut ies_map) = BSS_IES.lock() {
+            ies_map.remove(&bss_addr);
+        }
     }
+    log::trace!(
+        "cfg80211_put_bss: released reference bss={:#x} (removed={})",
+        bss_addr,
+        removed
+    );
 }
 
 #[no_mangle]
 pub extern "C" fn cfg80211_get_bss(
     wiphy: *mut Wiphy,
-    band: u32,
-    _bssid: *const u8,
-    _ssid: *const u8,
-    _ssid_len: usize,
+    _band: u32,
+    bssid: *const u8,
+    ssid: *const u8,
+    ssid_len: usize,
     _bss_type: u32,
     _privacy: u32,
 ) -> *mut Cfg80211Bss {
-    if wiphy.is_null() || band > NL80211_BAND_6GHZ {
+    if wiphy.is_null() {
         return ptr::null_mut();
+    }
+
+    let Ok(registry) = BSS_REGISTRY.lock() else {
+        return ptr::null_mut();
+    };
+
+    let want_bssid = if bssid.is_null() {
+        None
+    } else {
+        let mut bytes = [0u8; 6];
+        unsafe { ptr::copy_nonoverlapping(bssid, bytes.as_mut_ptr(), 6) };
+        Some(bytes)
+    };
+
+    let want_ssid = if ssid.is_null() || ssid_len == 0 {
+        None
+    } else {
+        let slice = unsafe { std::slice::from_raw_parts(ssid, ssid_len) };
+        Some(slice.to_vec())
+    };
+
+    for entry in registry.iter() {
+        if entry.wiphy != wiphy as usize {
+            continue;
+        }
+        if let Some(ref wb) = want_bssid {
+            if entry.bssid != *wb {
+                continue;
+            }
+        }
+        if let Some(ref ws) = want_ssid {
+            if entry.ies.is_null() || entry.ies_len < ws.len() + 2 {
+                continue;
+            }
+            unsafe {
+                let ies_slice = std::slice::from_raw_parts(entry.ies, entry.ies_len);
+                let mut offset = 0;
+                let mut found = false;
+                while offset + 2 <= ies_slice.len() {
+                    let tag_id = ies_slice[offset];
+                    let tag_len = ies_slice[offset + 1] as usize;
+                    if offset + 2 + tag_len > ies_slice.len() {
+                        break;
+                    }
+                    if tag_id == 0 && tag_len == ws.len() {
+                        if &ies_slice[offset + 2..offset + 2 + tag_len] == ws.as_slice() {
+                            found = true;
+                            break;
+                        }
+                    }
+                    offset += 2 + tag_len;
+                }
+                if !found {
+                    continue;
+                }
+            }
+        }
+        return entry.as_ref() as *const Cfg80211Bss as *mut Cfg80211Bss;
     }
 
     ptr::null_mut()
@@ -492,11 +681,26 @@ pub extern "C" fn cfg80211_rx_mgmt(
         return;
     }
 
+    let frame_data = if !buf.is_null() && len > 0 {
+        unsafe { std::slice::from_raw_parts(buf, len) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
     update_event_state(wdev as usize, |state| {
         state.mgmt_rx_freq = freq;
         state.mgmt_rx_signal = sig_dbm;
         state.mgmt_rx_len = len;
+        state.mgmt_rx_data = frame_data;
     });
+
+    log::debug!(
+        "cfg80211_rx_mgmt: wdev={:#x} freq={} sig={} len={}",
+        wdev as usize,
+        freq,
+        sig_dbm,
+        len
+    );
 }
 
 #[no_mangle]
@@ -512,11 +716,26 @@ pub extern "C" fn cfg80211_mgmt_tx_status(
         return;
     }
 
+    let frame_data = if !buf.is_null() && len > 0 {
+        unsafe { std::slice::from_raw_parts(buf, len) }.to_vec()
+    } else {
+        Vec::new()
+    };
+
     update_event_state(wdev as usize, |state| {
         state.mgmt_tx_cookie = cookie;
         state.mgmt_tx_len = len;
         state.mgmt_tx_ack = ack;
+        state.mgmt_tx_data = frame_data;
     });
+
+    log::debug!(
+        "cfg80211_mgmt_tx_status: wdev={:#x} cookie={} len={} ack={}",
+        wdev as usize,
+        cookie,
+        len,
+        ack
+    );
 }
 
 #[no_mangle]
@@ -706,14 +925,76 @@ mod tests {
             .expect("wdev event state");
         assert_eq!(wdev_state.mgmt_rx_freq, 2412);
         assert_eq!(wdev_state.mgmt_rx_signal, -42);
+        assert_eq!(wdev_state.mgmt_rx_data, sta.to_vec());
         assert_eq!(wdev_state.mgmt_tx_cookie, 99);
         assert!(wdev_state.mgmt_tx_ack);
+        assert_eq!(wdev_state.mgmt_tx_data, sta.to_vec());
         drop(events);
 
         assert_eq!(ieee80211_channel_to_frequency(1, NL80211_BAND_2GHZ), 2412);
         assert_eq!(ieee80211_channel_to_frequency(36, NL80211_BAND_5GHZ), 5180);
         assert_eq!(ieee80211_frequency_to_channel(2484), 14);
         assert_eq!(ieee80211_frequency_to_channel(5955), 1);
+
+        wiphy_free(wiphy);
+        free_netdev(dev);
+    }
+
+    #[test]
+    fn test_cfg80211_put_bss_removes_from_registry() {
+        let name = CString::new("wlan%d").expect("valid test CString");
+        let dev = alloc_netdev_mqs(0, name.as_ptr().cast::<u8>(), 0, None, 1, 1);
+        assert!(!dev.is_null());
+        let wiphy = wiphy_new_nm(ptr::null(), 32, ptr::null());
+        assert!(!wiphy.is_null());
+
+        let mut wdev = WirelessDev {
+            wiphy,
+            netdev: dev.cast::<c_void>(),
+            iftype: 0,
+            scan_in_flight: false,
+            scan_aborted: false,
+            connecting: false,
+            connected: false,
+            locally_generated: false,
+            last_status: 0,
+            last_reason: 0,
+            has_bssid: false,
+            last_bssid: [0; 6],
+        };
+        unsafe { (*dev).ieee80211_ptr = (&mut wdev as *mut WirelessDev).cast::<c_void>() };
+
+        let bssid: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+        let ies = [1u8, 2, 3, 4];
+
+        let bss = cfg80211_inform_bss(
+            wiphy,
+            &mut wdev as *mut WirelessDev,
+            2412,
+            bssid.as_ptr(),
+            0,
+            0x0431,
+            100,
+            ies.as_ptr(),
+            ies.len(),
+            -50,
+            0,
+        );
+        assert!(!bss.is_null());
+
+        let found = cfg80211_get_bss(wiphy, 0, bssid.as_ptr(), ptr::null(), 0, 0, 0);
+        assert!(
+            !found.is_null(),
+            "BSS should be in registry after inform_bss"
+        );
+
+        cfg80211_put_bss(bss);
+
+        let after_put = cfg80211_get_bss(wiphy, 0, bssid.as_ptr(), ptr::null(), 0, 0, 0);
+        assert!(
+            after_put.is_null(),
+            "BSS should be removed from registry after put_bss"
+        );
 
         wiphy_free(wiphy);
         free_netdev(dev);

@@ -288,3 +288,85 @@ pub extern "C" fn flush_scheduled_work() {
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn alloc_and_destroy_workqueue() {
+        let name = b"test_wq\0";
+        let wq = alloc_workqueue(name.as_ptr(), 0, 2);
+        assert!(!wq.is_null());
+        destroy_workqueue(wq);
+    }
+
+    #[test]
+    fn destroy_workqueue_null_is_safe() {
+        destroy_workqueue(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn queue_work_executes_function() {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        COUNTER.store(0, Ordering::Relaxed);
+
+        extern "C" fn work_fn(_work: *mut WorkStruct) {
+            COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let name = b"exec_wq\0";
+        let wq = alloc_workqueue(name.as_ptr(), 0, 2);
+        let mut work = WorkStruct {
+            func: Some(work_fn),
+            __opaque: [0u8; 64],
+        };
+
+        queue_work(wq, &mut work);
+        flush_workqueue(wq);
+
+        assert!(
+            COUNTER.load(Ordering::Relaxed) >= 1,
+            "work function should have executed"
+        );
+        destroy_workqueue(wq);
+    }
+
+    #[test]
+    fn queue_work_null_wq_returns_zero() {
+        let mut work = WorkStruct {
+            func: None,
+            __opaque: [0u8; 64],
+        };
+        assert_eq!(queue_work(std::ptr::null_mut(), &mut work), 0);
+    }
+
+    #[test]
+    fn schedule_work_uses_default_wq() {
+        static SCHED_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        SCHED_COUNTER.store(0, Ordering::Relaxed);
+
+        extern "C" fn sched_fn(_work: *mut WorkStruct) {
+            SCHED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let mut work = WorkStruct {
+            func: Some(sched_fn),
+            __opaque: [0u8; 64],
+        };
+
+        schedule_work(&mut work);
+        flush_scheduled_work();
+
+        assert!(
+            SCHED_COUNTER.load(Ordering::Relaxed) >= 1,
+            "schedule_work should dispatch to default wq"
+        );
+    }
+
+    #[test]
+    fn flush_workqueue_null_is_safe() {
+        flush_workqueue(std::ptr::null_mut());
+    }
+}

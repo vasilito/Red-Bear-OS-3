@@ -45,7 +45,10 @@ where
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
-    f(guard.as_mut().unwrap())
+    match guard.as_mut() {
+        Some(map) => f(map),
+        None => f(&mut HashMap::new()),
+    }
 }
 
 fn with_handles<F, R>(f: F) -> R
@@ -56,7 +59,10 @@ where
     if guard.is_none() {
         *guard = Some(BTreeMap::new());
     }
-    f(guard.as_mut().unwrap())
+    match guard.as_mut() {
+        Some(map) => f(map),
+        None => f(&mut BTreeMap::new()),
+    }
 }
 
 fn next_gem_handle() -> u32 {
@@ -262,4 +268,106 @@ pub extern "C" fn drm_connector_register(_connector: *mut u8) -> i32 {
 #[no_mangle]
 pub extern "C" fn drm_crtc_handle_vblank(_crtc: *mut u8) -> u32 {
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn alloc_fake_obj() -> *mut u8 {
+        let layout = std::alloc::Layout::from_size_align(256, 8).unwrap();
+        let ptr = unsafe { std::alloc::alloc(layout) };
+        assert!(!ptr.is_null());
+        ptr
+    }
+
+    fn free_fake_obj(ptr: *mut u8) {
+        let layout = std::alloc::Layout::from_size_align(256, 8).unwrap();
+        unsafe { std::alloc::dealloc(ptr, layout) };
+    }
+
+    #[test]
+    fn drm_gem_object_init_and_release() {
+        let obj = alloc_fake_obj();
+        let rc = drm_gem_object_init(std::ptr::null_mut(), obj, 4096);
+        assert_eq!(rc, 0);
+        drm_gem_object_release(obj);
+        free_fake_obj(obj);
+    }
+
+    #[test]
+    fn drm_gem_handle_create_and_lookup() {
+        let file: *mut u8 = 0x1100 as *mut u8;
+        let obj = alloc_fake_obj();
+        drm_gem_object_init(std::ptr::null_mut(), obj, 1024);
+
+        let mut handle: u32 = 0;
+        let rc = drm_gem_handle_create(file, obj, &mut handle);
+        assert_eq!(rc, 0, "handle_create should succeed");
+        assert!(handle > 0, "handle should be nonzero");
+
+        let found = drm_gem_object_lookup(file, handle);
+        assert_eq!(found, obj, "lookup should return the original object");
+
+        let not_found = drm_gem_object_lookup(file, 99999);
+        assert_eq!(
+            not_found,
+            std::ptr::null_mut(),
+            "invalid handle should return null"
+        );
+
+        drm_gem_object_release(obj);
+        free_fake_obj(obj);
+    }
+
+    #[test]
+    fn drm_gem_handle_delete_removes_mapping() {
+        let file: *mut u8 = 0x1200 as *mut u8;
+        let obj = alloc_fake_obj();
+        drm_gem_object_init(std::ptr::null_mut(), obj, 2048);
+
+        let mut handle: u32 = 0;
+        drm_gem_handle_create(file, obj, &mut handle);
+        assert!(handle > 0);
+
+        drm_gem_handle_delete(file, handle);
+        let found = drm_gem_object_lookup(file, handle);
+        assert_eq!(
+            found,
+            std::ptr::null_mut(),
+            "deleted handle should return null"
+        );
+
+        drm_gem_object_release(obj);
+        free_fake_obj(obj);
+    }
+
+    #[test]
+    fn drm_dev_register_and_unregister_are_callable() {
+        let dev: *mut u8 = 0x1300 as *mut u8;
+        assert_eq!(drm_dev_register(dev, 0), 0);
+        drm_dev_unregister(dev);
+    }
+
+    #[test]
+    fn drm_ioctl_returns_zero() {
+        assert_eq!(
+            drm_ioctl(
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut()
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn drm_null_pointers_are_safe() {
+        drm_gem_object_release(std::ptr::null_mut());
+        drm_dev_unregister(std::ptr::null_mut());
+        drm_mode_config_reset(std::ptr::null_mut());
+        assert_eq!(drm_connector_register(std::ptr::null_mut()), 0);
+        assert_eq!(drm_crtc_handle_vblank(std::ptr::null_mut()), 0);
+    }
 }

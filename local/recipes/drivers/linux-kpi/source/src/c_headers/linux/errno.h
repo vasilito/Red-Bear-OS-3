@@ -26,6 +26,8 @@
 #define ERANGE         34
 #define ENOSYS         38
 #define ENODATA        61
+#define ENOSPC         28
+#define ENOTCONN       107
 #define ENOTSUP        95
 #define ETIMEDOUT     110
 

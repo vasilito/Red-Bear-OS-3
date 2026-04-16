@@ -100,3 +100,56 @@ pub extern "C" fn devres_free_all(dev: *mut u8) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn devm_kzalloc_and_devm_kfree_round_trip() {
+        let dev: *mut u8 = 0xDEAD_0000 as *mut u8;
+        let ptr = devm_kzalloc(dev, 64, 0);
+        assert!(!ptr.is_null(), "devm_kzalloc should return non-null");
+
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, 64) };
+        assert!(
+            bytes.iter().all(|&b| b == 0),
+            "devm_kzalloc should zero memory"
+        );
+
+        devm_kfree(dev, ptr);
+    }
+
+    #[test]
+    fn devm_kfree_null_is_safe() {
+        devm_kfree(0xDEAD_0001 as *mut u8, std::ptr::null_mut());
+    }
+
+    #[test]
+    fn devres_free_all_cleans_up() {
+        let dev: *mut u8 = 0xBEEF_0000 as *mut u8;
+        let p1 = devm_kzalloc(dev, 32, 0);
+        let p2 = devm_kzalloc(dev, 64, 0);
+        assert!(!p1.is_null());
+        assert!(!p2.is_null());
+
+        devres_free_all(dev);
+    }
+
+    #[test]
+    fn devres_free_all_null_is_safe() {
+        devres_free_all(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn devm_kzalloc_null_dev_returns_untracked() {
+        let ptr = devm_kzalloc(std::ptr::null_mut(), 32, 0);
+        assert!(!ptr.is_null());
+        crate::rust_impl::memory::kfree(ptr);
+    }
+
+    #[test]
+    fn tracked_layout_rejects_zero_size() {
+        assert!(tracked_layout(0, 0).is_none());
+    }
+}
