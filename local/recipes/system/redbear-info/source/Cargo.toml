@@ -6,3 +6,6 @@ edition = "2024"
 [[bin]]
 name = "redbear-info"
 path = "src/main.rs"
+
+[dependencies]
+toml = "0.8"

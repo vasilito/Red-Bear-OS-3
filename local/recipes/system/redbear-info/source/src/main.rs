@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use toml::Value;
+
 #[cfg(test)]
 use std::path::Path;
 
@@ -25,6 +27,7 @@ enum OutputMode {
     Table,
     Json,
     Test,
+    Quirks,
     Help,
 }
 
@@ -93,6 +96,32 @@ struct HardwareReport {
     drm_cards: usize,
     rtl8125_present: bool,
     virtio_net_present: bool,
+}
+
+struct QuirkFile {
+    name: String,
+    pci_quirks: Vec<QuirkEntry>,
+    usb_quirks: Vec<UsbQuirkEntry>,
+    dmi_quirk_count: usize,
+}
+
+struct QuirkEntry {
+    vendor: String,
+    device: Option<String>,
+    class: Option<String>,
+    flags: Vec<String>,
+    description: Option<String>,
+}
+
+struct UsbQuirkEntry {
+    vendor: String,
+    product: Option<String>,
+    flags: Vec<String>,
+}
+
+struct QuirksReport {
+    files_loaded: Vec<QuirkFile>,
+    load_errors: Vec<String>,
 }
 
 struct IntegrationCheck {
@@ -391,12 +420,20 @@ fn run() -> Result<(), String> {
     }
 
     let runtime = Runtime::from_env();
+
+    if options.mode == OutputMode::Quirks {
+        let quirks = collect_quirks(&runtime);
+        print_quirks(&quirks, options.verbose);
+        return Ok(());
+    }
+
     let report = collect_report(&runtime);
 
     match options.mode {
         OutputMode::Table => print_table(&report, options.verbose),
         OutputMode::Json => print_json(&report),
         OutputMode::Test => print_tests(&report, options.verbose),
+        OutputMode::Quirks => {}
         OutputMode::Help => {}
     }
 
@@ -859,6 +896,125 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
     }
 }
 
+fn collect_quirks(runtime: &Runtime) -> QuirksReport {
+    let mut files_loaded = Vec::new();
+    let mut load_errors = Vec::new();
+
+    let entries = match runtime.read_dir_names("/etc/quirks.d") {
+        Some(entries) => entries,
+        None => {
+            return QuirksReport {
+                files_loaded,
+                load_errors: vec!["quirks directory not found".to_string()],
+            };
+        }
+    };
+
+    for name in entries.into_iter().filter(|name| name.ends_with(".toml")) {
+        let path = format!("/etc/quirks.d/{name}");
+        match runtime.read_to_string(&path) {
+            Some(content) => match parse_quirk_toml(&name, &content) {
+                Ok(file_quirks) => files_loaded.push(file_quirks),
+                Err(err) => load_errors.push(format!("{name}: {err}")),
+            },
+            None => load_errors.push(format!("{name}: read error")),
+        }
+    }
+
+    QuirksReport {
+        files_loaded,
+        load_errors,
+    }
+}
+
+fn parse_quirk_toml(name: &str, content: &str) -> Result<QuirkFile, String> {
+    let document: Value = content
+        .parse()
+        .map_err(|err| format!("parse error: {err}"))?;
+    let table = document
+        .as_table()
+        .ok_or_else(|| "top-level document is not a table".to_string())?;
+
+    let mut file_quirks = QuirkFile {
+        name: name.to_string(),
+        pci_quirks: Vec::new(),
+        usb_quirks: Vec::new(),
+        dmi_quirk_count: 0,
+    };
+
+    if let Some(entries) = table.get("pci_quirk").and_then(Value::as_array) {
+        for entry in entries {
+            if let Some(quirk) = parse_pci_quirk(entry) {
+                file_quirks.pci_quirks.push(quirk);
+            }
+        }
+    }
+
+    if let Some(entries) = table.get("usb_quirk").and_then(Value::as_array) {
+        for entry in entries {
+            if let Some(quirk) = parse_usb_quirk(entry) {
+                file_quirks.usb_quirks.push(quirk);
+            }
+        }
+    }
+
+    if let Some(entries) = table.get("dmi_system_quirk").and_then(Value::as_array) {
+        file_quirks.dmi_quirk_count = entries.len();
+    }
+
+    Ok(file_quirks)
+}
+
+fn parse_pci_quirk(entry: &Value) -> Option<QuirkEntry> {
+    let table = entry.as_table()?;
+    let vendor = table.get("vendor").and_then(|value| format_hex(value, 4))?;
+    let device = table.get("device").and_then(|value| format_hex(value, 4));
+    let class = table.get("class").and_then(|value| format_hex(value, 6));
+    let flags = table.get("flags").and_then(parse_string_array)?;
+    let description = table
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    Some(QuirkEntry {
+        vendor,
+        device,
+        class,
+        flags,
+        description,
+    })
+}
+
+fn parse_usb_quirk(entry: &Value) -> Option<UsbQuirkEntry> {
+    let table = entry.as_table()?;
+    let vendor = table.get("vendor").and_then(|value| format_hex(value, 4))?;
+    let product = table
+        .get("product")
+        .and_then(|value| format_hex(value, 4));
+    let flags = table.get("flags").and_then(parse_string_array)?;
+
+    Some(UsbQuirkEntry {
+        vendor,
+        product,
+        flags,
+    })
+}
+
+fn format_hex(value: &Value, width: usize) -> Option<String> {
+    let raw = u64::try_from(value.as_integer()?).ok()?;
+    Some(format!("0x{raw:0width$X}", width = width))
+}
+
+fn parse_string_array(value: &Value) -> Option<Vec<String>> {
+    value.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    })
+}
+
 fn inspect_integration<'a>(
     runtime: &Runtime,
     network: &NetworkReport,
@@ -961,13 +1117,28 @@ where
                 if mode == OutputMode::Test {
                     return Err("cannot combine --json with --test".to_string());
                 }
+                if mode == OutputMode::Quirks {
+                    return Err("cannot combine --json with --quirks".to_string());
+                }
                 mode = OutputMode::Json;
             }
             "--test" => {
                 if mode == OutputMode::Json {
                     return Err("cannot combine --test with --json".to_string());
                 }
+                if mode == OutputMode::Quirks {
+                    return Err("cannot combine --test with --quirks".to_string());
+                }
                 mode = OutputMode::Test;
+            }
+            "--quirks" => {
+                if mode == OutputMode::Json {
+                    return Err("cannot combine --quirks with --json".to_string());
+                }
+                if mode == OutputMode::Test {
+                    return Err("cannot combine --quirks with --test".to_string());
+                }
+                mode = OutputMode::Quirks;
             }
             "-h" | "--help" => mode = OutputMode::Help,
             _ => return Err(format!("unknown argument: {arg}")),
@@ -1220,6 +1391,83 @@ fn print_table(report: &Report<'_>, verbose: bool) {
         count_state(&report.integrations, ProbeState::Absent),
         report.integrations.len()
     );
+}
+
+fn print_quirks(report: &QuirksReport, verbose: bool) {
+    println!("Red Bear OS Hardware Quirks Configuration");
+    println!("{DIVIDER}");
+    println!();
+
+    if report.files_loaded.is_empty()
+        && report
+            .load_errors
+            .iter()
+            .any(|error| error.contains("quirks directory not found"))
+    {
+        println!("  Quirks directory: {}not found{}", YELLOW, RESET);
+        return;
+    }
+
+    println!("  Files loaded: {}", report.files_loaded.len());
+
+    for file in &report.files_loaded {
+        println!();
+        print_section_header(&format!("Quirks: {}", file.name));
+
+        if file.pci_quirks.is_empty() && file.usb_quirks.is_empty() && file.dmi_quirk_count == 0 {
+            println!("  (no entries)");
+            continue;
+        }
+
+        println!(
+            "  {:<4} {:<8} {:<18} {}",
+            "Type", "Vendor", "Match", "Flags"
+        );
+        for quirk in &file.pci_quirks {
+            let selector = quirk
+                .device
+                .as_deref()
+                .map(|device| format!("device={device}"))
+                .or_else(|| quirk.class.as_deref().map(|class| format!("class={class}")))
+                .unwrap_or_else(|| "match=unknown".to_string());
+            println!(
+                "  {:<4} {:<8} {:<18} {}",
+                "PCI",
+                quirk.vendor,
+                selector,
+                quirk.flags.join(", ")
+            );
+            if verbose && let Some(description) = &quirk.description {
+                println!("       Description: {description}");
+            }
+        }
+
+        for quirk in &file.usb_quirks {
+            let selector = quirk
+                .product
+                .as_deref()
+                .map(|p| format!("product={p}"))
+                .unwrap_or_else(|| "match=any".to_string());
+            println!(
+                "  {:<4} {:<8} {:<18} {}",
+                "USB",
+                quirk.vendor,
+                selector,
+                quirk.flags.join(", ")
+            );
+        }
+
+        if file.dmi_quirk_count > 0 {
+            println!(
+                "  DMI: {} system rule(s) configured (runtime application uses acpid /scheme/acpi/dmi)",
+                file.dmi_quirk_count
+            );
+        }
+    }
+
+    for error in &report.load_errors {
+        println!("  {}Error: {}{}", RED, error, RESET);
+    }
 }
 
 fn print_tests(report: &Report<'_>, verbose: bool) {
@@ -1556,7 +1804,7 @@ fn print_json(report: &Report<'_>) {
 }
 
 fn print_help() {
-    println!("Usage: redbear-info [--verbose|-v] [--json|--test]");
+    println!("Usage: redbear-info [--verbose|-v] [--json|--test|--quirks]");
     println!();
     println!("Passive runtime integration report for Red Bear OS.");
     println!();
@@ -1572,6 +1820,7 @@ fn print_help() {
     println!("  -v, --verbose  Show evidence and claim limits");
     println!("      --json     Print structured JSON");
     println!("      --test     Print suggested diagnostic commands");
+    println!("      --quirks   Print configured hardware quirk data");
     println!("  -h, --help     Show this help message");
 }
 
@@ -2262,25 +2511,31 @@ mod tests {
             report.network.active_profile.as_deref(),
             Some("wired-static")
         );
-        assert!(report
-            .network
-            .network_schemes
-            .iter()
-            .any(|name| name.contains("rtl8125")));
+        assert!(
+            report
+                .network
+                .network_schemes
+                .iter()
+                .any(|name| name.contains("rtl8125"))
+        );
         assert_eq!(report.network.wifi_control_state, ProbeState::Functional);
         assert_eq!(report.network.wifi_interfaces, vec!["wlan0".to_string()]);
-        assert!(report
-            .network
-            .wifi_firmware_status
-            .as_deref()
-            .unwrap()
-            .contains("intel-bz-arrow-lake"));
-        assert!(report
-            .network
-            .wifi_transport_status
-            .as_deref()
-            .unwrap()
-            .contains("memory_enabled=yes"));
+        assert!(
+            report
+                .network
+                .wifi_firmware_status
+                .as_deref()
+                .unwrap()
+                .contains("intel-bz-arrow-lake")
+        );
+        assert!(
+            report
+                .network
+                .wifi_transport_status
+                .as_deref()
+                .unwrap()
+                .contains("memory_enabled=yes")
+        );
         assert_eq!(
             report.network.wifi_transport_init_status.as_deref(),
             Some("transport_init=stub")
@@ -2299,28 +2554,34 @@ mod tests {
             ProbeState::Functional
         );
         assert_eq!(report.network.bluetooth_adapters, vec!["hci0".to_string()]);
-        assert!(report
-            .network
-            .bluetooth_transport_status
-            .as_deref()
-            .unwrap()
-            .contains("runtime_visibility=runtime-visible"));
-        assert!(report
-            .network
-            .bluetooth_adapter_status
-            .as_deref()
-            .unwrap()
-            .contains("status=adapter-visible"));
+        assert!(
+            report
+                .network
+                .bluetooth_transport_status
+                .as_deref()
+                .unwrap()
+                .contains("runtime_visibility=runtime-visible")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_adapter_status
+                .as_deref()
+                .unwrap()
+                .contains("status=adapter-visible")
+        );
         assert_eq!(
             report.network.bluetooth_scan_results,
             vec!["demo-beacon".to_string(), "demo-sensor".to_string()]
         );
-        assert!(report
-            .network
-            .bluetooth_connection_state
-            .as_deref()
-            .unwrap()
-            .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF"));
+        assert!(
+            report
+                .network
+                .bluetooth_connection_state
+                .as_deref()
+                .unwrap()
+                .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF")
+        );
         assert_eq!(
             report.network.bluetooth_connect_result.as_deref(),
             Some("connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected")
@@ -2331,39 +2592,51 @@ mod tests {
                 "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected"
             )
         );
-        assert!(report
-            .network
-            .bluetooth_read_char_result
-            .as_deref()
-            .unwrap()
-            .contains("read_char_result=stub-value"));
-        assert!(report
-            .network
-            .bluetooth_read_char_result
-            .as_deref()
-            .unwrap()
-            .contains("workload=battery-sensor-battery-level-read"));
+        assert!(
+            report
+                .network
+                .bluetooth_read_char_result
+                .as_deref()
+                .unwrap()
+                .contains("read_char_result=stub-value")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_read_char_result
+                .as_deref()
+                .unwrap()
+                .contains("workload=battery-sensor-battery-level-read")
+        );
         assert_eq!(
             report.network.bluetooth_bond_store_path.as_deref(),
             Some("/var/lib/bluetooth/hci0/bonds")
         );
         assert_eq!(report.network.bluetooth_bond_count, Some(1));
-        assert!(report
-            .network
-            .bluetooth_claim_limit
-            .contains("real pairing"));
-        assert!(report
-            .network
-            .bluetooth_claim_limit
-            .contains("general device traffic"));
-        assert!(report
-            .network
-            .bluetooth_claim_limit
-            .contains("generic GATT"));
-        assert!(report
-            .network
-            .bluetooth_claim_limit
-            .contains("write support"));
+        assert!(
+            report
+                .network
+                .bluetooth_claim_limit
+                .contains("real pairing")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_claim_limit
+                .contains("general device traffic")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_claim_limit
+                .contains("generic GATT")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_claim_limit
+                .contains("write support")
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2487,10 +2760,12 @@ mod tests {
             Some("/var/lib/bluetooth/hci0/bonds")
         );
         assert_eq!(report.network.bluetooth_bond_count, Some(1));
-        assert!(report
-            .network
-            .bluetooth_claim_limit
-            .contains("stub bond files"));
+        assert!(
+            report
+                .network
+                .bluetooth_claim_limit
+                .contains("stub bond files")
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2522,12 +2797,14 @@ mod tests {
         );
 
         let report = collect_report(&Runtime::from_root(root.clone()));
-        assert!(report
-            .network
-            .bluetooth_connection_state
-            .as_deref()
-            .unwrap()
-            .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF"));
+        assert!(
+            report
+                .network
+                .bluetooth_connection_state
+                .as_deref()
+                .unwrap()
+                .contains("connected_bond_ids=AA:BB:CC:DD:EE:FF")
+        );
         assert_eq!(
             report.network.bluetooth_connect_result.as_deref(),
             Some("connect_result=stub-connected bond_id=AA:BB:CC:DD:EE:FF state=connected")
@@ -2538,18 +2815,22 @@ mod tests {
                 "disconnect_result=stub-disconnected bond_id=AA:BB:CC:DD:EE:FF state=disconnected"
             )
         );
-        assert!(report
-            .network
-            .bluetooth_read_char_result
-            .as_deref()
-            .unwrap()
-            .contains("read_char_result=stub-value"));
-        assert!(report
-            .network
-            .bluetooth_read_char_result
-            .as_deref()
-            .unwrap()
-            .contains("peripheral_class=ble-battery-sensor"));
+        assert!(
+            report
+                .network
+                .bluetooth_read_char_result
+                .as_deref()
+                .unwrap()
+                .contains("read_char_result=stub-value")
+        );
+        assert!(
+            report
+                .network
+                .bluetooth_read_char_result
+                .as_deref()
+                .unwrap()
+                .contains("peripheral_class=ble-battery-sensor")
+        );
         assert_eq!(
             integration_state(&report, "redbear-btctl"),
             ProbeState::Functional
@@ -2581,7 +2862,11 @@ mod tests {
     fn stale_btusb_status_does_not_report_active_in_integrations() {
         let root = temp_root();
         write_file(&root, "/usr/bin/redbear-btusb", "");
-        write_file(&root, "/var/run/redbear-btusb/status", "transport=usb\nstartup=explicit\nupdated_at_epoch=1\nruntime_visibility=runtime-visible\n");
+        write_file(
+            &root,
+            "/var/run/redbear-btusb/status",
+            "transport=usb\nstartup=explicit\nupdated_at_epoch=1\nruntime_visibility=runtime-visible\n",
+        );
 
         let report = collect_report(&Runtime::from_root(root.clone()));
         assert_eq!(
@@ -2680,26 +2965,112 @@ mod tests {
             0,
         );
         assert!(output.contains("state"));
-        assert!(report
-            .integrations
-            .iter()
-            .any(|item| item.check.name == "redbear-info"));
-        assert!(report
-            .integrations
-            .iter()
-            .any(|item| item.check.name == "redbear-netstat"));
-        assert!(report
-            .integrations
-            .iter()
-            .any(|item| item.check.name == "redbear-btusb"));
-        assert!(report
-            .integrations
-            .iter()
-            .any(|item| item.check.name == "redbear-btctl"));
-        assert!(report
-            .integrations
-            .iter()
-            .any(|item| item.check.name == "redbear-nmap"));
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-info")
+        );
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-netstat")
+        );
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-btusb")
+        );
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-btctl")
+        );
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-nmap")
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parse_args_accepts_quirks_mode() {
+        let options = parse_args([
+            "redbear-info".to_string(),
+            "--quirks".to_string(),
+            "--verbose".to_string(),
+        ])
+        .unwrap();
+
+        assert!(matches!(options.mode, OutputMode::Quirks));
+        assert!(options.verbose);
+    }
+
+    #[test]
+    fn parse_args_rejects_quirks_with_other_output_modes() {
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--quirks".to_string(),
+                "--json".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --json with --quirks".to_string())
+        );
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--test".to_string(),
+                "--quirks".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --quirks with --test".to_string())
+        );
+    }
+
+    #[test]
+    fn collect_quirks_reads_pci_class_and_usb_entries() {
+        let root = temp_root();
+        write_file(
+            &root,
+            "/etc/quirks.d/10-gpu.toml",
+            "[[pci_quirk]]\nvendor = 0x1002\nclass = 0x030000\nflags = [\"no_d3cold\", \"need_firmware\"]\ndescription = \"GPU class quirk\"\n\n[[pci_quirk]]\nvendor = 0x1002\ndevice = 0x744c\nflags = [\"need_iommu\"]\n\n[[usb_quirk]]\nvendor = 0x0bda\nproduct = 0x8153\nflags = [\"no_string_fetch\"]\n",
+        );
+
+        let report = collect_quirks(&Runtime::from_root(root.clone()));
+        assert!(report.load_errors.is_empty());
+        assert_eq!(report.files_loaded.len(), 1);
+
+        let file = &report.files_loaded[0];
+        assert_eq!(file.name, "10-gpu.toml");
+        assert_eq!(file.pci_quirks.len(), 2);
+        assert_eq!(file.usb_quirks.len(), 1);
+        assert_eq!(file.pci_quirks[0].vendor, "0x1002");
+        assert_eq!(file.pci_quirks[0].class.as_deref(), Some("0x030000"));
+        assert_eq!(
+            file.pci_quirks[0].description.as_deref(),
+            Some("GPU class quirk")
+        );
+        assert_eq!(file.pci_quirks[1].device.as_deref(), Some("0x744C"));
+        assert_eq!(file.usb_quirks[0].vendor, "0x0BDA");
+        assert_eq!(file.usb_quirks[0].product.as_deref(), Some("0x8153"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_quirks_reports_missing_directory() {
+        let root = temp_root();
+
+        let report = collect_quirks(&Runtime::from_root(root.clone()));
+        assert!(report.files_loaded.is_empty());
+        assert_eq!(report.load_errors, vec!["quirks directory not found"]);
 
         fs::remove_dir_all(root).unwrap();
     }
