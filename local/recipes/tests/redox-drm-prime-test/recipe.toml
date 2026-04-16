@@ -1,0 +1,15 @@
+#TODO: Runtime validation requires redox-drm scheme daemon running on bare metal or QEMU
+
+[source]
+# no external source — inline test program
+path = "source"
+
+[build]
+template = "custom"
+dependencies = [
+    "redox-drm",
+]
+script = """
+DYNAMIC_INIT
+cookbook_cargo
+"""

@@ -1,0 +1,11 @@
+[package]
+name = "redox-drm-prime-test"
+version = "0.1.0"
+edition = "2021"
+description = "PRIME DMA-BUF test for redox-drm scheme"
+
+[[bin]]
+name = "redox-drm-prime-test"
+path = "main.rs"
+
+[dependencies]
