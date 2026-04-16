@@ -2,7 +2,12 @@
 path = "source"
 
 [build]
-template = "cargo"
+template = "custom"
+script = """
+set -ex
 
-[package.files]
-"/usr/bin/redbear-btctl" = "redbear-btctl"
+cookbook_cargo
+
+mkdir -pv "$COOKBOOK_STAGE/usr/lib/init.d"
+cp -v "$COOKBOOK_SOURCE/11_btctl.service" "$COOKBOOK_STAGE/usr/lib/init.d/11_btctl.service"
+"""

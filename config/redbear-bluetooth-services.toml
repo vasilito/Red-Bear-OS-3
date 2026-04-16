@@ -1,0 +1,17 @@
+# Red Bear OS Bluetooth experimental service wiring
+#
+# Kept in a dedicated included fragment so the Bluetooth profile can inject
+# bounded runtime files and service units without relying on profile-local
+# [[files]] behavior.
+
+[[files]]
+path = "/var/lib/bluetooth"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/var/run/redbear-btusb"
+data = ""
+directory = true
+mode = 0o755
