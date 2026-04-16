@@ -1,0 +1,15 @@
+[package]
+name = "redbear-btctl"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "redbear-btctl"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+libredox = { version = "0.1", features = ["call", "std"] }
+log = { version = "0.4", features = ["std"] }
+redox-scheme = "0.11"
+syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }

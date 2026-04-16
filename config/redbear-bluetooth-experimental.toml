@@ -1,0 +1,43 @@
+# Red Bear OS Bluetooth Experimental Profile
+#
+# Standalone build target for the first bounded Bluetooth slice.
+#
+# This profile extends the existing minimal Red Bear baseline but keeps Bluetooth wiring isolated to
+# this profile instead of leaking it into the shared device-service fragments used by all images.
+# The current slice is explicit-startup, USB-attached, BLE-first, and intentionally not wired to
+# USB-class autospawn yet.
+
+include = ["redbear-minimal.toml"]
+
+[general]
+filesystem_size = 2048
+
+[packages]
+redbear-btusb = {}
+redbear-btctl = {}
+
+[[files]]
+path = "/var/lib/bluetooth"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/var/run/redbear-btusb"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/usr/lib/init.d/11_btctl.service"
+data = """
+[unit]
+description = "Bluetooth host/control daemon"
+requires_weak = [
+    "05_firmware-loader.service",
+]
+
+[service]
+cmd = "redbear-btctl"
+type = { scheme = "btctl" }
+"""
