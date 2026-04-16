@@ -91,6 +91,7 @@ symlink "../../local/recipes/gpu/redox-drm" "recipes/gpu/redox-drm"
 
 # Library stubs / custom libs
 mkdir -p recipes/libs
+symlink "../../local/recipes/libs/libqrencode"         "recipes/libs/libqrencode"
 symlink "../../local/recipes/libs/libepoxy-stub"       "recipes/libs/libepoxy-stub"
 symlink "../../local/recipes/libs/libudev-stub"        "recipes/libs/libudev-stub"
 symlink "../../local/recipes/libs/lcms2-stub"          "recipes/libs/lcms2-stub"
@@ -168,6 +169,9 @@ symlink "../../local/recipes/kde/kf6-kdeclarative" "recipes/kde/kf6-kdeclarative
 symlink "../../local/recipes/kde/kf6-kcmutils" "recipes/kde/kf6-kcmutils"
 symlink "../../local/recipes/kde/kf6-kidletime" "recipes/kde/kf6-kidletime"
 symlink "../../local/recipes/kde/kf6-kwayland" "recipes/kde/kf6-kwayland"
+symlink "../../local/recipes/kde/kf6-knewstuff" "recipes/kde/kf6-knewstuff"
+symlink "../../local/recipes/kde/kf6-kwallet" "recipes/kde/kf6-kwallet"
+symlink "../../local/recipes/kde/kf6-prison" "recipes/kde/kf6-prison"
 
 # ── 4. New files not in upstream ────────────────────────────────────
 echo "==> Ensuring Red Bear OS-specific files exist..."

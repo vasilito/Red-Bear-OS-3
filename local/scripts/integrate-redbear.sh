@@ -141,6 +141,7 @@ symlink "../../local/recipes/drivers/redbear-iwlwifi" "recipes/drivers/redbear-i
 symlink "../../local/recipes/drivers/redox-driver-sys" "recipes/drivers/redox-driver-sys"
 symlink "../../local/recipes/gpu/amdgpu" "recipes/gpu/amdgpu"
 symlink "../../local/recipes/gpu/redox-drm" "recipes/gpu/redox-drm"
+symlink "../../local/recipes/libs/libqrencode" "recipes/libs/libqrencode"
 symlink "../../local/recipes/system/evdevd" "recipes/system/evdevd"
 symlink "../../local/recipes/system/redbear-firmware" "recipes/system/redbear-firmware"
 symlink "../../local/recipes/system/firmware-loader" "recipes/system/firmware-loader"
@@ -205,6 +206,9 @@ symlink "../../local/recipes/kde/kf6-kdeclarative" "recipes/kde/kf6-kdeclarative
 symlink "../../local/recipes/kde/kf6-kcmutils" "recipes/kde/kf6-kcmutils"
 symlink "../../local/recipes/kde/kf6-kidletime" "recipes/kde/kf6-kidletime"
 symlink "../../local/recipes/kde/kf6-kwayland" "recipes/kde/kf6-kwayland"
+symlink "../../local/recipes/kde/kf6-knewstuff" "recipes/kde/kf6-knewstuff"
+symlink "../../local/recipes/kde/kf6-kwallet" "recipes/kde/kf6-kwallet"
+symlink "../../local/recipes/kde/kf6-prison" "recipes/kde/kf6-prison"
 status "Custom recipe symlinks ready"
 echo ""
 
