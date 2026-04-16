@@ -4,6 +4,7 @@ use std::process;
 use std::str::FromStr;
 
 use redbear_hwutils::{describe_usb_device, parse_args};
+use redox_driver_sys::quirks::{lookup_usb_quirks, UsbQuirkFlags};
 use serde::Deserialize;
 
 const USAGE: &str = "Usage: lsusb\nList USB devices exposed by native usb.* schemes.";
@@ -159,6 +160,38 @@ fn main() {
     }
 }
 
+fn format_usb_quirk_flags(flags: UsbQuirkFlags) -> String {
+    let mut names = Vec::new();
+    if flags.contains(UsbQuirkFlags::NO_STRING_FETCH) {
+        names.push("no_string_fetch");
+    }
+    if flags.contains(UsbQuirkFlags::RESET_DELAY) {
+        names.push("reset_delay");
+    }
+    if flags.contains(UsbQuirkFlags::NO_USB3) {
+        names.push("no_usb3");
+    }
+    if flags.contains(UsbQuirkFlags::NO_SET_CONFIG) {
+        names.push("no_set_config");
+    }
+    if flags.contains(UsbQuirkFlags::NO_SUSPEND) {
+        names.push("no_suspend");
+    }
+    if flags.contains(UsbQuirkFlags::NEED_RESET) {
+        names.push("need_reset");
+    }
+    if flags.contains(UsbQuirkFlags::BAD_DESCRIPTOR) {
+        names.push("bad_descriptor");
+    }
+    if flags.contains(UsbQuirkFlags::NO_LPM) {
+        names.push("no_lpm");
+    }
+    if flags.contains(UsbQuirkFlags::NO_U1U2) {
+        names.push("no_u1u2");
+    }
+    names.join(",")
+}
+
 fn run() -> Result<(), String> {
     parse_args("lsusb", USAGE, std::env::args())?;
 
@@ -175,7 +208,7 @@ fn run() -> Result<(), String> {
     });
 
     for device in devices {
-        println!(
+        print!(
             "{} {} ID {:04x}:{:04x} class {:02x}/{:02x}/{:02x} usb {}.{:02x} {}",
             device.controller,
             device.port,
@@ -188,6 +221,11 @@ fn run() -> Result<(), String> {
             device.usb_minor,
             device.description,
         );
+        let quirk_flags = lookup_usb_quirks(device.vendor_id, device.product_id);
+        if !quirk_flags.is_empty() {
+            print!(" quirks: {}", format_usb_quirk_flags(quirk_flags));
+        }
+        println!();
     }
 
     for fallback in fallback_ports {

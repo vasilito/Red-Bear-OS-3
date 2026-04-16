@@ -17,7 +17,6 @@ const BATTERY_SERVICE_UUID: &str = "0000180f-0000-1000-8000-00805f9b34fb";
 const BATTERY_LEVEL_CHAR_UUID: &str = "00002a19-0000-1000-8000-00805f9b34fb";
 const TRANSPORT_STATUS_PATH: &str = "/var/run/redbear-btusb/status";
 const BTCTL_ROOT: &str = "/scheme/btctl";
-const BTCTL_ADAPTER_ROOT: &str = "/scheme/btctl/adapters/hci0";
 const BTCTL_CONNECTION_STATE_PATH: &str = "/scheme/btctl/adapters/hci0/connection-state";
 const BTCTL_CONNECT_RESULT_PATH: &str = "/scheme/btctl/adapters/hci0/connect-result";
 const BTCTL_DISCONNECT_RESULT_PATH: &str = "/scheme/btctl/adapters/hci0/disconnect-result";
@@ -69,9 +68,13 @@ impl RuntimeSession {
             "redbear-btctl scheme registration",
             Duration::from_secs(20),
             || {
-                Ok::<bool, String>(
-                    Path::new(BTCTL_ROOT).exists() && Path::new(BTCTL_ADAPTER_ROOT).exists(),
-                )
+                let ready = run_command("redbear-btctl", &["--status"])
+                    .map(|output| {
+                        output.stdout.contains("adapter=hci0")
+                            && output.stdout.contains("bond_store_root=")
+                    })
+                    .unwrap_or(false);
+                Ok::<bool, String>(ready)
             },
         )
         .map_err(|err| {
@@ -395,13 +398,7 @@ fn verify_btusb_restart_path(session: &mut RuntimeSession) -> Result<(), String>
 fn verify_scheme_surface() -> Result<(), String> {
     require_path(BTCTL_ROOT)?;
     require_path("/scheme/btctl/adapters")?;
-    require_path(BTCTL_ADAPTER_ROOT)?;
-    require_path(BTCTL_CONNECTION_STATE_PATH)?;
-    require_path(BTCTL_CONNECT_RESULT_PATH)?;
-    require_path(BTCTL_DISCONNECT_RESULT_PATH)?;
-    require_path(BTCTL_READ_CHAR_RESULT_PATH)?;
-    require_path(BTCTL_LAST_ERROR_PATH)?;
-    require_path(BTCTL_BONDS_PATH)?;
+    require_file_contains("/scheme/btctl/adapters", ADAPTER)?;
     Ok(())
 }
 

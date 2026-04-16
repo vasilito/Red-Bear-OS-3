@@ -67,6 +67,10 @@ path = "src/bin/redbear-phase-iommu-check.rs"
 name = "redbear-phase-dma-check"
 path = "src/bin/redbear-phase-dma-check.rs"
 
+[[bin]]
+name = "redbear-usb-check"
+path = "src/bin/redbear-usb-check.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
