@@ -57,6 +57,9 @@ local/recipes/tui/*/source/
 # Vendor source trees (fetched, not our code)
 **/amdgpu-source/
 
+# Linux firmware tree (fetched, not our code — huge)
+local/recipes/system/redbear-firmware/source.tmp/
+
 # Compiled objects
 *.o
 *.so
