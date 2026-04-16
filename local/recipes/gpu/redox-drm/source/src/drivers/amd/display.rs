@@ -44,8 +44,11 @@ unsafe extern "C" {
     fn ffi_redox_pci_set_device_info(
         vendor: u16,
         device: u16,
+        bus_number: u8,
+        dev_number: u8,
+        func_number: u8,
         revision: u8,
-        irq: u8,
+        irq: u32,
         bar0_addr: u64,
         bar0_size: u64,
         bar2_addr: u64,
@@ -105,6 +108,9 @@ fn amdgpu_dc_cleanup() {
 pub fn set_pci_device_info(
     vendor: u16,
     device: u16,
+    bus_number: u8,
+    dev_number: u8,
+    func_number: u8,
     revision: u8,
     irq: u32,
     bar0_addr: u64,
@@ -115,11 +121,31 @@ pub fn set_pci_device_info(
     #[cfg(not(no_amdgpu_c))]
     unsafe {
         ffi_redox_pci_set_device_info(
-            vendor, device, revision, irq as u8, bar0_addr, bar0_size, bar2_addr, bar2_size,
+            vendor,
+            device,
+            bus_number,
+            dev_number,
+            func_number,
+            revision,
+            irq,
+            bar0_addr,
+            bar0_size,
+            bar2_addr,
+            bar2_size,
         );
     }
     let _ = (
-        vendor, device, revision, irq, bar0_addr, bar0_size, bar2_addr, bar2_size,
+        vendor,
+        device,
+        bus_number,
+        dev_number,
+        func_number,
+        revision,
+        irq,
+        bar0_addr,
+        bar0_size,
+        bar2_addr,
+        bar2_size,
     );
 }
 

@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 
-use log::{debug, warn};
+use log::debug;
 use redox_driver_sys::dma::DmaBuffer;
 
-use crate::dmabuf::DmabufManager;
 use crate::driver::{DriverError, Result};
 
 pub type GemHandle = u32;
@@ -28,7 +27,6 @@ struct GemAllocation {
 pub struct GemManager {
     next_handle: GemHandle,
     objects: BTreeMap<GemHandle, GemAllocation>,
-    dmabuf: DmabufManager,
 }
 
 impl GemManager {
@@ -36,7 +34,6 @@ impl GemManager {
         Self {
             next_handle: 1,
             objects: BTreeMap::new(),
-            dmabuf: DmabufManager::new(),
         }
     }
 
@@ -53,7 +50,7 @@ impl GemManager {
         let dma = DmaBuffer::allocate(size as usize, 4096)
             .map_err(|e| DriverError::Buffer(format!("DMA allocation failed: {e}")))?;
         if !dma.is_physically_contiguous() {
-            warn!(
+            debug!(
                 "redox-drm: GEM handle {} allocated without physically contiguous backing",
                 handle
             );
@@ -91,24 +88,6 @@ impl GemManager {
             .get(&handle)
             .ok_or_else(|| DriverError::NotFound(format!("unknown GEM handle {handle}")))?;
         Ok(allocation.object.virt_addr)
-    }
-
-    #[allow(dead_code)]
-    pub fn export_dmafd(&mut self, handle: GemHandle) -> Result<i32> {
-        let allocation = self
-            .objects
-            .get(&handle)
-            .ok_or_else(|| DriverError::NotFound(format!("unknown GEM handle {handle}")))?;
-
-        self.dmabuf
-            .export_with_info(handle, allocation.object.phys_addr, allocation.object.size)
-    }
-
-    #[allow(dead_code)]
-    pub fn import_dmafd(&self, fd: i32) -> Result<GemHandle> {
-        let handle = self.dmabuf.import(fd)?;
-        let _ = self.object(handle)?;
-        Ok(handle)
     }
 
     pub fn object(&self, handle: GemHandle) -> Result<&GemObject> {

@@ -222,13 +222,18 @@ void redox_dma_free_coherent(size_t size, void *vaddr, dma_addr_t dma_handle)
 static struct pci_dev g_pci_dev;
 static int g_pci_dev_populated;
 
-void redox_pci_set_device_info(u16 vendor, u16 device, u8 revision,
-                                u8 irq, u64 bar0_addr, u64 bar0_size,
+void redox_pci_set_device_info(u16 vendor, u16 device,
+                                u8 bus_number, u8 dev_number,
+                                u8 func_number, u8 revision, u32 irq,
+                                u64 bar0_addr, u64 bar0_size,
                                 u64 bar2_addr, u64 bar2_size)
 {
     memset(&g_pci_dev, 0, sizeof(g_pci_dev));
     g_pci_dev.vendor = vendor;
     g_pci_dev.device = device;
+    g_pci_dev.bus_number = bus_number;
+    g_pci_dev.dev_number = dev_number;
+    g_pci_dev.func_number = func_number;
     g_pci_dev.revision = revision;
     g_pci_dev.irq = irq;
     g_pci_dev.resource_start[0] = (phys_addr_t)bar0_addr;
@@ -238,12 +243,15 @@ void redox_pci_set_device_info(u16 vendor, u16 device, u8 revision,
     g_pci_dev.resource_len[2] = bar2_size;
     g_pci_dev.resource_flags[2] = IORESOURCE_MEM;
     g_pci_dev.driver_data = NULL;
+    memset(&g_pci_dev.device_obj, 0, sizeof(g_pci_dev.device_obj));
+    g_pci_dev.enabled = false;
     g_pci_dev.mmio_base = NULL;
     g_pci_dev.is_amdgpu = 1;
     g_pci_dev_populated = 1;
 
-    printk("PCI device info set: vendor=%#06x device=%#06x rev=%#04x irq=%u "
+    printk("PCI device info set: %02x:%02x.%u vendor=%#06x device=%#06x rev=%#04x irq=%u "
            "bar0=%#llx+%#llx bar2=%#llx+%#llx\n",
+           bus_number, dev_number, func_number,
            vendor, device, revision, irq,
            (unsigned long long)bar0_addr, (unsigned long long)bar0_size,
            (unsigned long long)bar2_addr, (unsigned long long)bar2_size);

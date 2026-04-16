@@ -49,17 +49,12 @@ pub trait GpuDriver: Send + Sync {
         mode: &ModeInfo,
     ) -> Result<()>;
     fn page_flip(&self, crtc_id: u32, fb_handle: u32, flags: u32) -> Result<u64>;
-    #[allow(dead_code)]
     fn get_vblank(&self, crtc_id: u32) -> Result<u64>;
 
     fn gem_create(&self, size: u64) -> Result<GemHandle>;
     fn gem_close(&self, handle: GemHandle) -> Result<()>;
     fn gem_mmap(&self, handle: GemHandle) -> Result<usize>;
     fn gem_size(&self, handle: GemHandle) -> Result<u64>;
-    #[allow(dead_code)]
-    fn gem_export_dmafd(&self, handle: GemHandle) -> Result<i32>;
-    #[allow(dead_code)]
-    fn gem_import_dmafd(&self, fd: i32) -> Result<GemHandle>;
 
     #[allow(dead_code)]
     fn get_edid(&self, connector_id: u32) -> Vec<u8>;

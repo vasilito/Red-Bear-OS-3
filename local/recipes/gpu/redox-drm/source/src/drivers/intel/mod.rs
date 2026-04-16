@@ -443,27 +443,6 @@ impl GpuDriver for IntelDriver {
         Ok(gem.object(handle)?.size)
     }
 
-    fn gem_export_dmafd(&self, handle: GemHandle) -> Result<i32> {
-        let mut gem = self
-            .gem
-            .lock()
-            .map_err(|_| DriverError::Buffer("Intel GEM manager poisoned".into()))?;
-        gem.export_dmafd(handle)
-    }
-
-    fn gem_import_dmafd(&self, fd: i32) -> Result<GemHandle> {
-        let handle = {
-            let gem = self
-                .gem
-                .lock()
-                .map_err(|_| DriverError::Buffer("Intel GEM manager poisoned".into()))?;
-            gem.import_dmafd(fd)?
-        };
-
-        let _ = self.ensure_gem_gpu_mapping(handle)?;
-        Ok(handle)
-    }
-
     fn get_edid(&self, connector_id: u32) -> Vec<u8> {
         match self.connectors.lock() {
             Ok(connectors) => connectors

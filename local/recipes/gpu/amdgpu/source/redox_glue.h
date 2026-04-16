@@ -204,22 +204,45 @@ extern void redox_dma_free_coherent(size_t size, void *vaddr, dma_addr_t dma_han
 #define dma_mapping_error(dev, addr) 0
 
 /* ---- PCI — maps to redox-driver-sys PCI ---- */
+struct pci_dev;
+
+struct device_driver {
+    const char *name;
+    void *owner;
+};
+
+struct device {
+    struct device_driver *driver;
+    void *driver_data;
+    void *platform_data;
+    void *of_node;
+    u64 dma_mask;
+    struct pci_dev *pci_dev;
+};
+
 struct pci_dev {
     u16 vendor;
     u16 device;
+    u8 bus_number;
+    u8 dev_number;
+    u8 func_number;
     u8 revision;
-    u8 irq;
-    phys_addr_t resource_start[6];
+    u32 irq;
+    u64 resource_start[6];
     u64 resource_len[6];
-    u32 resource_flags[6];
     void *driver_data;
+    struct device device_obj;
+    bool enabled;
+    u32 resource_flags[6];
     void __iomem *mmio_base;
     int is_amdgpu;
 };
 
 extern struct pci_dev *redox_pci_find_amd_gpu(void);
-extern void redox_pci_set_device_info(u16 vendor, u16 device, u8 revision,
-                                       u8 irq, u64 bar0_addr, u64 bar0_size,
+extern void redox_pci_set_device_info(u16 vendor, u16 device,
+                                       u8 bus_number, u8 dev_number,
+                                       u8 func_number, u8 revision, u32 irq,
+                                       u64 bar0_addr, u64 bar0_size,
                                        u64 bar2_addr, u64 bar2_size);
 extern void redox_pci_dev_put(struct pci_dev *pdev);
 extern int redox_pci_enable_device(struct pci_dev *pdev);
@@ -254,12 +277,6 @@ extern void redox_release_firmware(const struct firmware *fw);
 
 #define request_firmware(fw, name, dev) redox_request_firmware((fw), (name), (dev))
 #define release_firmware(fw) redox_release_firmware((fw))
-
-/* ---- Device model ---- */
-struct device {
-    void *driver_data;
-    struct pci_dev *pci_dev;
-};
 
 #define dev_get_drvdata(dev) ((dev)->driver_data)
 #define dev_set_drvdata(dev, data) ((dev)->driver_data = (data))

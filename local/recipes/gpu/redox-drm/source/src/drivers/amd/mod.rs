@@ -102,6 +102,9 @@ impl AmdDriver {
         display::set_pci_device_info(
             info.vendor_id,
             info.device_id,
+            info.location.bus,
+            info.location.device,
+            info.location.function,
             info.revision,
             info.irq.unwrap_or(0),
             bar0.addr,
@@ -520,22 +523,6 @@ impl GpuDriver for AmdDriver {
             .lock()
             .map_err(|_| DriverError::Buffer("GEM manager poisoned".to_string()))?;
         Ok(gem.object(handle)?.size)
-    }
-
-    fn gem_export_dmafd(&self, handle: GemHandle) -> Result<i32> {
-        let mut gem = self
-            .gem
-            .lock()
-            .map_err(|_| DriverError::Buffer("GEM manager poisoned".to_string()))?;
-        gem.export_dmafd(handle)
-    }
-
-    fn gem_import_dmafd(&self, fd: i32) -> Result<GemHandle> {
-        let gem = self
-            .gem
-            .lock()
-            .map_err(|_| DriverError::Buffer("GEM manager poisoned".to_string()))?;
-        gem.import_dmafd(fd)
     }
 
     fn get_edid(&self, connector_id: u32) -> Vec<u8> {

@@ -38,6 +38,11 @@ const DRM_IOCTL_MODE_RMFB: usize = DRM_IOCTL_BASE + 22;
 const DRM_IOCTL_GET_CAP: usize = DRM_IOCTL_BASE + 23;
 const DRM_IOCTL_SET_CLIENT_CAP: usize = DRM_IOCTL_BASE + 24;
 const DRM_IOCTL_VERSION: usize = DRM_IOCTL_BASE + 25;
+const DRM_IOCTL_GEM_CREATE: usize = DRM_IOCTL_BASE + 26;
+const DRM_IOCTL_GEM_CLOSE: usize = DRM_IOCTL_BASE + 27;
+const DRM_IOCTL_GEM_MMAP: usize = DRM_IOCTL_BASE + 28;
+const DRM_IOCTL_PRIME_HANDLE_TO_FD: usize = DRM_IOCTL_BASE + 29;
+const DRM_IOCTL_PRIME_FD_TO_HANDLE: usize = DRM_IOCTL_BASE + 30;
 
 // ---- Wire types for DRM ioctls ----
 #[repr(C)]
@@ -183,31 +188,91 @@ struct DrmSetClientCapWire {
     value: u64,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmGemCreateWire {
+    size: u64,
+    handle: u32,
+    _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmGemCloseWire {
+    handle: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmGemMmapWire {
+    handle: u32,
+    _pad: u32,
+    offset: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmPrimeHandleToFdWire {
+    handle: u32,
+    flags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmPrimeFdToHandleWire {
+    fd: i32,
+    _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmPrimeHandleToFdResponseWire {
+    fd: i32,
+    _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct DrmPrimeFdToHandleResponseWire {
+    handle: u32,
+    _pad: u32,
+}
+
 // ---- Internal handle types ----
 
 #[derive(Clone, Debug)]
 enum NodeKind {
     Card,
     Connector(u32),
+    DmaBuf {
+        gem_handle: GemHandle,
+        export_token: u32,
+    },
 }
 
 struct Handle {
     node: NodeKind,
     response: Vec<u8>,
     mapped_gem: Option<GemHandle>,
+    mapped_gem_refs: usize,
     owned_fbs: Vec<u32>,
     owned_gems: Vec<GemHandle>,
+    closing: bool,
 }
 
 pub struct DrmScheme {
     driver: Arc<dyn GpuDriver>,
     next_id: usize,
     next_fb_id: u32,
+    next_export_token: u32,
     handles: BTreeMap<usize, Handle>,
     active_crtc_fb: BTreeMap<u32, u32>,
     active_crtc_mode: BTreeMap<u32, ModeInfo>,
     pending_flip_fb: BTreeMap<u32, (u64, u32)>,
     fb_registry: BTreeMap<u32, FbInfo>,
+    active_gem_maps: BTreeMap<GemHandle, usize>,
+    gem_export_refs: BTreeMap<GemHandle, usize>,
+    prime_exports: BTreeMap<u32, GemHandle>,
 }
 
 impl DrmScheme {
@@ -216,22 +281,199 @@ impl DrmScheme {
             driver,
             next_id: 0,
             next_fb_id: 1,
+            next_export_token: 1,
             handles: BTreeMap::new(),
             active_crtc_fb: BTreeMap::new(),
             active_crtc_mode: BTreeMap::new(),
             pending_flip_fb: BTreeMap::new(),
             fb_registry: BTreeMap::new(),
+            active_gem_maps: BTreeMap::new(),
+            gem_export_refs: BTreeMap::new(),
+            prime_exports: BTreeMap::new(),
         }
     }
 
     #[allow(dead_code)]
     pub fn on_close(&mut self, id: usize) {
-        self.handles.remove(&id);
+        let mapped = self
+            .handles
+            .get(&id)
+            .map(|handle| handle.mapped_gem_refs != 0)
+            .unwrap_or(false);
+        if mapped {
+            if let Some(handle) = self.handles.get_mut(&id) {
+                handle.closing = true;
+            }
+            return;
+        }
+
+        if let Some(handle) = self.handles.remove(&id) {
+            self.finalize_handle_close(handle);
+        }
     }
 
     fn is_fb_active(&self, fb_id: u32) -> bool {
         self.active_crtc_fb.values().any(|&id| id == fb_id)
             || self.pending_flip_fb.values().any(|&(_, id)| id == fb_id)
+    }
+
+    fn handle_has_gem_ref(handle: &Handle, gem_handle: GemHandle) -> bool {
+        handle.owned_gems.contains(&gem_handle)
+    }
+
+    fn gem_is_still_referenced(&self, gem_handle: GemHandle) -> bool {
+        self.handles
+            .values()
+            .any(|handle| Self::handle_has_gem_ref(handle, gem_handle))
+    }
+
+    fn gem_has_other_refs(&self, current_id: usize, gem_handle: GemHandle) -> bool {
+        self.handles.iter().any(|(&other_id, handle)| {
+            other_id != current_id && Self::handle_has_gem_ref(handle, gem_handle)
+        })
+    }
+
+    fn gem_is_mapped(&self, gem_handle: GemHandle) -> bool {
+        self.active_gem_maps.get(&gem_handle).copied().unwrap_or(0) != 0
+    }
+
+    fn gem_export_refcount(&self, gem_handle: GemHandle) -> usize {
+        self.gem_export_refs.get(&gem_handle).copied().unwrap_or(0)
+    }
+
+    fn bump_export_ref(&mut self, gem_handle: GemHandle) {
+        let entry = self.gem_export_refs.entry(gem_handle).or_insert(0);
+        *entry = entry.saturating_add(1);
+    }
+
+    fn drop_export_ref(&mut self, gem_handle: GemHandle) {
+        let remove_entry = match self.gem_export_refs.get_mut(&gem_handle) {
+            Some(count) if *count > 1 => {
+                *count -= 1;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if remove_entry {
+            self.gem_export_refs.remove(&gem_handle);
+            self.prime_exports.retain(|_, &mut h| h != gem_handle);
+        }
+    }
+
+    fn gem_can_close(&self, gem_handle: GemHandle) -> bool {
+        let backs_fb = self
+            .fb_registry
+            .values()
+            .any(|info| info.gem_handle == gem_handle);
+        !backs_fb
+            && !self.gem_is_still_referenced(gem_handle)
+            && !self.gem_is_mapped(gem_handle)
+            && self.gem_export_refcount(gem_handle) == 0
+    }
+
+    fn maybe_close_gem(&mut self, gem_handle: GemHandle, context: &str) -> bool {
+        if !self.gem_can_close(gem_handle) {
+            return false;
+        }
+
+        match self.driver.gem_close(gem_handle) {
+            Ok(()) => {
+                self.prime_exports.retain(|_, &mut h| h != gem_handle);
+                true
+            }
+            Err(e) => {
+                warn!(
+                    "redox-drm: {} gem_close({}) failed: {}",
+                    context, gem_handle, e
+                );
+                false
+            }
+        }
+    }
+
+    fn allocate_handle(&mut self, node: NodeKind) -> usize {
+        let id = self.next_id;
+        self.next_id = self.next_id.saturating_add(1);
+        self.handles.insert(
+            id,
+            Handle {
+                node,
+                response: Vec::new(),
+                mapped_gem: None,
+                mapped_gem_refs: 0,
+                owned_fbs: Vec::new(),
+                owned_gems: Vec::new(),
+                closing: false,
+            },
+        );
+        id
+    }
+
+    fn finalize_handle_close(&mut self, handle: Handle) {
+        if let NodeKind::DmaBuf { gem_handle, .. } = handle.node {
+            self.drop_export_ref(gem_handle);
+            let _ = self.maybe_close_gem(gem_handle, "close dmabuf");
+            return;
+        }
+
+        let mut auto_closed_gems = HashSet::new();
+        for fb_id in &handle.owned_fbs {
+            if self.is_fb_active(*fb_id) {
+                continue;
+            }
+            if let Some(fb_info) = self.fb_registry.remove(fb_id) {
+                if self.maybe_close_gem(fb_info.gem_handle, "close") {
+                    auto_closed_gems.insert(fb_info.gem_handle);
+                }
+            }
+        }
+        for gem_handle in handle.owned_gems {
+            if auto_closed_gems.contains(&gem_handle) {
+                continue;
+            }
+            let backs_fb = self
+                .fb_registry
+                .values()
+                .any(|info| info.gem_handle == gem_handle);
+            if !backs_fb && self.maybe_close_gem(gem_handle, "close gem") {
+                auto_closed_gems.insert(gem_handle);
+            }
+        }
+    }
+
+    fn pin_mapped_gem(&mut self, id: usize, gem_handle: GemHandle) -> Result<()> {
+        let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
+        handle.mapped_gem = Some(gem_handle);
+        handle.mapped_gem_refs = handle.mapped_gem_refs.saturating_add(1);
+        let entry = self.active_gem_maps.entry(gem_handle).or_insert(0);
+        *entry = entry.saturating_add(1);
+        Ok(())
+    }
+
+    fn unpin_mapped_gem(&mut self, id: usize) -> Result<()> {
+        let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
+        let gem_handle = match handle.mapped_gem {
+            Some(gem_handle) if handle.mapped_gem_refs != 0 => gem_handle,
+            _ => return Ok(()),
+        };
+        handle.mapped_gem_refs -= 1;
+        if handle.mapped_gem_refs == 0 {
+            handle.mapped_gem = None;
+        }
+
+        let remove_entry = match self.active_gem_maps.get_mut(&gem_handle) {
+            Some(count) if *count > 1 => {
+                *count -= 1;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if remove_entry {
+            self.active_gem_maps.remove(&gem_handle);
+        }
+        Ok(())
     }
 
     pub fn retire_vblank(&mut self, crtc_id: u32, vblank_count: u64) {
@@ -253,22 +495,7 @@ impl DrmScheme {
             return;
         }
         self.fb_registry.remove(&fb_id);
-        let still_referenced = self
-            .fb_registry
-            .values()
-            .any(|i| i.gem_handle == gem_handle);
-        let gem_owned = self
-            .handles
-            .values()
-            .any(|h| h.owned_gems.contains(&gem_handle));
-        if !still_referenced && !gem_owned {
-            if let Err(e) = self.driver.gem_close(gem_handle) {
-                warn!(
-                    "redox-drm: try_reap_fb gem_close({}) failed: {}",
-                    gem_handle, e
-                );
-            }
-        }
+        let _ = self.maybe_close_gem(gem_handle, "try_reap_fb");
     }
 
     // ---- Encode helpers ----
@@ -461,7 +688,7 @@ impl DrmScheme {
                 let owned = self
                     .handles
                     .get(&id)
-                    .map(|h| h.owned_gems.contains(&req.handle))
+                    .map(|h| Self::handle_has_gem_ref(h, req.handle))
                     .unwrap_or(false);
                 if !owned {
                     warn!(
@@ -469,6 +696,15 @@ impl DrmScheme {
                         req.handle
                     );
                     return Err(Error::new(EBADF));
+                }
+                if let Some(handle) = self.handles.get(&id) {
+                    if handle.mapped_gem_refs != 0 && handle.mapped_gem != Some(req.handle) {
+                        warn!(
+                            "redox-drm: MAP_DUMB handle {} rejected — another GEM is still mapped",
+                            req.handle
+                        );
+                        return Err(Error::new(EBUSY));
+                    }
                 }
                 req.offset = self
                     .driver
@@ -505,9 +741,21 @@ impl DrmScheme {
                     );
                     return Err(Error::new(EBUSY));
                 }
-                self.driver
-                    .gem_close(req.handle)
-                    .map_err(driver_to_syscall)?;
+                if self.gem_is_mapped(req.handle) {
+                    warn!(
+                        "redox-drm: DESTROY_DUMB handle {} rejected — still mapped",
+                        req.handle
+                    );
+                    return Err(Error::new(EBUSY));
+                }
+                let close_now = !self.gem_has_other_refs(id, req.handle)
+                    && self.gem_export_refcount(req.handle) == 0;
+                if close_now {
+                    self.driver
+                        .gem_close(req.handle)
+                        .map_err(driver_to_syscall)?;
+                    self.prime_exports.retain(|_, &mut h| h != req.handle);
+                }
                 if let Some(handle) = self.handles.get_mut(&id) {
                     handle.owned_gems.retain(|&h| h != req.handle);
                 }
@@ -584,7 +832,7 @@ impl DrmScheme {
                 let owned = self
                     .handles
                     .get(&id)
-                    .map(|h| h.owned_gems.contains(&req.handle))
+                    .map(|h| Self::handle_has_gem_ref(h, req.handle))
                     .unwrap_or(false);
                 if !owned {
                     warn!(
@@ -646,22 +894,7 @@ impl DrmScheme {
                     return Err(Error::new(EBUSY));
                 }
                 if let Some(fb_info) = self.fb_registry.remove(&req.fb_id) {
-                    let still_referenced = self
-                        .fb_registry
-                        .values()
-                        .any(|i| i.gem_handle == fb_info.gem_handle);
-                    let still_owned = self
-                        .handles
-                        .values()
-                        .any(|h| h.owned_gems.contains(&fb_info.gem_handle));
-                    if !still_referenced && !still_owned {
-                        if let Err(e) = self.driver.gem_close(fb_info.gem_handle) {
-                            warn!(
-                                "redox-drm: RMFB gem_close({}) failed: {}",
-                                fb_info.gem_handle, e
-                            );
-                        }
-                    }
+                    let _ = self.maybe_close_gem(fb_info.gem_handle, "RMFB");
                 }
                 if let Some(handle) = self.handles.get_mut(&id) {
                     handle.owned_fbs.retain(|&fb| fb != req.fb_id);
@@ -686,6 +919,169 @@ impl DrmScheme {
                     major: 1,
                     minor: 0,
                     patch: 0,
+                };
+                bytes_of(&resp)
+            }
+
+            DRM_IOCTL_GEM_CREATE => {
+                let mut req = decode_wire::<DrmGemCreateWire>(payload)?;
+                if req.size == 0 {
+                    return Err(Error::new(EINVAL));
+                }
+                req.handle = self
+                    .driver
+                    .gem_create(req.size)
+                    .map_err(driver_to_syscall)?;
+                if let Some(handle) = self.handles.get_mut(&id) {
+                    handle.owned_gems.push(req.handle);
+                }
+                bytes_of(&req)
+            }
+
+            DRM_IOCTL_GEM_CLOSE => {
+                let req = decode_wire::<DrmGemCloseWire>(payload)?;
+                let owned = self
+                    .handles
+                    .get(&id)
+                    .map(|h| h.owned_gems.contains(&req.handle))
+                    .unwrap_or(false);
+                if !owned {
+                    warn!(
+                        "redox-drm: GEM_CLOSE handle {} not owned by this fd",
+                        req.handle
+                    );
+                    return Err(Error::new(EBADF));
+                }
+                let backs_fb = self
+                    .fb_registry
+                    .values()
+                    .any(|info| info.gem_handle == req.handle);
+                if backs_fb {
+                    warn!(
+                        "redox-drm: GEM_CLOSE handle {} rejected — backs an active framebuffer",
+                        req.handle
+                    );
+                    return Err(Error::new(EBUSY));
+                }
+                if self.gem_is_mapped(req.handle) {
+                    warn!(
+                        "redox-drm: GEM_CLOSE handle {} rejected — still mapped",
+                        req.handle
+                    );
+                    return Err(Error::new(EBUSY));
+                }
+                let close_now = !self.gem_has_other_refs(id, req.handle)
+                    && self.gem_export_refcount(req.handle) == 0;
+                if close_now {
+                    self.driver
+                        .gem_close(req.handle)
+                        .map_err(driver_to_syscall)?;
+                    self.prime_exports.retain(|_, &mut h| h != req.handle);
+                }
+                if let Some(handle) = self.handles.get_mut(&id) {
+                    handle.owned_gems.retain(|&h| h != req.handle);
+                }
+                Vec::new()
+            }
+
+            DRM_IOCTL_GEM_MMAP => {
+                let mut req = decode_wire::<DrmGemMmapWire>(payload)?;
+                let owned = self
+                    .handles
+                    .get(&id)
+                    .map(|h| Self::handle_has_gem_ref(h, req.handle))
+                    .unwrap_or(false);
+                if !owned {
+                    warn!(
+                        "redox-drm: GEM_MMAP handle {} not owned by this fd",
+                        req.handle
+                    );
+                    return Err(Error::new(EBADF));
+                }
+                if let Some(handle) = self.handles.get(&id) {
+                    if handle.mapped_gem_refs != 0 && handle.mapped_gem != Some(req.handle) {
+                        warn!(
+                            "redox-drm: GEM_MMAP handle {} rejected — another GEM is still mapped",
+                            req.handle
+                        );
+                        return Err(Error::new(EBUSY));
+                    }
+                }
+                req.offset = self
+                    .driver
+                    .gem_mmap(req.handle)
+                    .map_err(driver_to_syscall)? as u64;
+                if let Some(handle) = self.handles.get_mut(&id) {
+                    handle.mapped_gem = Some(req.handle);
+                }
+                bytes_of(&req)
+            }
+
+            DRM_IOCTL_PRIME_HANDLE_TO_FD => {
+                let req = decode_wire::<DrmPrimeHandleToFdWire>(payload)?;
+                let owned = self
+                    .handles
+                    .get(&id)
+                    .map(|h| Self::handle_has_gem_ref(h, req.handle))
+                    .unwrap_or(false);
+                if !owned {
+                    warn!(
+                        "redox-drm: PRIME_HANDLE_TO_FD handle {} not owned by this fd",
+                        req.handle
+                    );
+                    return Err(Error::new(EBADF));
+                }
+
+                let token = self.next_export_token;
+                self.next_export_token = self.next_export_token.saturating_add(1);
+                self.prime_exports.insert(token, req.handle);
+
+                let resp = DrmPrimeHandleToFdResponseWire {
+                    fd: token as i32,
+                    _pad: 0,
+                };
+                bytes_of(&resp)
+            }
+
+            DRM_IOCTL_PRIME_FD_TO_HANDLE => {
+                let req = decode_wire::<DrmPrimeFdToHandleWire>(payload)?;
+                let token = if req.fd >= 0 {
+                    req.fd as u32
+                } else {
+                    warn!("redox-drm: PRIME_FD_TO_HANDLE invalid token {}", req.fd);
+                    return Err(Error::new(EBADF));
+                };
+
+                // The token comes from fpath() on the dmabuf fd, which embeds
+                // the opaque export token (not the raw GEM handle).
+                let gem_handle = match self.prime_exports.get(&token).copied() {
+                    Some(h) => h,
+                    None => {
+                        warn!("redox-drm: PRIME_FD_TO_HANDLE token {} not found", token);
+                        return Err(Error::new(ENOENT));
+                    }
+                };
+
+                // Verify the GEM is still live — the exporter may have closed it
+                // before any dmabuf fd was opened, leaving a stale token.
+                self.driver.gem_size(gem_handle).map_err(|_| {
+                    warn!(
+                        "redox-drm: PRIME_FD_TO_HANDLE token {} maps to dead GEM {}",
+                        token, gem_handle
+                    );
+                    // Clean up the stale token so future calls fail fast.
+                    self.prime_exports.remove(&token);
+                    Error::new(ENOENT)
+                })?;
+
+                let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
+                if !handle.owned_gems.contains(&gem_handle) {
+                    handle.owned_gems.push(gem_handle);
+                }
+
+                let resp = DrmPrimeFdToHandleResponseWire {
+                    handle: gem_handle,
+                    _pad: 0,
                 };
                 bytes_of(&resp)
             }
@@ -720,21 +1116,34 @@ impl SchemeBlockMut for DrmScheme {
                 let connector_id = tail.parse::<u32>().map_err(|_| Error::new(ENOENT))?;
                 NodeKind::Connector(connector_id)
             }
+            p if p.starts_with("card0/dmabuf/") => {
+                let tail = p.trim_start_matches("card0/dmabuf/");
+                let token = tail.parse::<u32>().map_err(|_| Error::new(ENOENT))?;
+                let gem_handle = match self.prime_exports.get(&token).copied() {
+                    Some(h) => h,
+                    None => return Err(Error::new(ENOENT)),
+                };
+                self.driver.gem_size(gem_handle).map_err(|_| {
+                    warn!(
+                        "redox-drm: open dmabuf token {} maps to dead GEM {}",
+                        token, gem_handle
+                    );
+                    self.prime_exports.remove(&token);
+                    Error::new(ENOENT)
+                })?;
+                NodeKind::DmaBuf {
+                    gem_handle,
+                    export_token: token,
+                }
+            }
             _ => return Err(Error::new(ENOENT)),
         };
 
-        let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
-        self.handles.insert(
-            id,
-            Handle {
-                node,
-                response: Vec::new(),
-                mapped_gem: None,
-                owned_fbs: Vec::new(),
-                owned_gems: Vec::new(),
-            },
-        );
+        if let NodeKind::DmaBuf { gem_handle, .. } = &node {
+            self.bump_export_ref(*gem_handle);
+        }
+
+        let id = self.allocate_handle(node);
         Ok(Some(id))
     }
 
@@ -763,6 +1172,7 @@ impl SchemeBlockMut for DrmScheme {
         let path = match handle.node {
             NodeKind::Card => "drm:card0".to_string(),
             NodeKind::Connector(cid) => format!("drm:card0Connector/{cid}"),
+            NodeKind::DmaBuf { export_token, .. } => format!("drm:card0/dmabuf/{export_token}"),
         };
         let bytes = path.as_bytes();
         let len = bytes.len().min(buf.len());
@@ -789,54 +1199,21 @@ impl SchemeBlockMut for DrmScheme {
     }
 
     fn close(&mut self, id: usize) -> Result<Option<usize>> {
+        let mapped = self
+            .handles
+            .get(&id)
+            .ok_or_else(|| Error::new(EBADF))?
+            .mapped_gem_refs;
+        if mapped != 0 {
+            let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
+            handle.closing = true;
+            return Ok(Some(0));
+        }
+
         if let Some(handle) = self.handles.remove(&id) {
-            let mut auto_closed_gems = HashSet::new();
-            for fb_id in &handle.owned_fbs {
-                let in_use = self.is_fb_active(*fb_id);
-                if in_use {
-                    continue;
-                }
-                if let Some(fb_info) = self.fb_registry.remove(fb_id) {
-                    let still_referenced = self
-                        .fb_registry
-                        .values()
-                        .any(|i| i.gem_handle == fb_info.gem_handle);
-                    let still_owned = self
-                        .handles
-                        .values()
-                        .any(|h| h.owned_gems.contains(&fb_info.gem_handle));
-                    if !still_referenced && !still_owned {
-                        match self.driver.gem_close(fb_info.gem_handle) {
-                            Ok(()) => {
-                                auto_closed_gems.insert(fb_info.gem_handle);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "redox-drm: close gem_close({}) failed: {}",
-                                    fb_info.gem_handle, e
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            for gem_handle in handle.owned_gems {
-                if auto_closed_gems.contains(&gem_handle) {
-                    continue;
-                }
-                let backs_fb = self
-                    .fb_registry
-                    .values()
-                    .any(|info| info.gem_handle == gem_handle);
-                if !backs_fb {
-                    if let Err(e) = self.driver.gem_close(gem_handle) {
-                        warn!(
-                            "redox-drm: close gem GEM {} cleanup failed: {}",
-                            gem_handle, e
-                        );
-                    }
-                }
-            }
+            self.finalize_handle_close(handle);
+        } else {
+            return Err(Error::new(EBADF));
         }
         Ok(Some(0))
     }
@@ -844,19 +1221,40 @@ impl SchemeBlockMut for DrmScheme {
     fn mmap_prep(
         &mut self,
         id: usize,
-        _offset: u64,
-        _size: usize,
+        offset: u64,
+        size: usize,
         _flags: MapFlags,
     ) -> Result<Option<usize>> {
-        let handle = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
-        let gem_handle = handle.mapped_gem.ok_or_else(|| Error::new(EINVAL))?;
-        let addr = self
+        let gem_handle = {
+            let handle = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
+            match handle.node {
+                NodeKind::DmaBuf { gem_handle, .. } => gem_handle,
+                _ => handle.mapped_gem.ok_or_else(|| Error::new(EINVAL))?,
+            }
+        };
+
+        let gem_size = self
+            .driver
+            .gem_size(gem_handle)
+            .map_err(driver_to_syscall)?;
+
+        if offset > gem_size {
+            return Err(Error::new(EINVAL));
+        }
+        let remaining = gem_size - offset;
+        if size as u64 > remaining {
+            return Err(Error::new(EINVAL));
+        }
+
+        let base_addr = self
             .driver
             .gem_mmap(gem_handle)
             .map_err(driver_to_syscall)?;
+        let addr = base_addr + offset as usize;
+        self.pin_mapped_gem(id, gem_handle)?;
         debug!(
-            "redox-drm: mmap_prep GEM handle {} at addr={:#x}",
-            gem_handle, addr
+            "redox-drm: mmap_prep GEM handle {} offset={} size={} at addr={:#x}",
+            gem_handle, offset, size, addr
         );
         Ok(Some(addr))
     }
@@ -864,11 +1262,26 @@ impl SchemeBlockMut for DrmScheme {
     fn munmap(
         &mut self,
         id: usize,
-        _offset: u64,
-        _size: usize,
+        offset: u64,
+        size: usize,
         _flags: MunmapFlags,
     ) -> Result<Option<usize>> {
         let _ = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
+        self.unpin_mapped_gem(id)?;
+        debug!(
+            "redox-drm: munmap id={} offset={} size={}",
+            id, offset, size
+        );
+        let should_finalize = self
+            .handles
+            .get(&id)
+            .map(|handle| handle.closing && handle.mapped_gem_refs == 0)
+            .unwrap_or(false);
+        if should_finalize {
+            if let Some(handle) = self.handles.remove(&id) {
+                self.finalize_handle_close(handle);
+            }
+        }
         Ok(Some(0))
     }
 }

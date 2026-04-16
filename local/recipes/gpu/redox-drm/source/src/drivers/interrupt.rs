@@ -2,7 +2,8 @@ use std::io::{Read, Write};
 
 use log::{info, warn};
 use redox_driver_sys::irq::{IrqHandle, MsixTable, MsixVector};
-use redox_driver_sys::pci::{PciDevice, PciDeviceInfo, PCI_CAP_ID_MSIX};
+use redox_driver_sys::pci::{PciDevice, PciDeviceInfo, PCI_CAP_ID_MSI, PCI_CAP_ID_MSIX};
+use redox_driver_sys::quirks::PciQuirkFlags;
 
 use crate::driver::{DriverError, Result};
 
@@ -12,6 +13,10 @@ pub enum InterruptHandle {
         table: MsixTable,
         cap_offset: u8,
     },
+    Msi {
+        handle: IrqHandle,
+        irq: u32,
+    },
     Legacy {
         handle: IrqHandle,
         irq: u32,
@@ -20,8 +25,35 @@ pub enum InterruptHandle {
 
 impl InterruptHandle {
     pub fn setup(device_info: &PciDeviceInfo, pci_device: &mut PciDevice) -> Result<Self> {
-        if let Ok(Some(handle)) = Self::try_msix(device_info, pci_device) {
-            return Ok(handle);
+        let quirks = device_info.quirks();
+
+        if !quirks.contains(PciQuirkFlags::NO_MSIX) {
+            if let Ok(Some(handle)) = Self::try_msix(device_info, pci_device) {
+                return Ok(handle);
+            }
+        } else {
+            info!(
+                "redox-drm: skipping MSI-X for {} (NO_MSIX quirk)",
+                device_info.location
+            );
+        }
+
+        if !quirks.contains(PciQuirkFlags::NO_MSI) {
+            if let Ok(Some(handle)) = Self::try_msi(device_info, pci_device) {
+                return Ok(handle);
+            }
+        } else {
+            info!(
+                "redox-drm: skipping MSI for {} (NO_MSI quirk)",
+                device_info.location
+            );
+        }
+
+        if quirks.contains(PciQuirkFlags::FORCE_LEGACY_IRQ) {
+            info!(
+                "redox-drm: forcing legacy IRQ for {} (FORCE_LEGACY_IRQ quirk)",
+                device_info.location
+            );
         }
 
         Self::try_legacy(device_info)
@@ -89,6 +121,35 @@ impl InterruptHandle {
         }))
     }
 
+    fn try_msi(device_info: &PciDeviceInfo, _pci_device: &mut PciDevice) -> Result<Option<Self>> {
+        let msi_cap = match device_info.find_capability(PCI_CAP_ID_MSI) {
+            Some(cap) => cap,
+            None => return Ok(None),
+        };
+
+        let irq = device_info.irq.ok_or_else(|| {
+            DriverError::Io(format!("no IRQ for MSI on {}", device_info.location))
+        })?;
+
+        let handle = match IrqHandle::request(irq) {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(
+                    "redox-drm: MSI IRQ request failed for {}: {e}",
+                    device_info.location
+                );
+                return Ok(None);
+            }
+        };
+
+        info!(
+            "redox-drm: MSI enabled for {} cap_offset={:#x} irq {}",
+            device_info.location, msi_cap.offset, irq
+        );
+
+        Ok(Some(InterruptHandle::Msi { handle, irq }))
+    }
+
     fn try_legacy(device_info: &PciDeviceInfo) -> Result<Self> {
         let irq = device_info
             .irq
@@ -114,7 +175,7 @@ impl InterruptHandle {
                     Err(e) => Err(DriverError::Io(e.to_string())),
                 }
             }
-            InterruptHandle::Legacy { handle, .. } => handle
+            InterruptHandle::Msi { handle, .. } | InterruptHandle::Legacy { handle, .. } => handle
                 .try_wait()
                 .map(|ev| ev.is_some())
                 .map_err(|e| DriverError::Io(e.to_string())),
@@ -134,7 +195,7 @@ impl InterruptHandle {
                     .write_all(&buf)
                     .map_err(|e| DriverError::Io(e.to_string()))
             }
-            InterruptHandle::Legacy { handle, .. } => {
+            InterruptHandle::Msi { handle, .. } | InterruptHandle::Legacy { handle, .. } => {
                 let mut buf = [0u8; 8];
                 let _ = handle.wait().map_err(|e| DriverError::Io(e.to_string()))?;
                 Ok(())
@@ -145,7 +206,7 @@ impl InterruptHandle {
     pub fn irq(&self) -> u32 {
         match self {
             InterruptHandle::Msix { vector, .. } => vector.irq,
-            InterruptHandle::Legacy { irq, .. } => *irq,
+            InterruptHandle::Msi { irq, .. } | InterruptHandle::Legacy { irq, .. } => *irq,
         }
     }
 

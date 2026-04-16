@@ -116,12 +116,30 @@ static inline u32 amdgpu_dc_hpd_status(void)
     return readl((u8 __iomem *)g_mmio_base + AMDGPU_DC_HPD_STATUS_REG);
 }
 
+static void amdgpu_redox_log_irq_expectation(u64 quirk_flags)
+{
+    const char *policy = "MSI-X first, then MSI, then legacy IRQ fallback";
+
+    if ((quirk_flags & PCI_QUIRK_FORCE_LEGACY) != 0 ||
+        ((quirk_flags & PCI_QUIRK_NO_MSIX) != 0 &&
+         (quirk_flags & PCI_QUIRK_NO_MSI) != 0)) {
+        policy = "legacy IRQ only";
+    } else if ((quirk_flags & PCI_QUIRK_NO_MSIX) != 0) {
+        policy = "avoid MSI-X, prefer MSI with legacy fallback";
+    } else if ((quirk_flags & PCI_QUIRK_NO_MSI) != 0) {
+        policy = "avoid MSI, prefer MSI-X with legacy fallback";
+    }
+
+    printk("amdgpu_redox: quirk-aware IRQ expectation: %s\n", policy);
+}
+
 /* Initialize AMD Display Core */
 int amdgpu_dc_init(void *mmio_base, size_t mmio_size)
 {
     int ret = 0;
     u32 gpu_id = 0;
     const char *firmware_name = NULL;
+    u64 quirk_flags = 0;
 
     printk("amdgpu_redox: initializing AMD Display Core\n");
 
@@ -132,6 +150,28 @@ int amdgpu_dc_init(void *mmio_base, size_t mmio_size)
 
     gpu_id = readl(mmio_base);
     printk("amdgpu_redox: GPU ID = %#010x\n", gpu_id);
+
+    if (g_pci_dev) {
+        quirk_flags = pci_get_quirk_flags(g_pci_dev);
+        printk("amdgpu_redox: PCI %02x:%02x.%u quirk flags = %#llx\n",
+               g_pci_dev->bus_number,
+               g_pci_dev->dev_number,
+               g_pci_dev->func_number,
+               (unsigned long long)quirk_flags);
+        if (pci_has_quirk(g_pci_dev, PCI_QUIRK_NO_ASPM)) {
+            pr_warn("amdgpu_redox: NO_ASPM quirk active; skipping any future ASPM-dependent assumptions\n");
+        }
+        if (pci_has_quirk(g_pci_dev, PCI_QUIRK_NEED_IOMMU)) {
+            pr_warn("amdgpu_redox: NEED_IOMMU quirk active; runtime must provide a functional IOMMU path\n");
+        }
+        if (pci_has_quirk(g_pci_dev, PCI_QUIRK_NO_MSIX)) {
+            pr_warn("amdgpu_redox: NO_MSIX quirk active; IRQ setup must avoid MSI-X\n");
+        }
+        if (pci_has_quirk(g_pci_dev, PCI_QUIRK_NO_MSI)) {
+            pr_warn("amdgpu_redox: NO_MSI quirk active; IRQ setup must avoid MSI\n");
+        }
+        amdgpu_redox_log_irq_expectation(quirk_flags);
+    }
 
     switch (gpu_id) {
         case ASIC_FAMILY_NAVI10:
@@ -182,11 +222,29 @@ int amdgpu_dc_init(void *mmio_base, size_t mmio_size)
     {
         const struct firmware *fw = NULL;
         int fw_ret = request_firmware(&fw, firmware_name, NULL);
+        bool firmware_required =
+            g_pci_dev && pci_has_quirk(g_pci_dev, PCI_QUIRK_NEED_FIRMWARE);
+
         if (fw_ret != 0 || !fw) {
-            pr_warn("amdgpu_redox: firmware %s not available (err=%d), continuing without\n",
-                    firmware_name, fw_ret);
+            if (firmware_required) {
+                pr_err("amdgpu_redox: firmware %s is required by quirk policy (flags=%#llx, err=%d)\n",
+                       firmware_name,
+                       (unsigned long long)quirk_flags,
+                       fw_ret);
+                return fw_ret != 0 ? fw_ret : -ENOENT;
+            }
+            pr_warn("amdgpu_redox: firmware %s not available (err=%d), continuing without (quirks=%#llx)\n",
+                    firmware_name,
+                    fw_ret,
+                    (unsigned long long)quirk_flags);
         } else {
-            printk("amdgpu_redox: firmware %s loaded (%zu bytes)\n", firmware_name, fw->size);
+            if (firmware_required) {
+                printk("amdgpu_redox: firmware %s loaded (%zu bytes) to satisfy NEED_FIRMWARE quirk\n",
+                       firmware_name,
+                       fw->size);
+            } else {
+                printk("amdgpu_redox: firmware %s loaded (%zu bytes)\n", firmware_name, fw->size);
+            }
             release_firmware(fw);
         }
     }
