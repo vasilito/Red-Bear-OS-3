@@ -84,12 +84,22 @@ expect "dbus-daemon"
 expect "virtio_net_present"
 expect "wifi_control_state=present"
 expect "wifi_connect_result=present"
+    expect "WIFICTL_INTERFACES=present"
+    expect "WIFICTL_CAPABILITIES=present"
+    expect "DBUS_SYSTEM_BUS="
+    expect "UPOWER_BUS_NAME=present"
+    expect "UPOWER_RUNTIME_ADAPTERS="
+    expect "UPOWER_RUNTIME_BATTERIES="
+    expect "UPOWER_ENUMERATED_DEVICES="
+    expect "UPOWER_NATIVE_PATHS=validated"
+    expect "UDISKS_BUS_NAME=present"
+    expect "UDISKS_RUNTIME_DRIVE_SURFACES="
+    expect "UDISKS_RUNTIME_BLOCK_SURFACES="
+    expect "UDISKS_MANAGED_OBJECTS=present"
+    expect "UDISKS_BLOCK_OBJECT_PATHS=validated"
 expect "PHASE5_WIFI_CHECK=pass"
-expect "WIFICTL_INTERFACES=present"
-expect "WIFICTL_CAPABILITIES=present"
-expect "DBUS_SYSTEM_BUS="
-send "shutdown\r"
-expect eof
+    send "shutdown\r"
+    expect eof
 EOF
     exit 0
 fi

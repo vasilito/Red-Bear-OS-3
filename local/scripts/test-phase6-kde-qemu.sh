@@ -31,6 +31,37 @@ Boot or validate the Red Bear OS Phase 6 KDE session surface on redbear-kde.
 USAGE
 }
 
+report_solid_recipe_blockers() {
+    local recipe="local/recipes/kde/kf6-solid/recipe.toml"
+    local blockers=0
+
+    if [[ ! -f "$recipe" ]]; then
+        echo "PHASE6_SOLID_RECIPE=missing:$recipe"
+        return 0
+    fi
+
+    echo "PHASE6_SOLID_RECIPE=$recipe"
+
+    if grep -Fq -- '-DUSE_DBUS=OFF' "$recipe"; then
+        echo "PHASE6_SOLID_RECIPE_BLOCKER=USE_DBUS_off"
+        blockers=1
+    fi
+
+    if grep -Fq -- '-DBUILD_DEVICE_BACKEND_upower=OFF' "$recipe"; then
+        echo "PHASE6_SOLID_RECIPE_BLOCKER=upower_backend_off"
+        blockers=1
+    fi
+
+    if grep -Fq -- '-DBUILD_DEVICE_BACKEND_udisks2=OFF' "$recipe"; then
+        echo "PHASE6_SOLID_RECIPE_BLOCKER=udisks2_backend_off"
+        blockers=1
+    fi
+
+    if [[ "$blockers" -eq 0 ]]; then
+        echo "PHASE6_SOLID_RECIPE=ready_for_runtime_probe"
+    fi
+}
+
 check_mode=0
 filtered_args=()
 for arg in "$@"; do
@@ -69,6 +100,7 @@ if [[ ! -f "$extra" ]]; then
 fi
 
 if [[ "$check_mode" -eq 1 ]]; then
+    report_solid_recipe_blockers
     expect <<EOF
 log_user 1
 set timeout 240
@@ -82,6 +114,19 @@ send "redbear-phase6-kde-check\r"
 expect "Red Bear OS Phase 6 KDE Runtime Check"
 expect "orbital-kde"
 expect "kwin_wayland"
+expect {
+    "PHASE6_UPOWER_ENUMERATE=ok" {}
+    "PHASE6_UPOWER_ENUMERATE=skipped_missing_dbus_send" {}
+}
+expect {
+    "PHASE6_UDISKS2_OBJECTS=ok" {}
+    "PHASE6_UDISKS2_OBJECTS=skipped_missing_dbus_send" {}
+}
+expect {
+    "PHASE6_SOLID_RUNTIME=checked" {}
+    "PHASE6_SOLID_RUNTIME=blocked_missing_tool" {}
+    "PHASE6_SOLID_RUNTIME=blocked_missing_storage_or_power_surface" {}
+}
 expect "virtio_net_present"
 send "shutdown\r"
 expect eof
