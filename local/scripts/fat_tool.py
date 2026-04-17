@@ -105,6 +105,10 @@ class Fat32:
             self.f.seek(self.fat_start + i * self.fat_size * self.bytes_per_sector)
             self.f.write(self.fat)
 
+    def sync(self):
+        self.f.flush()
+        os.fsync(self.f.fileno())
+
     def _cluster_offset(self, cluster):
         if not 2 <= cluster <= self.max_cluster:
             raise RuntimeError(f"FAT32: invalid cluster {cluster}")
@@ -570,6 +574,7 @@ class Fat32:
             else:
                 self._add_dir_entry(parent_cluster, file_name, first_cluster, False, len(data))
             self.f.flush()
+            os.fsync(self.f.fileno())
         except Exception:
             if clusters:
                 self._free_cluster_chain(clusters[0])

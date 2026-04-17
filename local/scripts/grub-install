@@ -241,9 +241,10 @@ if [ -n "$DISK_IMAGE" ]; then
     ESP_OFFSET=$((2048 * 512))
 
     # Write GRUB to ESP
-    BOOT_PATH="EFI/BOOT"
-    if [ "$REMOVABLE" -eq 0 ] && [ -n "$BOOTLOADER_ID" ]; then
+    if [ "$REMOVABLE" -eq 1 ]; then
         BOOT_PATH="EFI/BOOT"
+    else
+        BOOT_PATH="EFI/${BOOTLOADER_ID}"
     fi
 
     "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI" 2>/dev/null || true
@@ -265,9 +266,10 @@ fi
 
 # Mode 2: Full image build via Red Bear installer (INSTALL_DEVICE given)
 if [ -n "$INSTALL_DEVICE" ]; then
-    echo "$PROG: installing to $INSTALL_DEVICE via Red Bear installer..." >&2
-    echo "$PROG: for Red Bear OS, use: make all CONFIG_NAME=redbear-full-grub" >&2
-    echo "$PROG: or: redox_installer -c redbear-full-grub.toml $INSTALL_DEVICE" >&2
+    echo "$PROG: block device installation is not supported by this wrapper." >&2
+    echo "$PROG: For Red Bear OS, use one of:" >&2
+    echo "$PROG:   make all CONFIG_NAME=redbear-full-grub" >&2
+    echo "$PROG:   redox_installer -c redbear-full-grub.toml $INSTALL_DEVICE" >&2
     exit 1
 fi
 
