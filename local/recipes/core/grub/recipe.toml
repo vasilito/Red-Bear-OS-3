@@ -118,7 +118,9 @@ if [ -f "${COOKBOOK_RECIPE}/grub.cfg" ]; then
     cp "${COOKBOOK_RECIPE}/grub.cfg" "${COOKBOOK_STAGE}/usr/lib/boot/grub.cfg"
     echo "Installed grub.cfg"
 else
-    echo "WARNING: grub.cfg not found in ${COOKBOOK_RECIPE}" >&2
+    echo "ERROR: grub.cfg not found in ${COOKBOOK_RECIPE}" >&2
+    echo "The grub.cfg file must exist alongside recipe.toml." >&2
+    exit 1
 fi
 
 echo "GRUB recipe complete."

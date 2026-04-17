@@ -131,9 +131,13 @@ symlink "../../local/recipes/core/ext4d" "recipes/core/ext4d"
 symlink "../../local/recipes/core/grub"  "recipes/core/grub"
 
 # Resolve WIP conflict: recipes/wip/services/grub also exists,
-# so redirect its recipe.toml to our local overlay
-if [ -d "recipes/wip/services/grub" ]; then
-    symlink "../../../../local/recipes/core/grub/recipe.toml" "recipes/wip/services/grub/recipe.toml"
+# so redirect the entire directory to our local overlay to ensure
+# COOKBOOK_RECIPE resolves to a directory that contains grub.cfg
+if [ -d "recipes/wip/services/grub" ] && [ ! -L "recipes/wip/services/grub" ]; then
+    rm -rf "recipes/wip/services/grub"
+fi
+if [ ! -e "recipes/wip/services/grub" ]; then
+    symlink "../../../../local/recipes/core/grub" "recipes/wip/services/grub"
 fi
 
 # Wayland additions

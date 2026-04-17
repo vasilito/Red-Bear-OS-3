@@ -92,14 +92,20 @@ python3 "${FAT_TOOL}" ls "${IMAGE}" "${ESP_OFFSET}" /
 echo ""
 
 REDBEAR_EFI=""
-for f in $(find "${REPO_ROOT}/local/recipes/core/bootloader/target" -path "*/stage/usr/lib/boot/bootloader.efi" 2>/dev/null); do
-    REDBEAR_EFI="${f}"
-    break
+for search_path in \
+    "${REPO_ROOT}/recipes/core/bootloader/target" \
+    "${REPO_ROOT}/local/recipes/core/bootloader/target"; do
+    for f in $(find "${search_path}" -path "*/stage/usr/lib/boot/bootloader.efi" 2>/dev/null); do
+        REDBEAR_EFI="${f}"
+        break 2
+    done
 done
-for f in $(find "${REPO_ROOT}/repo" -path "*/bootloader/*/usr/lib/boot/bootloader.efi" 2>/dev/null); do
-    REDBEAR_EFI="${f}"
-    break
-done
+if [ -z "${REDBEAR_EFI}" ]; then
+    for f in $(find "${REPO_ROOT}/repo" -path "*/bootloader/*/usr/lib/boot/bootloader.efi" 2>/dev/null); do
+        REDBEAR_EFI="${f}"
+        break
+    done
+fi
 
 if [ -z "${REDBEAR_EFI}" ]; then
     echo "ERROR: Cannot find Redox bootloader (bootloader.efi) in cookbook output." >&2
