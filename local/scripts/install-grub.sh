@@ -24,7 +24,6 @@ ESP_SECTOR_SIZE=512
 ESP_OFFSET=$((ESP_LBA * ESP_SECTOR_SIZE))
 
 FAT_TOOL="${SCRIPT_DIR}/fat_tool.py"
-ESP="${IMAGE}@${ESP_OFFSET}"
 
 if [ ! -f "${IMAGE}" ]; then
     echo "ERROR: Image file not found: ${IMAGE}" >&2
@@ -36,33 +35,30 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
+find_artifact() {
+    local search_dir="$1"
+    local pattern="$2"
+    [ -d "${search_dir}" ] || return 0
+    for f in $(find "${search_dir}" -path "${pattern}" 2>&1 | grep -v "Permission denied"); do
+        echo "$f"
+        return
+    done
+}
+
 GRUB_EFI=""
 GRUB_CFG=""
 
-# Search in recipe stage directory (cookbook stores output here)
-for f in $(find "${REPO_ROOT}/local/recipes/core/grub/target" -path "*/stage/usr/lib/boot/grub.efi" 2>/dev/null); do
-    GRUB_EFI="${f}"
-    break
-done
-
-for f in $(find "${REPO_ROOT}/local/recipes/core/grub/target" -path "*/stage/usr/lib/boot/grub.cfg" 2>/dev/null); do
-    GRUB_CFG="${f}"
-    break
-done
+GRUB_TARGET="${REPO_ROOT}/local/recipes/core/grub/target"
+GRUB_EFI="$(find_artifact "${GRUB_TARGET}" "*/stage/usr/lib/boot/grub.efi")" || true
+GRUB_CFG="$(find_artifact "${GRUB_TARGET}" "*/stage/usr/lib/boot/grub.cfg")" || true
 
 # Fallback: search repo extracted packages
 if [ -z "${GRUB_EFI}" ]; then
-    for f in $(find "${REPO_ROOT}/repo" -path "*/grub/*/usr/lib/boot/grub.efi" 2>/dev/null); do
-        GRUB_EFI="${f}"
-        break
-    done
+    GRUB_EFI="$(find_artifact "${REPO_ROOT}/repo" "*/grub/*/usr/lib/boot/grub.efi")" || true
 fi
 
 if [ -z "${GRUB_CFG}" ]; then
-    for f in $(find "${REPO_ROOT}/repo" -path "*/grub/*/usr/lib/boot/grub.cfg" 2>/dev/null); do
-        GRUB_CFG="${f}"
-        break
-    done
+    GRUB_CFG="$(find_artifact "${REPO_ROOT}/repo" "*/grub/*/usr/lib/boot/grub.cfg")" || true
 fi
 
 if [ -z "${GRUB_CFG}" ] && [ -f "${REPO_ROOT}/local/recipes/core/grub/grub.cfg" ]; then
@@ -95,16 +91,13 @@ REDBEAR_EFI=""
 for search_path in \
     "${REPO_ROOT}/recipes/core/bootloader/target" \
     "${REPO_ROOT}/local/recipes/core/bootloader/target"; do
-    for f in $(find "${search_path}" -path "*/stage/usr/lib/boot/bootloader.efi" 2>/dev/null); do
-        REDBEAR_EFI="${f}"
-        break 2
-    done
+    REDBEAR_EFI="$(find_artifact "${search_path}" "*/stage/usr/lib/boot/bootloader.efi")" || true
+    if [ -n "${REDBEAR_EFI}" ]; then
+        break
+    fi
 done
 if [ -z "${REDBEAR_EFI}" ]; then
-    for f in $(find "${REPO_ROOT}/repo" -path "*/bootloader/*/usr/lib/boot/bootloader.efi" 2>/dev/null); do
-        REDBEAR_EFI="${f}"
-        break
-    done
+    REDBEAR_EFI="$(find_artifact "${REPO_ROOT}/repo" "*/bootloader/*/usr/lib/boot/bootloader.efi")" || true
 fi
 
 if [ -z "${REDBEAR_EFI}" ]; then

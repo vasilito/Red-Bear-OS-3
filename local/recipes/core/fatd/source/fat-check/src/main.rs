@@ -72,7 +72,7 @@ impl RepairStats {
         }
         if self.orphaned_lfn_entries_removed != 0 {
             parts.push(format!(
-                "{} orphaned LFN entr(ies)",
+                "{} orphaned LFN entries",
                 self.orphaned_lfn_entries_removed
             ));
         }
