@@ -1,4 +1,4 @@
-#TODO: KNotifications — notification framework. Depends on qtbase, kf6-kconfig, kf6-kcoreaddons, kf6-ki18n, kf6-kwindowsystem. DBus/Canberra disabled.
+#TODO: KNotifications — notification framework. Depends on qtbase, kf6-kconfig, kf6-kcoreaddons, kf6-ki18n, kf6-kwindowsystem. D-Bus enabled (redbear-notifications provides org.freedesktop.Notifications).
 [source]
 tar = "https://invent.kde.org/frameworks/knotifications/-/archive/v6.10.0/knotifications-v6.10.0.tar.gz"
 
@@ -51,7 +51,7 @@ cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
     -DBUILD_TESTING=OFF \
     -DBUILD_QCH=OFF \
-    -DUSE_DBUS=OFF \
+    -DUSE_DBUS=ON \
     -Wno-dev
 
 cmake --build . -j${COOKBOOK_MAKE_JOBS}

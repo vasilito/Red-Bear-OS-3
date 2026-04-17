@@ -1,4 +1,4 @@
-#TODO: KAuth — policykit-like authorization framework. Depends on qtbase, kf6-kcoreaddons. DBus disabled (fake backend).
+#TODO: KAuth — policykit-like authorization framework. Depends on qtbase, kf6-kcoreaddons. Still using FAKE backend until PolkitQt6-1 is packaged.
 [source]
 tar = "https://invent.kde.org/frameworks/kauth/-/archive/v6.10.0/kauth-v6.10.0.tar.gz"
 
