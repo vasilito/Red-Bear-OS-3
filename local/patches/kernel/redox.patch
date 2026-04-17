@@ -1,8 +1,8 @@
 diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
-index 2cf77631..4203fec6 100644
+index 4dc23883..a8e6fe8f 100644
 --- a/src/acpi/madt/arch/x86.rs
 +++ b/src/acpi/madt/arch/x86.rs
-@@ -34,18 +34,19 @@
+@@ -35,18 +35,19 @@ pub(super) fn init(madt: Madt) {
          return;
      }
  
@@ -25,7 +25,7 @@ index 2cf77631..4203fec6 100644
              )
              .expect("failed to map trampoline");
  
-@@ -141,6 +142,108 @@
+@@ -147,6 +148,160 @@ pub(super) fn init(madt: Madt) {
  
                  RmmA::invalidate_all();
              }
@@ -115,7 +115,8 @@ index 2cf77631..4203fec6 100644
 +                    hint::spin_loop();
 +                    timeout -= 1;
 +                    if timeout == 0 {
-+                        debug!("x2APIC AP {} trampoline startup timed out", ap_x2apic.x2apic_id);
++                        let x2apic_id = ap_x2apic.x2apic_id;
++                        debug!("x2APIC AP {} trampoline startup timed out", x2apic_id);
 +                        break;
 +                    }
 +                }
@@ -124,21 +125,72 @@ index 2cf77631..4203fec6 100644
 +                    hint::spin_loop();
 +                    timeout -= 1;
 +                    if timeout == 0 {
-+                        debug!("x2APIC AP {} kernel startup timed out", ap_x2apic.x2apic_id);
++                        let x2apic_id = ap_x2apic.x2apic_id;
++                        debug!("x2APIC AP {} kernel startup timed out", x2apic_id);
 +                        break;
 +                    }
 +                }
 +
 +                RmmA::invalidate_all();
 +            }
++        } else if let MadtEntry::LocalApicNmi(nmi) = madt_entry {
++            let target_id = nmi.processor;
++            let nmi_pin = nmi.nmi_pin;
++            let nmi_flags = nmi.flags;
++            if target_id == 0xFF {
++                debug!(
++                    "        NMI: all processors, pin={}, flags={:#x}",
++                    nmi_pin, nmi_flags
++                );
++                unsafe {
++                    local_apic.set_lvt_nmi(nmi_pin, nmi_flags);
++                }
++            } else {
++                let my_apic_id = local_apic.id().get() as u8;
++                if target_id == my_apic_id {
++                    debug!(
++                        "        NMI: processor {}, pin={}, flags={:#x}",
++                        target_id, nmi_pin, nmi_flags
++                    );
++                    unsafe {
++                        local_apic.set_lvt_nmi(nmi_pin, nmi_flags);
++                    }
++                }
++            }
++        } else if let MadtEntry::LocalX2ApicNmi(nmi) = madt_entry {
++            let target_uid = nmi.processor_uid;
++            let nmi_pin = nmi.nmi_pin;
++            let nmi_flags = nmi.flags;
++            if target_uid == 0xFFFFFFFF {
++                debug!(
++                    "        x2APIC NMI: all processors, pin={}, flags={:#x}",
++                    nmi_pin, nmi_flags
++                );
++                unsafe {
++                    local_apic.set_lvt_nmi(nmi_pin, nmi_flags);
++                }
++            } else {
++                debug!(
++                    "        x2APIC NMI: uid {}, pin={}, flags={:#x}",
++                    target_uid, nmi_pin, nmi_flags
++                );
++                unsafe {
++                    local_apic.set_lvt_nmi(nmi_pin, nmi_flags);
++                }
++            }
++        } else if let MadtEntry::LapicAddressOverride(addr) = madt_entry {
++            let lapic_addr = addr.local_apic_address;
++            if lapic_addr != 0 {
++                debug!("        LAPIC address override: {:#x}", lapic_addr);
++            }
          }
      }
  
 diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
-index 3159b9c4..69f0f2d3 100644
+index 3159b9c4..da6c12af 100644
 --- a/src/acpi/madt/mod.rs
 +++ b/src/acpi/madt/mod.rs
-@@ -146,6 +146,17 @@ pub struct MadtGicd {
+@@ -146,6 +146,52 @@ pub struct MadtGicd {
      _reserved2: [u8; 3],
  }
  
@@ -153,19 +205,71 @@ index 3159b9c4..69f0f2d3 100644
 +    pub processor_uid: u32,
 +}
 +
++/// MADT Local APIC NMI (entry type 0x4)
++/// Configures NMI routing to a processor's LINT0/LINT1 pin.
++#[derive(Clone, Copy, Debug)]
++#[repr(C, packed)]
++pub struct MadtLocalApicNmi {
++    pub processor: u8,  // 0xFF = all processors
++    pub flags: u16,     // bits 0-1: polarity, bits 2-3: trigger mode
++    pub nmi_pin: u8,    // 0 = LINT0, 1 = LINT1
++}
++
++/// MADT Local APIC Address Override (entry type 0x5)
++/// Provides 64-bit override for the 32-bit local APIC address.
++#[derive(Clone, Copy, Debug)]
++#[repr(C, packed)]
++pub struct MadtLapicAddressOverride {
++    _reserved: u16,
++    pub local_apic_address: u64,
++}
++
++/// MADT Local x2APIC NMI (entry type 0xA)
++/// x2APIC equivalent of type 0x4 for APIC IDs >= 255.
++#[derive(Clone, Copy, Debug)]
++#[repr(C, packed)]
++pub struct MadtLocalX2ApicNmi {
++    _reserved: u16,
++    pub processor_uid: u32,  // 0xFFFFFFFF = all processors
++    pub flags: u16,
++    pub nmi_pin: u8,         // 0 = LINT0, 1 = LINT1
++    _reserved2: u8,
++}
++
++const _: () = assert!(size_of::<MadtLocalApicNmi>() == 4);
++const _: () = assert!(size_of::<MadtLapicAddressOverride>() == 10);
++const _: () = assert!(size_of::<MadtLocalX2ApicNmi>() == 10);
++
  /// MADT Entries
  #[derive(Debug)]
  #[allow(dead_code)]
-@@ -160,6 +171,8 @@ pub enum MadtEntry {
+@@ -160,6 +206,14 @@ pub enum MadtEntry {
      InvalidGicc(usize),
      Gicd(&'static MadtGicd),
      InvalidGicd(usize),
 +    LocalX2Apic(&'static MadtLocalX2Apic),
 +    InvalidLocalX2Apic(usize),
++    LocalApicNmi(&'static MadtLocalApicNmi),
++    InvalidLocalApicNmi(usize),
++    LapicAddressOverride(&'static MadtLapicAddressOverride),
++    InvalidLapicAddressOverride(usize),
++    LocalX2ApicNmi(&'static MadtLocalX2ApicNmi),
++    InvalidLocalX2ApicNmi(usize),
      Unknown(u8),
  }
  
-@@ -224,6 +237,15 @@ impl Iterator for MadtIter {
+@@ -176,6 +230,10 @@ impl Iterator for MadtIter {
+             let entry_len =
+                 unsafe { *(self.sdt.data_address() as *const u8).add(self.i + 1) } as usize;
+ 
++            if entry_len < 2 {
++                return None;
++            }
++
+             if self.i + entry_len <= self.sdt.data_len() {
+                 let item = match entry_type {
+                     0x0 => {
+@@ -224,6 +282,15 @@ impl Iterator for MadtIter {
                              MadtEntry::InvalidGicd(entry_len)
                          }
                      }
@@ -181,6 +285,46 @@ index 3159b9c4..69f0f2d3 100644
                      _ => MadtEntry::Unknown(entry_type),
                  };
  
+diff --git a/src/acpi/mod.rs b/src/acpi/mod.rs
+index 59e35265..80a40a01 100644
+--- a/src/acpi/mod.rs
++++ b/src/acpi/mod.rs
+@@ -138,6 +138,15 @@ pub unsafe fn init(already_supplied_rsdp: Option<*const u8>) {
+             for sdt_address in rxsdt.iter() {
+                 let sdt = &*(RmmA::phys_to_virt(sdt_address).data() as *const Sdt);
+ 
++                if !sdt.validate_checksum() {
++                    let sig = &sdt.signature;
++                    warn!(
++                        "ACPI table {:?} at {:#x} has invalid checksum",
++                        sig,
++                        sdt_address.data()
++                    );
++                }
++
+                 let signature = get_sdt_signature(sdt);
+                 if let Some(ref mut ptrs) = *(SDT_POINTERS.write()) {
+                     ptrs.insert(signature, sdt);
+diff --git a/src/acpi/sdt.rs b/src/acpi/sdt.rs
+index 83ff67da..f49b6212 100644
+--- a/src/acpi/sdt.rs
++++ b/src/acpi/sdt.rs
+@@ -24,4 +24,15 @@ impl Sdt {
+         let header_size = size_of::<Sdt>();
+         total_size.saturating_sub(header_size)
+     }
++
++    /// Validate that the sum of all bytes in this table is zero (ACPI spec requirement).
++    /// Returns false if the length is too small or the checksum doesn't match.
++    pub fn validate_checksum(&self) -> bool {
++        let len = self.length as usize;
++        if len < size_of::<Sdt>() {
++            return false;
++        }
++        let bytes = unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, len) };
++        bytes.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) == 0
++    }
+ }
 diff --git a/src/arch/x86_shared/cpuid.rs b/src/arch/x86_shared/cpuid.rs
 index b3683125..be7db1be 100644
 --- a/src/arch/x86_shared/cpuid.rs
@@ -218,45 +362,67 @@ index b3683125..be7db1be 100644
  #[cfg_attr(not(target_arch = "x86_64"), expect(dead_code))]
  pub fn feature_info() -> FeatureInfo {
      cpuid()
+diff --git a/src/arch/x86_shared/device/local_apic.rs b/src/arch/x86_shared/device/local_apic.rs
+index b6afe02a..e256d160 100644
+--- a/src/arch/x86_shared/device/local_apic.rs
++++ b/src/arch/x86_shared/device/local_apic.rs
+@@ -103,7 +103,7 @@ impl LocalApic {
+         ApicId::new(if self.x2 {
+             unsafe { rdmsr(IA32_X2APIC_APICID) as u32 }
+         } else {
+-            unsafe { self.read(0x20) }
++            unsafe { self.read(0x20) >> 24 }
+         })
+     }
+ 
+@@ -126,7 +126,14 @@ impl LocalApic {
+     pub fn set_icr(&mut self, value: u64) {
+         if self.x2 {
+             unsafe {
++                const PENDING: u32 = 1 << 12;
++                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
++                    core::hint::spin_loop();
++                }
+                 wrmsr(IA32_X2APIC_ICR, value);
++                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
++                    core::hint::spin_loop();
++                }
+             }
+         } else {
+             unsafe {
+@@ -256,6 +263,30 @@ impl LocalApic {
+             }
+         }
+     }
++    /// Configure LVT NMI entry. `pin` is 0 for LINT0, 1 for LINT1.
++    /// `flags` encodes polarity and trigger mode per MADT NMI spec.
++    pub unsafe fn set_lvt_nmi(&mut self, pin: u8, flags: u16) {
++        let lvt_value = (flags as u32) | 0x400; /* bit 10 = NMI delivery mode, masked off if flags don't set it */
++        unsafe {
++            match pin {
++                0 => {
++                    if self.x2 {
++                        wrmsr(IA32_X2APIC_LVT_LINT0, u64::from(lvt_value));
++                    } else {
++                        self.write(0x350, lvt_value);
++                    }
++                }
++                1 => {
++                    if self.x2 {
++                        wrmsr(IA32_X2APIC_LVT_LINT1, u64::from(lvt_value));
++                    } else {
++                        self.write(0x360, lvt_value);
++                    }
++                }
++                _ => {}
++            }
++        }
++    }
+     unsafe fn setup_error_int(&mut self) {
+         unsafe {
+             let vector = 49u32;
 diff --git a/src/context/memory.rs b/src/context/memory.rs
---- a/src/context/memory.rs
-+++ b/src/context/memory.rs
-@@
-     let new_flags = grant_flags.write(grant_flags.has_write() && allow_writable);
--    let Some(flush) = (unsafe {
--        addr_space
--            .table
--            .utable
--            .map_phys(faulting_page.start_address(), frame.base(), new_flags)
--    }) else {
--        // TODO
--        return Err(PfError::Oom);
--    };
-+    let flush = if faulting_frame_opt.is_some() {
-+        let Some((_, _, flush)) = (unsafe {
-+            addr_space
-+                .table
-+                .utable
-+                .remap_with_full(faulting_page.start_address(), |_, _| {
-+                    Some((frame.base(), new_flags))
-+                })
-+        }) else {
-+            return Err(PfError::Oom);
-+        };
-+        flush
-+    } else {
-+        let Some(flush) = (unsafe {
-+            addr_space
-+                .table
-+                .utable
-+                .map_phys(faulting_page.start_address(), frame.base(), new_flags)
-+        }) else {
-+            return Err(PfError::Oom);
-+        };
-+        flush
-+    };
-diff --git a/src/context/memory.rs b/src/context/memory.rs
-index 94519448..368efb0d 100644
+index 94519448..0db1de53 100644
 --- a/src/context/memory.rs
 +++ b/src/context/memory.rs
 @@ -927,8 +927,8 @@ impl UserGrants {
@@ -327,285 +493,3 @@ index 94519448..368efb0d 100644
              page_count,
          ))
      }
-
-diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
-index 69f0f2d3..abcdef12 100644
---- a/src/acpi/madt/mod.rs
-+++ b/src/acpi/madt/mod.rs
-@@ -189,6 +189,10 @@ impl Iterator for MadtIter {
-             let entry_len =
-                 unsafe { *(self.sdt.data_address() as *const u8).add(self.i + 1) } as usize;
- 
-+            if entry_len < 2 {
-+                return None;
-+            }
-+
-             if self.i + entry_len <= self.sdt.data_len() {
-                 let item = match entry_type {
-                     0x0 => {
-
-diff --git a/src/arch/x86_shared/device/local_apic.rs b/src/arch/x86_shared/device/local_apic.rs
-index e17c4eeb..bfcc9a80 100644
---- a/src/arch/x86_shared/device/local_apic.rs
-+++ b/src/arch/x86_shared/device/local_apic.rs
-@@ -103,8 +103,8 @@ impl LocalApic {
-     pub fn id(&self) -> ApicId {
-         ApicId::new(if self.x2 {
-             unsafe { rdmsr(IA32_X2APIC_APICID) as u32 }
-         } else {
--            unsafe { self.read(0x20) }
-+            unsafe { self.read(0x20) >> 24 }
-         })
-     }
- 
-@@ -127,7 +127,14 @@
-     pub fn set_icr(&mut self, value: u64) {
-         if self.x2 {
-             unsafe {
--                wrmsr(IA32_X2APIC_ICR, value);
-+                const PENDING: u32 = 1 << 12;
-+                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
-+                    core::hint::spin_loop();
-+                }
-+                wrmsr(IA32_X2APIC_ICR, value);
-+                while (rdmsr(IA32_X2APIC_ICR) as u32) & PENDING == PENDING {
-+                    core::hint::spin_loop();
-+                }
-             }
-         } else {
-             unsafe {
-
-diff --git a/src/acpi/sdt.rs b/src/acpi/sdt.rs
-index 83ff67da..f49b6212 100644
---- a/src/acpi/sdt.rs
-+++ b/src/acpi/sdt.rs
-@@ -24,4 +24,15 @@
-         let header_size = size_of::<Sdt>();
-         total_size.saturating_sub(header_size)
-     }
-+
-+    /// Validate that the sum of all bytes in this table is zero (ACPI spec requirement).
-+    /// Returns false if the length is too small or the checksum doesn't match.
-+    pub fn validate_checksum(&self) -> bool {
-+        let len = self.length as usize;
-+        if len < size_of::<Sdt>() {
-+            return false;
-+        }
-+        let bytes = unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, len) };
-+        bytes.iter().fold(0u8, |sum, &b| sum.wrapping_add(b)) == 0
-+    }
- }
-diff --git a/src/acpi/mod.rs b/src/acpi/mod.rs
-index 59e35265..80a40a01 100644
---- a/src/acpi/mod.rs
-+++ b/src/acpi/mod.rs
-@@ -137,6 +137,15 @@
- 
-             for sdt_address in rxsdt.iter() {
-                 let sdt = &*(RmmA::phys_to_virt(sdt_address).data() as *const Sdt);
-+
-+                if !sdt.validate_checksum() {
-+                    let sig = &sdt.signature;
-+                    warn!(
-+                        "ACPI table {:?} at {:#x} has invalid checksum",
-+                        sig,
-+                        sdt_address.data()
-+                    );
-+                }
- 
-                 let signature = get_sdt_signature(sdt);
-                 if let Some(ref mut ptrs) = *(SDT_POINTERS.write()) {
-diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
-index abcdef12..bcdef123 100644
---- a/src/acpi/madt/mod.rs
-+++ b/src/acpi/madt/mod.rs
-@@ -153,10 +153,45 @@ pub struct MadtLocalX2Apic {
-     _reserved: u16,
-     pub x2apic_id: u32,
-     pub flags: u32,
-     pub processor_uid: u32,
- }
- 
-+/// MADT Local APIC NMI (entry type 0x4)
-+/// Configures NMI routing to a processor's LINT0/LINT1 pin.
-+#[derive(Clone, Copy, Debug)]
-+#[repr(C, packed)]
-+pub struct MadtLocalApicNmi {
-+    pub processor: u8,  // 0xFF = all processors
-+    pub flags: u16,     // bits 0-1: polarity, bits 2-3: trigger mode
-+    pub nmi_pin: u8,    // 0 = LINT0, 1 = LINT1
-+}
-+
-+/// MADT Local APIC Address Override (entry type 0x5)
-+/// Provides 64-bit override for the 32-bit local APIC address.
-+#[derive(Clone, Copy, Debug)]
-+#[repr(C, packed)]
-+pub struct MadtLapicAddressOverride {
-+    _reserved: u16,
-+    pub local_apic_address: u64,
-+}
-+
-+/// MADT Local x2APIC NMI (entry type 0xA)
-+/// x2APIC equivalent of type 0x4 for APIC IDs >= 255.
-+#[derive(Clone, Copy, Debug)]
-+#[repr(C, packed)]
-+pub struct MadtLocalX2ApicNmi {
-+    _reserved: u16,
-+    pub processor_uid: u32,  // 0xFFFFFFFF = all processors
-+    pub flags: u16,
-+    pub nmi_pin: u8,         // 0 = LINT0, 1 = LINT1
-+    _reserved2: u8,
-+}
-+
-+const _: () = assert!(size_of::<MadtLocalApicNmi>() == 4);
-+const _: () = assert!(size_of::<MadtLapicAddressOverride>() == 10);
-+const _: () = assert!(size_of::<MadtLocalX2ApicNmi>() == 10);
-+
- /// MADT Entries
- #[derive(Debug)]
- #[allow(dead_code)]
- pub enum MadtEntry {
-@@ -172,6 +207,12 @@ pub enum MadtEntry {
-     Gicd(&'static MadtGicd),
-     InvalidGicd(usize),
-     LocalX2Apic(&'static MadtLocalX2Apic),
-     InvalidLocalX2Apic(usize),
-+    LocalApicNmi(&'static MadtLocalApicNmi),
-+    InvalidLocalApicNmi(usize),
-+    LapicAddressOverride(&'static MadtLapicAddressOverride),
-+    InvalidLapicAddressOverride(usize),
-+    LocalX2ApicNmi(&'static MadtLocalX2ApicNmi),
-+    InvalidLocalX2ApicNmi(usize),
-     Unknown(u8),
- }
-diff --git a/src/acpi/madt/mod.rs b/src/acpi/madt/mod.rs
-index bcdef123..cdef1234 100644
---- a/src/acpi/madt/mod.rs
-+++ b/src/acpi/madt/mod.rs
-@@ -235,12 +235,40 @@ impl Iterator for MadtIter {
-                     0x9 => {
-                         if entry_len == size_of::<MadtLocalX2Apic>() + 2 {
-                             MadtEntry::LocalX2Apic(unsafe {
-                                 &*((self.sdt.data_address() + self.i + 2) as *const MadtLocalX2Apic)
-                             })
-                         } else {
-                             MadtEntry::InvalidLocalX2Apic(entry_len)
-                         }
-                     }
-+                    0x4 => {
-+                        if entry_len == size_of::<MadtLocalApicNmi>() + 2 {
-+                            MadtEntry::LocalApicNmi(unsafe {
-+                                &*((self.sdt.data_address() + self.i + 2) as *const MadtLocalApicNmi)
-+                            })
-+                        } else {
-+                            MadtEntry::InvalidLocalApicNmi(entry_len)
-+                        }
-+                    }
-+                    0x5 => {
-+                        if entry_len == size_of::<MadtLapicAddressOverride>() + 2 {
-+                            MadtEntry::LapicAddressOverride(unsafe {
-+                                &*((self.sdt.data_address() + self.i + 2)
-+                                    as *const MadtLapicAddressOverride)
-+                            })
-+                        } else {
-+                            MadtEntry::InvalidLapicAddressOverride(entry_len)
-+                        }
-+                    }
-+                    0xA => {
-+                        if entry_len == size_of::<MadtLocalX2ApicNmi>() + 2 {
-+                            MadtEntry::LocalX2ApicNmi(unsafe {
-+                                &*((self.sdt.data_address() + self.i + 2) as *const MadtLocalX2ApicNmi)
-+                            })
-+                        } else {
-+                            MadtEntry::InvalidLocalX2ApicNmi(entry_len)
-+                        }
-+                    }
-                     _ => MadtEntry::Unknown(entry_type),
-                 };
- 
-diff --git a/src/arch/x86_shared/device/local_apic.rs b/src/arch/x86_shared/device/local_apic.rs
-index bfcc9a80..c0ffee01 100644
---- a/src/arch/x86_shared/device/local_apic.rs
-+++ b/src/arch/x86_shared/device/local_apic.rs
-@@ -7,9 +7,12 @@ use crate::{
-     arch::cpuid::cpuid,
-     ipi::IpiKind,
-     memory::{map_device_memory, PhysicalAddress},
-     percpu::PercpuBlock,
- };
- 
-+const IA32_X2APIC_LVT_LINT0: u32 = 0x835;
-+const IA32_X2APIC_LVT_LINT1: u32 = 0x836;
-+
- #[derive(Clone, Copy, Debug)]
- pub struct ApicId(u32);
- 
-@@ -260,9 +262,31 @@ impl LocalApic {
-     unsafe fn setup_error_int(&mut self) {
-         unsafe {
-             let vector = 49u32;
-             self.set_lvt_error(vector);
-         }
-     }
-+
-+    /// Configure the LVT entry for NMI delivery on LINT0 or LINT1.
-+    /// `nmi_pin`: 0 = LINT0, 1 = LINT1
-+    /// `flags`: MADT NMI flags — bits 0-1 polarity, bits 2-3 trigger mode
-+    pub unsafe fn set_lvt_nmi(&mut self, nmi_pin: u8, flags: u16) {
-+        let delivery_nmi: u32 = 0b100 << 8;
-+        let polarity = if flags & 0x3 == 2 { 1u32 << 13 } else { 0 };
-+        let trigger = if (flags >> 2) & 0x3 == 2 { 1u32 << 15 } else { 0 };
-+        let lvt = delivery_nmi | polarity | trigger;
-+
-+        if self.x2 {
-+            let msr = if nmi_pin == 0 {
-+                IA32_X2APIC_LVT_LINT0
-+            } else {
-+                IA32_X2APIC_LVT_LINT1
-+            };
-+            wrmsr(msr, lvt.into());
-+        } else {
-+            let offset: u32 = if nmi_pin == 0 { 0x350 } else { 0x360 };
-+            self.write(offset, lvt);
-+        }
-+    }
- }
- 
- #[repr(u8)]
-diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
-index 4203fec6..faceb00c 100644
---- a/src/acpi/madt/arch/x86.rs
-+++ b/src/acpi/madt/arch/x86.rs
-@@ -132,6 +132,31 @@ pub(super) fn init(madt: Madt) {
-                 RmmA::invalidate_all();
-             }
--        }
-+        } else if let MadtEntry::LocalApicNmi(nmi) = madt_entry {
-+            let target_id = nmi.processor;
-+            if target_id == 0xFF {
-+                debug!("        NMI: all processors, pin={}, flags={:#x}", nmi.nmi_pin, nmi.flags);
-+                unsafe { local_apic.set_lvt_nmi(nmi.nmi_pin, nmi.flags); }
-+            } else {
-+                let my_apic_id = local_apic.id().get() as u8;
-+                if target_id == my_apic_id {
-+                    debug!("        NMI: processor {}, pin={}, flags={:#x}", target_id, nmi.nmi_pin, nmi.flags);
-+                    unsafe { local_apic.set_lvt_nmi(nmi.nmi_pin, nmi.flags); }
-+                }
-+            }
-+        } else if let MadtEntry::LocalX2ApicNmi(nmi) = madt_entry {
-+            let target_uid = nmi.processor_uid;
-+            if target_uid == 0xFFFFFFFF {
-+                debug!("        x2APIC NMI: all processors, pin={}, flags={:#x}", nmi.nmi_pin, nmi.flags);
-+                unsafe { local_apic.set_lvt_nmi(nmi.nmi_pin, nmi.flags); }
-+            } else {
-+                debug!("        x2APIC NMI: uid {}, pin={}, flags={:#x}", target_uid, nmi.nmi_pin, nmi.flags);
-+                unsafe { local_apic.set_lvt_nmi(nmi.nmi_pin, nmi.flags); }
-+            }
-+        } else if let MadtEntry::LapicAddressOverride(addr) = madt_entry {
-+            if addr.local_apic_address != 0 {
-+                debug!("        LAPIC address override: {:#x}", addr.local_apic_address);
-+            }
-+        }
-     }
- 
-     // Unmap trampoline
