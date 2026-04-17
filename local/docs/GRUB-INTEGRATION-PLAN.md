@@ -1,7 +1,7 @@
 # GRUB Integration Plan — Red Bear OS
 
 **Date:** 2026-04-17
-**Status:** Phase 1 — recipe builds successfully, post-build script ready, awaiting QEMU validation
+**Status:** Phase 2 complete — installer-native GRUB support implemented and compiling
 **Approach:** Option A — GRUB as boot manager, chainloading Redox bootloader
 
 ## Overview
@@ -162,25 +162,41 @@ make qemu
 - GRUB build dependencies: `gcc`, `make`, `bison`, `flex`, `autoconf`, `automake`
 - ESP must be ≥ 8 MiB (set `efi_partition_size = 16` in config)
 
-## Implementation — Phase 2: Installer-Native Support (Future)
+## Implementation — Phase 2: Installer-Native Support
 
 Phase 2 adds GRUB awareness directly to the Redox installer, eliminating the
-post-build script step. This requires modifying the installer patch.
+post-build script step. The installer reads `bootloader = "grub"` from config,
+fetches the GRUB package alongside the bootloader, and writes the chainload
+ESP layout automatically.
 
-### Changes Required
+### Changes Made
 
-1. **`GeneralConfig`**: Add `bootloader: Option<String>` field (`"redox"` default, `"grub"` for GRUB)
-2. **`DiskOption`**: Add `bootloader_grub: Option<&[u8]>`, `grub_config: Option<&[u8]>` fields
-3. **`fetch_bootloaders`**: When `bootloader = "grub"`, also install the `grub` package
-4. **`with_whole_disk` / `with_whole_disk_ext4`**: When GRUB data present:
-   - Create `EFI/REDBEAR/` directory
-   - Write GRUB as `EFI/BOOT/BOOTX64.EFI`
-   - Write Redox bootloader as `EFI/REDBEAR/redbear.efi`
-   - Write `grub.cfg` to `EFI/BOOT/grub.cfg`
-   - Auto-set ESP size to 16 MiB if not configured
-5. **CLI**: Add `--bootloader grub` flag to installer binary
+1. **`GeneralConfig`** (`config/general.rs`): Added `bootloader: Option<String>`
+   field (`"redox"` default, `"grub"` for GRUB), with merge support.
 
-### Config Usage (Phase 2)
+2. **`DiskOption`** (`installer.rs`): Added `grub_efi: Option<&[u8]>` and
+   `grub_config: Option<&[u8]>` fields for optional GRUB data.
+
+3. **`fetch_bootloaders`**: When `bootloader = "grub"`, installs the `grub`
+   package alongside `bootloader` and returns `grub.efi` + `grub.cfg` data.
+   Return type extended to `(bios, efi, grub_efi, grub_cfg)`.
+
+4. **`with_whole_disk` / `with_whole_disk_ext4`**: When `grub_efi` and
+   `grub_config` are both present, writes the GRUB chainload layout:
+   - `EFI/BOOT/BOOTX64.EFI` ← GRUB
+   - `EFI/BOOT/grub.cfg` ← GRUB configuration
+   - `EFI/REDBEAR/redbear.efi` ← Redox bootloader (chainload target)
+
+5. **`install_inner`**: Passes GRUB data from `fetch_bootloaders` through
+   `DiskOption`.
+
+6. **CLI** (`bin/installer.rs`): Added `--bootloader grub` flag that sets
+   `config.general.bootloader`.
+
+7. **TUI** (`bin/installer_tui.rs`): Updated `DiskOption` construction with
+   `grub_efi: None, grub_config: None`.
+
+### Config Usage
 
 ```toml
 # config/redbear-full-grub.toml
@@ -189,6 +205,12 @@ include = ["redbear-full.toml"]
 [general]
 bootloader = "grub"
 efi_partition_size = 16
+```
+
+Or via CLI:
+```bash
+./target/release/repo cook installer
+make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub"
 ```
 
 ## GRUB Recipe Design
