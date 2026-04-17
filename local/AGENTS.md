@@ -552,3 +552,7 @@ Config comparison:
 | redbear-desktop | Full | COSMIC | Yes | ✅ (via desktop.toml) | 10240 MiB |
 | redbear-minimal | None | None | Yes | ❌ | 512 MiB |
 | redbear-live | Full | COSMIC | Yes | ✅ (via desktop.toml) | 12288 MiB |
+
+## ANTI-PATTERNS (COMMIT POLICY)
+
+- **DO NOT** include AI attribution in commit messages — no "Ultraworked with [Sisyphus]", "Co-authored-by: Sisyphus", or similar AI agent footers. Commits belong to the human author only.
