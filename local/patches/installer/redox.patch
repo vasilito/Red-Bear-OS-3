@@ -90,7 +90,7 @@ index e3c6700..b1d5d72 100644
      "termion",
      "uuid",
 diff --git a/src/bin/installer.rs b/src/bin/installer.rs
-index c3ce487..7b8ee66 100644
+index c3ce487..456efce 100644
 --- a/src/bin/installer.rs
 +++ b/src/bin/installer.rs
 @@ -20,6 +20,8 @@ Using redox_installer as an installer:
@@ -119,7 +119,7 @@ index c3ce487..7b8ee66 100644
 +            config.general.filesystem = Some(fs_type);
 +        }
 +        if let Some(bl) = parser.get_opt("bootloader") {
-+            config.general.bootloader = Some(bl);
++            config.general.bootloader = Some(bl.to_lowercase());
 +        }
          let write_bootloader = parser.get_opt("write-bootloader");
          if write_bootloader.is_some() {
@@ -180,7 +180,7 @@ index 417ff2d..4ad2202 100644
      }
  }
 diff --git a/src/installer.rs b/src/installer.rs
-index 4e077a9..9c40679 100644
+index 4e077a9..a6f4e84 100644
 --- a/src/installer.rs
 +++ b/src/installer.rs
 @@ -3,6 +3,13 @@ use anyhow::{bail, Result};
@@ -508,7 +508,7 @@ index 4e077a9..9c40679 100644
 +        if cfg_path.exists() {
 +            Some(fs::read(cfg_path)?)
 +        } else {
-+            bail!("GRUB mode requested (bootloader = \"grub\") but grub.cfg not found in package output");
++            bail!("GRUB mode requested (bootloader = \"grub\") but grub.cfg not found in package output. Build the GRUB recipe first: make r.grub");
 +        }
 +    } else {
 +        None
@@ -521,7 +521,7 @@ index 4e077a9..9c40679 100644
  }
  
  //TODO: make bootloaders use Option, dynamically create BIOS and EFI partitions
-@@ -683,20 +967,48 @@ where
+@@ -683,20 +967,58 @@ where
          eprintln!("Creating EFI directory");
          let root_dir = fs.root_dir();
          root_dir.create_dir("EFI")?;
@@ -540,6 +540,16 @@ index 4e077a9..9c40679 100644
 -        file.truncate()?;
 -        file.write_all(&disk_option.bootloader_efi)?;
 +        if let (Some(grub_data), Some(grub_cfg)) = (disk_option.grub_efi, disk_option.grub_config) {
++            if grub_data.is_empty() {
++                bail!("GRUB EFI binary is empty (0 bytes). The GRUB recipe may have failed to produce a valid image.");
++            }
++            if grub_cfg.is_empty() {
++                bail!("GRUB configuration is empty (0 bytes). Check that grub.cfg has content.");
++            }
++            if disk_option.bootloader_efi.is_empty() {
++                bail!("Redox bootloader is empty (0 bytes). Cannot set up GRUB chainload without a valid Redox bootloader.");
++            }
++
 +            efi_dir.create_dir("BOOT")?;
 +            efi_dir.create_dir("REDBEAR")?;
 +
@@ -582,7 +592,7 @@ index 4e077a9..9c40679 100644
      }
  
      // Format and install RedoxFS partition
-@@ -712,6 +1024,212 @@ where
+@@ -712,6 +1034,222 @@ where
      with_redoxfs(disk_redoxfs, disk_option.password_opt, callback)
  }
  
@@ -734,6 +744,16 @@ index 4e077a9..9c40679 100644
 +        let efi_dir = root_dir.open_dir("EFI")?;
 +
 +        if let (Some(grub_data), Some(grub_cfg)) = (disk_option.grub_efi, disk_option.grub_config) {
++            if grub_data.is_empty() {
++                bail!("GRUB EFI binary is empty (0 bytes). The GRUB recipe may have failed to produce a valid image.");
++            }
++            if grub_cfg.is_empty() {
++                bail!("GRUB configuration is empty (0 bytes). Check that grub.cfg has content.");
++            }
++            if disk_option.bootloader_efi.is_empty() {
++                bail!("Redox bootloader is empty (0 bytes). Cannot set up GRUB chainload without a valid Redox bootloader.");
++            }
++
 +            efi_dir.create_dir("BOOT")?;
 +            efi_dir.create_dir("REDBEAR")?;
 +
@@ -795,7 +815,7 @@ index 4e077a9..9c40679 100644
  #[cfg(not(target_os = "redox"))]
  pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
      _fs: &mut redoxfs::FileSystem<D>,
-@@ -801,6 +1319,23 @@ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
+@@ -801,6 +1339,23 @@ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
  
  fn install_inner(config: Config, output: &Path) -> Result<()> {
      println!("Installing to {}:\n{}", output.display(), config);
@@ -819,7 +839,7 @@ index 4e077a9..9c40679 100644
      let cookbook = config.general.cookbook.clone();
      let cookbook = cookbook.as_ref().map(|p| p.as_str());
      if output.is_dir() {
-@@ -823,28 +1358,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+@@ -823,28 +1378,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
          let live = config.general.live_disk.unwrap_or(false);
          let password_opt = config.general.encrypt_disk.clone();
          let password_opt = password_opt.as_ref().map(|p| p.as_bytes());
