@@ -102,13 +102,18 @@ RUSTFLAGS="$RUSTFLAGS -Ctarget-feature=+crt-static -Clink-arg=-nostartfiles -Cli
     --manifest-path "${COOKBOOK_SOURCE}/bootstrap/Cargo.toml" \
     --release \
     --target-dir "${COOKBOOK_BUILD}"
-"${GNU_TARGET}-ld" \
-    -o "${COOKBOOK_BUILD}/bootstrap" \
-    -nostdlib \
-    --gc-sections \
-    -T "${COOKBOOK_SOURCE}/bootstrap/src/${ARCH}.ld" \
-    -z max-page-size=4096 \
-    "${COOKBOOK_BUILD}/${TARGET}/release/libbootstrap.a"
+
+if [ -f "${COOKBOOK_BUILD}/${TARGET}/release/libbootstrap.a" ]; then
+    "${GNU_TARGET}-ld" \
+        -o "${COOKBOOK_BUILD}/bootstrap" \
+        -nostdlib \
+        --gc-sections \
+        -T "${COOKBOOK_SOURCE}/bootstrap/src/${ARCH}.ld" \
+        -z max-page-size=4096 \
+        "${COOKBOOK_BUILD}/${TARGET}/release/libbootstrap.a"
+else
+    cp -v "${COOKBOOK_BUILD}/${TARGET}/release/bootstrap" "${COOKBOOK_BUILD}/bootstrap"
+fi
 
 env -u CARGO -u RUSTFLAGS cargo run --manifest-path "${COOKBOOK_SOURCE}/initfs/tools/Cargo.toml" --bin redox-initfs-ar -- "${COOKBOOK_BUILD}/initfs" "${COOKBOOK_BUILD}/bootstrap" -o "${COOKBOOK_BUILD}/initfs.img"
 

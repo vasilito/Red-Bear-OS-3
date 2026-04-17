@@ -38,6 +38,7 @@ BINS=(
     usbhidd
     usbhubd
     usbscsid
+    virtio-gpud
     virtio-netd
     xhcid
     inputd
