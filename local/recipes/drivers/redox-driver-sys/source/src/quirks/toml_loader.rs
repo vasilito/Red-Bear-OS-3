@@ -126,6 +126,25 @@ const USB_FLAG_NAMES: &[(&str, UsbQuirkFlags)] = &[
     ("bad_descriptor", UsbQuirkFlags::BAD_DESCRIPTOR),
     ("no_lpm", UsbQuirkFlags::NO_LPM),
     ("no_u1u2", UsbQuirkFlags::NO_U1U2),
+    ("no_set_intf", UsbQuirkFlags::NO_SET_INTF),
+    ("config_intf_strings", UsbQuirkFlags::CONFIG_INTF_STRINGS),
+    ("no_reset", UsbQuirkFlags::NO_RESET),
+    ("honor_bnuminterfaces", UsbQuirkFlags::HONOR_BNUMINTERFACES),
+    ("device_qualifier", UsbQuirkFlags::DEVICE_QUALIFIER),
+    ("ignore_remote_wakeup", UsbQuirkFlags::IGNORE_REMOTE_WAKEUP),
+    ("delay_ctrl_msg", UsbQuirkFlags::DELAY_CTRL_MSG),
+    ("hub_slow_reset", UsbQuirkFlags::HUB_SLOW_RESET),
+    ("no_bos", UsbQuirkFlags::NO_BOS),
+    (
+        "short_set_addr_timeout",
+        UsbQuirkFlags::SHORT_SET_ADDR_TIMEOUT,
+    ),
+    ("force_one_config", UsbQuirkFlags::FORCE_ONE_CONFIG),
+    ("endpoint_ignore", UsbQuirkFlags::ENDPOINT_IGNORE),
+    (
+        "linear_frame_binterval",
+        UsbQuirkFlags::LINEAR_FRAME_BINTERVAL,
+    ),
 ];
 
 fn flag_from_name<F: Copy>(name: &str, mapping: &[(&str, F)]) -> Option<F> {

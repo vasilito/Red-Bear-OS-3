@@ -4,6 +4,7 @@
 Usage:
     python3 extract-linux-quirks.py /path/to/linux/drivers/pci/quirks.c
     python3 extract-linux-quirks.py /path/to/linux/drivers/usb/core/quirks.c
+    python3 extract-linux-quirks.py /path/to/linux/drivers/usb/storage/unusual_devs.h
 
 Outputs TOML quirk entries to stdout that can be appended to files in
 /etc/quirks.d/ or local/recipes/system/redbear-quirks/source/quirks.d/.
@@ -27,14 +28,25 @@ PCI_FLAG_MAP = {
 }
 
 USB_FLAG_MAP = {
-    "USB_QUIRK_STRING_FETCH": "no_string_fetch",
-    "USB_QUIRK_NO_RESET_RESUME": "need_reset",
-    "USB_QUIRK_NO_SET_INTF": "no_set_config",
-    "USB_QUIRK_NO_LPM": "no_lpm",
-    "USB_QUIRK_NO_U1_U2": "no_u1u2",
+    "USB_QUIRK_STRING_FETCH_255": "no_string_fetch",
+    "USB_QUIRK_RESET_RESUME": "need_reset",
+    "USB_QUIRK_NO_SET_INTF": "no_set_intf",
+    "USB_QUIRK_CONFIG_INTF_STRINGS": "config_intf_strings",
+    "USB_QUIRK_RESET": "no_reset",
+    "USB_QUIRK_HONOR_BNUMINTERFACES": "honor_bnuminterfaces",
     "USB_QUIRK_DELAY_INIT": "reset_delay",
     "USB_QUIRK_LINEAR_UFRAME_INTR_BINTERVAL": "bad_descriptor",
+    "USB_QUIRK_DEVICE_QUALIFIER": "device_qualifier",
+    "USB_QUIRK_IGNORE_REMOTE_WAKEUP": "ignore_remote_wakeup",
+    "USB_QUIRK_NO_LPM": "no_lpm",
+    "USB_QUIRK_LINEAR_FRAME_INTR_BINTERVAL": "linear_frame_binterval",
     "USB_QUIRK_DISCONNECT_SUSPEND": "no_suspend",
+    "USB_QUIRK_DELAY_CTRL_MSG": "delay_ctrl_msg",
+    "USB_QUIRK_HUB_SLOW_RESET": "hub_slow_reset",
+    "USB_QUIRK_ENDPOINT_IGNORE": "endpoint_ignore",
+    "USB_QUIRK_SHORT_SET_ADDRESS_REQ_TIMEOUT": "short_set_addr_timeout",
+    "USB_QUIRK_NO_BOS": "no_bos",
+    "USB_QUIRK_FORCE_ONE_CONFIG": "force_one_config",
 }
 
 PCI_FIXUP_RE = re.compile(
@@ -73,7 +85,8 @@ def extract_usb_quirks(source):
         flags_raw = m.group(3)
         flags = []
         for flag_name, toml_name in USB_FLAG_MAP.items():
-            if flag_name in flags_raw:
+            pattern = re.escape(flag_name) + r'(?:\s|$|\||\))'
+            if re.search(pattern, flags_raw):
                 flags.append(toml_name)
         entries.append((vendor, product, flags))
     return entries
@@ -109,6 +122,91 @@ def format_usb_toml(entries):
     return "\n".join(lines)
 
 
+STORAGE_FLAG_MAP = {
+    "US_FL_IGNORE_RESIDUE": "ignore_residue",
+    "US_FL_FIX_CAPACITY": "fix_capacity",
+    "US_FL_SINGLE_LUN": "single_lun",
+    "US_FL_MAX_SECTORS_64": "max_sectors_64",
+    "US_FL_FIX_INQUIRY": "fix_inquiry",
+    "US_FL_GO_SLOW": "go_slow",
+    "US_FL_SANE_SENSE": "sane_sense",
+    "US_FL_BAD_SENSE": "bad_sense",
+    "US_FL_NOT_LOCKABLE": "not_lockable",
+    "US_FL_NO_WP_DETECT": "no_wp_detect",
+    "US_FL_IGNORE_DEVICE": "ignore_device",
+    "US_FL_IGNORE_UAS": "ignore_uas",
+    "US_FL_CAPACITY_HEURISTICS": "capacity_heuristics",
+    "US_FL_CAPACITY_OK": "capacity_ok",
+    "US_FL_BROKEN_FUA": "broken_fua",
+    "US_FL_BULK_IGNORE_TAG": "bulk_ignore_tag",
+    "US_FL_BULK32": "bulk32",
+    "US_FL_NEED_OVERRIDE": "need_override",
+    "US_FL_NO_READ_CAPACITY_16": "no_read_cap16",
+    "US_FL_NO_REPORT_OPCODES": "no_report_opcodes",
+    "US_FL_NO_READ_DISC_INFO": "no_read_disc_info",
+    "US_FL_INITIAL_READ10": "initial_read10",
+    "US_FL_WRITE_CACHE": "write_cache",
+    "US_FL_SCM_MULT_TARG": "scm_mult_targ",
+    "US_FL_ALWAYS_SYNC": "always_sync",
+    "US_FL_SENSE_AFTER_SYNC": "sense_after_sync",
+    "US_FL_NO_ATA_1X": "no_ata_1x",
+    "US_FL_NEEDS_CAP16": "needs_cap16",
+    "US_FL_MAX_SECTORS_MIN": "max_sectors_min",
+}
+
+UNUSUAL_DEV_RE = re.compile(
+    r'UNUSUAL_DEV\s*\(\s*'
+    r'0x([0-9a-fA-F]+)\s*,\s*'
+    r'0x([0-9a-fA-F]+)\s*,\s*'
+    r'0x([0-9a-fA-F]+)\s*,\s*'
+    r'0x([0-9a-fA-F]+)\s*,\s*'
+    r'"([^"]*)"\s*,\s*'
+    r'"([^"]*)"\s*,\s*'
+    r'[^,]+,\s*[^,]+,\s*[^,]*,\s*'
+    r'([^)]+)\)',
+    re.MULTILINE | re.DOTALL
+)
+
+
+def extract_storage_quirks(source):
+    entries = []
+    for m in UNUSUAL_DEV_RE.finditer(source):
+        vendor = int(m.group(1), 16)
+        product = int(m.group(2), 16)
+        rev_lo = m.group(3)
+        rev_hi = m.group(4)
+        mfr = m.group(5)
+        product_name = m.group(6)
+        flags_raw = m.group(7)
+        flags = []
+        for flag_name, toml_name in STORAGE_FLAG_MAP.items():
+            if flag_name in flags_raw:
+                flags.append(toml_name)
+        entries.append((vendor, product, rev_lo, rev_hi, mfr, product_name, flags))
+    return entries
+
+
+def format_storage_toml(entries):
+    lines = []
+    lines.append("# USB mass storage device quirks from Linux unusual_devs.h.")
+    lines.append("# Type: [[usb_storage_quirk]] with vendor, product, flags, and metadata fields.")
+    lines.append("")
+    for vendor, product, rev_lo, rev_hi, mfr, product_name, flags in entries:
+        if not flags:
+            continue
+        lines.append("[[usb_storage_quirk]]")
+        lines.append(f"vendor = 0x{vendor:04X}")
+        lines.append(f"product = 0x{product:04X}")
+        lines.append(f'revision = "{rev_lo}-{rev_hi}"')
+        if mfr:
+            lines.append(f'manufacturer = "{mfr}"')
+        if product_name:
+            lines.append(f'description = "{product_name}"')
+        lines.append(f'flags = [{", ".join(f"\"{f}\"" for f in flags)}]')
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -118,7 +216,13 @@ def main():
     with open(path) as f:
         source = f.read()
 
-    if "usb_quirk" in source.lower() or "USB_QUIRK" in source:
+    if "UNUSUAL_DEV" in source:
+        entries = extract_storage_quirks(source)
+        total = len(entries)
+        with_flags = sum(1 for e in entries if e[6])
+        print(f"# Extracted {with_flags} entries with flags out of {total} total from unusual_devs.h")
+        print(format_storage_toml(entries))
+    elif "usb_quirk" in source.lower() or "USB_QUIRK" in source:
         entries = extract_usb_quirks(source)
         print(format_usb_toml(entries))
     else:

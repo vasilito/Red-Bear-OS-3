@@ -179,6 +179,41 @@ of this interface: it queries `pci_get_quirk_flags()` during AMD DC init, logs t
 resulting IRQ expectations, and treats `PCI_QUIRK_NEED_FIRMWARE` as a hard failure
 instead of a warn-and-continue path when that quirk is active.
 
+### For USB Storage Drivers (usbscsid)
+
+The USB SCSI driver (`drivers/storage/usbscsid`) carries its own self-contained quirk
+module (`src/quirks.rs`) that reads `[[usb_storage_quirk]]` entries from `/etc/quirks.d/*.toml`.
+It does not depend on `redox-driver-sys` — the quirk lookup is inline.
+
+At daemon startup, `usbscsid` extracts vendor/product IDs from the USB device descriptor
+and looks up matching quirks from both the compiled-in table and TOML files. The resulting
+`UsbStorageQuirkFlags` propagate to both the BOT transport and the SCSI command layer.
+
+Active behavioral flags and their injection points:
+
+| Flag | Layer | Effect |
+|------|-------|--------|
+| `IGNORE_RESIDUE` | BOT (`bot.rs`) | Suppresses CSW data_residue; avoids false short-transfer errors |
+| `FIX_CAPACITY` | SCSI (`scsi/mod.rs`) | Subtracts 1 from READ CAPACITY(10) block count |
+| `SINGLE_LUN` | BOT (`bot.rs`) | Enforces LUN=0 in CBW |
+| `MAX_SECTORS_64` | SCSI (`scsi/mod.rs`) | Clamps transfer_len to 64 sectors per command |
+| `INITIAL_READ10` | SCSI (`scsi/mod.rs`) | Uses READ(10)/WRITE(10) instead of READ(16)/WRITE(16) |
+
+TOML format for storage quirks:
+
+```toml
+[[usb_storage_quirk]]
+vendor = 0x03EB
+product = 0x2002
+revision = "0100-0100"
+manufacturer = "ATMEL"
+description = "SND1 Storage"
+flags = ["ignore_residue"]
+```
+
+The full 214-entry table lives in `quirks.d/30-storage.toml`, mined from Linux 7.0's
+`drivers/usb/storage/unusual_devs.h`.
+
 Available C quirk flag macros (defined in `linux/pci.h`):
 
 | Macro | Bit | Meaning |
@@ -222,6 +257,16 @@ Create or edit a file in `local/recipes/system/redbear-quirks/source/quirks.d/`:
 vendor = 0xVENDOR
 device = 0xDEVICE
 flags = ["need_firmware", "no_aspm"]
+
+[[usb_quirk]]
+vendor = 0xVENDOR
+product = 0xPRODUCT
+flags = ["no_lpm", "need_reset"]
+
+[[usb_storage_quirk]]
+vendor = 0xVENDOR
+product = 0xPRODUCT
+flags = ["ignore_residue", "fix_capacity"]
 
 [[dmi_system_quirk]]
 pci_vendor = 0xVENDOR
@@ -312,7 +357,7 @@ the honest breakdown.
 **Flags consumed by drivers (runtime checks in production code):**
 - redox-drm: `NO_MSIX`, `NO_MSI`, `FORCE_LEGACY_IRQ`, `DISABLE_ACCEL` (interrupt setup + driver probe)
 - xhcid: `RESET_DELAY_MS`, `NO_MSI`, `NO_MSIX`, `FORCE_LEGACY_IRQ` (interrupt selection + port reset delay)
-- xhcid (USB device path): `NO_SET_CONFIG`, `NO_STRING_FETCH`, `BAD_DESCRIPTOR`, `NO_USB3`, `NO_LPM`, `NO_U1U2` (enumeration/configuration/BOS handling)
+- xhcid (USB device path): `NO_STRING_FETCH`, `BAD_DESCRIPTOR`, `RESET_DELAY`, `HUB_SLOW_RESET`, `NO_BOS`, `SHORT_SET_ADDR_TIMEOUT`, `FORCE_ONE_CONFIG`, `HONOR_BNUMINTERFACES`, `DELAY_CTRL_MSG`, `NO_SET_CONFIG`, `NO_SET_INTF`, `NEED_RESET`, `NO_SUSPEND` (enumeration/configuration/BOS/runtime recovery plus suspend gating)
 - amdgpu: `NEED_FIRMWARE` (hard firmware gate), with real quirk-aware logging for `NO_ASPM`, `NEED_IOMMU`, `NO_MSI`, `NO_MSIX`
 
 **Infrastructure (data flows, reporting, and partial integration):**
@@ -324,6 +369,7 @@ the honest breakdown.
 - DMI compiled-in rules: 8 entries match systems by vendor/product/board (served through `acpid` at `/scheme/acpi/dmi`)
 
 **Observed/logged but not yet strongly enforced in runtime policy:**
+- xhcid `NO_SUSPEND` is now enforced and `usbhubd` mirrors USB 2 hub-port suspend state into child xhcid devices, but suspend policy origination and USB 3 link-state coordination are still pending in the broader hub/power-management layer
 - `NO_ASPM`, `NEED_IOMMU`, `NO_MSI`, `NO_MSIX` in the amdgpu path are surfaced in quirk-aware logs before broader driver policy exists.
 
 **Defined but not yet consumed by any real driver path:**
@@ -331,7 +377,9 @@ the honest breakdown.
 
 `firmware-loader` itself does not interpret `NEED_FIRMWARE`; that policy is now enforced in the amdgpu driver path instead.
 
-`NEED_RESET` remains defined for USB devices but is not yet consumed by a runtime USB driver path.
+For early xhcid timing quirks, `[[usb_quirk]]` entries may also carry `port = "1.2.3"` selectors.
+Those selectors are used only for pre-descriptor timing flags (`RESET_DELAY`, `HUB_SLOW_RESET`,
+`SHORT_SET_ADDR_TIMEOUT`) where vendor/product IDs are not yet available.
 
 **Remaining infrastructure work:**
 - none in the current quirks scope

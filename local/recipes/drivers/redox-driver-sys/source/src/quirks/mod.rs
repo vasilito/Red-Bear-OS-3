@@ -69,18 +69,35 @@ bitflags::bitflags! {
 bitflags::bitflags! {
     /// Flags for USB device quirks.
     ///
-    /// Mirrors Linux's `USB_QUIRK_*` defines.
+    /// Mirrors Linux's `USB_QUIRK_*` defines from `include/linux/usb/quirks.h`.
+    /// Flags 0–8 are the original Red Bear set. Flags 9–21 are mined from
+    /// Linux 7.0 (`drivers/usb/core/quirks.c`, released 2026-04-13).
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct UsbQuirkFlags: u64 {
-        const NO_STRING_FETCH = 1 << 0;
-        const RESET_DELAY = 1 << 1;
-        const NO_USB3 = 1 << 2;
-        const NO_SET_CONFIG = 1 << 3;
-        const NO_SUSPEND = 1 << 4;
-        const NEED_RESET = 1 << 5;
-        const BAD_DESCRIPTOR = 1 << 6;
-        const NO_LPM = 1 << 7;
-        const NO_U1U2 = 1 << 8;
+        // Original Red Bear flags (0–8)
+        const NO_STRING_FETCH = 1 << 0;        // USB_QUIRK_STRING_FETCH_255
+        const RESET_DELAY = 1 << 1;            // USB_QUIRK_DELAY_INIT
+        const NO_USB3 = 1 << 2;                // no Linux equivalent (Red Bear-specific)
+        const NO_SET_CONFIG = 1 << 3;          // USB_QUIRK_NO_SET_INTF (SET_INTERFACE)
+        const NO_SUSPEND = 1 << 4;             // USB_QUIRK_DISCONNECT_SUSPEND
+        const NEED_RESET = 1 << 5;             // USB_QUIRK_RESET_RESUME
+        const BAD_DESCRIPTOR = 1 << 6;         // USB_QUIRK_LINEAR_UFRAME_INTR_BINTERVAL
+        const NO_LPM = 1 << 7;                 // USB_QUIRK_NO_LPM
+        const NO_U1U2 = 1 << 8;               // USB_QUIRK_NO_U1_U2
+        // Mined from Linux 7.0 (9–22)
+        const NO_SET_INTF = 1 << 9;            // USB_QUIRK_NO_SET_INTF
+        const CONFIG_INTF_STRINGS = 1 << 10;   // USB_QUIRK_CONFIG_INTF_STRINGS
+        const NO_RESET = 1 << 11;              // USB_QUIRK_RESET (device can't be reset)
+        const HONOR_BNUMINTERFACES = 1 << 12;  // USB_QUIRK_HONOR_BNUMINTERFACES
+        const DEVICE_QUALIFIER = 1 << 13;      // USB_QUIRK_DEVICE_QUALIFIER
+        const IGNORE_REMOTE_WAKEUP = 1 << 14;  // USB_QUIRK_IGNORE_REMOTE_WAKEUP
+        const DELAY_CTRL_MSG = 1 << 15;        // USB_QUIRK_DELAY_CTRL_MSG
+        const HUB_SLOW_RESET = 1 << 16;        // USB_QUIRK_HUB_SLOW_RESET
+        const NO_BOS = 1 << 17;                // USB_QUIRK_NO_BOS
+        const SHORT_SET_ADDR_TIMEOUT = 1 << 18; // USB_QUIRK_SHORT_SET_ADDRESS_REQ_TIMEOUT
+        const FORCE_ONE_CONFIG = 1 << 19;      // USB_QUIRK_FORCE_ONE_CONFIG
+        const ENDPOINT_IGNORE = 1 << 20;       // USB_QUIRK_ENDPOINT_IGNORE
+        const LINEAR_FRAME_BINTERVAL = 1 << 21; // USB_QUIRK_LINEAR_FRAME_INTR_BINTERVAL
     }
 }
 
