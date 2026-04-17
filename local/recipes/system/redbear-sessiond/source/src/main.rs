@@ -102,13 +102,18 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
 
     eprintln!("redbear-sessiond: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
     eprintln!("redbear-sessiond: building D-Bus connection");
-    let connection = system_connection_builder()?
-        .name(BUS_NAME)?
-        .serve_at(MANAGER_PATH, manager)?
-        .serve_at(SESSION_PATH, session)?
-        .serve_at(SEAT_PATH, seat)?
-        .build()
-        .await?;
+    let mut builder = system_connection_builder()?;
+    eprintln!("redbear-sessiond: builder created");
+    builder = builder.name(BUS_NAME)?;
+    eprintln!("redbear-sessiond: bus name reserved");
+    builder = builder.serve_at(MANAGER_PATH, manager)?;
+    eprintln!("redbear-sessiond: served manager path {MANAGER_PATH}");
+    builder = builder.serve_at(SESSION_PATH, session)?;
+    eprintln!("redbear-sessiond: served session path {SESSION_PATH}");
+    builder = builder.serve_at(SEAT_PATH, seat)?;
+    eprintln!("redbear-sessiond: served seat path {SEAT_PATH}");
+    eprintln!("redbear-sessiond: finalizing connection build");
+    let connection = builder.build().await?;
 
     eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
 

@@ -465,23 +465,28 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
 
     eprintln!("redbear-upower: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
     eprintln!("redbear-upower: building D-Bus connection");
-    let mut builder = system_connection_builder()?
-        .name(BUS_NAME)?
-        .serve_at(
-            UPOWER_PATH,
-            UPowerDaemon {
-                runtime: runtime.clone(),
-            },
-        )?
-        .serve_at(
-            DISPLAY_DEVICE_PATH,
-            DisplayDevice {
-                runtime: runtime.clone(),
-            },
-        )?;
+    let mut builder = system_connection_builder()?;
+    eprintln!("redbear-upower: builder created");
+    builder = builder.name(BUS_NAME)?;
+    eprintln!("redbear-upower: bus name reserved");
+    builder = builder.serve_at(
+        UPOWER_PATH,
+        UPowerDaemon {
+            runtime: runtime.clone(),
+        },
+    )?;
+    eprintln!("redbear-upower: served manager path {UPOWER_PATH}");
+    builder = builder.serve_at(
+        DISPLAY_DEVICE_PATH,
+        DisplayDevice {
+            runtime: runtime.clone(),
+        },
+    )?;
+    eprintln!("redbear-upower: served display device path {DISPLAY_DEVICE_PATH}");
 
     for adapter_id in &runtime.adapter_ids {
         let path = format!("/org/freedesktop/UPower/devices/line_power_{adapter_id}");
+        eprintln!("redbear-upower: serving adapter path {path}");
         builder = builder.serve_at(
             path,
             PowerDevice {
@@ -492,6 +497,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
     }
     for battery_id in &runtime.battery_ids {
         let path = format!("/org/freedesktop/UPower/devices/battery_{battery_id}");
+        eprintln!("redbear-upower: serving battery path {path}");
         builder = builder.serve_at(
             path,
             PowerDevice {
@@ -501,6 +507,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         )?;
     }
 
+    eprintln!("redbear-upower: finalizing connection build");
     let connection = builder.build().await?;
 
     eprintln!("redbear-upower: registered {BUS_NAME} on the system bus");
