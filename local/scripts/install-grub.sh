@@ -91,19 +91,31 @@ echo "Current ESP contents:"
 python3 "${FAT_TOOL}" ls "${IMAGE}" "${ESP_OFFSET}" /
 echo ""
 
-REDBEAR_TMP=$(mktemp)
-trap 'rm -f "${REDBEAR_TMP}"' EXIT
+REDBEAR_EFI=""
+for f in $(find "${REPO_ROOT}/local/recipes/core/bootloader/target" -path "*/stage/usr/lib/boot/bootloader.efi" 2>/dev/null); do
+    REDBEAR_EFI="${f}"
+    break
+done
+for f in $(find "${REPO_ROOT}/repo" -path "*/bootloader/*/usr/lib/boot/bootloader.efi" 2>/dev/null); do
+    REDBEAR_EFI="${f}"
+    break
+done
 
-echo "Extracting Redox bootloader from ESP..."
-python3 "${FAT_TOOL}" cp-out "${IMAGE}" "${ESP_OFFSET}" "EFI/BOOT/BOOTX64.EFI" "${REDBEAR_TMP}"
-REDBEAR_SIZE=$(stat -c%s "${REDBEAR_TMP}")
+if [ -z "${REDBEAR_EFI}" ]; then
+    echo "ERROR: Cannot find Redox bootloader (bootloader.efi) in cookbook output." >&2
+    echo "Build the bootloader first: make r.bootloader" >&2
+    exit 1
+fi
+
+echo "Sourcing Redox bootloader from ${REDBEAR_EFI}"
+REDBEAR_SIZE=$(stat -c%s "${REDBEAR_EFI}")
 echo "  Redox bootloader: ${REDBEAR_SIZE} bytes"
 
 echo "Creating EFI/REDBEAR directory..."
 python3 "${FAT_TOOL}" mkdir "${IMAGE}" "${ESP_OFFSET}" "EFI/REDBEAR" 2>/dev/null || true
 
 echo "Installing Redox bootloader to EFI/REDBEAR/redbear.efi..."
-python3 "${FAT_TOOL}" cp-in "${IMAGE}" "${ESP_OFFSET}" "${REDBEAR_TMP}" "EFI/REDBEAR/redbear.efi"
+python3 "${FAT_TOOL}" cp-in "${IMAGE}" "${ESP_OFFSET}" "${REDBEAR_EFI}" "EFI/REDBEAR/redbear.efi"
 
 GRUB_SIZE=$(stat -c%s "${GRUB_EFI}")
 echo "Installing GRUB (${GRUB_SIZE} bytes) as EFI/BOOT/BOOTX64.EFI..."
