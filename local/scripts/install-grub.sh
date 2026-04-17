@@ -118,7 +118,7 @@ REDBEAR_SIZE=$(stat -c%s "${REDBEAR_EFI}")
 echo "  Redox bootloader: ${REDBEAR_SIZE} bytes"
 
 echo "Creating EFI/REDBEAR directory..."
-python3 "${FAT_TOOL}" mkdir "${IMAGE}" "${ESP_OFFSET}" "EFI/REDBEAR" 2>/dev/null || true
+python3 "${FAT_TOOL}" mkdir "${IMAGE}" "${ESP_OFFSET}" "EFI/REDBEAR"
 
 echo "Installing Redox bootloader to EFI/REDBEAR/redbear.efi..."
 python3 "${FAT_TOOL}" cp-in "${IMAGE}" "${ESP_OFFSET}" "${REDBEAR_EFI}" "EFI/REDBEAR/redbear.efi"
@@ -134,6 +134,6 @@ echo ""
 echo "Final ESP contents:"
 python3 "${FAT_TOOL}" ls "${IMAGE}" "${ESP_OFFSET}" /
 echo ""
-echo "Installation complete. Boot sequence: UEFI -> GRUB (5s timeout) -> Redox bootloader -> kernel"
+echo "Installation complete. Boot sequence: UEFI -> GRUB -> Redox bootloader -> kernel"
 echo "Test with: make qemu"
 echo "Revert:    make all CONFIG_NAME=<your-config>  (rebuild without GRUB)"

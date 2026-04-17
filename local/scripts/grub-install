@@ -5,17 +5,12 @@
 # Maps standard grub-install switches to Red Bear OS cookbook/ESP workflow.
 #
 # Usage:
-#   grub-install [OPTIONS] INSTALL_DEVICE
-#   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=REDBEAR /dev/sda
-#   grub-install --target=x86_64-efi --removable /dev/sda
-#
-# For disk images (Red Bear OS build workflow):
 #   grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
 #
-# Differences from Linux GRUB:
-#   --disk-image=FILE   Install into a disk image file instead of a block device
-#   Modules are pre-selected for Red Bear OS (chainload to Redox bootloader)
-#   No NVRAM/efibootmgr integration (Red Bear OS uses removable boot path)
+# Red Bear OS only supports --disk-image mode (writes to disk image files).
+# Block-device installation (--efi-directory, /dev/sda) is NOT supported.
+# Flags like --efi-directory and --boot-directory are accepted for script
+# compatibility but have no effect.
 
 set -euo pipefail
 
@@ -45,30 +40,30 @@ Options:
       --boot-directory=DIR  Install GRUB images in DIR/grub (default: /boot)
       --disk-image=FILE     Install into disk image FILE (Red Bear OS extension)
       --modules=MODULES     Pre-load specified modules
-      --removable           Install to EFI/BOOT/BOOTX64.EFI (removable media path)
+      --removable           Accepted for compatibility (GRUB always uses removable path)
       --no-nvram            Don't update NVRAM (accepted, always implied)
-      --skip-partition      Don't modify partition table
+      --skip-partition      Accepted for compatibility (no effect)
   -v, --verbose             Verbose output
   -?, --help                Give this help list
   -V, --version             Print program version
 
 Supported targets: x86_64-efi
 
-INSTALL_DEVICE is a system device filename (e.g. /dev/sda) or omitted when
-using --disk-image.
+Red Bear OS only supports --disk-image mode.
+Flags --efi-directory, --boot-directory, --bootloader-id, --removable, --modules
+are accepted for Linux script compatibility but ignored.
+INSTALL_DEVICE (block device path) is rejected with an error.
 
 Examples:
-  # Install to block device with mounted ESP
-  $PROG --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=REDBEAR /dev/sda
-
-  # Install to removable media (no bootloader ID needed)
-  $PROG --target=x86_64-efi --removable /dev/sda
-
-  # Install into a Red Bear OS disk image
+  # Install into a Red Bear OS disk image (primary use case)
   $PROG --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
 
-  # Build full image via Red Bear installer
+  # Build full image via Red Bear installer (alternative)
   make all CONFIG_NAME=redbear-full-grub
+
+Note: Only --disk-image mode is implemented. Block-device installation
+(INSTALL_DEVICE) is rejected with an error. Other block-device flags
+(--efi-directory, --boot-directory) are accepted for compatibility but ignored.
 EOF
     exit 0
 }
@@ -181,7 +176,7 @@ if [ -n "$TARGET" ] && [ "$TARGET" != "x86_64-efi" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FAT_TOOL="$SCRIPT_DIR/fat_tool.py"
 
 # Mode 1: Disk image installation (Red Bear OS build workflow)
@@ -199,6 +194,7 @@ if [ -n "$DISK_IMAGE" ]; then
     # Find GRUB EFI binary
     GRUB_EFI=""
     for f in "$REPO_ROOT/local/recipes/core/grub/target/x86_64-unknown-redox/stage/usr/lib/boot/grub.efi" \
+             "$REPO_ROOT/recipes/core/grub/target/x86_64-unknown-redox/stage/usr/lib/boot/grub.efi" \
              "$REPO_ROOT/repo/x86_64-unknown-redox/grub/root/usr/lib/boot/grub.efi"; do
         if [ -f "$f" ]; then
             GRUB_EFI="$f"
@@ -215,7 +211,7 @@ if [ -n "$DISK_IMAGE" ]; then
 
     # Find Redox bootloader
     REDBEAR_EFI=""
-    for f in "$REPO_ROOT/local/recipes/core/bootloader/target/x86_64-unknown-redox/stage/usr/lib/boot/bootloader.efi" \
+    for f in "$REPO_ROOT/recipes/core/bootloader/target/x86_64-unknown-redox/stage/usr/lib/boot/bootloader.efi" \
              "$REPO_ROOT/repo/x86_64-unknown-redox/bootloader/root/usr/lib/boot/bootloader.efi"; do
         if [ -f "$f" ]; then
             REDBEAR_EFI="$f"
@@ -240,16 +236,15 @@ if [ -n "$DISK_IMAGE" ]; then
     # ESP at LBA 2048 (standard Redox GPT layout)
     ESP_OFFSET=$((2048 * 512))
 
-    # Write GRUB to ESP
-    if [ "$REMOVABLE" -eq 1 ]; then
-        BOOT_PATH="EFI/BOOT"
-    else
-        BOOT_PATH="EFI/${BOOTLOADER_ID}"
-    fi
+    # GRUB always goes to EFI/BOOT — this matches the installer-native path
+    # (with_whole_disk creates EFI/BOOT/BOOTX64.EFI for GRUB).
+    # The --bootloader-id flag is accepted for Linux compatibility but
+    # on Red Bear OS the UEFI firmware expects the standard removable path.
+    BOOT_PATH="EFI/BOOT"
 
-    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI" 2>/dev/null || true
-    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "$BOOT_PATH" 2>/dev/null || true
-    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI/REDBEAR" 2>/dev/null || true
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI"
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "$BOOT_PATH"
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI/REDBEAR"
 
     "$FAT_TOOL" cp-in "$DISK_IMAGE" "$ESP_OFFSET" "$GRUB_EFI" "$BOOT_PATH/BOOTX64.EFI"
     [ "$VERBOSE" -eq 1 ] && echo "$PROG: installed GRUB to $BOOT_PATH/BOOTX64.EFI"
@@ -264,7 +259,7 @@ if [ -n "$DISK_IMAGE" ]; then
     exit 0
 fi
 
-# Mode 2: Full image build via Red Bear installer (INSTALL_DEVICE given)
+# Mode 2: Block-device installation (not supported)
 if [ -n "$INSTALL_DEVICE" ]; then
     echo "$PROG: block device installation is not supported by this wrapper." >&2
     echo "$PROG: For Red Bear OS, use one of:" >&2

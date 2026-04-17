@@ -317,6 +317,9 @@ Two issues required workarounds:
 - Cannot pass kernel parameters directly (chainloading bypasses this)
 - BIOS boot is not supported (only UEFI)
 - ESP must be sized to ≥ 8 MiB in config (16 MiB recommended)
+- GRUB bootloader is incompatible with `skip_partitions = true` (requires GPT layout with ESP)
+- TUI installer does not support GRUB mode (intentional — TUI is for live disk reinstall)
+- Runtime UEFI boot test has not been performed yet (requires full `make all` build, ~hours)
 
 ## Testing
 
