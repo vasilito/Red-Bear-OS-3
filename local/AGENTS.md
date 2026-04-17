@@ -448,7 +448,7 @@ recipes/core/fatd → ../../local/recipes/core/fatd
 - `fatd`: ✅ Compiles (links on Redox target only — expected). ✅ `frename` + rmdir non-empty check implemented. NOT runtime-tested (requires QEMU/bare metal).
 - Phase 4 (runtime auto-mount): Deferred to runtime validation. Static init service exists.
 - Known limitation: fatfs v0.3.6 strictly requires `total_sectors_16 == 0` for FAT32, rejecting some Linux `mkfs.fat` images
-- `cargo test`: 56 unit tests (25 scheme + 7 label + 24 check) + 13+ integration edge cases
+- `cargo test`: 60 unit tests (25 scheme + 7 label + 28 check) + 13+ integration edge cases
 
 ## BRANDING ASSETS
 
