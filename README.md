@@ -156,8 +156,20 @@ Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. 
 ```bash
 make all CONFIG_NAME=redbear-full        # Full desktop + custom drivers
 make all CONFIG_NAME=redbear-minimal     # Minimal server
-make live CONFIG_NAME=redbear-full       # Live ISO (redbear-live.iso)
+make all CONFIG_NAME=redbear-full-grub   # Full desktop with GRUB boot manager
+make live CONFIG_NAME=redbear-live       # Live install ISO (redbear-live.iso)
+make live CONFIG_NAME=redbear-live-mini  # Tiny boot-test live ISO (~256 MiB image)
 make qemu                                # Boot in QEMU
+```
+
+### GRUB Boot Manager (optional)
+
+Red Bear OS can use GNU GRUB as an alternative boot manager with Linux-compatible CLI:
+
+```bash
+make all CONFIG_NAME=redbear-full-grub   # Build with GRUB chainload
+local/scripts/grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
+local/scripts/grub-mkconfig -o local/recipes/core/grub/grub.cfg
 ```
 
 ## Native hardware listing tools

@@ -180,7 +180,7 @@ local/patches/
 ├── base/redox.patch                # Applied to base source during build (symlinked from recipe)
 ├── base/P0-*.patch                 # Individual logical patches
 ├── relibc/P3-*.patch               # POSIX gap patches (eventfd, signalfd, timerfd, etc.)
-├── installer/redox.patch           # Installer ext4 support
+├── installer/redox.patch           # Installer ext4 + GRUB bootloader support
 └── build-system/
     ├── 001-rebrand-and-build.patch # Makefile, mk/*, scripts, build.sh rebranding
     ├── 002-cookbook-fixes.patch    # src/ Rust fixes (fetch.rs, staged_pkg.rs, repo.rs, html.rs)
