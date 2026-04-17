@@ -1,0 +1,13 @@
+diff --git a/redox-rt/src/proc.rs b/redox-rt/src/proc.rs
+index 05e42757..f2eba231 100644
+--- a/redox-rt/src/proc.rs
++++ b/redox-rt/src/proc.rs
+@@ -1119,7 +1119,7 @@ pub fn new_child_process(args: &ForkArgs<'_>) -> Result<NewChildProc> {
+                 pid: 0,
+                 euid: 0,
+                 egid: 0,
+-                ens: 1,
++                prio: 1,
+                 debug_name: {
+                     let mut buf = [0; 32];
+                     let src = b"[init]";

@@ -9,6 +9,3 @@ template = "cargo"
 dependencies = [
     "redox-driver-sys",
 ]
-
-[package.files]
-"/usr/lib/drivers/iommu" = "iommu"
