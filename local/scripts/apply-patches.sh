@@ -128,6 +128,13 @@ symlink "../../local/recipes/system/redbear-polkit"    "recipes/system/redbear-p
 # Core additions
 mkdir -p recipes/core
 symlink "../../local/recipes/core/ext4d" "recipes/core/ext4d"
+symlink "../../local/recipes/core/grub"  "recipes/core/grub"
+
+# Resolve WIP conflict: recipes/wip/services/grub also exists,
+# so redirect its recipe.toml to our local overlay
+if [ -d "recipes/wip/services/grub" ]; then
+    symlink "../../../../local/recipes/core/grub/recipe.toml" "recipes/wip/services/grub/recipe.toml"
+fi
 
 # Wayland additions
 mkdir -p recipes/wip/wayland
