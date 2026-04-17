@@ -13,6 +13,7 @@
 
 [source]
 tar = "https://ftp.gnu.org/gnu/grub/grub-2.12.tar.xz"
+blake3 = "13c48453f9becf4a6e49618749dc7cb83a2c4a0d7600eeeadc6c7c2772c0b877"
 
 [build]
 template = "custom"
@@ -103,7 +104,6 @@ echo "Creating standalone GRUB EFI image..."
     search \
     search_fs_uuid \
     search_label \
-    chain \
     echo \
     test \
     ls \

@@ -75,13 +75,14 @@ The standalone EFI image includes these modules:
 | `search` | Search for files/volumes |
 | `search_fs_uuid` | Search by filesystem UUID |
 | `search_label` | Search by volume label |
-| `chain` | Chainload other bootloaders |
 | `echo` | Print messages |
 | `test` | Conditional expressions |
 | `ls` | List files and devices |
 | `cat` | Display file contents |
 | `halt` | Shut down |
 | `reboot` | Reboot |
+
+Note: `chainloader` is a built-in command in GRUB 2.12 (no separate module needed).
 
 No RedoxFS module is needed — GRUB chainloads the Redox bootloader instead.
 
@@ -114,9 +115,9 @@ mode with different kernel parameters, once supported).
 
 ## ESP Size Requirements
 
-| Component | Measured Size |
+| Component | Typical Size |
 |-----------|--------------|
-| GRUB EFI binary (with modules) | 540 KiB |
+| GRUB EFI binary (with modules) | ~500 KiB (varies with module list) |
 | Redox bootloader | 100–200 KiB |
 | grub.cfg | < 1 KiB |
 | **Total** | **~1 MiB** |
