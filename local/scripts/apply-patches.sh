@@ -97,6 +97,7 @@ symlink "../../local/recipes/libs/libudev-stub"        "recipes/libs/libudev-stu
 symlink "../../local/recipes/libs/lcms2-stub"          "recipes/libs/lcms2-stub"
 symlink "../../local/recipes/libs/libdisplay-info-stub" "recipes/libs/libdisplay-info-stub"
 symlink "../../local/recipes/libs/libxcvt-stub"        "recipes/libs/libxcvt-stub"
+symlink "../../local/recipes/libs/zbus"                "recipes/libs/zbus"
 
 # System
 mkdir -p recipes/system
@@ -117,6 +118,12 @@ symlink "../../local/recipes/system/redbear-mtr"      "recipes/system/redbear-mt
 symlink "../../local/recipes/system/redbear-nmap"     "recipes/system/redbear-nmap"
 symlink "../../local/recipes/system/redbear-meta"     "recipes/system/redbear-meta"
 symlink "../../local/recipes/system/udev-shim"        "recipes/system/udev-shim"
+symlink "../../local/recipes/system/redbear-sessiond"  "recipes/system/redbear-sessiond"
+symlink "../../local/recipes/system/redbear-dbus-services" "recipes/system/redbear-dbus-services"
+symlink "../../local/recipes/system/redbear-notifications" "recipes/system/redbear-notifications"
+symlink "../../local/recipes/system/redbear-upower"    "recipes/system/redbear-upower"
+symlink "../../local/recipes/system/redbear-udisks"    "recipes/system/redbear-udisks"
+symlink "../../local/recipes/system/redbear-polkit"    "recipes/system/redbear-polkit"
 
 # Core additions
 mkdir -p recipes/core
