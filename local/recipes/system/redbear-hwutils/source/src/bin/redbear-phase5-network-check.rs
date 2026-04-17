@@ -108,6 +108,33 @@ fn read_trimmed(path: impl AsRef<Path>) -> Option<String> {
     }
 }
 
+fn run_command_with_retry(
+    program: &str,
+    args: &[&str],
+    label: &str,
+    max_attempts: u32,
+    delay_secs: u64,
+) -> Result<String, String> {
+    let mut last_err = String::new();
+    for attempt in 1..=max_attempts {
+        match run_command(program, args, label) {
+            Ok(output) => return Ok(output),
+            Err(err) => {
+                if attempt < max_attempts {
+                    eprintln!(
+                        "{label}: attempt {attempt}/{max_attempts} failed ({err}), retrying in {delay_secs}s..."
+                    );
+                    std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+                }
+                last_err = err;
+            }
+        }
+    }
+    Err(format!(
+        "{label} failed after {max_attempts} attempts: {last_err}"
+    ))
+}
+
 fn run_command(program: &str, args: &[&str], label: &str) -> Result<String, String> {
     let output = Command::new(program)
         .args(args)
@@ -265,7 +292,7 @@ fn validate_upower(list_names_output: &str) -> Result<(), String> {
     println!("UPOWER_RUNTIME_ADAPTERS={}", runtime.adapter_ids.len());
     println!("UPOWER_RUNTIME_BATTERIES={}", runtime.battery_ids.len());
 
-    let enumerate_output = run_command(
+    let enumerate_output = run_command_with_retry(
         DBUS_SEND,
         &[
             "--system",
@@ -276,6 +303,8 @@ fn validate_upower(list_names_output: &str) -> Result<(), String> {
             "org.freedesktop.UPower.EnumerateDevices",
         ],
         "dbus-send UPower EnumerateDevices",
+        3,
+        2,
     )?;
     let enumerated_device_paths =
         quoted_values_with_prefix(&enumerate_output, "/org/freedesktop/UPower/devices/");
