@@ -90,10 +90,19 @@ index e3c6700..b1d5d72 100644
      "termion",
      "uuid",
 diff --git a/src/bin/installer.rs b/src/bin/installer.rs
-index c3ce487..973b85c 100644
+index c3ce487..7b8ee66 100644
 --- a/src/bin/installer.rs
 +++ b/src/bin/installer.rs
-@@ -39,6 +39,8 @@ fn main() {
+@@ -20,6 +20,8 @@ Using redox_installer as an installer:
+     <diskpath.img>        Disk file to write
+     --config              Path to filesystem config TOML
+     --write-bootloader    Path to write UEFI bootloader to in addition to the embedded ESP
++    --bootloader          Boot manager: "redox" (default) or "grub"
++    --filesystem          Filesystem type: "redoxfs" (default) or "ext4"
+     --skip-partition      Skip writing GPT partition tables
+                           Use this only if you plan to use other partition tool
+     --live                Use bootloader configured for live disk
+@@ -39,6 +41,8 @@ fn main() {
          .add_opt("c", "config")
          .add_opt("o", "output-config")
          .add_opt("", "write-bootloader")
@@ -102,7 +111,7 @@ index c3ce487..973b85c 100644
          .add_flag(&["skip-partition"])
          .add_flag(&["filesystem-size"])
          .add_flag(&["r", "repo-binary"]) // TODO: Remove
-@@ -116,6 +118,12 @@ fn main() {
+@@ -116,6 +120,12 @@ fn main() {
          if parser.found("no-mount") {
              config.general.no_mount = Some(true);
          }

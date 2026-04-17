@@ -16,6 +16,7 @@ else
 	rm -rf $@ $@.partial
 	mkdir -p $@.partial
 	ln -s ../../recipes $@.partial/recipes
+	ln -s ../../local $@.partial/local
 	$(MAKE) fstools_fetch PODMAN_BUILD=$(GOING_TO_PODMAN_AGAIN)
 
 	# Compile installer and redoxfs for host (may be outside of podman container)
