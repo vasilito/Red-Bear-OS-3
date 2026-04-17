@@ -270,7 +270,10 @@ make all CONFIG_NAME=redbear-desktop
 # GRUB boot manager (installer-native, Phase 2):
 make r.grub                                                   # Build GRUB recipe
 make all CONFIG_NAME=redbear-full-grub                        # Build with GRUB chainload
-# Or post-build script (Phase 1):
+# Linux-compatible CLI (add local/scripts to PATH):
+grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
+grub-mkconfig -o local/recipes/core/grub/grub.cfg
+# Or legacy post-build script:
 ./local/scripts/install-grub.sh build/x86_64/harddrive.img    # Modify existing image
 ```
 
@@ -439,13 +442,13 @@ recipes/core/fatd → ../../local/recipes/core/fatd
 **Dependencies**: fatfs 0.3.6, fscommon 0.1.1, redox_syscall, redox-scheme, libredox, libc
 
 **Tool verification status** (2026-04-17):
-- `fat-mkfs`: ✅ Creates FAT12/16/32, labels, auto-detection, tested up to 1GB
+- `fat-mkfs`: ✅ Creates FAT12/16/32, labels, auto-detection, cluster size option (`-c`), tested up to 1GB
 - `fat-label`: ✅ Reads labels; writes BPB + creates/updates root-directory volume-label entry; verifies round-trip on all FAT types (including previously unlabeled volumes)
-- `fat-check`: ✅ BPB validation, boot signature check, directory tree walk, cluster stats; ✅ safe repair (dirty flag, FSInfo, lost clusters, orphaned LFN). Handles 0xFFFFFFFF FSInfo sentinel on fresh images.
-- `fatd`: ✅ Compiles (links on Redox target only — expected). NOT runtime-tested (requires QEMU/bare metal).
+- `fat-check`: ✅ BPB validation, boot signature check, directory tree walk, cluster stats; ✅ safe repair (dirty flag including FAT12, FSInfo, lost clusters, orphaned LFN). Handles 0xFFFFFFFF FSInfo sentinel on fresh images.
+- `fatd`: ✅ Compiles (links on Redox target only — expected). ✅ `frename` + rmdir non-empty check implemented. NOT runtime-tested (requires QEMU/bare metal).
 - Phase 4 (runtime auto-mount): Deferred to runtime validation. Static init service exists.
 - Known limitation: fatfs v0.3.6 strictly requires `total_sectors_16 == 0` for FAT32, rejecting some Linux `mkfs.fat` images
-- `cargo test`: 0 unit tests (all testing done via integration tests with disk images)
+- `cargo test`: 56 unit tests (25 scheme + 7 label + 24 check) + 13+ integration edge cases
 
 ## BRANDING ASSETS
 

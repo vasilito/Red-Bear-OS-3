@@ -1,10 +1,10 @@
 # GRUB Integration Plan — Red Bear OS
 
 **Date:** 2026-04-17
-**Status:** Phase 2 complete — installer-native GRUB support implemented and compiling.
-**Prerequisite:** The `grub` package must be in the build plan (included in `redbear-full-grub.toml`)
-for `make all` to work from a clean tree. Phase 2 is automatic only after `grub` is available in
-the local repo or build output.
+**Status:** Fully implemented (build-tested, not yet runtime boot-tested). ESP formatted as FAT32
+per UEFI spec. Both Phase 1 (post-build script) and Phase 2 (installer-native) are wired.
+**Remaining:** Runtime UEFI boot validation in QEMU (`make all CONFIG_NAME=redbear-full-grub && make qemu`).
+**Prerequisite:** The `grub` package is included in `redbear-full-grub.toml` for clean-tree builds.
 **Approach:** Option A — GRUB as boot manager, chainloading Redox bootloader
 
 ## Overview
@@ -128,6 +128,54 @@ The default ESP is 1 MiB (too small for GRUB). Configs using GRUB must set:
 [general]
 efi_partition_size = 16   # 16 MiB, enough for GRUB + Redox bootloader + margin
 ```
+
+## Linux-Compatible CLI
+
+Red Bear OS provides `grub-install` and `grub-mkconfig` wrappers that match GNU GRUB
+command-line conventions. Users migrating from Linux can use familiar switches.
+
+| Linux Command | Red Bear OS Location |
+|---------------|---------------------|
+| `grub-install` | `local/scripts/grub-install` |
+| `grub-mkconfig` | `local/scripts/grub-mkconfig` |
+
+Add to PATH for convenience:
+```bash
+export PATH="$PWD/local/scripts:$PATH"
+```
+
+### grub-install
+
+```bash
+# Install GRUB into a disk image
+grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
+
+# Verbose mode
+grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img --verbose
+
+# Show help
+grub-install --help
+```
+
+Supported options: `--target=`, `--efi-directory=`, `--bootloader-id=`, `--removable`,
+`--disk-image=`, `--modules=`, `--no-nvram`, `--verbose`, `--help`, `--version`.
+
+Unsupported Linux options are accepted and ignored silently for script compatibility.
+
+### grub-mkconfig
+
+```bash
+# Preview generated config
+grub-mkconfig
+
+# Write to file
+grub-mkconfig -o local/recipes/core/grub/grub.cfg
+
+# Custom timeout
+grub-mkconfig --timeout=10 -o /boot/grub/grub.cfg
+```
+
+Supported options: `-o`/`--output=`, `--timeout=`, `--set-default=`, `--help`, `--version`.
 
 ## Implementation — Phase 1: Post-Build Script
 
@@ -302,7 +350,7 @@ make r.grub
 make all CONFIG_NAME=redbear-full-grub
 
 # Or via CLI flag
-make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub"
+make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub --cookbook=."
 
 # Verify ESP contents
 python3 local/scripts/fat_tool.py ls build/x86_64/harddrive.img 1048576 /

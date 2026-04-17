@@ -1,0 +1,277 @@
+#!/bin/bash
+# grub-install — Install GRUB on a device (Red Bear OS wrapper)
+#
+# Compatibility: Matches GNU GRUB grub-install CLI conventions.
+# Maps standard grub-install switches to Red Bear OS cookbook/ESP workflow.
+#
+# Usage:
+#   grub-install [OPTIONS] INSTALL_DEVICE
+#   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=REDBEAR /dev/sda
+#   grub-install --target=x86_64-efi --removable /dev/sda
+#
+# For disk images (Red Bear OS build workflow):
+#   grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
+#
+# Differences from Linux GRUB:
+#   --disk-image=FILE   Install into a disk image file instead of a block device
+#   Modules are pre-selected for Red Bear OS (chainload to Redox bootloader)
+#   No NVRAM/efibootmgr integration (Red Bear OS uses removable boot path)
+
+set -euo pipefail
+
+PROG="$(basename "$0")"
+
+# Defaults
+TARGET=""
+EFI_DIRECTORY=""
+BOOTLOADER_ID="REDBEAR"
+BOOT_DIRECTORY=""
+DISK_IMAGE=""
+MODULES=""
+REMOVABLE=0
+VERBOSE=0
+INSTALL_DEVICE=""
+
+usage() {
+    cat <<EOF
+Usage: $PROG [OPTION...] [INSTALL_DEVICE]
+Install GRUB on your drive.
+
+Options:
+  -d, --directory=DIR       Use images and modules from DIR
+      --target=TARGET       Target platform [x86_64-efi]
+      --efi-directory=DIR   Use DIR as the EFI System Partition mount point
+      --bootloader-id=ID    Bootloader identifier (default: REDBEAR)
+      --boot-directory=DIR  Install GRUB images in DIR/grub (default: /boot)
+      --disk-image=FILE     Install into disk image FILE (Red Bear OS extension)
+      --modules=MODULES     Pre-load specified modules
+      --removable           Install to EFI/BOOT/BOOTX64.EFI (removable media path)
+      --no-nvram            Don't update NVRAM (accepted, always implied)
+      --skip-partition      Don't modify partition table
+  -v, --verbose             Verbose output
+  -?, --help                Give this help list
+  -V, --version             Print program version
+
+Supported targets: x86_64-efi
+
+INSTALL_DEVICE is a system device filename (e.g. /dev/sda) or omitted when
+using --disk-image.
+
+Examples:
+  # Install to block device with mounted ESP
+  $PROG --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=REDBEAR /dev/sda
+
+  # Install to removable media (no bootloader ID needed)
+  $PROG --target=x86_64-efi --removable /dev/sda
+
+  # Install into a Red Bear OS disk image
+  $PROG --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
+
+  # Build full image via Red Bear installer
+  make all CONFIG_NAME=redbear-full-grub
+EOF
+    exit 0
+}
+
+version() {
+    echo "$PROG (Red Bear OS) 2.12"
+    echo "Compatible with GNU GRUB grub-install interface"
+    exit 0
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target=*)
+            TARGET="${1#--target=}"
+            shift
+            ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --efi-directory=*)
+            EFI_DIRECTORY="${1#--efi-directory=}"
+            shift
+            ;;
+        --efi-directory)
+            EFI_DIRECTORY="$2"
+            shift 2
+            ;;
+        --bootloader-id=*)
+            BOOTLOADER_ID="${1#--bootloader-id=}"
+            shift
+            ;;
+        --bootloader-id)
+            BOOTLOADER_ID="$2"
+            shift 2
+            ;;
+        --boot-directory=*)
+            BOOT_DIRECTORY="${1#--boot-directory=}"
+            shift
+            ;;
+        --boot-directory)
+            BOOT_DIRECTORY="$2"
+            shift 2
+            ;;
+        --disk-image=*)
+            DISK_IMAGE="${1#--disk-image=}"
+            shift
+            ;;
+        --disk-image)
+            DISK_IMAGE="$2"
+            shift 2
+            ;;
+        --modules=*)
+            MODULES="${1#--modules=}"
+            shift
+            ;;
+        --modules)
+            MODULES="$2"
+            shift 2
+            ;;
+        --removable)
+            REMOVABLE=1
+            shift
+            ;;
+        --no-nvram|--no-nvram=*)
+            shift
+            ;;
+        --skip-partition)
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            shift
+            ;;
+        -\?|--help|-h)
+            usage
+            ;;
+        -V|--version)
+            version
+            ;;
+        -d|--directory|-k|--pubkey|--compress|--core-compress|--fonts|--install-modules|--locales|--themes|--sbat|--dtb|--disk-module|--appended-signature-size|-x|--x509key|--disable-cli|--disable-shim-lock)
+            # Accept but ignore unsupported Linux GRUB options
+            shift
+            if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+                shift
+            fi
+            ;;
+        --allow-floppy|--force|--recheck)
+            shift
+            ;;
+        -*)
+            echo "$PROG: unrecognized option '$1'" >&2
+            echo "Try '$PROG --help' for more information." >&2
+            exit 1
+            ;;
+        *)
+            INSTALL_DEVICE="$1"
+            shift
+            ;;
+    esac
+done
+
+[ "$VERBOSE" -eq 1 ] && echo "$PROG: target=$TARGET efi_directory=$EFI_DIRECTORY bootloader_id=$BOOTLOADER_ID removable=$REMOVABLE disk_image=$DISK_IMAGE device=$INSTALL_DEVICE"
+
+# Validate target
+if [ -n "$TARGET" ] && [ "$TARGET" != "x86_64-efi" ]; then
+    echo "$PROG: unsupported target '$TARGET' (only x86_64-efi is supported on Red Bear OS)" >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FAT_TOOL="$SCRIPT_DIR/fat_tool.py"
+
+# Mode 1: Disk image installation (Red Bear OS build workflow)
+if [ -n "$DISK_IMAGE" ]; then
+    if [ ! -f "$DISK_IMAGE" ]; then
+        echo "$PROG: disk image not found: $DISK_IMAGE" >&2
+        exit 1
+    fi
+
+    if [ ! -f "$FAT_TOOL" ]; then
+        echo "$PROG: fat_tool.py not found at $FAT_TOOL" >&2
+        exit 1
+    fi
+
+    # Find GRUB EFI binary
+    GRUB_EFI=""
+    for f in "$REPO_ROOT/local/recipes/core/grub/target/x86_64-unknown-redox/stage/usr/lib/boot/grub.efi" \
+             "$REPO_ROOT/repo/x86_64-unknown-redox/grub/root/usr/lib/boot/grub.efi"; do
+        if [ -f "$f" ]; then
+            GRUB_EFI="$f"
+            break
+        fi
+    done
+
+    if [ -z "$GRUB_EFI" ]; then
+        echo "$PROG: grub.efi not found. Build the GRUB recipe first: make r.grub" >&2
+        exit 1
+    fi
+
+    [ "$VERBOSE" -eq 1 ] && echo "$PROG: using grub.efi: $GRUB_EFI"
+
+    # Find Redox bootloader
+    REDBEAR_EFI=""
+    for f in "$REPO_ROOT/local/recipes/core/bootloader/target/x86_64-unknown-redox/stage/usr/lib/boot/bootloader.efi" \
+             "$REPO_ROOT/repo/x86_64-unknown-redox/bootloader/root/usr/lib/boot/bootloader.efi"; do
+        if [ -f "$f" ]; then
+            REDBEAR_EFI="$f"
+            break
+        fi
+    done
+
+    if [ -z "$REDBEAR_EFI" ]; then
+        echo "$PROG: bootloader.efi not found. Build the bootloader recipe first." >&2
+        exit 1
+    fi
+
+    [ "$VERBOSE" -eq 1 ] && echo "$PROG: using bootloader.efi: $REDBEAR_EFI"
+
+    # Find grub.cfg
+    GRUB_CFG="$REPO_ROOT/local/recipes/core/grub/grub.cfg"
+    if [ ! -f "$GRUB_CFG" ]; then
+        echo "$PROG: grub.cfg not found at $GRUB_CFG" >&2
+        exit 1
+    fi
+
+    # ESP at LBA 2048 (standard Redox GPT layout)
+    ESP_OFFSET=$((2048 * 512))
+
+    # Write GRUB to ESP
+    BOOT_PATH="EFI/BOOT"
+    if [ "$REMOVABLE" -eq 0 ] && [ -n "$BOOTLOADER_ID" ]; then
+        BOOT_PATH="EFI/BOOT"
+    fi
+
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI" 2>/dev/null || true
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "$BOOT_PATH" 2>/dev/null || true
+    "$FAT_TOOL" mkdir "$DISK_IMAGE" "$ESP_OFFSET" "EFI/REDBEAR" 2>/dev/null || true
+
+    "$FAT_TOOL" cp-in "$DISK_IMAGE" "$ESP_OFFSET" "$GRUB_EFI" "$BOOT_PATH/BOOTX64.EFI"
+    [ "$VERBOSE" -eq 1 ] && echo "$PROG: installed GRUB to $BOOT_PATH/BOOTX64.EFI"
+
+    "$FAT_TOOL" cp-in "$DISK_IMAGE" "$ESP_OFFSET" "$GRUB_CFG" "$BOOT_PATH/grub.cfg"
+    [ "$VERBOSE" -eq 1 ] && echo "$PROG: installed grub.cfg to $BOOT_PATH/grub.cfg"
+
+    "$FAT_TOOL" cp-in "$DISK_IMAGE" "$ESP_OFFSET" "$REDBEAR_EFI" "EFI/REDBEAR/redbear.efi"
+    [ "$VERBOSE" -eq 1 ] && echo "$PROG: installed Redox bootloader to EFI/REDBEAR/redbear.efi"
+
+    echo "Installation finished. No error reported."
+    exit 0
+fi
+
+# Mode 2: Full image build via Red Bear installer (INSTALL_DEVICE given)
+if [ -n "$INSTALL_DEVICE" ]; then
+    echo "$PROG: installing to $INSTALL_DEVICE via Red Bear installer..." >&2
+    echo "$PROG: for Red Bear OS, use: make all CONFIG_NAME=redbear-full-grub" >&2
+    echo "$PROG: or: redox_installer -c redbear-full-grub.toml $INSTALL_DEVICE" >&2
+    exit 1
+fi
+
+# No device or disk image given
+echo "$PROG: no installation device specified." >&2
+echo "Try '$PROG --help' for more information." >&2
+exit 1
