@@ -1,22 +1,10 @@
 #!/bin/bash
 # grub-install — Install GRUB on a device (Red Bear OS wrapper)
-#
-# Compatibility: Matches GNU GRUB grub-install CLI conventions.
-# Maps standard grub-install switches to Red Bear OS cookbook/ESP workflow.
-#
-# Usage:
-#   grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
-#
-# Red Bear OS only supports --disk-image mode (writes to disk image files).
-# Block-device installation (--efi-directory, /dev/sda) is NOT supported.
-# Flags like --efi-directory and --boot-directory are accepted for script
-# compatibility but have no effect.
 
 set -euo pipefail
 
 PROG="$(basename "$0")"
 
-# Defaults
 TARGET=""
 EFI_DIRECTORY=""
 BOOTLOADER_ID="REDBEAR"
@@ -74,7 +62,6 @@ version() {
     exit 0
 }
 
-# Parse options
 while [ $# -gt 0 ]; do
     case "$1" in
         --target=*)
@@ -259,7 +246,6 @@ if [ -n "$DISK_IMAGE" ]; then
     exit 0
 fi
 
-# Mode 2: Block-device installation (not supported)
 if [ -n "$INSTALL_DEVICE" ]; then
     echo "$PROG: block device installation is not supported by this wrapper." >&2
     echo "$PROG: For Red Bear OS, use one of:" >&2
@@ -268,7 +254,8 @@ if [ -n "$INSTALL_DEVICE" ]; then
     exit 1
 fi
 
-# No device or disk image given
-echo "$PROG: no installation device specified." >&2
-echo "Try '$PROG --help' for more information." >&2
-exit 1
+if [ -z "$DISK_IMAGE" ] && [ -z "$INSTALL_DEVICE" ]; then
+    echo "$PROG: no installation device specified." >&2
+    echo "Try '$PROG --help' for more information." >&2
+    exit 1
+fi
