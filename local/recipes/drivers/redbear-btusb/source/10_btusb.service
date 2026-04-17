@@ -1,0 +1,9 @@
+[unit]
+description = "Bluetooth transport daemon"
+requires_weak = [
+    "05_firmware-loader.service",
+]
+
+[service]
+cmd = "redbear-btusb"
+type = "oneshot_async"

@@ -4,7 +4,8 @@ This runbook is the canonical operator path for exercising the current bounded B
 Level slice on Red Bear OS.
 
 It does **not** claim that Bluetooth is broadly solved. Its job is to make the current
-profile-scoped, QEMU-validated Battery Level workload reproducible and honest.
+profile-scoped Battery Level workload reproducible and honest while QEMU validation is still being
+brought to a passing state.
 
 ## Goal
 
@@ -31,7 +32,7 @@ Then run the automated QEMU harness:
 ./local/scripts/test-bluetooth-qemu.sh --check
 ```
 
-What that harness does today:
+What that harness is intended to do:
 
 1. boots `redbear-bluetooth-experimental` in QEMU with `qemu-xhci`
 2. logs in automatically on the serial console
@@ -86,6 +87,10 @@ Current success is still **bounded** success:
   Battery Level slice
 - the exact Battery Service / Battery Level UUID pair can be read through the bounded read-only
   workload and reported conservatively by `redbear-info`
+
+Those are the **target** success conditions for the current QEMU proof. Until the harness exits
+cleanly end to end, describe the validation state as “QEMU harness and packaged checker present,
+validation still in progress.”
 
 This is **not yet** the same as:
 

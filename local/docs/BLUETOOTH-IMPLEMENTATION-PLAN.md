@@ -27,10 +27,10 @@ This repo should not treat planned scope as equivalent to implemented support.
 Broad Bluetooth support is still **missing** in Red Bear OS, but the repo now carries one bounded
 experimental first slice.
 
-That bounded slice is now **QEMU-validated for its claimed scope** through the packaged
-`redbear-bluetooth-battery-check` helper and the host-side
-`./local/scripts/test-bluetooth-qemu.sh --check` harness. That validation is still narrow and does
-not promote the repo to generic Bluetooth maturity.
+That bounded slice now has a packaged in-guest checker (`redbear-bluetooth-battery-check`) and a
+host-side QEMU harness (`./local/scripts/test-bluetooth-qemu.sh --check`). That QEMU validation
+path is still being stabilized, so it should currently be described as **QEMU validation in
+progress**, not as already validated for its claimed scope.
 
 That first in-tree slice is deliberately narrow:
 
@@ -75,7 +75,7 @@ one more driver.” The feasible first target is a deliberately small subsystem 
 | Area | State | Notes |
 |---|---|---|
 | Bluetooth controller support | **experimental, USB discovery real** | `redbear-btusb` now probes `/scheme/usb/` for real Bluetooth class devices (USB class 0xE0/0x01/0x01 with vendor-ID fallback), parses descriptor files, assigns `hciN` names deterministically, and writes real adapter metadata into the status file. Daemon re-probes periodically. 8 tests pass including mock-filesystem USB discovery tests. |
-| Bluetooth host stack | **experimental bounded slice** | `redbear-btctl` provides a BLE-first CLI/scheme surface with stub-backed scan plus bounded connect/disconnect control for stored bond IDs; the packaged checker now reruns that slice repeatedly and covers daemon-restart honesty in QEMU |
+| Bluetooth host stack | **experimental bounded slice** | `redbear-btctl` provides a BLE-first CLI/scheme surface with stub-backed scan plus bounded connect/disconnect control for stored bond IDs; the packaged checker and QEMU harness now exist for repeated guest validation, but the end-to-end QEMU proof is still in progress |
 | Pairing / bond database | **experimental bounded slice** | `redbear-btctl` now persists conservative stub bond records under `/var/lib/bluetooth/<adapter>/bonds/`; connect/disconnect control targets those records, and the checker now verifies cleanup honesty, but this is still storage/control plumbing only, not real pairing or generic reconnect validation |
 | Desktop Bluetooth API | **missing** | D-Bus exists generally, but no Bluetooth API/service exists |
 | Bluetooth HID | **missing** | Could later build on input modernization work |
@@ -595,8 +595,9 @@ expects them instead of importing a whole foreign subsystem model blindly.
 
 **Current in-tree interpretation**:
 
-- the repo now satisfies the narrower QEMU-scoped version of this exit criterion for one packaged,
-  stub-backed Battery Level workload on `redbear-bluetooth-experimental`
+- the repo now has the packaged checker and QEMU harness needed to satisfy the narrower
+  QEMU-scoped version of this exit criterion for one stub-backed Battery Level workload on
+  `redbear-bluetooth-experimental`, but that QEMU proof is still in progress
 - it does **not** satisfy a broader real-hardware or generic BLE exit criterion yet
 
 ## Support-Language Guidance
@@ -629,8 +630,8 @@ BLE-first, profile-scoped to `redbear-bluetooth-experimental`, with conservative
 persistence rooted at `/var/lib/bluetooth/<adapter>/bonds/` plus bounded connect/disconnect control
 that only targets those stored stub bond IDs, plus one experimental battery-sensor Battery Level
 read result for the exact Battery Service / Battery Level UUID pair above. That slice can now be
-built, booted in QEMU, exercised by the packaged `redbear-bluetooth-battery-check` helper, rerun in
-one boot, and rerun after a clean reboot without changing the bounded support claim.
+built, booted in QEMU, and exercised by the packaged `redbear-bluetooth-battery-check` helper; the
+repeated end-to-end QEMU proof is still being stabilized before it should be described as validated.
 
 What makes it feasible is not any existing Bluetooth stack, but the surrounding Red Bear
 architecture: userspace daemons, runtime services, diagnostic discipline, profile-scoped support
