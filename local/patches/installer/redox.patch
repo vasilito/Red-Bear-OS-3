@@ -180,7 +180,7 @@ index 417ff2d..4ad2202 100644
      }
  }
 diff --git a/src/installer.rs b/src/installer.rs
-index 4e077a9..82b9122 100644
+index 4e077a9..9c40679 100644
 --- a/src/installer.rs
 +++ b/src/installer.rs
 @@ -3,6 +3,13 @@ use anyhow::{bail, Result};
@@ -497,7 +497,7 @@ index 4e077a9..82b9122 100644
 +        if grub_path.exists() {
 +            Some(fs::read(grub_path)?)
 +        } else {
-+            None
++            bail!("GRUB mode requested (bootloader = \"grub\") but grub.efi not found in package output. Build the GRUB recipe first: make r.grub");
 +        }
 +    } else {
 +        None
@@ -508,7 +508,7 @@ index 4e077a9..82b9122 100644
 +        if cfg_path.exists() {
 +            Some(fs::read(cfg_path)?)
 +        } else {
-+            None
++            bail!("GRUB mode requested (bootloader = \"grub\") but grub.cfg not found in package output");
 +        }
 +    } else {
 +        None
@@ -795,7 +795,31 @@ index 4e077a9..82b9122 100644
  #[cfg(not(target_os = "redox"))]
  pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
      _fs: &mut redoxfs::FileSystem<D>,
-@@ -823,28 +1341,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+@@ -801,6 +1319,23 @@ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
+ 
+ fn install_inner(config: Config, output: &Path) -> Result<()> {
+     println!("Installing to {}:\n{}", output.display(), config);
++
++    if let Some(ref bl) = config.general.bootloader {
++        match bl.as_str() {
++            "redox" | "grub" => {}
++            other => bail!(
++                "Unknown bootloader '{}': expected \"redox\" or \"grub\"",
++                other
++            ),
++        }
++        if bl.eq_ignore_ascii_case("grub") {
++            let efi_size = config.general.efi_partition_size.unwrap_or(1);
++            if efi_size < 8 {
++                bail!("GRUB bootloader requires efi_partition_size >= 8 MiB (got {} MiB). Add efi_partition_size = 16 to your config.", efi_size);
++            }
++        }
++    }
++
+     let cookbook = config.general.cookbook.clone();
+     let cookbook = cookbook.as_ref().map(|p| p.as_str());
+     if output.is_dir() {
+@@ -823,28 +1358,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
          let live = config.general.live_disk.unwrap_or(false);
          let password_opt = config.general.encrypt_disk.clone();
          let password_opt = password_opt.as_ref().map(|p| p.as_bytes());
