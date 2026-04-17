@@ -110,7 +110,7 @@ fn system_connection_builder() -> Result<ConnectionBuilder<'static>, Box<dyn Err
     if let Ok(address) = env::var("DBUS_STARTER_ADDRESS") {
         Ok(ConnectionBuilder::address(Address::try_from(address.as_str())?)?)
     } else {
-        Ok(ConnectionBuilder::system()?)
+        Ok(ConnectionBuilder::address(Address::try_from("unix:path=/run/dbus/system_bus_socket")?)?)
     }
 }
 
