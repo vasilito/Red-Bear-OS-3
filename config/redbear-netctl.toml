@@ -102,5 +102,5 @@ requires_weak = [
 [service]
 cmd = "redbear-netctl"
 args = ["--boot"]
-type = "oneshot"
+type = "oneshot_async"
 """

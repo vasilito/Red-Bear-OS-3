@@ -170,7 +170,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-sessiond",
+    "redbear-sessiond",
 ]
 type = "oneshot_async"
 """
@@ -188,7 +188,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-upower",
+    "redbear-upower",
 ]
 type = "oneshot_async"
 """
@@ -206,7 +206,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-udisks",
+    "redbear-udisks",
 ]
 type = "oneshot_async"
 """
@@ -224,7 +224,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-polkit",
+    "redbear-polkit",
 ]
 type = "oneshot_async"
 """

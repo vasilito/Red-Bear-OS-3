@@ -6,10 +6,13 @@
 include = ["redbear-desktop.toml"]
 
 [general]
-# Larger filesystem for live image with more tools
-filesystem_size = 12288
+# Keep the live installer image reasonably sized
+filesystem_size = 3072
 
 [packages]
+# Keep the live installer image compact for now.
+redbear-firmware = "ignore"
+
 # Keep these explicit for the live profile even though cub is inherited via redbear-desktop.
 cub = {}
 redbear-meta = {}

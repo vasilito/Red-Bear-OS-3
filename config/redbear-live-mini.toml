@@ -1,0 +1,14 @@
+# Red Bear OS Mini Live Configuration
+# Minimal boot-test live ISO variant.
+#
+# Build: make live CONFIG_NAME=redbear-live-mini
+
+include = ["minimal.toml", "redbear-legacy-base.toml"]
+
+[general]
+# Keep this image tiny for boot smoke tests only.
+filesystem_size = 256
+
+[packages]
+mc = {}
+redbear-info = {}

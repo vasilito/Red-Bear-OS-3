@@ -80,6 +80,6 @@ requires_weak = [
 
 [service]
 cmd = "fatd"
-args = ["disk/live-virtio", "fat-live"]
-type = { scheme = "fat-live" }
+args = ["disk/live-nvme", "fat-live"]
+type = "oneshot_async"
 """
