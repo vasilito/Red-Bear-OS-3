@@ -59,7 +59,8 @@ done
 # with these tools during the target build.
 # ============================================================
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
-HOST_PROFILE="qtbase-host-6.11.0-gui-xml-wayland-no-qdbus-tools"
+HOST_QTBASE_BUILD="${COOKBOOK_ROOT}/build/qtbase-host-build"
+HOST_PROFILE="qtbase-host-6.11.0-gui-xml-wayland-no-qdbus-host"
 HOST_STAMP="${HOST_BUILD}/.redbear-host-profile"
 HOST_PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/jvm/default/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
 python - <<'PY'
@@ -74,14 +75,17 @@ path.write_text(text)
 PY
 if [ -d "${HOST_BUILD}" ] && { [ ! -f "${HOST_STAMP}" ] || [ "$(cat "${HOST_STAMP}" 2>/dev/null)" != "${HOST_PROFILE}" ]; }; then
     rm -rf "${HOST_BUILD}"
+    rm -rf "${HOST_QTBASE_BUILD}"
 fi
 if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
     echo "=== Building Qt host tools ==="
     mkdir -p "${HOST_BUILD}"
+    rm -rf "${HOST_QTBASE_BUILD}"
     env -i \
         HOME="${HOME}" \
         PATH="${HOST_PATH}" \
-        cmake -S "${COOKBOOK_SOURCE}" -B "${HOST_BUILD}" \
+        cmake -S "${COOKBOOK_SOURCE}" -B "${HOST_QTBASE_BUILD}" \
+        -GNinja \
         -DCMAKE_C_COMPILER=/usr/bin/cc \
         -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
         -DCMAKE_ASM_COMPILER=/usr/bin/cc \
@@ -97,7 +101,7 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
         -DFEATURE_widgets=OFF \
         -DFEATURE_opengl=OFF \
     -DFEATURE_network=OFF \
-        -DFEATURE_dbus=ON \
+        -DFEATURE_dbus=OFF \
     -DFEATURE_openssl=OFF \
     -DFEATURE_sql=OFF \
     -DFEATURE_testlib=OFF \
@@ -108,9 +112,11 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
     env -i \
         HOME="${HOME}" \
         PATH="${HOST_PATH}" \
-        cmake --build "${HOST_BUILD}" --target host_tools -j"${COOKBOOK_MAKE_JOBS}"
-    mkdir -p "${HOST_BUILD}/include/QtGui/6.11.0/QtGui"
-    mkdir -p "${HOST_BUILD}/include/QtDBus/6.11.0/QtDBus"
+        cmake --build "${HOST_QTBASE_BUILD}" -j"${COOKBOOK_MAKE_JOBS}"
+    env -i \
+        HOME="${HOME}" \
+        PATH="${HOST_PATH}" \
+        cmake --install "${HOST_QTBASE_BUILD}" --prefix "${HOST_BUILD}"
     printf '%s\n' "${HOST_PROFILE}" > "${HOST_STAMP}"
 fi
 
@@ -195,9 +201,22 @@ mv "${HWI_CMAKE}.tmp" "${HWI_CMAKE}"
 # QtGui needs the float16 shims — copy to gui dir and append to first SOURCES line
 cp "${COOKBOOK_SOURCE}/src/corelib/global/qt_float16_shims.c" \
     "${COOKBOOK_SOURCE}/src/gui/painting/qt_float16_shims.c"
-awk '/^    SOURCES$/ && !done { print; print "        painting/qt_float16_shims.c"; done=1; next } { print }' \
-    "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt" > "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt.tmp"
-mv "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/gui/CMakeLists.txt"
+python - <<'PY'
+import os
+from pathlib import Path
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/gui/CMakeLists.txt"
+lines = path.read_text().splitlines()
+out = []
+inserted = False
+for line in lines:
+    if line.strip() == "painting/qt_float16_shims.c":
+        continue
+    out.append(line)
+    if not inserted and line.strip() == "SOURCES":
+        out.append("        painting/qt_float16_shims.c")
+        inserted = True
+path.write_text("\\n".join(out) + "\\n")
+PY
 
 # relibc's elf.h defines ELFMAG0-3 and SELFMAG but not ELFMAG string constant.
 # Patch qelfparser_p.cpp (the only file using ELFMAG) to define it.
@@ -379,6 +398,7 @@ path.write_text(text)
 PY
 
 cmake "${COOKBOOK_SOURCE}" \
+    -GNinja \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \

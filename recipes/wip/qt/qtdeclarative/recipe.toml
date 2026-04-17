@@ -8,6 +8,7 @@ tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtdecl
 template = "custom"
 dependencies = [
     "qtbase",
+    "qtshadertools",
 ]
 script = """
 DYNAMIC_INIT
@@ -16,12 +17,13 @@ HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 DECL_HOST="${COOKBOOK_ROOT}/build/qt-declarative-host"
 
 # ============================================================
-# Step 1: Build qtdeclarative host tools (qmlcachegen, qmllint)
-# These link against qtbase's host Qt6Core.
-# Install into the same prefix as qtbase host tools so
+# Step 1: Build only the qtdeclarative host tools actually needed for cross-builds.
+# We intentionally avoid building the full host tool surface (`qml`, quicktooling, etc.)
+# because the shared host prefix is not a full host QtGui install.
+# Install/copy the minimal host tools into the same prefix as qtbase host tools so
 # QT_HOST_PATH finds both qtbase and qtdeclarative tools.
 # ============================================================
-if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ]; then
+if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaotstats" ] || [ ! -d "${HOST_BUILD}/lib/cmake/Qt6QmlTools" ]; then
     echo "=== Building qtdeclarative host tools ==="
     mkdir -p "${DECL_HOST}"
     env \
@@ -40,12 +42,24 @@ if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ]; then
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
         -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+        -DQt6ShaderToolsTools_DIR="${HOST_BUILD}/lib/cmake/Qt6ShaderToolsTools" \
         -DQT_BUILD_EXAMPLES=OFF \
         -DQT_BUILD_TESTS=OFF \
         -DQT_GENERATE_SBOM=OFF \
         -Wno-dev
-    cmake --build "${DECL_HOST}" -j"${COOKBOOK_MAKE_JOBS}"
-    cmake --install "${DECL_HOST}" --prefix "${HOST_BUILD}"
+    cmake --build "${DECL_HOST}" --target qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats -j"${COOKBOOK_MAKE_JOBS}"
+
+    mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec" "${HOST_BUILD}/lib/cmake"
+    for tool in qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats; do
+        if [ -f "${DECL_HOST}/bin/${tool}" ]; then
+            cp -a "${DECL_HOST}/bin/${tool}" "${HOST_BUILD}/bin/"
+        elif [ -f "${DECL_HOST}/libexec/${tool}" ]; then
+            cp -a "${DECL_HOST}/libexec/${tool}" "${HOST_BUILD}/libexec/"
+            cp -a "${DECL_HOST}/libexec/${tool}" "${HOST_BUILD}/bin/${tool}"
+        fi
+    done
+    cp -a "${DECL_HOST}/lib/cmake/Qt6QmlTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+    cp -a "${DECL_HOST}/lib/cmake/Qt6QmlCompiler" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
 fi
 
 # ============================================================
@@ -106,12 +120,22 @@ INSERT=$((LINE + 3))
 sed -i "${INSERT}r ${PATCHF}" "${CHECKED}"
 fi
 
+python - <<'PY'
+import os
+from pathlib import Path
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/CMakeLists.txt"
+text = path.read_text()
+text = text.replace('if(TARGET Qt::Gui AND TARGET Qt::qsb AND QT_FEATURE_qml_animation)', 'if(TARGET Qt::Gui AND QT_FEATURE_qml_animation)')
+path.write_text(text)
+PY
+
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQt6ShaderToolsTools_DIR="${HOST_BUILD}/lib/cmake/Qt6ShaderToolsTools" \
     -DQT_BUILD_EXAMPLES=OFF \
     -DQT_BUILD_TESTS=OFF \
 -DQT_GENERATE_SBOM=OFF \
@@ -161,6 +185,8 @@ if [ -d "qml" ]; then
     mkdir -p "${COOKBOOK_STAGE}/usr/qml"
     cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
 fi
+mkdir -p "${COOKBOOK_STAGE}/usr/metatypes"
+find . -path '*/meta_types/*.json' -type f -exec cp -an {} "${COOKBOOK_STAGE}/usr/metatypes/" \\; 2>/dev/null || true
 
 # RPATH cleanup
 for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
@@ -173,4 +199,31 @@ find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath 
 BUILD_DIR="${COOKBOOK_BUILD}"
 find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
     "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|/usr/lib|${SYSROOT}/lib|g" {} + 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|/usr/src|${COOKBOOK_SOURCE}/src|g" {} + 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+    "s|${COOKBOOK_SOURCE}/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+
+mkdir -p "${SYSROOT}/include" "${SYSROOT}/lib/cmake" "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+if [ -d "${COOKBOOK_STAGE}/usr/metatypes" ]; then
+    mkdir -p "${SYSROOT}/metatypes"
+    cp -a "${COOKBOOK_STAGE}/usr/metatypes/"* "${SYSROOT}/metatypes/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    mkdir -p "${SYSROOT}/plugins"
+    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    mkdir -p "${SYSROOT}/qml"
+    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
+fi
 """

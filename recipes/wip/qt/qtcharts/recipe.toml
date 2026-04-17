@@ -1,0 +1,112 @@
+#TODO: Qt6 Charts — cross-compiled for Redox against the Qt 6.11 base stack. The widgets-based charting library should be buildable now; the optional QML/QtQuick charts import only builds when that substrate is already present in the sysroot, and runtime validation is still pending.
+# Provides: libQt6Charts and, when QtQuick is available, the Qt Charts QML module.
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtcharts-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
+# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+if [ -d "qml" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/qml"
+    cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
+fi
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    find "${COOKBOOK_STAGE}/usr/qml" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+fi
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/include" ]; then
+    mkdir -p "${SYSROOT}/include"
+    cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    mkdir -p "${SYSROOT}/lib/cmake"
+    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
+fi
+mkdir -p "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    mkdir -p "${SYSROOT}/plugins"
+    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    mkdir -p "${SYSROOT}/qml"
+    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
+fi
+"""

@@ -14,6 +14,177 @@ DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 
+python - <<'PY'
+import os
+from pathlib import Path
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/serialport/qserialport_unix.cpp"
+text = path.read_text()
+text = text.replace(
+'''static inline void qt_set_flowcontrol(termios *tio, QSerialPort::FlowControl flowcontrol)
+{
+    switch (flowcontrol) {
+    case QSerialPort::NoFlowControl:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    case QSerialPort::HardwareControl:
+        tio->c_cflag |= CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    case QSerialPort::SoftwareControl:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag |= IXON | IXOFF | IXANY;
+        break;
+    default:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    }
+}
+''',
+'''static inline void qt_set_flowcontrol(termios *tio, QSerialPort::FlowControl flowcontrol)
+{
+#ifdef CRTSCTS
+    switch (flowcontrol) {
+    case QSerialPort::NoFlowControl:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    case QSerialPort::HardwareControl:
+        tio->c_cflag |= CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    case QSerialPort::SoftwareControl:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag |= IXON | IXOFF | IXANY;
+        break;
+    default:
+        tio->c_cflag &= ~CRTSCTS;
+        tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+        break;
+    }
+#else
+    Q_UNUSED(flowcontrol);
+    tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+#endif
+}
+''')
+text = text.replace(
+'''QSerialPort::PinoutSignals QSerialPortPrivate::pinoutSignals()
+{
+    int arg = 0;
+
+    if (::ioctl(descriptor, TIOCMGET, &arg) == -1) {
+        setError(getSystemError());
+        return QSerialPort::NoSignal;
+    }
+''',
+'''QSerialPort::PinoutSignals QSerialPortPrivate::pinoutSignals()
+{
+#ifndef TIOCMGET
+    setError(QSerialPortErrorInfo(QSerialPort::UnsupportedOperationError,
+                                  QSerialPort::tr("Pinout signal query is not supported on this platform")));
+    return QSerialPort::NoSignal;
+#else
+    int arg = 0;
+
+    if (::ioctl(descriptor, TIOCMGET, &arg) == -1) {
+        setError(getSystemError());
+        return QSerialPort::NoSignal;
+    }
+#endif
+''')
+text = text.replace(
+'''bool QSerialPortPrivate::setDataTerminalReady(bool set)
+{
+    int status = TIOCM_DTR;
+    if (::ioctl(descriptor, set ? TIOCMBIS : TIOCMBIC, &status) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+}
+''',
+'''bool QSerialPortPrivate::setDataTerminalReady(bool set)
+{
+#if !defined(TIOCM_DTR) || !defined(TIOCMBIS) || !defined(TIOCMBIC)
+    Q_UNUSED(set);
+    setError(QSerialPortErrorInfo(QSerialPort::UnsupportedOperationError,
+                                  QSerialPort::tr("Data terminal ready is not supported on this platform")));
+    return false;
+#else
+    int status = TIOCM_DTR;
+    if (::ioctl(descriptor, set ? TIOCMBIS : TIOCMBIC, &status) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+#endif
+}
+''')
+text = text.replace(
+'''bool QSerialPortPrivate::setRequestToSend(bool set)
+{
+    int status = TIOCM_RTS;
+    if (::ioctl(descriptor, set ? TIOCMBIS : TIOCMBIC, &status) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+}
+''',
+'''bool QSerialPortPrivate::setRequestToSend(bool set)
+{
+#if !defined(TIOCM_RTS) || !defined(TIOCMBIS) || !defined(TIOCMBIC)
+    Q_UNUSED(set);
+    setError(QSerialPortErrorInfo(QSerialPort::UnsupportedOperationError,
+                                  QSerialPort::tr("Request-to-send is not supported on this platform")));
+    return false;
+#else
+    int status = TIOCM_RTS;
+    if (::ioctl(descriptor, set ? TIOCMBIS : TIOCMBIC, &status) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+#endif
+}
+''')
+text = text.replace(
+'''bool QSerialPortPrivate::setBreakEnabled(bool set)
+{
+    if (::ioctl(descriptor, set ? TIOCSBRK : TIOCCBRK) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+}
+''',
+'''bool QSerialPortPrivate::setBreakEnabled(bool set)
+{
+#if !defined(TIOCSBRK) || !defined(TIOCCBRK)
+    Q_UNUSED(set);
+    setError(QSerialPortErrorInfo(QSerialPort::UnsupportedOperationError,
+                                  QSerialPort::tr("Break signaling is not supported on this platform")));
+    return false;
+#else
+    if (::ioctl(descriptor, set ? TIOCSBRK : TIOCCBRK) == -1) {
+        setError(getSystemError());
+        return false;
+    }
+
+    return true;
+#endif
+}
+''')
+path.write_text(text)
+PY
+
 # Sysroot path fix: same as other Qt6 modules — cookbook only symlinks
 # sysroot/{bin,include,lib,share} but Qt6 cmake targets reference
 # ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.

@@ -1,0 +1,141 @@
+#TODO: Qt6 3D module — cross-compiled for Redox on top of the verified Qt Quick/QML + shader substrate. Runtime validation of the renderer plugins and Qt3D QML imports is still pending.
+# Provides: libQt63DAnimation, libQt63DCore, libQt63DExtras, libQt63DInput, libQt63DLogic,
+# libQt63DQuick, libQt63DQuickAnimation, libQt63DQuickExtras, libQt63DQuickInput,
+# libQt63DQuickRender, libQt63DRender, and the Qt3D QML/plugin surface.
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qt3d-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtdeclarative",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
+# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Quick" ] \
+    && [ ! -d "${COOKBOOK_SYSROOT}/usr/lib/cmake/Qt6Quick" ]; then
+    printf '%s\n' \
+        'qt3d requires a Qt Quick/QML-enabled qtdeclarative sysroot (missing Qt6Quick).' >&2
+    printf '%s\n' \
+        'Rebuild the verified Qt Quick/QML substrate before cooking qt3d.' >&2
+    exit 1
+fi
+
+if [ ! -f "${HOST_BUILD}/bin/qsb" ] \
+    && [ ! -f "${HOST_BUILD}/libexec/qsb" ]; then
+    printf '%s\n' \
+        'qt3d requires the qsb host tool from qtshadertools in the shared QT_HOST_PATH.' >&2
+    printf '%s\n' \
+        'Rebuild the verified shader substrate before cooking qt3d.' >&2
+    exit 1
+fi
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQt6ShaderToolsTools_DIR="${HOST_BUILD}/lib/cmake/Qt6ShaderToolsTools" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+if [ -d "qml" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/qml"
+    cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
+fi
+mkdir -p "${COOKBOOK_STAGE}/usr/metatypes"
+find . -path '*/meta_types/*.json' -type f -exec cp -an {} "${COOKBOOK_STAGE}/usr/metatypes/" \\; 2>/dev/null || true
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    find "${COOKBOOK_STAGE}/usr/qml" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+fi
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${COOKBOOK_SOURCE}/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/include" ]; then
+    mkdir -p "${SYSROOT}/include"
+    cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    mkdir -p "${SYSROOT}/lib/cmake"
+    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
+fi
+mkdir -p "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+if [ -d "${COOKBOOK_STAGE}/usr/metatypes" ]; then
+    mkdir -p "${SYSROOT}/metatypes"
+    cp -a "${COOKBOOK_STAGE}/usr/metatypes/"* "${SYSROOT}/metatypes/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    mkdir -p "${SYSROOT}/plugins"
+    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    mkdir -p "${SYSROOT}/qml"
+    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
+fi
+"""

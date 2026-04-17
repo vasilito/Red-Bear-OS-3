@@ -12,6 +12,7 @@ DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 SHADER_HOST="${COOKBOOK_ROOT}/build/qt-shadertools-host"
+SHADER_HOST_SRC="${COOKBOOK_ROOT}/build/qt-shadertools-host-src"
 
 mkdir -p "${HOST_BUILD}/include/QtGui/6.11.0/QtGui"
 
@@ -19,11 +20,6 @@ QTBASE_STAGE="${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/${TARGET}/stage/usr"
 if [ -d "${QTBASE_STAGE}/include/QtGui" ] && [ ! -d "${COOKBOOK_SYSROOT}/include/QtGui" ]; then
     mkdir -p "${COOKBOOK_SYSROOT}/include"
     cp -a "${QTBASE_STAGE}/include/QtGui" "${COOKBOOK_SYSROOT}/include/"
-fi
-if [ -d "${QTBASE_STAGE}/lib" ]; then
-    mkdir -p "${HOST_BUILD}/lib"
-    cp -a "${QTBASE_STAGE}/lib/libQt6Gui.so"* "${HOST_BUILD}/lib/" 2>/dev/null || true
-    cp -a "${QTBASE_STAGE}/lib/libQt6Gui.prl" "${HOST_BUILD}/lib/" 2>/dev/null || true
 fi
 QTBASE_BUILD_INCLUDE="${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/target/${TARGET}/build/include/QtGui"
 if [ -d "${QTBASE_BUILD_INCLUDE}/6.11.0/QtGui/rhi" ]; then
@@ -121,8 +117,9 @@ qsb_cpp.write_text(text)
 
 tools_cmake = Path(os.environ["COOKBOOK_SOURCE"]) / "tools/CMakeLists.txt"
 text = tools_cmake.read_text()
-text = text.replace('add_subdirectory(qsb)', '# add_subdirectory(qsb) # disabled in Red Bear target build; host qsb is built separately')
+text = text.replace('# add_subdirectory(qsb) # disabled in Red Bear target build; host qsb is built separately', 'add_subdirectory(qsb)')
 tools_cmake.write_text(text)
+
 PY
 
 # ============================================================
@@ -131,7 +128,10 @@ PY
 if [ ! -f "${HOST_BUILD}/bin/qsb" ]; then
     echo "=== Building qsb host tool ==="
     rm -rf "${SHADER_HOST}"
+    rm -rf "${SHADER_HOST_SRC}"
     mkdir -p "${SHADER_HOST}"
+    mkdir -p "${SHADER_HOST_SRC}"
+    tar -xf "${COOKBOOK_RECIPE}/source.tar" -C "${SHADER_HOST_SRC}" --strip-components=1
     env \
         -u CPPFLAGS \
         -u LDFLAGS \
@@ -144,7 +144,7 @@ if [ ! -f "${HOST_BUILD}/bin/qsb" ]; then
         -u CFLAGS_x86_64_unknown_redox \
         -u CXXFLAGS_x86_64_unknown_redox \
         -u LDFLAGS_x86_64_unknown_redox \
-        cmake -S "${COOKBOOK_SOURCE}" -B "${SHADER_HOST}" \
+        cmake -S "${SHADER_HOST_SRC}" -B "${SHADER_HOST}" \
         -DCMAKE_C_COMPILER=/usr/bin/cc \
         -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
         -DCMAKE_BUILD_TYPE=Release \
@@ -154,25 +154,18 @@ if [ ! -f "${HOST_BUILD}/bin/qsb" ]; then
         -DQT_BUILD_TESTS=OFF \
         -DQT_GENERATE_SBOM=OFF \
         -Wno-dev
-    cmake --build "${SHADER_HOST}" -j"${COOKBOOK_MAKE_JOBS}"
-
-    mkdir -p "${HOST_BUILD}/lib/cmake"
-    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
-    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderToolsPrivate" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
-    cp -a "${SHADER_HOST}/lib/cmake/Qt6ShaderToolsTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
-    if [ -d "${SHADER_HOST}/libexec" ]; then
-        mkdir -p "${HOST_BUILD}/libexec"
-        cp -a "${SHADER_HOST}/libexec/." "${HOST_BUILD}/libexec/" 2>/dev/null || true
-    fi
-    if [ -f "${SHADER_HOST}/bin/qsb" ]; then
-        mkdir -p "${HOST_BUILD}/bin"
-        cp -a "${SHADER_HOST}/bin/qsb" "${HOST_BUILD}/bin/"
-    elif [ -f "${SHADER_HOST}/libexec/qsb" ]; then
-        mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec"
-        cp -a "${SHADER_HOST}/libexec/qsb" "${HOST_BUILD}/libexec/"
-        cp -a "${SHADER_HOST}/libexec/qsb" "${HOST_BUILD}/bin/qsb"
-    fi
+    cmake --build "${SHADER_HOST}" --target qsb -j"${COOKBOOK_MAKE_JOBS}"
+    cmake --install "${SHADER_HOST}" --prefix "${HOST_BUILD}"
 fi
+
+python - <<'PY'
+import os
+from pathlib import Path
+tools_cmake = Path(os.environ["COOKBOOK_SOURCE"]) / "tools/CMakeLists.txt"
+text = tools_cmake.read_text()
+text = text.replace('add_subdirectory(qsb)', '# add_subdirectory(qsb) # disabled in Red Bear target build; host qsb is built separately')
+tools_cmake.write_text(text)
+PY
 
 # ============================================================
 # Step 2: Cross-compile libQt6ShaderTools for Redox

@@ -1,0 +1,156 @@
+#TODO: Qt6 Virtual Keyboard — cross-compiled for Redox on top of the verified QML/Qt Quick substrate. Runtime validation of the staged input method plugin and QML imports is still pending.
+# Provides: libQt6VirtualKeyboard, the QtQuick.VirtualKeyboard QML import, and the platform input context plugin.
+
+[source]
+tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtvirtualkeyboard-everywhere-src-6.11.0.tar.xz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtdeclarative",
+    "qtsvg",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
+# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+if [ -d "${COOKBOOK_SYSROOT}/lib/cmake" ]; then
+    find "${COOKBOOK_SYSROOT}/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/include|${COOKBOOK_SYSROOT}/include|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_SYSROOT}/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/lib|${COOKBOOK_SYSROOT}/lib|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_SYSROOT}/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/src/.*/meta_types/|${COOKBOOK_SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+fi
+
+if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Quick" ] \
+    && [ ! -d "${COOKBOOK_SYSROOT}/usr/lib/cmake/Qt6Quick" ]; then
+    printf '%s\n' \
+        'qtvirtualkeyboard requires a Qt Quick-enabled qtdeclarative sysroot (missing Qt6Quick).' >&2
+    printf '%s\n' \
+        'Rebuild the verified QtQuick/QML substrate before cooking qtvirtualkeyboard.' >&2
+    exit 1
+fi
+
+if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Svg" ] \
+    && [ ! -d "${COOKBOOK_SYSROOT}/usr/lib/cmake/Qt6Svg" ]; then
+    printf '%s\n' \
+        'qtvirtualkeyboard requires qtsvg in the sysroot (missing Qt6Svg).' >&2
+    printf '%s\n' \
+        'Cook qtsvg before cooking qtvirtualkeyboard.' >&2
+    exit 1
+fi
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_BUILD_EXAMPLES=OFF \
+    -DQT_BUILD_TESTS=OFF \
+    -DQT_GENERATE_SBOM=OFF \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+for lib in lib/libQt6*.so*; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+for lib in lib/libQt6*.a; do
+    [ -f "${lib}" ] && cp -an "${lib}" "${COOKBOOK_STAGE}/usr/lib/"
+done
+
+if [ -d "lib/cmake" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake"
+    cp -a lib/cmake/Qt6* "${COOKBOOK_STAGE}/usr/lib/cmake/" 2>/dev/null || true
+fi
+if [ -d "lib/pkgconfig" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
+    cp -a lib/pkgconfig/*.pc "${COOKBOOK_STAGE}/usr/lib/pkgconfig/" 2>/dev/null || true
+fi
+if [ -d "include" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/include"
+    cp -a include/* "${COOKBOOK_STAGE}/usr/include/" 2>/dev/null || true
+fi
+if [ -d "plugins" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
+    cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
+fi
+if [ -d "qml" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/qml"
+    cp -a qml/* "${COOKBOOK_STAGE}/usr/qml/" 2>/dev/null || true
+fi
+if [ -d "translations" ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/translations"
+    cp -a translations/* "${COOKBOOK_STAGE}/usr/translations/" 2>/dev/null || true
+fi
+mkdir -p "${COOKBOOK_STAGE}/usr/metatypes"
+find . -path '*/meta_types/*.json' -type f -exec cp -an {} "${COOKBOOK_STAGE}/usr/metatypes/" \\; 2>/dev/null || true
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    find "${COOKBOOK_STAGE}/usr/qml" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
+fi
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
+fi
+
+SYSROOT="${COOKBOOK_SYSROOT}"
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/lib|${SYSROOT}/lib|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|/usr/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
+        "s|${COOKBOOK_SOURCE}/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/include" ]; then
+    mkdir -p "${SYSROOT}/include"
+    cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
+    mkdir -p "${SYSROOT}/lib/cmake"
+    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
+fi
+mkdir -p "${SYSROOT}/lib"
+cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
+    mkdir -p "${SYSROOT}/plugins"
+    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
+    mkdir -p "${SYSROOT}/qml"
+    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
+fi
+if [ -d "${COOKBOOK_STAGE}/usr/metatypes" ]; then
+    mkdir -p "${SYSROOT}/metatypes"
+    cp -a "${COOKBOOK_STAGE}/usr/metatypes/"* "${SYSROOT}/metatypes/" 2>/dev/null || true
+fi
+"""
