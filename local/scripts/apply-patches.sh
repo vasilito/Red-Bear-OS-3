@@ -137,7 +137,7 @@ if [ -d "recipes/wip/services/grub" ] && [ ! -L "recipes/wip/services/grub" ]; t
     rm -rf "recipes/wip/services/grub"
 fi
 if [ ! -e "recipes/wip/services/grub" ]; then
-    symlink "../../../../local/recipes/core/grub" "recipes/wip/services/grub"
+    symlink "../../../local/recipes/core/grub" "recipes/wip/services/grub"
 fi
 
 # Wayland additions
