@@ -8,3 +8,8 @@ include = ["redbear-desktop.toml"]
 [general]
 # Larger filesystem for live image with more tools
 filesystem_size = 12288
+
+[packages]
+# Keep these explicit for the live profile even though cub is inherited via redbear-desktop.
+cub = {}
+redbear-meta = {}

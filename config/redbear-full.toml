@@ -38,6 +38,9 @@ redbear-traceroute = {}
 redbear-mtr = {}
 redbear-nmap = {}
 
+# Package builder / recipe utility
+cub = {}
+
 # Terminal file manager (Midnight Commander port)
 mc = {}
 
@@ -55,6 +58,12 @@ udev-shim = {}
 
 # Desktop/session plumbing
 dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
+redbear-notifications = {}
+redbear-upower = {}
+redbear-udisks = {}
+redbear-polkit = {}
 
 # Diagnostic tool
 redbear-info = {}
@@ -74,8 +83,8 @@ libxkbcommon = {}
 # Qt6 base (Core+Concurrent+Xml+Gui+Widgets, software rendering)
 qtbase = {}
 
-# RBOS meta-package — temporarily disabled (depends on GPU stack via redox-driver-sys)
-# redbear-meta = {}
+# Core Red Bear umbrella package
+redbear-meta = {}
 
 # Firmware directory for AMD/Intel GPU blobs
 [[files]]
@@ -165,6 +174,78 @@ cmd = "ion"
 args = [
     "-c",
     "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-sessiond",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-upower",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-udisks",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-polkit",
 ]
 type = "oneshot_async"
 """

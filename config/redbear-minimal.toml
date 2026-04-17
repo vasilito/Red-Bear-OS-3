@@ -6,7 +6,9 @@
 include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
 [general]
-filesystem_size = 512
+# Minimal image now includes firmware payloads and Wi-Fi control-plane packages,
+# so the previous 512 MiB image is too small for live ISO assembly.
+filesystem_size = 2048
 
 [packages]
 # Red Bear OS branding
@@ -36,7 +38,6 @@ udev-shim = {}
 
 # Terminal file manager
 mc = {}
-
 
 # Diagnostic tool
 redbear-info = {}

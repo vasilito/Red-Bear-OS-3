@@ -47,6 +47,9 @@ mc = {}
 # Package builder (cub -S/-B/-G CLI)
 cub = {}
 
+# Core Red Bear umbrella package
+redbear-meta = {}
+
 
 # ── Desktop services (replace legacy desktop-minimal init scripts) ───────────
 

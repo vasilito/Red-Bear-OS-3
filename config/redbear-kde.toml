@@ -36,6 +36,12 @@ udev-shim = {}
 
 # D-Bus (session + system bus)
 dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
+redbear-notifications = {}
+redbear-upower = {}
+redbear-udisks = {}
+redbear-polkit = {}
 
 # Diagnostic/runtime tooling
 redbear-info = {}
@@ -115,8 +121,11 @@ requires_weak = [
 ]
 
 [service]
-cmd = "dbus-daemon"
-args = ["--system"]
+cmd = "ion"
+args = [
+    "-c",
+    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
+]
 type = "oneshot_async"
 """
 
@@ -139,11 +148,84 @@ data = """
 description = "seatd seat management daemon"
 requires_weak = [
     "12_dbus.service",
+    "13_redbear-sessiond.service",
 ]
 
 [service]
 cmd = "seatd"
 args = ["-l", "info"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-sessiond",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-upower",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-udisks",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "sleep 5; redbear-polkit",
+]
 type = "oneshot_async"
 """
 
@@ -155,6 +237,7 @@ description = "Orbital display server (KDE session)"
 requires_weak = [
     "10_net.target",
     "12_dbus.service",
+    "13_redbear-sessiond.service",
     "13_seatd.service",
 ]
 
@@ -221,6 +304,8 @@ export DISPLAY=""
 export WAYLAND_DISPLAY=wayland-0
 export XDG_RUNTIME_DIR=/tmp/run/user/0
 export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_ID=c1
+export XDG_SEAT=seat0
 export KDE_FULL_SESSION=true
 export XDG_CURRENT_DESKTOP=KDE
 export HOME=/root
@@ -239,6 +324,17 @@ fi
 
 # Start D-Bus session bus
 eval $(dbus-launch --sh-syntax)
+
+# Export session environment to D-Bus activation
+dbus-update-activation-environment \
+    WAYLAND_DISPLAY \
+    XDG_SESSION_ID \
+    XDG_SEAT \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR \
+    XDG_CURRENT_DESKTOP \
+    KDE_FULL_SESSION \
+    DISPLAY
 
 # Start KWin Wayland compositor
 kwin_wayland --replace
