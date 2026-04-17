@@ -1,0 +1,10 @@
+#TODO: redbear-polkit — minimal org.freedesktop.PolicyKit1 daemon. Always-permit authorization for at-console users.
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = ["dbus"]
+
+[package.files]
+"/usr/bin/redbear-polkit" = "redbear-polkit"

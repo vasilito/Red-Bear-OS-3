@@ -1,0 +1,4 @@
+#TODO: kglobalaccel daemon not yet built for Redox — D-Bus activation will fail until it exists
+[D-BUS Service]
+Name=org.kde.kglobalaccel
+Exec=/usr/bin/kglobalaccel

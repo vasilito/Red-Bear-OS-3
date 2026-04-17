@@ -1,0 +1,10 @@
+#TODO: redbear-notifications — minimal org.freedesktop.Notifications daemon. Logs notifications to stderr until a display server integration exists.
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = ["dbus"]
+
+[package.files]
+"/usr/bin/redbear-notifications" = "redbear-notifications"

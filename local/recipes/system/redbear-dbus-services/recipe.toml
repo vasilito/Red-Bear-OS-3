@@ -1,0 +1,16 @@
+[source]
+path = "files"
+
+[build]
+template = "custom"
+script = """
+mkdir -p "${COOKBOOK_STAGE}/usr/share/dbus-1/system-services"
+mkdir -p "${COOKBOOK_STAGE}/usr/share/dbus-1/session-services"
+mkdir -p "${COOKBOOK_STAGE}/etc/dbus-1/system.d"
+mkdir -p "${COOKBOOK_STAGE}/etc/dbus-1/session.d"
+
+cp -a "${COOKBOOK_SOURCE}/system-services/"* "${COOKBOOK_STAGE}/usr/share/dbus-1/system-services/" 2>/dev/null || true
+cp -a "${COOKBOOK_SOURCE}/session-services/"* "${COOKBOOK_STAGE}/usr/share/dbus-1/session-services/" 2>/dev/null || true
+cp -a "${COOKBOOK_SOURCE}/system.d/"* "${COOKBOOK_STAGE}/etc/dbus-1/system.d/" 2>/dev/null || true
+cp -a "${COOKBOOK_SOURCE}/session.d/"* "${COOKBOOK_STAGE}/etc/dbus-1/session.d/" 2>/dev/null || true
+"""

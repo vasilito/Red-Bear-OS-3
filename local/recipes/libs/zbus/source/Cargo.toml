@@ -1,0 +1,38 @@
+[package]
+name = "zbus"
+version = "5.14.0"
+edition = "2024"
+description = "D-Bus bindings for Rust (pure Rust, no C dependencies)"
+
+[lib]
+name = "zbus"
+path = "src/lib.rs"
+
+[dependencies]
+zbus_names = "4"
+zvariant = "5"
+async-broadcast = "0.7"
+async-executor = "1"
+async-fs = "2"
+async-io = "2"
+async-lock = "3"
+async-task = "4"
+blocking = "1"
+enumflags2 = { version = "0.7", features = ["serde"] }
+event-listener = "5"
+futures-core = "0.3"
+futures-util = "0.3"
+hex = "0.4"
+ordered-stream = "0.2"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_repr = "0.1"
+sha1 = { version = "0.10", features = ["std"] }
+static_assertions = "1"
+tokio = { version = "1", features = ["rt", "net", "macros", "sync", "time"] }
+tracing = "0.1"
+xdg-home = "1"
+
+[features]
+default = ["tokio"]
+tokio = []

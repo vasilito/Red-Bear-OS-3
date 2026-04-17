@@ -1,0 +1,10 @@
+#TODO: redbear-upower — minimal org.freedesktop.UPower daemon. Enumerates power state from scheme:acpi.
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = ["dbus"]
+
+[package.files]
+"/usr/bin/redbear-upower" = "redbear-upower"

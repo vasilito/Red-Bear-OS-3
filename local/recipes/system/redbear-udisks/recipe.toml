@@ -1,0 +1,10 @@
+#TODO: redbear-udisks — minimal org.freedesktop.UDisks2 daemon. Enumerates block devices from scheme: filesystem.
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = ["dbus"]
+
+[package.files]
+"/usr/bin/redbear-udisks" = "redbear-udisks"

@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+dependencies = ["dbus"]
+
+[package.files]
+"/usr/bin/redbear-sessiond" = "redbear-sessiond"

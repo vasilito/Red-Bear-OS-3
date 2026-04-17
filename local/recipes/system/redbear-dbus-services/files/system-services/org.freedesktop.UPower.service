@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.freedesktop.UPower
+Exec=/usr/bin/redbear-upower
+User=root
+SystemdService=redbear-upower.service

@@ -1,0 +1,12 @@
+#TODO: zbus — build-ordering marker. Cargo fetches zbus when redbear-sessiond builds.
+# The cargo template cannot build a library-only crate, so this uses a custom no-op script.
+# Remove if the cookbook gains native Rust library recipe support.
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+echo "zbus: build-ordering marker — actual crate fetched by downstream Cargo builds"
+mkdir -p "${COOKBOOK_STAGE}/usr"
+"""
