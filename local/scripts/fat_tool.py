@@ -50,9 +50,16 @@ class Fat32:
         try:
             self._read_bpb()
             self._load_fat()
-        except:
+        except Exception:
             self.f.close()
             raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
 
     def _read_bpb(self):
         self.f.seek(self.offset)
@@ -119,6 +126,8 @@ class Fat32:
         return bytearray(self.f.read(self.cluster_size))
 
     def _write_cluster(self, cluster, data):
+        if len(data) > self.cluster_size:
+            raise RuntimeError(f"_write_cluster: data size {len(data)} exceeds cluster size {self.cluster_size}")
         self.f.seek(self._cluster_offset(cluster))
         self.f.write(data[: self.cluster_size])
 
@@ -536,6 +545,8 @@ class Fat32:
             if parent_entry is None or not parent_entry["is_dir"]:
                 raise RuntimeError(f"cp-in: directory '{parent_path}' not found")
             parent_cluster = parent_entry["first_cluster"]
+            if parent_cluster < 2:
+                raise RuntimeError(f"cp-in: parent cluster {parent_cluster} is invalid")
         else:
             parent_cluster = self.root_cluster
 
