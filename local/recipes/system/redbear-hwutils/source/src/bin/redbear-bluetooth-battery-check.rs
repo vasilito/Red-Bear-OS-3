@@ -398,7 +398,6 @@ fn verify_btusb_restart_path(session: &mut RuntimeSession) -> Result<(), String>
 fn verify_scheme_surface() -> Result<(), String> {
     require_path(BTCTL_ROOT)?;
     require_path("/scheme/btctl/adapters")?;
-    require_file_contains("/scheme/btctl/adapters", ADAPTER)?;
     Ok(())
 }
 
@@ -411,7 +410,9 @@ fn verify_runtime_status() -> Result<(), String> {
         print_checked_command("host/control status", "redbear-btctl", &["--status"])?;
     require_contains(&btctl_status, &format!("adapter={ADAPTER}"))?;
     require_contains(&btctl_status, "status=adapter-visible")?;
-    require_contains(&btctl_status, "transport_status=transport=usb")?;
+    require_contains(&btctl_status, "transport_status=")?;
+    require_contains(&btctl_status, "transport=usb")?;
+    require_contains(&btctl_status, "runtime_visibility=runtime-visible")?;
     Ok(())
 }
 

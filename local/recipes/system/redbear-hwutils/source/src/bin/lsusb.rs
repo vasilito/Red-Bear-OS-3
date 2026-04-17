@@ -161,35 +161,42 @@ fn main() {
 }
 
 fn format_usb_quirk_flags(flags: UsbQuirkFlags) -> String {
-    let mut names = Vec::new();
-    if flags.contains(UsbQuirkFlags::NO_STRING_FETCH) {
-        names.push("no_string_fetch");
-    }
-    if flags.contains(UsbQuirkFlags::RESET_DELAY) {
-        names.push("reset_delay");
-    }
-    if flags.contains(UsbQuirkFlags::NO_USB3) {
-        names.push("no_usb3");
-    }
-    if flags.contains(UsbQuirkFlags::NO_SET_CONFIG) {
-        names.push("no_set_config");
-    }
-    if flags.contains(UsbQuirkFlags::NO_SUSPEND) {
-        names.push("no_suspend");
-    }
-    if flags.contains(UsbQuirkFlags::NEED_RESET) {
-        names.push("need_reset");
-    }
-    if flags.contains(UsbQuirkFlags::BAD_DESCRIPTOR) {
-        names.push("bad_descriptor");
-    }
-    if flags.contains(UsbQuirkFlags::NO_LPM) {
-        names.push("no_lpm");
-    }
-    if flags.contains(UsbQuirkFlags::NO_U1U2) {
-        names.push("no_u1u2");
-    }
-    names.join(",")
+    let all_flags: &[(UsbQuirkFlags, &str)] = &[
+        (UsbQuirkFlags::NO_STRING_FETCH, "no_string_fetch"),
+        (UsbQuirkFlags::RESET_DELAY, "reset_delay"),
+        (UsbQuirkFlags::NO_USB3, "no_usb3"),
+        (UsbQuirkFlags::NO_SET_CONFIG, "no_set_config"),
+        (UsbQuirkFlags::NO_SUSPEND, "no_suspend"),
+        (UsbQuirkFlags::NEED_RESET, "need_reset"),
+        (UsbQuirkFlags::BAD_DESCRIPTOR, "bad_descriptor"),
+        (UsbQuirkFlags::NO_LPM, "no_lpm"),
+        (UsbQuirkFlags::NO_U1U2, "no_u1u2"),
+        (UsbQuirkFlags::NO_SET_INTF, "no_set_intf"),
+        (UsbQuirkFlags::CONFIG_INTF_STRINGS, "config_intf_strings"),
+        (UsbQuirkFlags::NO_RESET, "no_reset"),
+        (UsbQuirkFlags::HONOR_BNUMINTERFACES, "honor_bnuminterfaces"),
+        (UsbQuirkFlags::DEVICE_QUALIFIER, "device_qualifier"),
+        (UsbQuirkFlags::IGNORE_REMOTE_WAKEUP, "ignore_remote_wakeup"),
+        (UsbQuirkFlags::DELAY_CTRL_MSG, "delay_ctrl_msg"),
+        (UsbQuirkFlags::HUB_SLOW_RESET, "hub_slow_reset"),
+        (UsbQuirkFlags::NO_BOS, "no_bos"),
+        (
+            UsbQuirkFlags::SHORT_SET_ADDR_TIMEOUT,
+            "short_set_addr_timeout",
+        ),
+        (UsbQuirkFlags::FORCE_ONE_CONFIG, "force_one_config"),
+        (UsbQuirkFlags::ENDPOINT_IGNORE, "endpoint_ignore"),
+        (
+            UsbQuirkFlags::LINEAR_FRAME_BINTERVAL,
+            "linear_frame_binterval",
+        ),
+    ];
+    all_flags
+        .iter()
+        .filter(|(flag, _)| flags.contains(*flag))
+        .map(|(_, name)| *name)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn run() -> Result<(), String> {
