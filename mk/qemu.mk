@@ -35,12 +35,23 @@ else ifeq ($(ARCH),x86_64)
 		FIRMWARE=$(firstword \
 			$(wildcard /usr/share/ovmf/OVMF.fd) \
 			$(wildcard /usr/share/OVMF/OVMF_CODE.fd) \
+			$(wildcard /usr/share/OVMF/x64/OVMF_CODE.fd) \
+			$(wildcard /usr/share/edk2/x64/OVMF.4m.fd) \
+			$(wildcard /usr/share/edk2/x64/OVMF_CODE.4m.fd) \
+			$(wildcard /usr/share/edk2-ovmf/x64/OVMF.4m.fd) \
+			$(wildcard /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd) \
 		)
 		ifeq ($(FIRMWARE),)
 			PFLASH0=$(firstword \
 				$(wildcard /usr/share/qemu/edk2-x86_64-code.fd) \
+				$(wildcard /usr/share/edk2/x64/OVMF_CODE.4m.fd) \
+				$(wildcard /usr/share/edk2-ovmf/x64/OVMF_CODE.4m.fd) \
 				$(wildcard /run/libvirt/nix-ovmf/edk2-x86_64-code.fd) \
 				$(wildcard /opt/homebrew/opt/qemu/share/qemu/edk2s-x86_64-code.fd) \
+			)
+			PFLASH1=$(firstword \
+				$(wildcard /usr/share/edk2/x64/OVMF_VARS.4m.fd) \
+				$(wildcard /usr/share/edk2-ovmf/x64/OVMF_VARS.4m.fd) \
 			)
 		endif
 	endif
@@ -158,7 +169,8 @@ ifneq ($(QEMU_KERNEL),)
 endif
 
 ifeq ($(live),yes)
-	DISK=$(BUILD)/redbear-live.iso
+	DISK=$(LIVE_ISO)
+	disk?=cdrom
 else
 	DISK=$(BUILD)/harddrive.img
 endif

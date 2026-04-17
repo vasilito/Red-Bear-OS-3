@@ -166,6 +166,12 @@ else
 	export GNU_TARGET=$(ARCH)-unknown-redox
 endif
 BUILD=build/$(ARCH)/$(CONFIG_NAME)
+LIVE_BUILD=build/$(ARCH)
+LIVE_IMAGE_NAME=$(CONFIG_NAME)
+LIVE_ISO=$(LIVE_BUILD)/$(LIVE_IMAGE_NAME).iso
+LIVE_IMG=$(LIVE_BUILD)/$(LIVE_IMAGE_NAME).img
+LIVE_BOOTLOADER=$(LIVE_BUILD)/$(LIVE_IMAGE_NAME)-bootloader-live.efi
+LIVE_IPXE=$(LIVE_BUILD)/$(LIVE_IMAGE_NAME).ipxe
 MOUNT_DIR=$(BUILD)/filesystem
 FSTOOLS=build/fstools
 INSTALLER=$(FSTOOLS)/bin/redox_installer

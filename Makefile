@@ -10,22 +10,22 @@ all: $(BUILD)/harddrive.img
 live:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redbear_installer/ || true
-	rm -f $(BUILD)/redbear-live.iso
-	$(MAKE) $(BUILD)/redbear-live.iso
+	rm -f $(LIVE_ISO) $(LIVE_IMG) $(LIVE_BOOTLOADER) $(LIVE_IPXE)
+	$(MAKE) $(LIVE_ISO)
 
-popsicle: $(BUILD)/redbear-live.iso
-	popsicle-gtk $(BUILD)/redbear-live.iso
+popsicle: $(LIVE_ISO)
+	popsicle-gtk $(LIVE_ISO)
 
 image:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redbear_installer/ || true
-	rm -f $(BUILD)/harddrive.img $(BUILD)/redbear-live.iso
+	rm -f $(BUILD)/harddrive.img $(LIVE_ISO) $(LIVE_IMG) $(LIVE_BOOTLOADER) $(LIVE_IPXE)
 	$(MAKE) all
 
 rebuild:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redbear_installer/ || true
-	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/redbear-live.iso
+	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(LIVE_ISO) $(LIVE_IMG) $(LIVE_BOOTLOADER) $(LIVE_IPXE)
 	$(MAKE) all
 
 # To tell that it's not safe
