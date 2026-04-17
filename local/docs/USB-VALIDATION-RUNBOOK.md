@@ -98,6 +98,11 @@ enumerated, ports have devices attached, and device descriptors are readable.
 
 | Script | What it tests |
 |--------|---------------|
-| `test-usb-qemu.sh --check` | Full USB stack (xHCI + HID + SCSI + BOS) |
-| `test-usb-storage-qemu.sh` | USB mass storage autospawn |
-| `test-xhci-irq-qemu.sh --check` | xHCI interrupt delivery mode |
+| `test-usb-qemu.sh --check` | Full USB stack (xHCI + HID + SCSI + BOS + no crashes) |
+| `test-usb-storage-qemu.sh` | USB mass storage autospawn + crash pattern check |
+| `test-xhci-irq-qemu.sh --check` | xHCI interrupt delivery mode (MSI/MSI-X/INTx) |
+
+In-guest quick checks:
+- `lsusb` — walks `/scheme/usb.*`, reads descriptors, shows vendor:product + quirks
+- `redbear-info --verbose` — reports USB controller count and integration status
+- `redbear-usb-check` — scheme tree walk with pass/fail exit code
