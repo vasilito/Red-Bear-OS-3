@@ -180,7 +180,7 @@ index 417ff2d..4ad2202 100644
      }
  }
 diff --git a/src/installer.rs b/src/installer.rs
-index 4e077a9..a6f4e84 100644
+index 4e077a9..b11d5b8 100644
 --- a/src/installer.rs
 +++ b/src/installer.rs
 @@ -3,6 +3,13 @@ use anyhow::{bail, Result};
@@ -467,61 +467,109 @@ index 4e077a9..a6f4e84 100644
      let bootloader_dir =
          PathBuf::from(format!("/tmp/redox_installer_bootloader_{}", process::id()));
  
-@@ -493,6 +741,20 @@ pub fn fetch_bootloaders(
+@@ -491,36 +739,75 @@ pub fn fetch_bootloaders(
  
-     let mut bootloader_config = Config::bootloader_config();
-     bootloader_config.general = config.general.clone();
-+
-+    let use_grub = config
-+        .general
-+        .bootloader
-+        .as_deref()
-+        .unwrap_or("redox")
-+        .eq_ignore_ascii_case("grub");
-+
-+    if use_grub {
-+        bootloader_config
-+            .packages
-+            .insert("grub".to_string(), Default::default());
-+    }
-+
-     install_packages(&bootloader_config, &bootloader_dir, cookbook)?;
+     fs::create_dir(&bootloader_dir)?;
  
-     let boot_dir = bootloader_dir.join("usr/lib/boot");
-@@ -518,9 +780,31 @@ pub fn fetch_bootloaders(
-         Vec::new()
-     };
- 
-+    let grub_efi_data = if use_grub {
-+        let grub_path = boot_dir.join("grub.efi");
-+        if grub_path.exists() {
-+            Some(fs::read(grub_path)?)
-+        } else {
-+            bail!("GRUB mode requested (bootloader = \"grub\") but grub.efi not found in package output. Build the GRUB recipe first: make r.grub");
+-    let mut bootloader_config = Config::bootloader_config();
+-    bootloader_config.general = config.general.clone();
+-    install_packages(&bootloader_config, &bootloader_dir, cookbook)?;
++    let result = (|| -> Result<_> {
++        let mut bootloader_config = Config::bootloader_config();
++        bootloader_config.general = config.general.clone();
++
++        let use_grub = config
++            .general
++            .bootloader
++            .as_deref()
++            .unwrap_or("redox")
++            .eq_ignore_ascii_case("grub");
++
++        if use_grub {
++            bootloader_config
++                .packages
++                .insert("grub".to_string(), Default::default());
 +        }
-+    } else {
-+        None
-+    };
-+
-+    let grub_cfg_data = if use_grub {
-+        let cfg_path = boot_dir.join("grub.cfg");
-+        if cfg_path.exists() {
-+            Some(fs::read(cfg_path)?)
+ 
+-    let boot_dir = bootloader_dir.join("usr/lib/boot");
+-    let bios_path = boot_dir.join(if live {
+-        "bootloader-live.bios"
+-    } else {
+-        "bootloader.bios"
+-    });
+-    let efi_path = boot_dir.join(if live {
+-        "bootloader-live.efi"
+-    } else {
+-        "bootloader.efi"
+-    });
++        install_packages(&bootloader_config, &bootloader_dir, cookbook)?;
+ 
+-    let bios_data = if bios_path.exists() {
+-        fs::read(bios_path)?
+-    } else {
+-        Vec::new()
+-    };
+-    let efi_data = if efi_path.exists() {
+-        fs::read(efi_path)?
+-    } else {
+-        Vec::new()
+-    };
++        let boot_dir = bootloader_dir.join("usr/lib/boot");
++        let bios_path = boot_dir.join(if live {
++            "bootloader-live.bios"
 +        } else {
-+            bail!("GRUB mode requested (bootloader = \"grub\") but grub.cfg not found in package output. Build the GRUB recipe first: make r.grub");
-+        }
-+    } else {
-+        None
-+    };
-+
-     fs::remove_dir_all(&bootloader_dir)?;
++            "bootloader.bios"
++        });
++        let efi_path = boot_dir.join(if live {
++            "bootloader-live.efi"
++        } else {
++            "bootloader.efi"
++        });
+ 
+-    fs::remove_dir_all(&bootloader_dir)?;
++        let bios_data = if bios_path.exists() {
++            fs::read(bios_path)?
++        } else {
++            Vec::new()
++        };
++        let efi_data = if efi_path.exists() {
++            fs::read(efi_path)?
++        } else {
++            Vec::new()
++        };
  
 -    Ok((bios_data, efi_data))
-+    Ok((bios_data, efi_data, grub_efi_data, grub_cfg_data))
++        let grub_efi_data = if use_grub {
++            let grub_path = boot_dir.join("grub.efi");
++            if grub_path.exists() {
++                Some(fs::read(grub_path)?)
++            } else {
++                bail!("GRUB mode requested (bootloader = \"grub\") but grub.efi not found in package output. Build the GRUB recipe first: make r.grub");
++            }
++        } else {
++            None
++        };
++
++        let grub_cfg_data = if use_grub {
++            let cfg_path = boot_dir.join("grub.cfg");
++            if cfg_path.exists() {
++                Some(fs::read(cfg_path)?)
++            } else {
++                bail!("GRUB mode requested (bootloader = \"grub\") but grub.cfg not found in package output. Build the GRUB recipe first: make r.grub");
++            }
++        } else {
++            None
++        };
++
++        Ok((bios_data, efi_data, grub_efi_data, grub_cfg_data))
++    })();
++
++    let _ = fs::remove_dir_all(&bootloader_dir);
++    result
  }
  
  //TODO: make bootloaders use Option, dynamically create BIOS and EFI partitions
-@@ -683,20 +967,58 @@ where
+@@ -683,20 +970,58 @@ where
          eprintln!("Creating EFI directory");
          let root_dir = fs.root_dir();
          root_dir.create_dir("EFI")?;
@@ -592,7 +640,7 @@ index 4e077a9..a6f4e84 100644
      }
  
      // Format and install RedoxFS partition
-@@ -712,6 +1034,222 @@ where
+@@ -712,6 +1037,222 @@ where
      with_redoxfs(disk_redoxfs, disk_option.password_opt, callback)
  }
  
@@ -815,20 +863,21 @@ index 4e077a9..a6f4e84 100644
  #[cfg(not(target_os = "redox"))]
  pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
      _fs: &mut redoxfs::FileSystem<D>,
-@@ -801,6 +1339,23 @@ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
+@@ -801,6 +1342,24 @@ pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
  
  fn install_inner(config: Config, output: &Path) -> Result<()> {
      println!("Installing to {}:\n{}", output.display(), config);
 +
 +    if let Some(ref bl) = config.general.bootloader {
-+        match bl.as_str() {
++        let bl_lower = bl.to_lowercase();
++        match bl_lower.as_str() {
 +            "redox" | "grub" => {}
 +            other => bail!(
 +                "Unknown bootloader '{}': expected \"redox\" or \"grub\"",
 +                other
 +            ),
 +        }
-+        if bl.eq_ignore_ascii_case("grub") {
++        if bl_lower == "grub" {
 +            let efi_size = config.general.efi_partition_size.unwrap_or(1);
 +            if efi_size < 8 {
 +                bail!("GRUB bootloader requires efi_partition_size >= 8 MiB (got {} MiB). Add efi_partition_size = 16 to your config.", efi_size);
@@ -839,7 +888,7 @@ index 4e077a9..a6f4e84 100644
      let cookbook = config.general.cookbook.clone();
      let cookbook = cookbook.as_ref().map(|p| p.as_str());
      if output.is_dir() {
-@@ -823,28 +1378,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+@@ -823,28 +1382,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
          let live = config.general.live_disk.unwrap_or(false);
          let password_opt = config.general.encrypt_disk.clone();
          let password_opt = password_opt.as_ref().map(|p| p.as_bytes());

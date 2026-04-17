@@ -12,3 +12,8 @@ include = ["redbear-full.toml"]
 [general]
 bootloader = "grub"
 efi_partition_size = 16
+
+# GRUB recipe must be built before the installer runs.
+# Including it here ensures `make all` builds it as part of the normal package set.
+[packages]
+grub = {}

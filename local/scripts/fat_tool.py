@@ -47,8 +47,12 @@ class Fat32:
         self.f = open(image_path, "r+b")
         self.image_size = os.fstat(self.f.fileno()).st_size
         self.offset = offset
-        self._read_bpb()
-        self._load_fat()
+        try:
+            self._read_bpb()
+            self._load_fat()
+        except:
+            self.f.close()
+            raise
 
     def _read_bpb(self):
         self.f.seek(self.offset)
@@ -118,7 +122,10 @@ class Fat32:
         if not 2 <= cluster <= self.max_cluster:
             raise RuntimeError(f"FAT32: invalid cluster {cluster}")
         idx = cluster * 4
-        return read_le32(self.fat, idx) & 0x0FFFFFFF
+        val = read_le32(self.fat, idx) & 0x0FFFFFFF
+        if val == 0x0FFFFFF7:
+            raise RuntimeError(f"FAT32: bad cluster marker at {cluster}")
+        return val
 
     def _set_fat(self, cluster, value):
         write_le32(self.fat, cluster * 4, value & 0x0FFFFFFF)

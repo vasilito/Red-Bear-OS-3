@@ -117,7 +117,7 @@ if [ ! -f "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" ]; then
     exit 1
 fi
 
-GRUB_SIZE=$(stat -f%z "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" 2>/dev/null || stat -c%s "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" 2>/dev/null || echo "unknown")
+GRUB_SIZE=$(stat -c%s "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" 2>/dev/null || echo "unknown")
 echo "GRUB EFI image size: ${GRUB_SIZE} bytes"
 
 # Copy default GRUB configuration from recipe directory.

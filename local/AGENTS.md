@@ -142,7 +142,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── AGENTS.md              ← This file
 │   ├── config/                ← Legacy configs (my-*, gitignored)
 │   ├── recipes/
-│   │   ├── core/              ← ext4d (ext4 filesystem scheme daemon + mkfs tool)
+│   │   ├── core/              ← ext4d (ext4 filesystem scheme daemon + mkfs tool), grub (GRUB 2.12 UEFI bootloader)
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi (GPU/Wi-Fi compat only — NOT USB)
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
@@ -156,7 +156,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
 │   │   ├── relibc/            ← relibc compatibility overlays still needed beyond upstream (eventfd, signalfd, timerfd, waitid, SysV IPC)
 │   │   ├── bootloader/        ← Bootloader patches
-│   │   └── installer/         ← Installer patches (ext4 filesystem support)
+│   │   └── installer/         ← Installer patches (ext4 filesystem support + GRUB bootloader)
 │   ├── Assets/                ← Branding assets (icon, loading background)
 │   │   └── images/            ← Red Bear OS icon (1254x1254) + loading bg (1536x1024)
 │   ├── firmware/              ← GPU firmware blobs (gitignored, fetched)
@@ -265,6 +265,13 @@ make all CONFIG_NAME=redbear-desktop
 ./target/release/repo cook local/recipes/branding/redbear-release
 ./target/release/repo cook local/recipes/system/redbear-meta
 ./target/release/repo cook local/recipes/core/ext4d
+./target/release/repo cook local/recipes/core/grub  # GRUB bootloader (host build, produces EFI binary)
+
+# GRUB boot manager (installer-native, Phase 2):
+make r.grub                                                   # Build GRUB recipe
+make all CONFIG_NAME=redbear-full-grub                        # Build with GRUB chainload
+# Or post-build script (Phase 1):
+./local/scripts/install-grub.sh build/x86_64/harddrive.img    # Modify existing image
 ```
 
 ## TRACKING MAINLINE CHANGES
@@ -280,7 +287,7 @@ When mainline updates affect our work:
 | Mesa | OpenGL/Vulkan backend changes | `recipes/libs/mesa/` |
 | Build system | Makefile/config changes | `mk/`, `src/` |
 | rsext4 | ext4 crate API changes | `local/recipes/core/ext4d/source/` Cargo.toml |
-| Installer | ext4 dispatch, filesystem selection | `local/patches/installer/redox.patch` |
+| Installer | ext4 dispatch, filesystem selection, GRUB bootloader | `local/patches/installer/redox.patch` |
 | Quirks | New Linux quirk entries to port | `local/recipes/drivers/redox-driver-sys/source/src/quirks/` |
 
 ## PLANNING NOTES
@@ -318,12 +325,13 @@ Do not present USB, Wi-Fi, Bluetooth, or low-level controller work as optional o
 
 ## FILESYSTEMS
 
-Red Bear OS supports two filesystems:
+Red Bear OS supports three filesystems:
 
 | Filesystem | Implementation | Package | Status |
 |------------|---------------|---------|--------|
 | RedoxFS | Mainline Redox (default) | `recipes/core/redoxfs` | ✅ Stable |
 | ext4 | rsext4 0.3 crate + ext4d scheme daemon | `local/recipes/core/ext4d` | ✅ Compiles + Installer wired |
+| FAT (VFAT) | fatfs 0.3.6 crate + fatd scheme daemon | `local/recipes/core/fatd` | ✅ Compiles + Tools tested + label write verified |
 
 ### ext4 Workspace (`local/recipes/core/ext4d/source/`)
 
@@ -369,22 +377,75 @@ recipes/core/ext4d → local/recipes/core/ext4d
 - `libredox = "0.1.13"` — High-level Redox syscalls (open, read, write, fstat)
 - `redox-path = "0.3.0"` — Redox path utilities
 
-### Installer ext4 Integration (`local/patches/installer/redox.patch`)
+### Installer ext4 + GRUB Integration (`local/patches/installer/redox.patch`)
 
-The mainline installer is patched to support ext4 as an install target filesystem:
+The mainline installer is patched to support ext4 as an install target filesystem and
+GRUB as an alternative boot manager:
 - `GeneralConfig.filesystem: Option<String>` — TOML field, accepts `"redoxfs"` (default) or `"ext4"`
+- `GeneralConfig.bootloader: Option<String>` — TOML field, accepts `"redox"` (default) or `"grub"`
 - `FilesystemType` enum — dispatch tag used by `install_inner`
 - `with_whole_disk_ext4()` — GPT partition layout + ext4 mkfs + file sync (mirrors `with_whole_disk`)
 - `Ext4SliceDisk<T>` — adapts `DiskWrapper` to rsext4's `BlockDevice` trait
 - `sync_host_dir_to_ext4()` — copies staged sysroot files into ext4 filesystem
-- CLI flag: `--filesystem ext4` or `--filesystem redoxfs`
+- GRUB chainload: when `bootloader = "grub"`, writes GRUB EFI + grub.cfg to ESP alongside Redox bootloader
+- CLI flags: `--filesystem ext4` / `--bootloader grub`
 
 Usage in config TOML:
 ```toml
 [general]
 filesystem = "ext4"        # "redoxfs" is default
+bootloader = "grub"        # "redox" is default
+efi_partition_size = 16    # Required for GRUB (default 1 MiB is too small)
 filesystem_size = 10240    # MB
 ```
+
+See `local/docs/GRUB-INTEGRATION-PLAN.md` for the full GRUB architecture and usage guide.
+
+### FAT (VFAT) Workspace (`local/recipes/core/fatd/source/`)
+
+```
+fatd/source/
+├── Cargo.toml              ← Workspace: fat-blockdev, fatd, fat-mkfs, fat-label, fat-check
+├── fat-blockdev/            ← Block device adapter for fatfs crate
+│   ├── src/lib.rs           ← Re-exports: FileDisk (always), RedoxDisk (feature-gated)
+│   ├── src/file_disk.rs     ← FileDisk: std::fs::File → Read+Write+Seek
+│   └── src/redox_disk.rs    ← RedoxDisk: libredox → Read+Write+Seek (redox feature)
+├── fatd/                    ← FAT filesystem scheme daemon (Redox userspace)
+│   ├── src/main.rs          ← Daemon: fork, SIGTERM, dispatch to FileDisk/RedoxDisk
+│   ├── src/mount.rs         ← Scheme event loop (redox_scheme::SchemeSync)
+│   ├── src/scheme.rs        ← FatScheme: full FSScheme (open/read/write/mkdir/unlink/stat...)
+│   └── src/handle.rs        ← FileHandle, DirectoryHandle, Handle types
+├── fat-mkfs/                ← mkfs.fat equivalent (create FAT12/16/32 filesystems)
+│   └── src/main.rs
+├── fat-label/               ← fatlabel equivalent (read + write volume labels via BPB)
+│   └── src/main.rs          ← `-s "LABEL"` writes label at BPB offset 43/71; verifies round-trip
+└── fat-check/               ← fsck.fat equivalent (verify BPB, FAT chains, directory tree + safe repair)
+    └── src/main.rs          ← `--repair` clears dirty flag, fixes FSInfo, reclaims lost clusters
+```
+
+**Architecture**: `fatd` is a Redox scheme daemon using `fatfs` v0.3.6 (MIT, no_std capable).
+FAT is for data volumes and ESP only — NOT for root filesystem.
+`fscommon::BufStream` wraps block device for mandatory caching.
+
+**Recipe**: Symlinked into mainline search path:
+```
+recipes/core/fatd → ../../local/recipes/core/fatd
+```
+
+**Config**: Packages included via `config/redbear-device-services.toml` (inherited by
+`redbear-desktop.toml` and `redbear-full.toml`). Init service at
+`/usr/lib/init.d/15_fatd.service`.
+
+**Dependencies**: fatfs 0.3.6, fscommon 0.1.1, redox_syscall, redox-scheme, libredox, libc
+
+**Tool verification status** (2026-04-17):
+- `fat-mkfs`: ✅ Creates FAT12/16/32, labels, auto-detection, tested up to 1GB
+- `fat-label`: ✅ Reads labels; writes BPB + creates/updates root-directory volume-label entry; verifies round-trip on all FAT types (including previously unlabeled volumes)
+- `fat-check`: ✅ BPB validation, boot signature check, directory tree walk, cluster stats; ✅ safe repair (dirty flag, FSInfo, lost clusters, orphaned LFN). Handles 0xFFFFFFFF FSInfo sentinel on fresh images.
+- `fatd`: ✅ Compiles (links on Redox target only — expected). NOT runtime-tested (requires QEMU/bare metal).
+- Phase 4 (runtime auto-mount): Deferred to runtime validation. Static init service exists.
+- Known limitation: fatfs v0.3.6 strictly requires `total_sectors_16 == 0` for FAT32, rejecting some Linux `mkfs.fat` images
+- `cargo test`: 0 unit tests (all testing done via integration tests with disk images)
 
 ## BRANDING ASSETS
 

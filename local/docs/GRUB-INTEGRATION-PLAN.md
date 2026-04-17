@@ -1,7 +1,10 @@
 # GRUB Integration Plan — Red Bear OS
 
 **Date:** 2026-04-17
-**Status:** Phase 2 complete — installer-native GRUB support implemented and compiling
+**Status:** Phase 2 complete — installer-native GRUB support implemented and compiling.
+**Prerequisite:** The `grub` package must be in the build plan (included in `redbear-full-grub.toml`)
+for `make all` to work from a clean tree. Phase 2 is automatic only after `grub` is available in
+the local repo or build output.
 **Approach:** Option A — GRUB as boot manager, chainloading Redox bootloader
 
 ## Overview
