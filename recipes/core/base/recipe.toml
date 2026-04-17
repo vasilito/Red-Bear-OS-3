@@ -9,6 +9,7 @@ mkdir -pv "${COOKBOOK_STAGE}/usr/bin"
 for package in audiod ipcd ptyd dhcpd; do
     "${COOKBOOK_CARGO}" build \
         --manifest-path "${COOKBOOK_SOURCE}/${package}/Cargo.toml" \
+        --target "${TARGET}" \
         ${build_flags}
     cp -v \
         "target/${TARGET}/${build_type}/${package}" \
@@ -17,6 +18,7 @@ done
 
 "${COOKBOOK_CARGO}" build \
     --manifest-path "${COOKBOOK_SOURCE}/netstack/Cargo.toml" \
+    --target "${TARGET}" \
     ${build_flags}
 cp -v \
     "target/${TARGET}/${build_type}/smolnetd" \
@@ -58,6 +60,7 @@ export CARGO_PROFILE_RELEASE_OPT_LEVEL=s
 export CARGO_PROFILE_RELEASE_PANIC=abort
 "${COOKBOOK_CARGO}" build ${build_flags} \
     --manifest-path "${COOKBOOK_SOURCE}/Cargo.toml" \
+    --target "${TARGET}" \
     $(for bin in "${BINS[@]}"; do echo "-p" "${bin}"; done)
 for bin in "${BINS[@]}"
 do
