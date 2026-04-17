@@ -20,6 +20,7 @@ recipes/**/source-new
 recipes/**/source-old
 recipes/**/source.tar
 recipes/**/source.tar.tmp
+recipes/**/source.pre-preservation-test/
 
 # Build artifacts — target/ dirs are everywhere
 target
