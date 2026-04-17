@@ -1,3 +1,66 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 939ae14..50bdb63 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -489,6 +489,14 @@ version = "1.0.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+ 
++[[package]]
++name = "ext4-blockdev"
++version = "0.1.0"
++dependencies = [
++ "log",
++ "rsext4",
++]
++
+ [[package]]
+ name = "fatfs"
+ version = "0.3.6"
+@@ -995,6 +1003,9 @@ name = "lazy_static"
+ version = "1.5.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
++dependencies = [
++ "spin",
++]
+ 
+ [[package]]
+ name = "libc"
+@@ -1395,6 +1406,7 @@ version = "0.2.42"
+ dependencies = [
+  "anyhow",
+  "arg_parser",
++ "ext4-blockdev",
+  "fatfs",
+  "fscommon",
+  "gpt",
+@@ -1408,6 +1420,7 @@ dependencies = [
+  "redox_syscall",
+  "redoxfs",
+  "ring",
++ "rsext4",
+  "rust-argon2",
+  "serde",
+  "serde_derive",
+@@ -1538,6 +1551,17 @@ dependencies = [
+  "windows-sys 0.52.0",
+ ]
+ 
++[[package]]
++name = "rsext4"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7ecc26a7a22732f5cd14906e3cd81325ced46e8941d93db8cb522ea084fd351d"
++dependencies = [
++ "bitflags 2.10.0",
++ "lazy_static",
++ "log",
++]
++
+ [[package]]
+ name = "rust-argon2"
+ version = "3.0.0"
 diff --git a/Cargo.toml b/Cargo.toml
 index e3c6700..b1d5d72 100644
 --- a/Cargo.toml
@@ -27,29 +90,33 @@ index e3c6700..b1d5d72 100644
      "termion",
      "uuid",
 diff --git a/src/bin/installer.rs b/src/bin/installer.rs
-index c3ce487..a3b9056 100644
+index c3ce487..973b85c 100644
 --- a/src/bin/installer.rs
 +++ b/src/bin/installer.rs
-@@ -39,6 +39,7 @@ fn main() {
+@@ -39,6 +39,8 @@ fn main() {
          .add_opt("c", "config")
          .add_opt("o", "output-config")
          .add_opt("", "write-bootloader")
 +        .add_opt("", "filesystem")
++        .add_opt("", "bootloader")
          .add_flag(&["skip-partition"])
          .add_flag(&["filesystem-size"])
          .add_flag(&["r", "repo-binary"]) // TODO: Remove
-@@ -116,6 +117,9 @@ fn main() {
+@@ -116,6 +118,12 @@ fn main() {
          if parser.found("no-mount") {
              config.general.no_mount = Some(true);
          }
 +        if let Some(fs_type) = parser.get_opt("filesystem") {
 +            config.general.filesystem = Some(fs_type);
 +        }
++        if let Some(bl) = parser.get_opt("bootloader") {
++            config.general.bootloader = Some(bl);
++        }
          let write_bootloader = parser.get_opt("write-bootloader");
          if write_bootloader.is_some() {
              config.general.write_bootloader = write_bootloader;
 diff --git a/src/bin/installer_tui.rs b/src/bin/installer_tui.rs
-index 2739983..dd5d022 100644
+index 2739983..0d2d6f3 100644
 --- a/src/bin/installer_tui.rs
 +++ b/src/bin/installer_tui.rs
 @@ -2,7 +2,9 @@ use anyhow::{anyhow, bail, Result};
@@ -63,38 +130,48 @@ index 2739983..dd5d022 100644
  use std::{
      ffi::OsStr,
      fs,
-@@ -316,6 +318,7 @@ fn main() {
+@@ -316,8 +318,11 @@ fn main() {
          bootloader_bios: &bootloader_bios,
          bootloader_efi: &bootloader_efi,
          password_opt: password_opt.as_ref().map(|x| x.as_bytes()),
 +        filesystem_type: FilesystemType::RedoxFS,
          efi_partition_size: None,
          skip_partitions: false, // TODO?
++        grub_efi: None,
++        grub_config: None,
      };
+     let res = with_whole_disk(&disk_path, &disk_option, |mut fs| {
+         // Fast install method via filesystem clone
 diff --git a/src/config/general.rs b/src/config/general.rs
-index 417ff2d..6bd0aa7 100644
+index 417ff2d..4ad2202 100644
 --- a/src/config/general.rs
 +++ b/src/config/general.rs
-@@ -19,6 +19,8 @@ pub struct GeneralConfig {
+@@ -19,6 +19,11 @@ pub struct GeneralConfig {
      /// Use AR to write files instead of FUSE-based mount
      /// (bypasses FUSE, but slower and requires namespaced context such as "podman unshare")
      pub no_mount: Option<bool>,
 +    /// Filesystem type for the install target: "redoxfs" (default) or "ext4"
 +    pub filesystem: Option<String>,
++    /// Boot manager: "redox" (default, use Redox bootloader directly) or "grub"
++    /// When "grub", the installer writes GRUB as primary and chainloads Redox bootloader
++    pub bootloader: Option<String>,
  }
  
  impl GeneralConfig {
-@@ -38,5 +40,8 @@ impl GeneralConfig {
+@@ -38,5 +43,11 @@ impl GeneralConfig {
              self.write_bootloader = Some(write_bootloader);
          }
          self.no_mount = other.no_mount.or(self.no_mount);
 +        if let Some(filesystem) = other.filesystem {
 +            self.filesystem = Some(filesystem);
 +        }
++        if let Some(bootloader) = other.bootloader {
++            self.bootloader = Some(bootloader);
++        }
      }
  }
 diff --git a/src/installer.rs b/src/installer.rs
-index 4e077a9..a3b45f5 100644
+index 4e077a9..82b9122 100644
 --- a/src/installer.rs
 +++ b/src/installer.rs
 @@ -3,6 +3,13 @@ use anyhow::{bail, Result};
@@ -111,7 +188,7 @@ index 4e077a9..a3b45f5 100644
  use termion::input::TermRead;
  
  use crate::config::file::FileConfig;
-@@ -23,14 +30,104 @@ use std::{
+@@ -23,12 +30,104 @@ use std::{
      time::{SystemTime, UNIX_EPOCH},
  };
  
@@ -128,8 +205,10 @@ index 4e077a9..a3b45f5 100644
 +    pub filesystem_type: FilesystemType,
      pub efi_partition_size: Option<u32>, //MiB
      pub skip_partitions: bool,
- }
- 
++    pub grub_efi: Option<&'a [u8]>,
++    pub grub_config: Option<&'a [u8]>,
++}
++
 +struct Ext4SliceDisk<T> {
 +    device: T,
 +    total_blocks: u64,
@@ -211,12 +290,10 @@ index 4e077a9..a3b45f5 100644
 +    fn flush(&mut self) -> Ext4Result<()> {
 +        self.device.flush().map_err(|_| Ext4Error::io())
 +    }
-+}
-+
+ }
+ 
  fn get_target() -> String {
-     // TODO: Configurable from filesystem config?
-     env::var("TARGET").unwrap_or(
-@@ -360,6 +457,155 @@ fn decide_mount_path(mount_path: Option<&Path>) -> PathBuf {
+@@ -360,6 +459,155 @@ fn decide_mount_path(mount_path: Option<&Path>) -> PathBuf {
      mount_path
  }
  
@@ -372,7 +449,131 @@ index 4e077a9..a3b45f5 100644
  pub fn with_redoxfs_mount<D, T, F>(
      fs: FileSystem<D>,
      mount_path: Option<&Path>,
-@@ -712,6 +958,184 @@ where
+@@ -481,7 +729,7 @@ pub fn fetch_bootloaders(
+     config: &Config,
+     cookbook: Option<&str>,
+     live: bool,
+-) -> Result<(Vec<u8>, Vec<u8>)> {
++) -> Result<(Vec<u8>, Vec<u8>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+     let bootloader_dir =
+         PathBuf::from(format!("/tmp/redox_installer_bootloader_{}", process::id()));
+ 
+@@ -493,6 +741,20 @@ pub fn fetch_bootloaders(
+ 
+     let mut bootloader_config = Config::bootloader_config();
+     bootloader_config.general = config.general.clone();
++
++    let use_grub = config
++        .general
++        .bootloader
++        .as_deref()
++        .unwrap_or("redox")
++        .eq_ignore_ascii_case("grub");
++
++    if use_grub {
++        bootloader_config
++            .packages
++            .insert("grub".to_string(), Default::default());
++    }
++
+     install_packages(&bootloader_config, &bootloader_dir, cookbook)?;
+ 
+     let boot_dir = bootloader_dir.join("usr/lib/boot");
+@@ -518,9 +780,31 @@ pub fn fetch_bootloaders(
+         Vec::new()
+     };
+ 
++    let grub_efi_data = if use_grub {
++        let grub_path = boot_dir.join("grub.efi");
++        if grub_path.exists() {
++            Some(fs::read(grub_path)?)
++        } else {
++            None
++        }
++    } else {
++        None
++    };
++
++    let grub_cfg_data = if use_grub {
++        let cfg_path = boot_dir.join("grub.cfg");
++        if cfg_path.exists() {
++            Some(fs::read(cfg_path)?)
++        } else {
++            None
++        }
++    } else {
++        None
++    };
++
+     fs::remove_dir_all(&bootloader_dir)?;
+ 
+-    Ok((bios_data, efi_data))
++    Ok((bios_data, efi_data, grub_efi_data, grub_cfg_data))
+ }
+ 
+ //TODO: make bootloaders use Option, dynamically create BIOS and EFI partitions
+@@ -683,20 +967,48 @@ where
+         eprintln!("Creating EFI directory");
+         let root_dir = fs.root_dir();
+         root_dir.create_dir("EFI")?;
+-
+-        eprintln!("Creating EFI/BOOT directory");
+         let efi_dir = root_dir.open_dir("EFI")?;
+-        efi_dir.create_dir("BOOT")?;
+ 
+-        eprintln!(
+-            "Writing EFI/BOOT/{} file with size {:#x}",
+-            bootloader_efi_name,
+-            disk_option.bootloader_efi.len()
+-        );
+-        let boot_dir = efi_dir.open_dir("BOOT")?;
+-        let mut file = boot_dir.create_file(bootloader_efi_name)?;
+-        file.truncate()?;
+-        file.write_all(&disk_option.bootloader_efi)?;
++        if let (Some(grub_data), Some(grub_cfg)) = (disk_option.grub_efi, disk_option.grub_config) {
++            efi_dir.create_dir("BOOT")?;
++            efi_dir.create_dir("REDBEAR")?;
++
++            eprintln!(
++                "Writing EFI/BOOT/{} (GRUB, {:#x} bytes)",
++                bootloader_efi_name,
++                grub_data.len()
++            );
++            let boot_dir = efi_dir.open_dir("BOOT")?;
++            let mut file = boot_dir.create_file(bootloader_efi_name)?;
++            file.truncate()?;
++            file.write_all(grub_data)?;
++
++            eprintln!("Writing EFI/BOOT/grub.cfg ({:#x} bytes)", grub_cfg.len());
++            let mut file = boot_dir.create_file("grub.cfg")?;
++            file.truncate()?;
++            file.write_all(grub_cfg)?;
++
++            eprintln!(
++                "Writing EFI/REDBEAR/redbear.efi (Redox bootloader, {:#x} bytes)",
++                disk_option.bootloader_efi.len()
++            );
++            let redbear_dir = efi_dir.open_dir("REDBEAR")?;
++            let mut file = redbear_dir.create_file("redbear.efi")?;
++            file.truncate()?;
++            file.write_all(&disk_option.bootloader_efi)?;
++        } else {
++            efi_dir.create_dir("BOOT")?;
++
++            eprintln!(
++                "Writing EFI/BOOT/{} file with size {:#x}",
++                bootloader_efi_name,
++                disk_option.bootloader_efi.len()
++            );
++            let boot_dir = efi_dir.open_dir("BOOT")?;
++            let mut file = boot_dir.create_file(bootloader_efi_name)?;
++            file.truncate()?;
++            file.write_all(&disk_option.bootloader_efi)?;
++        }
+     }
+ 
+     // Format and install RedoxFS partition
+@@ -712,6 +1024,212 @@ where
      with_redoxfs(disk_redoxfs, disk_option.password_opt, callback)
  }
  
@@ -521,20 +722,48 @@ index 4e077a9..a3b45f5 100644
 +        eprintln!("Creating EFI directory");
 +        let root_dir = fs.root_dir();
 +        root_dir.create_dir("EFI")?;
-+
-+        eprintln!("Creating EFI/BOOT directory");
 +        let efi_dir = root_dir.open_dir("EFI")?;
-+        efi_dir.create_dir("BOOT")?;
 +
-+        eprintln!(
-+            "Writing EFI/BOOT/{} file with size {:#x}",
-+            bootloader_efi_name,
-+            disk_option.bootloader_efi.len()
-+        );
-+        let boot_dir = efi_dir.open_dir("BOOT")?;
-+        let mut file = boot_dir.create_file(bootloader_efi_name)?;
-+        file.truncate()?;
-+        file.write_all(&disk_option.bootloader_efi)?;
++        if let (Some(grub_data), Some(grub_cfg)) = (disk_option.grub_efi, disk_option.grub_config) {
++            efi_dir.create_dir("BOOT")?;
++            efi_dir.create_dir("REDBEAR")?;
++
++            eprintln!(
++                "Writing EFI/BOOT/{} (GRUB, {:#x} bytes)",
++                bootloader_efi_name,
++                grub_data.len()
++            );
++            let boot_dir = efi_dir.open_dir("BOOT")?;
++            let mut file = boot_dir.create_file(bootloader_efi_name)?;
++            file.truncate()?;
++            file.write_all(grub_data)?;
++
++            eprintln!("Writing EFI/BOOT/grub.cfg ({:#x} bytes)", grub_cfg.len());
++            let mut file = boot_dir.create_file("grub.cfg")?;
++            file.truncate()?;
++            file.write_all(grub_cfg)?;
++
++            eprintln!(
++                "Writing EFI/REDBEAR/redbear.efi (Redox bootloader, {:#x} bytes)",
++                disk_option.bootloader_efi.len()
++            );
++            let redbear_dir = efi_dir.open_dir("REDBEAR")?;
++            let mut file = redbear_dir.create_file("redbear.efi")?;
++            file.truncate()?;
++            file.write_all(&disk_option.bootloader_efi)?;
++        } else {
++            efi_dir.create_dir("BOOT")?;
++
++            eprintln!(
++                "Writing EFI/BOOT/{} file with size {:#x}",
++                bootloader_efi_name,
++                disk_option.bootloader_efi.len()
++            );
++            let boot_dir = efi_dir.open_dir("BOOT")?;
++            let mut file = boot_dir.create_file(bootloader_efi_name)?;
++            file.truncate()?;
++            file.write_all(&disk_option.bootloader_efi)?;
++        }
 +    }
 +
 +    let disk_ext4_start = filesystem_start * block_size;
@@ -557,7 +786,13 @@ index 4e077a9..a3b45f5 100644
  #[cfg(not(target_os = "redox"))]
  pub fn try_fast_install<D: redoxfs::Disk, F: FnMut(u64, u64)>(
      _fs: &mut redoxfs::FileSystem<D>,
-@@ -827,24 +1251,34 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+@@ -823,28 +1341,41 @@ fn install_inner(config: Config, output: &Path) -> Result<()> {
+         let live = config.general.live_disk.unwrap_or(false);
+         let password_opt = config.general.encrypt_disk.clone();
+         let password_opt = password_opt.as_ref().map(|p| p.as_bytes());
+-        let (bootloader_bios, bootloader_efi) = fetch_bootloaders(&config, cookbook, live)?;
++        let (bootloader_bios, bootloader_efi, grub_efi, grub_cfg) =
++            fetch_bootloaders(&config, cookbook, live)?;
          if let Some(write_bootloader) = &config.general.write_bootloader {
              std::fs::write(write_bootloader, &bootloader_efi)?;
          }
@@ -572,6 +807,8 @@ index 4e077a9..a3b45f5 100644
 +            filesystem_type,
              efi_partition_size: config.general.efi_partition_size,
              skip_partitions: config.general.skip_partitions.unwrap_or(false),
++            grub_efi: grub_efi.as_deref(),
++            grub_config: grub_cfg.as_deref(),
          };
 -        with_whole_disk(output, &disk_option, move |fs| {
 -            if config.general.no_mount.unwrap_or(false) {
