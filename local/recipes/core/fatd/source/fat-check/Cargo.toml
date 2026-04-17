@@ -1,0 +1,16 @@
+[package]
+name = "fat-check"
+description = "FAT filesystem checker (fsck.fat equivalent)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fat-check"
+path = "src/main.rs"
+
+[dependencies]
+fat-blockdev = { path = "../fat-blockdev" }
+fatfs.workspace = true
+fscommon.workspace = true
+log.workspace = true

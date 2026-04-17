@@ -1,0 +1,18 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+# Build and install fatd scheme daemon
+COOKBOOK_CARGO_PATH=fatd cookbook_cargo
+
+# Build and install fat-mkfs tool
+COOKBOOK_CARGO_PATH=fat-mkfs cookbook_cargo
+
+# Build and install fat-label tool
+COOKBOOK_CARGO_PATH=fat-label cookbook_cargo
+
+# Build and install fat-check tool
+COOKBOOK_CARGO_PATH=fat-check cookbook_cargo
+"""

@@ -1,0 +1,16 @@
+[package]
+name = "fat-label"
+description = "Read and write FAT volume labels (fatlabel equivalent)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fat-label"
+path = "src/main.rs"
+
+[dependencies]
+fat-blockdev = { path = "../fat-blockdev" }
+fatfs.workspace = true
+fscommon.workspace = true
+log.workspace = true

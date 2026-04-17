@@ -1,9 +1,10 @@
 # Red Bear OS shared device-service wiring
 #
-# Shared by profiles that ship the firmware/input/Wi-Fi control compatibility stack.
+# Shared by profiles that ship the firmware/input/Wi-Fi/FAT control compatibility stack.
 
 [packages]
 redbear-quirks = {}
+fatd = {}
 
 [[files]]
 path = "/lib/firmware"
@@ -66,4 +67,19 @@ requires_weak = [
 [service]
 cmd = "evdevd"
 type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/15_fatd.service"
+data = """
+[unit]
+description = "FAT filesystem scheme daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "fatd"
+args = ["disk/live-virtio", "fat-live"]
+type = { scheme = "fat-live" }
 """

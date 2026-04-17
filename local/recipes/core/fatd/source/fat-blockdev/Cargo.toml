@@ -1,0 +1,22 @@
+[package]
+name = "fat-blockdev"
+description = "Block device adapter for fatfs crate on Redox OS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fatfs.workspace = true
+log.workspace = true
+
+[dependencies.redox_syscall]
+workspace = true
+optional = true
+
+[dependencies.libredox]
+workspace = true
+optional = true
+
+[features]
+default = ["redox"]
+redox = ["dep:redox_syscall", "dep:libredox"]

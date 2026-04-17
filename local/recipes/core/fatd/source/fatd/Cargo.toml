@@ -1,0 +1,26 @@
+[package]
+name = "fatd"
+description = "FAT filesystem scheme daemon for Redox OS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fatd"
+path = "src/main.rs"
+
+[dependencies]
+fat-blockdev = { path = "../fat-blockdev" }
+fatfs.workspace = true
+fscommon.workspace = true
+redox_syscall.workspace = true
+redox-scheme.workspace = true
+libredox = { workspace = true, optional = true }
+redox-path = { workspace = true, optional = true }
+log.workspace = true
+env_logger = { workspace = true, optional = true }
+libc.workspace = true
+
+[features]
+default = ["redox"]
+redox = ["dep:libredox", "dep:redox-path", "fat-blockdev/redox", "dep:env_logger"]

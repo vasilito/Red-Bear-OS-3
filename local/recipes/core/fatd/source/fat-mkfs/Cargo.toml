@@ -1,0 +1,15 @@
+[package]
+name = "fat-mkfs"
+description = "Create FAT filesystems (mkfs.fat equivalent)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fat-mkfs"
+path = "src/main.rs"
+
+[dependencies]
+fat-blockdev = { path = "../fat-blockdev" }
+fatfs.workspace = true
+log.workspace = true
