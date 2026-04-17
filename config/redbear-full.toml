@@ -13,6 +13,7 @@ include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.t
 
 [general]
 filesystem_size = 2048
+efi_partition_size = 16
 
 [users.messagebus]
 uid = 100
@@ -65,11 +66,11 @@ redbear-upower = {}
 redbear-udisks = {}
 redbear-polkit = {}
 
+# IOMMU DMA remapping daemon
+iommu = {}
+
 # Diagnostic tool
 redbear-info = {}
-
-# IOMMU validation surface
-iommu = {}
 
 # Process monitor
 htop = {}
@@ -161,6 +162,20 @@ type = "oneshot_async"
 """
 
 [[files]]
+path = "/usr/lib/init.d/13_iommu.service"
+data = """
+[unit]
+description = "IOMMU DMA remapping daemon"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "/usr/bin/iommu"
+type = "oneshot_async"
+"""
+
+[[files]]
 path = "/usr/lib/init.d/12_dbus.service"
 data = """
 [unit]
@@ -191,7 +206,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-sessiond",
+    "redbear-sessiond",
 ]
 type = "oneshot_async"
 """
@@ -209,7 +224,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-upower",
+    "redbear-upower",
 ]
 type = "oneshot_async"
 """
@@ -227,7 +242,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-udisks",
+    "redbear-udisks",
 ]
 type = "oneshot_async"
 """
@@ -245,7 +260,7 @@ requires_weak = [
 cmd = "ion"
 args = [
     "-c",
-    "sleep 5; redbear-polkit",
+    "redbear-polkit",
 ]
 type = "oneshot_async"
 """
@@ -261,17 +276,3 @@ path = "/run/dbus"
 data = ""
 directory = true
 mode = 0o755
-
-[[files]]
-path = "/usr/lib/init.d/13_iommu.service"
-data = """
-[unit]
-description = "IOMMU DMA remapping daemon"
-requires_weak = [
-    "00_pcid-spawner.service",
-]
-
-[service]
-cmd = "/usr/lib/drivers/iommu"
-type = "oneshot_async"
-"""

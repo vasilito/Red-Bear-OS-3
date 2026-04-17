@@ -1,0 +1,275 @@
+# GRUB Integration Plan — Red Bear OS
+
+**Date:** 2026-04-17
+**Status:** Phase 1 — recipe builds successfully, post-build script ready, awaiting QEMU validation
+**Approach:** Option A — GRUB as boot manager, chainloading Redox bootloader
+
+## Overview
+
+Add GNU GRUB as an optional boot manager for Red Bear OS. GRUB presents a menu
+at boot and chainloads the existing Redox bootloader, which then boots the
+kernel normally. This gives users:
+
+- Multi-boot capability alongside Linux, Windows, or other OSes
+- Boot menu with timeout and manual selection
+- Familiar GRUB rescue shell for debugging
+- No changes to the Redox kernel, RedoxFS, or existing boot flow
+
+## Architecture
+
+```
+UEFI firmware
+  → EFI/BOOT/BOOTX64.EFI (GRUB standalone image)
+    → grub.cfg: default entry chainloads Redox bootloader
+      → EFI/REDBEAR/redbear.efi (Redox bootloader)
+        → Reads RedoxFS partition
+          → Loads kernel
+            → Boots Red Bear OS
+```
+
+### ESP Layout (GRUB mode)
+
+```
+EFI/
+├── BOOT/
+│   ├── BOOTX64.EFI      ← GRUB (primary, loaded by UEFI firmware)
+│   └── grub.cfg          ← GRUB configuration
+└── REDBEAR/
+    └── redbear.efi       ← Redox bootloader (chainload target)
+```
+
+### ESP Layout (default, no GRUB)
+
+```
+EFI/
+└── BOOT/
+    └── BOOTX64.EFI       ← Redox bootloader (unchanged)
+```
+
+## Why GRUB?
+
+1. **GRUB does not support RedoxFS.** Writing a GRUB filesystem module for
+   RedoxFS is high-risk, GPL-licensing-sensitive work. Chainloading avoids it.
+2. **The Redox bootloader works.** It reads RedoxFS directly and boots the
+   kernel. No need to replicate that logic in GRUB.
+3. **GRUB is universally understood.** System administrators know GRUB. A
+   `grub.cfg` is easier to customize than a custom bootloader.
+4. **Multi-boot.** GRUB can boot Linux, Windows, and other OSes alongside
+   Red Bear OS without any changes to those systems.
+
+## GRUB Module Set
+
+The standalone EFI image includes these modules:
+
+| Module | Purpose |
+|--------|---------|
+| `part_gpt` | GPT partition table support |
+| `part_msdos` | MBR partition table support |
+| `fat` | FAT32 filesystem (ESP) |
+| `ext2` | ext2/3/4 filesystem |
+| `normal` | Normal mode (menu, scripting) |
+| `configfile` | Load configuration files |
+| `search` | Search for files/volumes |
+| `search_fs_uuid` | Search by filesystem UUID |
+| `search_label` | Search by volume label |
+| `chain` | Chainload other bootloaders |
+| `echo` | Print messages |
+| `test` | Conditional expressions |
+| `ls` | List files and devices |
+| `cat` | Display file contents |
+| `halt` | Shut down |
+| `reboot` | Reboot |
+
+No RedoxFS module is needed — GRUB chainloads the Redox bootloader instead.
+
+## GRUB Configuration
+
+The default `grub.cfg`:
+
+```cfg
+# Red Bear OS GRUB Configuration
+set default=0
+set timeout=5
+
+menuentry "Red Bear OS" {
+    chainloader /EFI/REDBEAR/redbear.efi
+    boot
+}
+
+menuentry "Reboot" {
+    reboot
+}
+
+menuentry "Shutdown" {
+    halt
+}
+```
+
+Users can customize `grub.cfg` to add entries for other operating systems,
+change the timeout, or add additional Red Bear OS entries (e.g., recovery
+mode with different kernel parameters, once supported).
+
+## ESP Size Requirements
+
+| Component | Measured Size |
+|-----------|--------------|
+| GRUB EFI binary (with modules) | 540 KiB |
+| Redox bootloader | 100–200 KiB |
+| grub.cfg | < 1 KiB |
+| **Total** | **~1 MiB** |
+
+The default ESP is 1 MiB (too small for GRUB). Configs using GRUB must set:
+
+```toml
+[general]
+efi_partition_size = 16   # 16 MiB, enough for GRUB + Redox bootloader + margin
+```
+
+## Implementation — Phase 1: Post-Build Script
+
+Phase 1 uses a post-build script to modify the ESP in an existing disk image.
+This approach requires **no changes to the installer** and works immediately.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `local/recipes/core/grub/recipe.toml` | Build GRUB from source, produce `grub.efi` |
+| `local/recipes/core/grub/grub.cfg` | Default GRUB configuration |
+| `local/scripts/install-grub.sh` | Post-build ESP modification script |
+| `local/scripts/fat_tool.py` | Python FAT32 tool (no mtools dependency) |
+| `recipes/core/grub → local/recipes/core/grub` | Symlink for recipe discovery |
+
+### Workflow
+
+```bash
+# 1. Build GRUB recipe
+make r.grub
+
+# 2. Build Red Bear OS (with larger ESP)
+make all CONFIG_NAME=redbear-full   # Must have efi_partition_size = 16
+
+# 3. Install GRUB into disk image
+./local/scripts/install-grub.sh build/x86_64/harddrive.img
+
+# 4. Test
+make qemu
+```
+
+### Requirements
+
+- Python 3 (for `fat_tool.py` — no mtools dependency)
+- GRUB build dependencies: `gcc`, `make`, `bison`, `flex`, `autoconf`, `automake`
+- ESP must be ≥ 8 MiB (set `efi_partition_size = 16` in config)
+
+## Implementation — Phase 2: Installer-Native Support (Future)
+
+Phase 2 adds GRUB awareness directly to the Redox installer, eliminating the
+post-build script step. This requires modifying the installer patch.
+
+### Changes Required
+
+1. **`GeneralConfig`**: Add `bootloader: Option<String>` field (`"redox"` default, `"grub"` for GRUB)
+2. **`DiskOption`**: Add `bootloader_grub: Option<&[u8]>`, `grub_config: Option<&[u8]>` fields
+3. **`fetch_bootloaders`**: When `bootloader = "grub"`, also install the `grub` package
+4. **`with_whole_disk` / `with_whole_disk_ext4`**: When GRUB data present:
+   - Create `EFI/REDBEAR/` directory
+   - Write GRUB as `EFI/BOOT/BOOTX64.EFI`
+   - Write Redox bootloader as `EFI/REDBEAR/redbear.efi`
+   - Write `grub.cfg` to `EFI/BOOT/grub.cfg`
+   - Auto-set ESP size to 16 MiB if not configured
+5. **CLI**: Add `--bootloader grub` flag to installer binary
+
+### Config Usage (Phase 2)
+
+```toml
+# config/redbear-full-grub.toml
+include = ["redbear-full.toml"]
+
+[general]
+bootloader = "grub"
+efi_partition_size = 16
+```
+
+## GRUB Recipe Design
+
+The GRUB recipe uses `template = "custom"` because GRUB must be built for the
+**host machine** (it's a build tool that produces EFI binaries), not for the
+Redox target. The cookbook's `configure` template cross-compiles for Redox,
+which is wrong for GRUB.
+
+Key build steps:
+1. Configure with `--target=x86_64 --with-platform=efi` (produces x86_64 EFI)
+2. Disable unnecessary components (themes, mkfont, mount, device-mapper)
+3. Run `grub-mkimage` to create standalone EFI binary with curated modules
+4. Stage `grub.efi` and `grub.cfg` to `/usr/lib/boot/`
+
+### Build Notes
+
+The recipe uses `template = "custom"` because the cookbook's default `configure`
+template sets `--host="${GNU_TARGET}"` for Redox cross-compilation, which is wrong
+for GRUB (a host build tool producing EFI binaries).
+
+Two issues required workarounds:
+
+1. **Cross-compiler override.** The cookbook sets `CC`, `CXX`, `CFLAGS`, etc. to
+   the Redox cross-toolchain. GRUB must be built with the host compiler. Fix:
+   `unset CC CXX CPP LD AR NM RANLIB OBJCOPY STRIP PKG_CONFIG` and
+   `unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS` at the top of the script.
+
+2. **Missing `extra_deps.lst`.** GRUB 2.12 release tarballs omit
+   `grub-core/extra_deps.lst` (normally generated by `autogen.sh` from git).
+   Fix: `touch "${COOKBOOK_SOURCE}/grub-core/extra_deps.lst"` before configure.
+
+3. **grub.cfg location.** The config file lives in the recipe directory
+   (`${COOKBOOK_RECIPE}/grub.cfg`), not in the extracted source tarball
+   (`${COOKBOOK_SOURCE}/`). The copy step uses `COOKBOOK_RECIPE`.
+
+## Security Considerations
+
+- GRUB configuration is on the ESP (FAT32), which is readable/writable by any OS
+- Secure Boot: GRUB standalone images are not signed. Users needing Secure Boot
+  must sign `BOOTX64.EFI` with their own key or use `shim`
+- The chainload target (`EFI/REDBEAR/redbear.efi`) is also on the ESP
+- No credentials or secrets are stored in the GRUB configuration
+
+## Limitations
+
+- GRUB cannot read RedoxFS (no module exists)
+- Cannot pass kernel parameters directly (chainloading bypasses this)
+- BIOS boot is not supported in Phase 1 (only UEFI)
+- Requires `mtools` on the host for Phase 1 post-build script
+- ESP must be manually sized to ≥ 8 MiB in config
+
+## Testing
+
+```bash
+# Build GRUB recipe
+make r.grub
+
+# Verify GRUB binary was produced
+find repo -name "grub.efi" -path "*/usr/lib/boot/*"
+
+# Build full image with larger ESP
+# (Add efi_partition_size = 16 to config first)
+make all CONFIG_NAME=redbear-full
+
+# Install GRUB
+./local/scripts/install-grub.sh build/x86_64/harddrive.img
+
+# Verify ESP contents
+mdir -i build/x86_64/harddrive.img@1048576 -/ ::/
+
+# Boot in QEMU
+make qemu
+
+# Expected: GRUB menu appears, "Red Bear OS" entry boots successfully
+```
+
+## References
+
+- GNU GRUB Manual: https://www.gnu.org/software/grub/manual/grub/grub.html
+- GRUB EFI standalone image: `grub-mkimage -O x86_64-efi ...`
+- UEFI boot specification: `EFI/BOOT/BOOTX64.EFI` is the fallback boot path
+- Redox bootloader source: `recipes/core/bootloader/source/`
+- Installer GPT layout: `recipes/core/installer/source/src/installer.rs`
