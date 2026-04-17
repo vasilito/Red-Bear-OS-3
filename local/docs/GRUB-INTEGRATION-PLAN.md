@@ -259,33 +259,62 @@ Two issues required workarounds:
 
 - GRUB cannot read RedoxFS (no module exists)
 - Cannot pass kernel parameters directly (chainloading bypasses this)
-- BIOS boot is not supported in Phase 1 (only UEFI)
-- Requires `mtools` on the host for Phase 1 post-build script
-- ESP must be manually sized to ≥ 8 MiB in config
+- BIOS boot is not supported (only UEFI)
+- ESP must be sized to ≥ 8 MiB in config (16 MiB recommended)
 
 ## Testing
+
+### Phase 1: Post-build script (standalone)
 
 ```bash
 # Build GRUB recipe
 make r.grub
 
-# Verify GRUB binary was produced
-find repo -name "grub.efi" -path "*/usr/lib/boot/*"
-
-# Build full image with larger ESP
-# (Add efi_partition_size = 16 to config first)
+# Build image (any config with efi_partition_size >= 16)
 make all CONFIG_NAME=redbear-full
 
-# Install GRUB
+# Install GRUB into disk image (uses fat_tool.py, no mtools needed)
 ./local/scripts/install-grub.sh build/x86_64/harddrive.img
 
 # Verify ESP contents
-mdir -i build/x86_64/harddrive.img@1048576 -/ ::/
+python3 local/scripts/fat_tool.py ls build/x86_64/harddrive.img 1048576 /
 
 # Boot in QEMU
 make qemu
-
 # Expected: GRUB menu appears, "Red Bear OS" entry boots successfully
+```
+
+### Phase 2: Installer-native (automatic)
+
+```bash
+# Build GRUB recipe (must be built before installer runs)
+make r.grub
+
+# Build image with GRUB config (installer fetches GRUB automatically)
+make all CONFIG_NAME=redbear-full-grub
+
+# Or via CLI flag
+make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub"
+
+# Verify ESP contents
+python3 local/scripts/fat_tool.py ls build/x86_64/harddrive.img 1048576 /
+
+# Boot in QEMU
+make qemu
+# Expected: GRUB menu appears, "Red Bear OS" entry boots successfully
+```
+
+### Unit tests (no full build required)
+
+```bash
+# Verify GRUB recipe builds
+CI=1 ./target/release/repo cook grub
+
+# Verify host-side installer accepts --bootloader flag
+build/fstools/bin/redox_installer --bootloader=grub --config=config/redbear-full-grub.toml --list-packages
+
+# Verify fat_tool.py operations
+python3 local/scripts/fat_tool.py --help
 ```
 
 ## References
