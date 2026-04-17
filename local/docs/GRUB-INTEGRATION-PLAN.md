@@ -207,11 +207,15 @@ bootloader = "grub"
 efi_partition_size = 16
 ```
 
-Or via CLI:
+Or via CLI (note: INSTALLER_OPTS replaces defaults, so --cookbook=. must be included):
 ```bash
 ./target/release/repo cook installer
-make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub"
+make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--cookbook=. --bootloader grub"
 ```
+
+**Note:** The config file approach (`redbear-full-grub.toml`) is preferred over the CLI flag
+because INSTALLER_OPTS completely replaces the default value (`--cookbook=.`) rather than
+appending to it. Omitting `--cookbook=.` breaks local package resolution for GRUB.
 
 ## GRUB Recipe Design
 
