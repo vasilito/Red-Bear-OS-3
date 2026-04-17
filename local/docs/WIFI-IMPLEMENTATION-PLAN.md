@@ -5,7 +5,7 @@
 This document describes the current Wi-Fi state in Red Bear OS and the path from the existing
 bounded Intel bring-up scaffold to validated wireless connectivity.
 
-Wi-Fi is currently **not working connectivity**. What exists is a structurally complete,
+Wi-Fi does not provide working connectivity yet. What exists is a structurally complete,
 host-tested Intel transport layer and native control plane, awaiting real hardware + firmware
 validation.
 
@@ -41,7 +41,7 @@ validation.
 The iwlwifi transport has been hardened with these specific improvements:
 
 - **Atomic command state**: `command_complete`, `last_cmd_id`, `last_cmd_cookie`, `last_cmd_status` use `__atomic_store_n`/`__atomic_load_n` with `__ATOMIC_SEQ_CST` — no torn reads between ISR and command submission.
-- **Stale response sentinel** (0xFFFF): After command timeout, the response fields are poisoned so a late-arriving firmware response cannot be misattributed to the next command.
+- **Stale response sentinel** (0xFFFF): After command timeout, the response fields are poisoned. Late-arriving firmware responses and id/cookie mismatches are discarded entirely without completing the waiter — prevents stale responses from completing the wrong in-flight command.
 - **Command queue space management**: `iwl_pcie_send_cmd` reclaims completed TX descriptors before submitting each command. If the command queue is still full after reclaim, the command fails immediately rather than entering the overflow queue — commands are synchronous and one-at-a-time, so overflow queuing would create ownership ambiguity.
 - **DMA read barrier**: `rmb()` added after `dma_sync_single_for_cpu()` and before parsing RX frame data — ensures correct ordering on weakly-ordered architectures.
 - **TX queue selection safety**: `rb_iwlwifi_choose_txq()` returns -1 when no data queue is active instead of falling back to the command queue — data frames never use the command queue.
@@ -193,6 +193,10 @@ path without treating it as raw Ethernet. Runtime validation pending.
 - Firmware blobs for the target device family
 
 ### Phase W5 — Runtime Reporting and Recovery (After W4)
+
+> **Status note:** This Phase **W5** is not the same as the bounded `redbear-phase5-network-check`
+> QEMU plumbing proof on `redbear-full`. W5 here remains a later real-hardware reporting/recovery
+> milestone.
 
 - Extend `redbear-info` with real Wi-Fi runtime evidence (not just bounded surfaces)
 - Reconnect after disconnect

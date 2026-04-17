@@ -333,6 +333,9 @@ Current state:
 - packaged in-target Wi-Fi validation/capture commands now exist for the current bounded Intel path
   (`redbear-phase5-wifi-check`, `redbear-phase5-wifi-link-check`, `redbear-phase5-wifi-capture`,
   `redbear-phase5-wifi-run`, `redbear-phase5-wifi-analyze`),
+- the separate `redbear-phase5-network-check` / `test-phase5-network-qemu.sh` path on `redbear-full`
+  now proves bounded desktop/network plumbing in QEMU and should not be confused with the Wi-Fi
+  plan's later real-hardware Phase W5 completion criteria,
 - real hardware scan/auth/association/data-path proof is still missing,
 - `linux-kpi` is still not the Wi-Fi architecture by itself.
 

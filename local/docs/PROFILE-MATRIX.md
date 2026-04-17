@@ -26,13 +26,13 @@ USB plan uses:
 
 | Profile | Intent | Key Fragments | Current support language |
 |---|---|---|---|
-| `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled / input-runtime substrate wired |
-| `redbear-bluetooth-experimental` | First bounded Bluetooth validation profile | `redbear-bluetooth-experimental.toml`, `redbear-bluetooth-services.toml`, `redbear-minimal.toml` | builds / boots in QEMU / validated bounded Battery Level slice via `redbear-bluetooth-battery-check` and `test-bluetooth-qemu.sh --check` / explicit-startup USB BLE-first only / repeated helper + restart cleanup covered / not generic GATT / not USB-class-autospawn |
+| `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled / input-runtime substrate wired / USB: daemons built via base but not validated or support-scoped for this profile |
+| `redbear-bluetooth-experimental` | First bounded Bluetooth validation profile | `redbear-bluetooth-experimental.toml`, `redbear-bluetooth-services.toml`, `redbear-minimal.toml` | builds / boots in QEMU / packaged Battery Level checker + QEMU harness present / QEMU validation still in progress / explicit-startup USB BLE-first only / not generic GATT / not USB-class-autospawn |
 | `redbear-wifi-experimental` | First bounded Intel Wi-Fi validation profile | `redbear-wifi-experimental.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental bounded Intel Wi-Fi slice / driver + control/profile/reporting stack present / packaged in-target validation and capture commands available / real hardware connectivity still unproven |
-| `redbear-desktop` | Main Red Bear desktop integration profile without KDE-specific session wiring | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / input-runtime substrate wired / runtime reporting installed |
+| `redbear-desktop` | Main Red Bear desktop integration profile without KDE-specific session wiring | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / input-runtime substrate wired / runtime reporting installed / USB: xHCI host present + HID keyboard/mouse usable + mass storage autospawns in QEMU / QEMU-validated only / no real hardware USB claim |
 | `redbear-wayland` | v2.0 Phase 2 Wayland compositor validation profile | `wayland.toml` | builds / boots in QEMU / experimental software-path graphics-runtime slice / not QEMU hardware-acceleration proof |
 | `redbear-full` | Broader desktop/network/session plumbing (spans v2.0 Phases 2–3) | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / boots in QEMU / D-Bus system bus wired / experimental runtime path |
-| `redbear-kde` | v2.0 Phases 3–4 KDE Plasma session-surface profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path / D-Bus+seatd+KWin session surface wired |
+| `redbear-kde` | v2.0 Phases 3–4 KDE Plasma session-surface profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path / D-Bus+seatd+sessiond+KWin session surface wired |
 | `redbear-live` | Live and recovery image layered on desktop | `redbear-desktop.toml` | builds |
 
 ## Profile Notes
@@ -50,7 +50,7 @@ USB plan uses:
   all Red Bear images.
 - Extends `redbear-minimal` so the baseline runtime tooling is already present, then adds only the
   bounded Bluetooth pieces on top.
-- Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-bluetooth-battery-check`, with repeated in-boot reruns, daemon-restart coverage, and one experimental battery-sensor Battery Level read-only workload.
+- Current path under active validation: QEMU/UEFI boot to login prompt plus guest-side `redbear-bluetooth-battery-check`, targeting repeated in-boot reruns, daemon-restart coverage, and one experimental battery-sensor Battery Level read-only workload.
 - Current support language is intentionally narrow: explicit-startup only, USB-attached transport,
   BLE-first CLI/scheme surface, one experimental battery-sensor Battery Level read-only workload,
   and no USB-class autospawn claim yet.
@@ -86,8 +86,9 @@ USB plan uses:
 
 - Used for broader desktop/session plumbing after the narrower `redbear-wayland` validation slice.
 - Current role: carry D-Bus system-bus plumbing together with the native Red Bear network stack (spans v2.0 Phases 2–3).
-- Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase5-network-check`, with functional VirtIO networking and `DBUS_SYSTEM_BUS=present`.
+- Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase5-network-check`, with functional VirtIO networking, `DBUS_SYSTEM_BUS=present`, and bounded UPower/UDisks2 runtime-backed enumeration.
 - Should not be described as fully supported until runtime validation is evidence-backed.
+- This bounded QEMU Phase 5 proof is not the same thing as the Wi-Fi plan's later Phase W5 real-hardware runtime-reporting-and-recovery exit criteria.
 
 ### `redbear-kde`
 
@@ -109,3 +110,17 @@ USB plan uses:
   profile still does not claim generic GATT, write, or notify support.
 - The current validation claim is QEMU-scoped and packaged-checker-scoped, not a blanket claim
   about real hardware Bluetooth maturity.
+
+## USB Note
+
+- `redbear-desktop` is the primary profile carrying USB stack components (xHCI, HID, mass storage)
+  and the only profile where USB is validated and support-scoped.
+- USB validation is QEMU-only (`test-usb-qemu.sh --check`). No profile makes a real hardware USB
+  support claim.
+- USB error handling and correctness carry significant Red Bear patches over upstream; see
+  `local/patches/base/redox.patch` and `local/docs/USB-IMPLEMENTATION-PLAN.md` for details.
+- `redbear-minimal` inherits the base recipe which builds `xhcid`, `usbhidd`, `usbhubd`, `usbscsid`,
+  and `usbctl`. These binaries are present in the image but USB is not validated or support-scoped
+  for this profile.
+- `redbear-bluetooth-experimental` uses USB only as a transport for BLE dongles; it does not make a
+  general USB-class-autospawn claim.

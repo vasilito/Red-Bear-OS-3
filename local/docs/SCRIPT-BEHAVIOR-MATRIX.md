@@ -22,7 +22,7 @@ The goal is to remove guesswork from the sync/fetch/apply/build workflow.
 | `local/scripts/test-wifi-baremetal-runtime.sh` | Exercise bounded Intel Wi-Fi runtime lifecycle on a target system | validates driver probe, control probe, bounded connect/disconnect, profile-manager start/stop via the `wifi-open-bounded` profile, Wi-Fi lifecycle reporting, and writes `/tmp/redbear-phase5-wifi-capture.json` on the target | does not prove real AP association, packet flow, DHCP success over Wi-Fi, or end-to-end hardware connectivity |
 | `local/scripts/test-wifi-passthrough-qemu.sh` | Launch Red Bear with VFIO-passed Intel Wi-Fi hardware | boots a Red Bear guest with a passed-through Intel Wi-Fi PCI function, auto-runs the in-guest bounded Wi-Fi validation command, and can copy the packaged capture bundle back to a host-side file during `--check` | depends on host VFIO setup and still does not by itself guarantee real AP association or end-to-end Wi-Fi connectivity |
 | `local/scripts/test-bluetooth-runtime.sh` | Compatibility guest entrypoint for the bounded Bluetooth Battery Level slice | runs the packaged `redbear-bluetooth-battery-check` helper inside a Redox guest or target runtime | does not run on the host and does not expand the Bluetooth support claim beyond the packaged checker’s bounded scope |
-| `local/scripts/test-bluetooth-qemu.sh` | Launch or validate the bounded Bluetooth Battery Level slice in QEMU | boots `redbear-bluetooth-experimental`, auto-runs the packaged checker during `--check`, reruns it in one boot, and reruns it again after a clean reboot | does not prove real controller bring-up, generic BLE/GATT maturity, write/notify support, or real hardware Bluetooth behavior |
+| `local/scripts/test-bluetooth-qemu.sh` | Launch or validate the bounded Bluetooth Battery Level slice in QEMU | boots `redbear-bluetooth-experimental`, auto-runs the packaged checker during `--check`, reruns it in one boot, and reruns it again after a clean reboot | does not by itself guarantee that the current QEMU proof passes; does not prove real controller bring-up, generic BLE/GATT maturity, write/notify support, or real hardware Bluetooth behavior |
 | `local/scripts/prepare-wifi-vfio.sh` | Prepare or restore an Intel Wi-Fi PCI function for passthrough | binds a chosen PCI function to `vfio-pci` or restores it to a specified host driver | does not verify guest Wi-Fi functionality and must be used carefully on a host with a safe detachable target device |
 | `local/scripts/validate-wifi-vfio-host.sh` | Check whether a host looks ready for Wi-Fi VFIO testing | validates PCI presence, current driver, UEFI firmware, Red Bear image presence, QEMU/expect availability, VFIO module state, and IOMMU group visibility; exits non-zero when blockers are found | does not bind devices or prove the guest Wi-Fi stack works |
 | `local/scripts/run-wifi-passthrough-validation.sh` | End-to-end host-side passthrough validation wrapper | prepares VFIO, runs the packaged in-guest Wi-Fi validation path, captures the guest JSON artifact to the host, writes a host-side metadata sidecar, and restores the host driver afterwards | still depends on real VFIO/hardware support and does not itself guarantee end-to-end Wi-Fi connectivity |
@@ -33,10 +33,10 @@ The goal is to remove guesswork from the sync/fetch/apply/build workflow.
 The packaged companion command for those scripts is `redbear-phase5-wifi-check`, which performs the
 bounded in-target Wi-Fi lifecycle checks from inside the guest/runtime itself.
 
-The packaged Bluetooth companion command is `redbear-bluetooth-battery-check`, which performs the
-bounded Bluetooth Battery Level checks from inside the guest/runtime itself, including repeated
-helper runs, daemon-restart coverage, failure-path honesty checks, and stale-state cleanup checks
-within the current slice boundary.
+The packaged Bluetooth companion command is `redbear-bluetooth-battery-check`, which is intended to
+perform the bounded Bluetooth Battery Level checks from inside the guest/runtime itself, including
+repeated helper runs, daemon-restart coverage, failure-path honesty checks, and stale-state cleanup
+checks within the current slice boundary.
 
 The packaged evidence companion is `redbear-phase5-wifi-capture`, which collects the bounded driver,
 control, profile-manager, reporting, interface-listing, and scheme-state surfaces — plus `lspci`

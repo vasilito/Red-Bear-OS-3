@@ -41,7 +41,15 @@ next work target. The repo has not yet started systematic runtime validation.
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
 | Input stack | **builds, enumerates** | evdevd, libevdev, libinput, seatd present; evdevd registers scheme at boot |
-| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full` |
+| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full` and `redbear-kde`; D-Bus plan + sessiond complete (DB-1), Qt 6.11 D-Bus coverage documented (Section 14), DB-2/3/4 service daemons implemented as stubs (notifications, upower, udisks, polkit) |
+| redbear-sessiond | ✅ Scaffold | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), config wired in redbear-kde.toml, acpi_watcher with edge detection |
+| redbear-notifications | ✅ Scaffold | org.freedesktop.Notifications — logs to stderr, no display integration yet |
+| redbear-upower | ✅ bounded real | org.freedesktop.UPower — enumerates real AC adapters/batteries from `/scheme/acpi/power`; desktop machines with no battery report line power only |
+| redbear-udisks | ✅ bounded real | org.freedesktop.UDisks2 — enumerates real `disk.*` schemes and partitions into read-only D-Bus objects; no fabricated mount/serial metadata |
+| Phase 5 D-Bus runtime proof | ✅ implemented (bounded QEMU proof) | `redbear-phase5-network-check` + `test-phase5-network-qemu.sh` assert bounded-real UPower/UDisks2 registration and runtime-backed enumeration on `redbear-full`; this is a desktop/network plumbing proof, not a claim that the Wi-Fi plan's later Phase W5 hardware/runtime-reporting exit criteria are complete |
+| Phase 6 Solid readiness proof | ✅ implemented, blocked | `redbear-phase6-kde-check` + `test-phase6-kde-qemu.sh` now distinguish real Solid validation from blocked states; `kf6-solid` remains disabled until runtime proof + tooling are present |
+| redbear-polkit | ✅ Scaffold | org.freedesktop.PolicyKit1 — always-permit authorization; KAuth still uses FAKE backend because PolkitQt6-1 is not packaged yet |
+| redbear-dbus-services | ✅ Created | D-Bus activation files + policies staged |
 | DRM/KMS | **builds** | redox-drm scheme daemon; no hardware runtime validation |
 | GPU acceleration | **blocked** | PRIME/DMA-BUF ioctls implemented; GPU CS ioctl missing |
 | smallvil compositor | **experimental** | Reaches early init in QEMU; no complete session |
@@ -60,8 +68,9 @@ next work target. The repo has not yet started systematic runtime validation.
 ### `redbear-full`
 
 - **Role:** Broader desktop/network/session plumbing
-- **Current truth:** Carries D-Bus and broader integration pieces; VirtIO networking works in QEMU
+- **Current truth:** Carries D-Bus and broader integration pieces; VirtIO networking works in QEMU, and the bounded Phase 5 network/session checker is evidence-backed there
 - **Use for:** Desktop integration testing beyond the narrow Wayland slice
+- **Do not overclaim:** This profile proves bounded QEMU desktop/network plumbing only. It does not by itself close the Wi-Fi implementation plan's later real-hardware Phase W5 reporting/recovery gate.
 
 ### `redbear-kde`
 

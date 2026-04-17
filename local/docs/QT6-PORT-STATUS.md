@@ -13,9 +13,9 @@
 **Qt Phase 2 status:** ✅ COMPLETE — All 32 KF6 frameworks built
 **Qt Phase 3 status:** 🔄 IN PROGRESS — KWin + KDE Plasma build
 
-> **Execution note (2026-04-16):** The current Redox-applicable Qt 6.11 recipe expansion wave has
-> real-cook verification for `qtimageformats`, `qt5compat`, `qttools`, `qttranslations`, and
-> `qtshadertools`.
+> **Execution note (2026-04-17):** The repo now has a large Redox-desktop-relevant Qt 6.11 subset
+> cook-verified across Waves 1–2, but this is not yet the same claim as full Redox-applicable Qt
+> 6.11 coverage. Additional graphics / input / desktop-adjacent modules remain to be ported.
 
 ## Current Status Summary
 
@@ -24,12 +24,17 @@
 | **qtbase** | ✅ | 13 libs incl. OpenGL, EGL, DBus, WaylandClient |
 | **qtdeclarative** | ✅ | 11 libs, QML JIT disabled |
 | **qtsvg** | ✅ | 2 libs |
-| **qtwayland** | ✅ | Wayland client + compositor |
+| **qtwayland** | ◐ Partial | Wayland client path verified; compositor slice still intentionally reduced in recipe |
 | **qtimageformats** | ✅ | Real recipe + cook verified |
 | **qt5compat** | ✅ | Real recipe + cook verified |
-| **qttools** | ✅ | Redox-scoped tooling slice cook verified |
+| **qttools** | ◐ Partial | Redox-scoped tooling slice cook verified; designer/assistant/qdoc/qtattributionsscanner intentionally omitted |
 | **qttranslations** | ✅ | Translation catalogs cook verified |
 | **qtshadertools** | ✅ | Real recipe + cook verified |
+| **qtscxml** | ✅ | Real recipe + cook verified |
+| **qtserialport** | ✅ | Real recipe + cook verified; unsupported modem-control ioctls mapped to runtime UnsupportedOperationError on Redox |
+| **qtwebchannel** | ✅ | Real recipe + cook verified |
+| **qtcharts** | ✅ | Real recipe + cook verified |
+| **qtquicktimeline** | ✅ | Real recipe + cook verified after Qt Quick substrate export fixes |
 | **Mesa EGL+GBM** | ✅ | libEGL, libgbm, libGLESv2, swrast DRI |
 | **libdrm** | ✅ | libdrm + libdrm_amdgpu |
 | **libinput** | ✅ | 1.30.2 with comprehensive redox.patch |
@@ -54,6 +59,24 @@ The first post-core Qt 6.11 coverage wave is now real-cook verified:
 
 This means the repo now has real Qt 6.11 recipes for the first high-yield Redox-applicable
 expansion set, all verified by actual `repo cook` runs.
+
+## Wave 2 — Qt Quick / integration expansion
+
+The second Redox-applicable Qt 6.11 wave is now also real-cook verified:
+
+| Module | Status | Verification |
+|--------|--------|--------------|
+| `qtscxml` | ✅ | `CI=1 ./target/release/repo cook qtscxml` |
+| `qtserialport` | ✅ | `CI=1 ./target/release/repo cook qtserialport` |
+| `qtwebchannel` | ✅ | `CI=1 ./target/release/repo cook qtwebchannel` |
+| `qtcharts` | ✅ | `CI=1 ./target/release/repo cook qtcharts` |
+| `qtquicktimeline` | ✅ | `CI=1 ./target/release/repo cook qtquicktimeline` |
+
+Wave 2 also required a real repair of the Qt Quick substrate rather than recipe-only leaf work:
+
+- `qtbase` host build now uses a clean separate host build dir with `build/qt-host-build` as the install prefix.
+- `qtshadertools` now installs a real host `qsb` and `Qt6ShaderToolsTools` package into that prefix.
+- `qtdeclarative` now exports usable `Qt6Quick` / `Qt6Qml` CMake metadata to downstream Redox sysroots.
 
 ## Scope Definition
 
@@ -253,10 +276,20 @@ Current downstream build proof in this repo now includes:
 
 ### Phase 2a — qtbase D-Bus Enablement (✅ COMPLETE)
 
-- qtbase rebuilt with `-DFEATURE_dbus=ON` in both host and target builds
+- qtbase target build: `-DFEATURE_dbus=ON` (Qt6DBus module built and staged)
+- qtbase host build: `-DFEATURE_dbus=OFF` (qdbus tools provisioned via /usr/bin symlinks)
 - libQt6DBus.so + Qt6DBusConfig.cmake + Qt6DBus.pc staged to sysroot
 - D-Bus 1.16.2 already built (24-line redox.patch for epoll + socketpair)
 - Unblocks: kf6-kdbusaddons, kf6-kservice, kf6-kpackage, kf6-kglobalaccel
+- D-Bus plan: `local/docs/DBUS-INTEGRATION-PLAN.md` — redbear-sessiond login1 broker + D-Bus service infrastructure for KDE Plasma
+
+**redbear-sessiond:** Implemented. Rust daemon at `local/recipes/system/redbear-sessiond/` using zbus 5, serving `org.freedesktop.login1` Manager/Session/Seat interfaces on the system bus. Maps `TakeDevice(major, minor)` to Redox scheme paths (`/scheme/drm/card0`, `/dev/input/eventN`). Config wired in `config/redbear-kde.toml` with init service at slot 13.
+
+**qdbuscpp2xml/qdbusxml2cpp provisioning:** Qt host build has `FEATURE_dbus=OFF` with these tools disabled. KDE recipes provision them via symlinks: kf6-kdbusaddons falls back to `/usr/bin/qdbuscpp2xml` and `/usr/bin/qdbusxml2cpp` from the host system. This works for cross-compilation but is not a long-term solution. Future improvement: enable FEATURE_dbus=ON in host build once D-Bus session bus validation passes.
+
+**KF6 D-Bus re-enablement roadmap:** 15 KF6 components currently build with `-DUSE_DBUS=OFF`. Re-enablement is gated on D-Bus service availability: kf6-knotifications needs `org.freedesktop.Notifications` (DB-2, now enabled against a stub notification daemon), kf6-solid needs runtime-validated `org.freedesktop.UPower` + `org.freedesktop.UDisks2` enumeration (DB-3, both daemons now expose bounded real enumeration). The runtime proof harness is now in place, but `kf6-solid` still keeps `-DUSE_DBUS=OFF`, `-DBUILD_DEVICE_BACKEND_upower=OFF`, and `-DBUILD_DEVICE_BACKEND_udisks2=OFF` until `solid-hardware6`/Phase 6 validation can confirm the consumer path. kf6-kio and 10 others need full desktop services (DB-5). See `local/docs/DBUS-INTEGRATION-PLAN.md` Section 14 for the complete matrix.
+
+**Key insight:** QtDBus is NOT the gap — Qt6DBus builds and kf6-kdbusaddons provides the KDE convenience layer. The gap is the freedesktop service contracts (login1, Notifications, UPower, UDisks2, PolicyKit) that need Redox-native implementations. NetworkManager is deferred; Red Bear OS uses `redbear-netctl` for now.
 
 ### Phase 2b — qtwayland Module (🔄 Building)
 

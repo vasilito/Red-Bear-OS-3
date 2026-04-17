@@ -170,6 +170,10 @@ The wrapper handles:
 5. writing a host-side metadata sidecar for the run
 6. restoring the host driver afterwards
 
+`redbear-phase5-network-check` in that flow is the bounded `redbear-full` desktop/network plumbing
+proof. It should not be read as closing the Wi‑Fi implementation plan's later Phase W5
+runtime-reporting-and-recovery milestone by itself.
+
 ### Artifact to preserve
 
 - `./wifi-passthrough-capture.json`

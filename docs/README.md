@@ -102,10 +102,11 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
 - **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
 - **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
-- **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload is now QEMU-validated through a packaged in-guest checker plus a host harness; broad desktop Bluetooth parity is still incomplete
+- **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload now has a packaged in-guest checker plus a host QEMU harness; QEMU validation is still in progress, so broad desktop Bluetooth parity is still incomplete
 - **KDE**: `redbear-kde.toml` exists and the recipe tree is populated, but the runtime stack is still incomplete.
 - **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
 - **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.
+- **Phase 5 naming note**: the bounded `redbear-phase5-network-check` / `test-phase5-network-qemu.sh` path proves desktop/network plumbing on `redbear-full` in QEMU; it does **not** mean the Wi-Fi implementation plan's later Phase W5 real-hardware reporting/recovery milestone is complete.
 
 ## Quick Start
 

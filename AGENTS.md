@@ -70,12 +70,13 @@ redox-master/
 | Wayland integration | `recipes/wip/wayland/` + `docs/03-WAYLAND-ON-REDOX.md` | 21 WIP recipes |
 | KDE Plasma path | `recipes/wip/kde/` + `docs/05-KDE-PLASMA-ON-REDOX.md` | 9 WIP KDE app recipes |
 | **Desktop path plan** | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | **Canonical plan: console → HW-accelerated KDE** |
-| Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture |
+| Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture (**GPU and Wi-Fi only — not USB**) |
 | Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
 | Display server | Orbital: `recipes/gui/orbital/` | Userspace scheme-based display server |
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
 | GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
+| D-Bus integration | `local/docs/DBUS-INTEGRATION-PLAN.md` | Architecture, gap analysis, phased implementation for KDE Plasma D-Bus |
 | Boot config | `config/*.toml` | TOML hierarchy, include-based |
 | **Hardware quirks** | `local/recipes/drivers/redox-driver-sys/source/src/quirks/` | Data-driven quirk tables: compiled-in + TOML + DMI; see `local/docs/QUIRKS-SYSTEM.md` |
 
@@ -295,10 +296,12 @@ Phase 1 (runtime substrate) → Phase 2 (software compositor) → Phase 3 (KWin 
 
 ### Custom Crates (P1/P2)
 1. `redox-driver-sys` — `local/recipes/drivers/redox-driver-sys/source/` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci + hardware quirks system (`src/quirks/`)
-2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys; includes `pci_get_quirk_flags()` C FFI for quirk queries
+2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys; includes `pci_get_quirk_flags()` C FFI for quirk queries. **GPU and Wi-Fi drivers only — linux-kpi does NOT cover USB.** It provides PCI, DMA, IRQ, DRM, networking (ieee80211/nl80211/mac80211), firmware, and related kernel infrastructure headers, but contains zero USB headers, USB device ID tables, or USB driver implementations.
 3. `redox-drm` — `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon (AMD + Intel drivers); consumes quirk flags for MSI/MSI-X fallback and DISABLE_ACCEL
 4. `firmware-loader` — `local/recipes/system/firmware-loader/source/` — scheme:firmware for GPU blobs
 5. `amdgpu` — `local/recipes/gpu/amdgpu/source/` — AMD DC C port with linux-kpi compat; can query quirks via `pci_has_quirk()` FFI
+6. `redbear-sessiond` — `local/recipes/system/redbear-sessiond/source/` — Rust D-Bus session broker exposing `org.freedesktop.login1` subset for KWin (uses `zbus`)
+7. `redbear-dbus-services` — `local/recipes/system/redbear-dbus-services/` — D-Bus activation `.service` files and XML policy files for system and session buses
 
 All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 

@@ -595,6 +595,7 @@ continuity, not as future work.
 | Input stack (libevdev, libinput, evdevd, udev-shim) | ✅ Builds complete | Prior to this plan |
 | Mesa EGL/GBM/GLES2 + libdrm amdgpu | ✅ Builds complete | Prior to this plan |
 | Desktop profiles (redbear-wayland, redbear-full, redbear-kde) | ✅ Builds complete | Prior to this plan |
+| `local/docs/DBUS-INTEGRATION-PLAN.md` | D-Bus architecture, service dependency map, and phased implementation |
 | PRIME/DMA-BUF scheme ioctls | ✅ Implemented | Prior to this plan |
 | KWin recipe with 5 re-enabled features | ✅ Partial build | Prior to this plan |
 | kdecoration, plasma-wayland-protocols, kf6-kwayland | ✅ Builds complete | Prior to this plan |

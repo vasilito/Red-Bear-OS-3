@@ -144,9 +144,11 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── recipes/
 │   │   ├── core/              ← ext4d (ext4 filesystem scheme daemon + mkfs tool)
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
-│   │   ├── drivers/           ← redox-driver-sys, linux-kpi
+│   │   ├── drivers/           ← redox-driver-sys, linux-kpi (GPU/Wi-Fi compat only — NOT USB)
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
 │   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-quirks, redbear-meta
+│   │   │   ├── redbear-sessiond    ← org.freedesktop.login1 D-Bus session broker (zbus-based Rust daemon)
+│   │   │   ├── redbear-dbus-services ← D-Bus .service activation files + XML policies
 │   │   ├── wayland/           ← Wayland compositor (v2.0 Phase 2)
 │   │   └── kde/               ← KDE Plasma (v2.0 Phases 3–4)
 │   ├── patches/
@@ -302,6 +304,7 @@ When mainline updates affect our work:
   TOML runtime files, DMI matching, driver integration, and the linux-kpi C FFI bridge.
 - `local/docs/QUIRKS-IMPROVEMENT-PLAN.md` is the current follow-up plan for removing quirks drift,
   integrating quirks into real drivers, and converging on one source of truth.
+- `local/docs/DBUS-INTEGRATION-PLAN.md` is the canonical D-Bus architecture and implementation plan for KDE Plasma 6 on Wayland. It defines the phased approach to D-Bus service integration, the `redbear-sessiond` login1-compatible session broker, and the gap analysis for desktop-facing D-Bus services.
 
 The current execution order for these subsystem plans is:
 
@@ -438,13 +441,17 @@ redbear-live.toml
                        firmware-loader, evdevd, udev-shim, redbear-info,
                        mc, cub
         NOTE: ext4d is inherited from desktop.toml (mainline package)
-        NOTE: cub is included via redbear-desktop.toml and depends on the custom
-              recipe symlink (recipes/system/cub → local/recipes/system/cub) being
-              created by integrate-redbear.sh or apply-patches.sh before building.
+        NOTE: cub is treated as an essential Red Bear utility and is included through the tracked
+              flavor configs; it still depends on the custom recipe symlink
+              (recipes/system/cub → local/recipes/system/cub) being created by
+              integrate-redbear.sh or apply-patches.sh before building.
         NOTE: redbear-netctl provides a Redox-native `netctl` command with profiles
               in /etc/netctl and a boot-time `netctl --boot` service.
         NOTE: redbear-info is the canonical runtime integration report. Keep it updated when
               Red Bear adds new tools, schemes, services, or hardware integration paths.
+        NOTE: redbear-live inherits cub through redbear-desktop.toml.
+        NOTE: redbear-meta is explicitly included in redbear-full.toml. Keep any broader inclusion
+              deliberate because its dependency surface is much heavier than the core utility layer.
 
 redbear-full.toml
   └── desktop.toml (mainline)

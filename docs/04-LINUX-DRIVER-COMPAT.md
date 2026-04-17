@@ -34,7 +34,7 @@ The tree now also contains comprehensive wireless-subsystem compatibility inside
 `sk_buff` with queue operations, `net_device` with NAPI and queue state, `cfg80211` / `wiphy` with
 scan/connect/disconnect/BSS events, `mac80211` with `ieee80211_ops` callback mechanism, channel/
 band/rate/BSS definitions, PCI MSI/MSI-X support, DMA pool allocation, `list_head`, full `atomic_t`,
-and IO barrier/copy helpers — all compile- and host-test-validated (90 tests pass). This should still
+and IO barrier/copy helpers — all compile- and host-test-validated (93 tests pass). This should still
 be read as comprehensive compatibility work, not as proof that Red Bear now has working Intel Wi‑Fi
 connectivity.
 
@@ -59,7 +59,7 @@ Concrete repo entry points for that current bounded Wi‑Fi path are:
   architecture and operator validation path
 
 The validation claim here should also be read narrowly: the repo now has a clean host-side
-`linux-kpi` test suite (90 tests pass), passing comprehensive PCIe transport tests in the
+`linux-kpi` test suite (93 tests pass), passing comprehensive PCIe transport tests in the
 dependent crates (DMA pool, MSI-X, ieee80211_ops, skb queue, NAPI, list_head, atomic_t,
 completion timeout, IO barriers), and the iwlwifi transport builds and passes its host-side
 test suite (8 tests). This is not a claim that a full Linux Wi‑Fi stack is validated on hardware.
