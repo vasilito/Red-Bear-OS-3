@@ -4,8 +4,11 @@ mod inventory;
 use std::{
     env,
     error::Error,
+    path::Path,
     process,
     sync::Arc,
+    thread,
+    time::Duration,
 };
 
 use interfaces::{BlockDeviceInterface, DriveInterface, ObjectManagerRoot, UDisksManager};
@@ -26,6 +29,21 @@ enum Command {
 
 fn usage() -> &'static str {
     "Usage: redbear-udisks [--help]"
+}
+
+async fn wait_for_dbus_socket() {
+    let socket_path = env::var("DBUS_STARTER_ADDRESS")
+        .ok()
+        .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from))
+        .unwrap_or_else(|| "/run/dbus/system_bus_socket".to_string());
+
+    for _ in 0..30 {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    eprintln!("redbear-udisks: timed out waiting for D-Bus socket at {socket_path}");
 }
 
 fn parse_args() -> Result<Command, String> {
@@ -82,51 +100,48 @@ async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
-    eprintln!("redbear-udisks: startup begin");
-    let _root_path = parse_object_path(ROOT_PATH)?;
-    let _manager_path = parse_object_path(MANAGER_PATH)?;
-    eprintln!("redbear-udisks: object paths parsed");
-    let inventory = Arc::new(Inventory::scan());
-    eprintln!(
-        "redbear-udisks: inventory scanned drives={} blocks={}",
-        inventory.drives().len(),
-        inventory.blocks().len()
-    );
-    let block_sizes_known = inventory
-        .blocks()
-        .iter()
-        .filter(|block| block.logical_block_size > 0)
-        .count();
+    wait_for_dbus_socket().await;
 
-    eprintln!("redbear-udisks: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
-    eprintln!("redbear-udisks: building D-Bus connection");
-    let mut builder = system_connection_builder()?
-        .name(BUS_NAME)?
-        .serve_at(ROOT_PATH, ObjectManagerRoot::new(inventory.clone()))?
-        .serve_at(MANAGER_PATH, UDisksManager::new(inventory.clone()))?;
+    let mut last_err = None;
+    for attempt in 1..=5 {
+        let _root_path = parse_object_path(ROOT_PATH)?;
+        let _manager_path = parse_object_path(MANAGER_PATH)?;
+        let inventory = Arc::new(Inventory::scan());
 
-    for drive in inventory.drives() {
-        builder = builder.serve_at(drive.object_path.as_str(), DriveInterface::new(drive.clone()))?;
+        let mut builder = system_connection_builder()?
+            .name(BUS_NAME)?
+            .serve_at(ROOT_PATH, ObjectManagerRoot::new(inventory.clone()))?
+            .serve_at(MANAGER_PATH, UDisksManager::new(inventory.clone()))?;
+
+        for drive in inventory.drives() {
+            builder = builder.serve_at(drive.object_path.as_str(), DriveInterface::new(drive.clone()))?;
+        }
+
+        for block in inventory.blocks() {
+            builder = builder.serve_at(block.object_path.as_str(), BlockDeviceInterface::new(block.clone()))?;
+        }
+
+        match builder.build().await {
+            Ok(connection) => {
+                eprintln!(
+                    "redbear-udisks: registered {BUS_NAME} on the system bus ({} drives, {} blocks)",
+                    inventory.drives().len(),
+                    inventory.blocks().len(),
+                );
+                wait_for_shutdown().await?;
+                drop(connection);
+                return Ok(());
+            }
+            Err(err) => {
+                if attempt < 5 {
+                    eprintln!("redbear-udisks: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                last_err = Some(err.into());
+            }
+        }
     }
-
-    for block in inventory.blocks() {
-        builder = builder.serve_at(block.object_path.as_str(), BlockDeviceInterface::new(block.clone()))?;
-    }
-
-    let connection = builder.build().await?;
-
-    eprintln!(
-        "redbear-udisks: registered {BUS_NAME} on the system bus with {} drives, {} block devices, {} metadata-backed block sizes",
-        inventory.drives().len(),
-        inventory.blocks().len(),
-        block_sizes_known,
-    );
-
-    wait_for_shutdown().await?;
-    drop(connection);
-    eprintln!("redbear-udisks: received shutdown signal, exiting cleanly");
-
-    Ok(())
+    Err(last_err.unwrap())
 }
 
 fn main() {

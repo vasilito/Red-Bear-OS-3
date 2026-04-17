@@ -4,6 +4,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process,
+    thread,
+    time::Duration,
 };
 
 use tokio::runtime::Builder as RuntimeBuilder;
@@ -100,6 +102,21 @@ fn parse_args() -> Result<Command, String> {
         }
         Some(arg) => Err(format!("unrecognized argument '{arg}'")),
     }
+}
+
+async fn wait_for_dbus_socket() {
+    let socket_path = env::var("DBUS_STARTER_ADDRESS")
+        .ok()
+        .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from))
+        .unwrap_or_else(|| "/run/dbus/system_bus_socket".to_string());
+
+    for _ in 0..30 {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    eprintln!("redbear-upower: timed out waiting for D-Bus socket at {socket_path}");
 }
 
 fn parse_object_path(path: &str) -> Result<OwnedObjectPath, Box<dyn Error>> {
@@ -453,70 +470,65 @@ impl PowerDevice {
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
-    eprintln!("redbear-upower: startup begin");
+    wait_for_dbus_socket().await;
     let runtime = PowerRuntime::discover()?;
-    eprintln!(
-        "redbear-upower: runtime discovered adapters={} batteries={}",
-        runtime.adapter_ids.len(),
-        runtime.battery_ids.len()
-    );
     let _display_device_path = parse_object_path(DISPLAY_DEVICE_PATH)?;
-    eprintln!("redbear-upower: object paths parsed");
 
-    eprintln!("redbear-upower: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
-    eprintln!("redbear-upower: building D-Bus connection");
-    let mut builder = system_connection_builder()?;
-    eprintln!("redbear-upower: builder created");
-    builder = builder.name(BUS_NAME)?;
-    eprintln!("redbear-upower: bus name reserved");
-    builder = builder.serve_at(
-        UPOWER_PATH,
-        UPowerDaemon {
-            runtime: runtime.clone(),
-        },
-    )?;
-    eprintln!("redbear-upower: served manager path {UPOWER_PATH}");
-    builder = builder.serve_at(
-        DISPLAY_DEVICE_PATH,
-        DisplayDevice {
-            runtime: runtime.clone(),
-        },
-    )?;
-    eprintln!("redbear-upower: served display device path {DISPLAY_DEVICE_PATH}");
+    let mut last_err = None;
+    for attempt in 1..=5 {
+        let mut builder = system_connection_builder()?
+            .name(BUS_NAME)?
+            .serve_at(
+                UPOWER_PATH,
+                UPowerDaemon {
+                    runtime: runtime.clone(),
+                },
+            )?
+            .serve_at(
+                DISPLAY_DEVICE_PATH,
+                DisplayDevice {
+                    runtime: runtime.clone(),
+                },
+            )?;
 
-    for adapter_id in &runtime.adapter_ids {
-        let path = format!("/org/freedesktop/UPower/devices/line_power_{adapter_id}");
-        eprintln!("redbear-upower: serving adapter path {path}");
-        builder = builder.serve_at(
-            path,
-            PowerDevice {
-                runtime: runtime.clone(),
-                descriptor: DeviceDescriptor::Adapter(adapter_id.clone()),
-            },
-        )?;
+        for adapter_id in &runtime.adapter_ids {
+            let path = format!("/org/freedesktop/UPower/devices/line_power_{adapter_id}");
+            builder = builder.serve_at(
+                path,
+                PowerDevice {
+                    runtime: runtime.clone(),
+                    descriptor: DeviceDescriptor::Adapter(adapter_id.clone()),
+                },
+            )?;
+        }
+        for battery_id in &runtime.battery_ids {
+            let path = format!("/org/freedesktop/UPower/devices/battery_{battery_id}");
+            builder = builder.serve_at(
+                path,
+                PowerDevice {
+                    runtime: runtime.clone(),
+                    descriptor: DeviceDescriptor::Battery(battery_id.clone()),
+                },
+            )?;
+        }
+
+        match builder.build().await {
+            Ok(connection) => {
+                eprintln!("redbear-upower: registered {BUS_NAME} on the system bus");
+                wait_for_shutdown().await?;
+                drop(connection);
+                return Ok(());
+            }
+            Err(err) => {
+                if attempt < 5 {
+                    eprintln!("redbear-upower: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                last_err = Some(err.into());
+            }
+        }
     }
-    for battery_id in &runtime.battery_ids {
-        let path = format!("/org/freedesktop/UPower/devices/battery_{battery_id}");
-        eprintln!("redbear-upower: serving battery path {path}");
-        builder = builder.serve_at(
-            path,
-            PowerDevice {
-                runtime: runtime.clone(),
-                descriptor: DeviceDescriptor::Battery(battery_id.clone()),
-            },
-        )?;
-    }
-
-    eprintln!("redbear-upower: finalizing connection build");
-    let connection = builder.build().await?;
-
-    eprintln!("redbear-upower: registered {BUS_NAME} on the system bus");
-
-    wait_for_shutdown().await?;
-    drop(connection);
-    eprintln!("redbear-upower: received shutdown signal, exiting cleanly");
-
-    Ok(())
+    Err(last_err.unwrap())
 }
 
 fn main() {

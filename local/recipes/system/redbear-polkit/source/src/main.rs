@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, error::Error, process};
+use std::{collections::HashMap, env, error::Error, path::Path, process, thread, time::Duration};
 
 use tokio::runtime::Builder as RuntimeBuilder;
 use zbus::{
@@ -32,6 +32,21 @@ enum Command {
 
 fn usage() -> &'static str {
     "Usage: redbear-polkit [--help]"
+}
+
+async fn wait_for_dbus_socket() {
+    let socket_path = env::var("DBUS_STARTER_ADDRESS")
+        .ok()
+        .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from))
+        .unwrap_or_else(|| "/run/dbus/system_bus_socket".to_string());
+
+    for _ in 0..30 {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    eprintln!("redbear-polkit: timed out waiting for D-Bus socket at {socket_path}");
 }
 
 fn parse_args() -> Result<Command, String> {
@@ -134,25 +149,34 @@ impl PolicyKitAuthority {
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
-    eprintln!("redbear-polkit: startup begin");
-    let _authority_path = parse_object_path(AUTHORITY_PATH)?;
-    eprintln!("redbear-polkit: object paths parsed");
+    wait_for_dbus_socket().await;
 
-    eprintln!("redbear-polkit: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
-    eprintln!("redbear-polkit: building D-Bus connection");
-    let connection = system_connection_builder()?
-        .name(BUS_NAME)?
-        .serve_at(AUTHORITY_PATH, PolicyKitAuthority)?
-        .build()
-        .await?;
+    let mut last_err = None;
+    for attempt in 1..=5 {
+        let _authority_path = parse_object_path(AUTHORITY_PATH)?;
 
-    eprintln!("redbear-polkit: registered {BUS_NAME} on the system bus");
-
-    wait_for_shutdown().await?;
-    drop(connection);
-    eprintln!("redbear-polkit: received shutdown signal, exiting cleanly");
-
-    Ok(())
+        match system_connection_builder()?
+            .name(BUS_NAME)?
+            .serve_at(AUTHORITY_PATH, PolicyKitAuthority)?
+            .build()
+            .await
+        {
+            Ok(connection) => {
+                eprintln!("redbear-polkit: registered {BUS_NAME} on the system bus");
+                wait_for_shutdown().await?;
+                drop(connection);
+                return Ok(());
+            }
+            Err(err) => {
+                if attempt < 5 {
+                    eprintln!("redbear-polkit: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                last_err = Some(err.into());
+            }
+        }
+    }
+    Err(last_err.unwrap())
 }
 
 fn main() {

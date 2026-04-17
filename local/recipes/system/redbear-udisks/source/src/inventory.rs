@@ -101,9 +101,7 @@ impl Inventory {
 
             for (root_key, entry_name) in roots {
                 let device_path = format!("{}/{entry_name}", scheme_path.display());
-                let Some(metadata) = read_device_metadata(Path::new(&device_path)) else {
-                    continue;
-                };
+                let metadata = read_device_metadata(Path::new(&device_path));
 
                 let drive = DriveDevice {
                     object_path: owned_object_path(&format!(
@@ -111,7 +109,7 @@ impl Inventory {
                         stable_object_name(&scheme_name, &entry_name)
                     )),
                     scheme_identity: scheme_identity.clone(),
-                    size: metadata.size,
+                    size: metadata.as_ref().map_or(0, |m| m.size),
                 };
 
                 drive_paths.insert(root_key, drive.object_path.clone());
@@ -123,9 +121,9 @@ impl Inventory {
                     )),
                     drive_object_path: drive.object_path.clone(),
                     device_path,
-                    size: metadata.size,
-                    logical_block_size: metadata.logical_block_size,
-                    read_only: metadata.read_only,
+                    size: metadata.as_ref().map_or(0, |m| m.size),
+                    logical_block_size: metadata.as_ref().map_or(0, |m| m.logical_block_size),
+                    read_only: metadata.as_ref().map_or(false, |m| m.read_only),
                     hint_partitionable: true,
                 });
 
@@ -141,9 +139,7 @@ impl Inventory {
                 };
 
                 let device_path = format!("{}/{entry_name}", scheme_path.display());
-                let Some(metadata) = read_device_metadata(Path::new(&device_path)) else {
-                    continue;
-                };
+                let metadata = read_device_metadata(Path::new(&device_path));
 
                 blocks.push(BlockDevice {
                     object_path: owned_object_path(&format!(
@@ -152,9 +148,9 @@ impl Inventory {
                     )),
                     drive_object_path: drive_object_path.clone(),
                     device_path,
-                    size: metadata.size,
-                    logical_block_size: metadata.logical_block_size,
-                    read_only: metadata.read_only,
+                    size: metadata.as_ref().map_or(0, |m| m.size),
+                    logical_block_size: metadata.as_ref().map_or(0, |m| m.logical_block_size),
+                    read_only: metadata.as_ref().map_or(false, |m| m.read_only),
                     hint_partitionable: false,
                 });
             }

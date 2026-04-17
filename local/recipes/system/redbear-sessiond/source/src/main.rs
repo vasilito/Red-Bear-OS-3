@@ -8,6 +8,7 @@ use std::{
     env,
     error::Error,
     process,
+    time::Duration,
 };
 
 use device_map::DeviceMap;
@@ -56,6 +57,21 @@ fn parse_object_path(path: &str) -> Result<OwnedObjectPath, Box<dyn Error>> {
     Ok(OwnedObjectPath::try_from(path.to_owned())?)
 }
 
+async fn wait_for_dbus_socket() {
+    let socket_path = env::var("DBUS_STARTER_ADDRESS")
+        .ok()
+        .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from))
+        .unwrap_or_else(|| "/run/dbus/system_bus_socket".to_string());
+
+    for _ in 0..30 {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    eprintln!("redbear-sessiond: timed out waiting for D-Bus socket at {socket_path}");
+}
+
 fn system_connection_builder() -> Result<ConnectionBuilder<'static>, Box<dyn Error>> {
     if let Ok(address) = env::var("DBUS_STARTER_ADDRESS") {
         Ok(ConnectionBuilder::address(Address::try_from(address.as_str())?)?)
@@ -90,39 +106,43 @@ async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
-    eprintln!("redbear-sessiond: startup begin");
-    let session_path = parse_object_path(SESSION_PATH)?;
-    let seat_path = parse_object_path(SEAT_PATH)?;
-    let user_path = parse_object_path(USER_PATH)?;
-    eprintln!("redbear-sessiond: object paths parsed");
+    wait_for_dbus_socket().await;
 
-    let session = LoginSession::new(seat_path.clone(), user_path, DeviceMap::new());
-    let seat = LoginSeat::new(session_path.clone());
-    let manager = LoginManager::new(session_path, seat_path);
+    let mut last_err = None;
+    for attempt in 1..=5 {
+        let session_path = parse_object_path(SESSION_PATH)?;
+        let seat_path = parse_object_path(SEAT_PATH)?;
+        let user_path = parse_object_path(USER_PATH)?;
 
-    eprintln!("redbear-sessiond: starter address={:?}", env::var("DBUS_STARTER_ADDRESS").ok());
-    eprintln!("redbear-sessiond: building D-Bus connection");
-    let mut builder = system_connection_builder()?;
-    eprintln!("redbear-sessiond: builder created");
-    builder = builder.name(BUS_NAME)?;
-    eprintln!("redbear-sessiond: bus name reserved");
-    builder = builder.serve_at(MANAGER_PATH, manager)?;
-    eprintln!("redbear-sessiond: served manager path {MANAGER_PATH}");
-    builder = builder.serve_at(SESSION_PATH, session)?;
-    eprintln!("redbear-sessiond: served session path {SESSION_PATH}");
-    builder = builder.serve_at(SEAT_PATH, seat)?;
-    eprintln!("redbear-sessiond: served seat path {SEAT_PATH}");
-    eprintln!("redbear-sessiond: finalizing connection build");
-    let connection = builder.build().await?;
+        let session = LoginSession::new(seat_path.clone(), user_path, DeviceMap::new());
+        let seat = LoginSeat::new(session_path.clone());
+        let manager = LoginManager::new(session_path, seat_path);
 
-    eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
-
-    tokio::spawn(acpi_watcher::watch_and_emit(connection.clone()));
-
-    wait_for_shutdown().await?;
-    eprintln!("redbear-sessiond: received shutdown signal, exiting cleanly");
-
-    Ok(())
+        match system_connection_builder()?
+            .name(BUS_NAME)?
+            .serve_at(MANAGER_PATH, manager)?
+            .serve_at(SESSION_PATH, session)?
+            .serve_at(SEAT_PATH, seat)?
+            .build()
+            .await
+        {
+            Ok(connection) => {
+                eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
+                tokio::spawn(acpi_watcher::watch_and_emit(connection.clone()));
+                wait_for_shutdown().await?;
+                drop(connection);
+                return Ok(());
+            }
+            Err(err) => {
+                if attempt < 5 {
+                    eprintln!("redbear-sessiond: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                last_err = Some(err.into());
+            }
+        }
+    }
+    Err(last_err.unwrap())
 }
 
 fn main() {
