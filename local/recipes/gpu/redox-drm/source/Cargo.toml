@@ -5,8 +5,8 @@ edition = "2021"
 description = "DRM scheme daemon for Redox OS — provides GPU modesetting and buffer management"
 
 [dependencies]
-redox-driver-sys = { version = "0.1", path = "../../drivers/redox-driver-sys/source" }
-linux-kpi = { version = "0.1", path = "../../drivers/linux-kpi/source" }
+redox-driver-sys = { version = "0.1", path = "../../../drivers/redox-driver-sys/source" }
+linux-kpi = { version = "0.1", path = "../../../drivers/linux-kpi/source" }
 libredox = "0.1"
 redox_syscall = { version = "0.7", features = ["std"] }
 syscall04 = { package = "redox_syscall", version = "0.4" }
@@ -16,5 +16,5 @@ thiserror = "2"
 bitflags = "2"
 
 [patch.crates-io]
-redox-driver-sys = { path = "../../drivers/redox-driver-sys/source" }
-linux-kpi = { path = "../../drivers/linux-kpi/source" }
+redox-driver-sys = { path = "../../../drivers/redox-driver-sys/source" }
+linux-kpi = { path = "../../../drivers/linux-kpi/source" }
