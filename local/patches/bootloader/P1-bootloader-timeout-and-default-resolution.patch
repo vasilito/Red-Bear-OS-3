@@ -1,0 +1,564 @@
+diff --git a/src/arch/aarch64.rs b/src/arch/aarch64.rs
+index 55c68f5..765ae41 100644
+--- a/src/arch/aarch64.rs
++++ b/src/arch/aarch64.rs
+@@ -1,5 +1,5 @@
+ use crate::area_add;
+-use crate::os::{Os, OsMemoryEntry, OsMemoryKind, dtb::is_in_dev_mem_region};
++use crate::os::{dtb::is_in_dev_mem_region, Os, OsMemoryEntry, OsMemoryKind};
+ use core::slice;
+ 
+ pub(crate) const PF_PRESENT: u64 = 1 << 0;
+diff --git a/src/main.rs b/src/main.rs
+index 542b059..78dabb0 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -10,6 +10,7 @@ extern crate uefi_std as std;
+ use alloc::{format, string::String, vec::Vec};
+ use core::{
+     cmp,
++    convert::TryFrom,
+     fmt::{self, Write},
+     mem, ptr, slice, str,
+ };
+@@ -114,6 +115,10 @@ fn select_mode(
+     live: &mut bool,
+     edit_env: &mut bool,
+ ) -> Option<OsVideoMode> {
++    const DEFAULT_WIDTH: u32 = 1280;
++    const DEFAULT_HEIGHT: u32 = 720;
++    const AUTOBOOT_SECONDS: usize = 5;
++
+     let mut modes = Vec::new();
+     for mode in os.video_modes(output_i) {
+         let mut aspect_w = mode.width;
+@@ -141,15 +146,26 @@ fn select_mode(
+     // Sort modes by pixel area, reversed
+     modes.sort_by(|a, b| (b.0.width * b.0.height).cmp(&(a.0.width * a.0.height)));
+ 
+-    // Set selected based on best resolution
++    // Set selected based on Red Bear default resolution first, then best resolution fallback
+     print!("Output {}", output_i);
+     let mut selected = modes.first().map_or(0, |x| x.0.id);
+-    if let Some((best_width, best_height)) = os.best_resolution(output_i) {
+-        print!(", best resolution: {}x{}", best_width, best_height);
+-        for (mode, _text) in modes.iter() {
+-            if mode.width == best_width && mode.height == best_height {
+-                selected = mode.id;
+-                break;
++    let mut selected_from_default = false;
++    for (mode, _text) in modes.iter() {
++        if mode.width == DEFAULT_WIDTH && mode.height == DEFAULT_HEIGHT {
++            selected = mode.id;
++            selected_from_default = true;
++            print!(", default resolution: {}x{}", DEFAULT_WIDTH, DEFAULT_HEIGHT);
++            break;
++        }
++    }
++    if !selected_from_default {
++        if let Some((best_width, best_height)) = os.best_resolution(output_i) {
++            print!(", best resolution: {}x{}", best_width, best_height);
++            for (mode, _text) in modes.iter() {
++                if mode.width == best_width && mode.height == best_height {
++                    selected = mode.id;
++                    break;
++                }
+             }
+         }
+     }
+@@ -163,12 +179,19 @@ fn select_mode(
+         println!("Press l to  enable live mode");
+     }
+     println!("Press e to edit boot environment");
++    println!(
++        "Autobooting default mode in {} seconds (press any key to cancel countdown)",
++        AUTOBOOT_SECONDS
++    );
+     println!();
+     print!(" ");
+ 
+     let (off_x, off_y) = os.get_text_position();
+     let rows = 12;
+     let mut mode_opt = None;
++    let countdown_y = off_y.saturating_sub(2);
++    let mut countdown = AUTOBOOT_SECONDS;
++    let mut countdown_active = true;
+     while !modes.is_empty() {
+         let mut row = 0;
+         let mut col = 0;
+@@ -186,9 +209,38 @@ fn select_mode(
+             row += 1;
+         }
+ 
++        os.set_text_position(0, countdown_y);
++        os.set_text_highlight(false);
++        if countdown_active {
++            println!(
++                "Autobooting default mode in {} seconds (press any key to cancel countdown)",
++                countdown
++            );
++        } else {
++            println!("Manual mode selection active. Press Enter to boot selected mode.      ");
++        }
++
+         // Read keypress
+-        match os.get_key() {
++        match if countdown_active {
++            os.get_key_timeout(1000)
++        } else {
++            os.get_key()
++        } {
++            OsKey::Timeout => {
++                if countdown_active {
++                    if countdown == 0 {
++                        if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
++                            if let Some((mode, _text)) = modes.get(mode_i) {
++                                mode_opt = Some(*mode);
++                            }
++                        }
++                        break;
++                    }
++                    countdown = countdown.saturating_sub(1);
++                }
++            }
+             OsKey::Left => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if mode_i < rows {
+                         while mode_i < modes.len() {
+@@ -202,6 +254,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Right => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     mode_i += rows;
+                     if mode_i >= modes.len() {
+@@ -213,6 +266,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Up => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if mode_i % rows == 0 {
+                         mode_i += rows;
+@@ -227,6 +281,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Down => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     mode_i += 1;
+                     if mode_i % rows == 0 {
+@@ -241,6 +296,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Enter => {
++                countdown_active = false;
+                 if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if let Some((mode, _text)) = modes.get(mode_i) {
+                         mode_opt = Some(*mode);
+@@ -249,6 +305,7 @@ fn select_mode(
+                 break;
+             }
+             OsKey::Char('l') => {
++                countdown_active = false;
+                 *live = !*live;
+                 os.set_text_position(live_mode.0, live_mode.1);
+                 if *live {
+@@ -258,6 +315,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Char('e') => {
++                countdown_active = false;
+                 if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if let Some((mode, _text)) = modes.get(mode_i) {
+                         *edit_env = true;
+@@ -266,7 +324,9 @@ fn select_mode(
+                 }
+                 break;
+             }
+-            _ => (),
++            OsKey::Other | OsKey::Backspace | OsKey::Delete | OsKey::Char(_) => {
++                countdown_active = false;
++            }
+         }
+     }
+ 
+@@ -498,36 +558,62 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+ 
+         print!("live: 0/{} MiB", size / MIBI as u64);
+ 
+-        let ptr = os.alloc_zeroed_page_aligned(size as usize);
+-        if ptr.is_null() {
+-            panic!("Failed to allocate memory for live");
++        let live_size = match usize::try_from(size) {
++            Ok(live_size) => live_size,
++            Err(_) => {
++                println!("\rlive: disabled (image too large for bootloader address space)");
++                live = false;
++                0
++            }
++        };
++
++        let ptr = if live {
++            os.alloc_zeroed_page_aligned(live_size)
++        } else {
++            ptr::null_mut()
++        };
++        if live && ptr.is_null() {
++            println!(
++                "\rlive: disabled (unable to allocate {} MiB upfront)",
++                size / MIBI as u64
++            );
++            live = false;
+         }
+ 
+-        let live = unsafe { slice::from_raw_parts_mut(ptr, size as usize) };
++        let live = if live {
++            Some(unsafe { slice::from_raw_parts_mut(ptr, live_size) })
++        } else {
++            println!("Continuing without live preload");
++            None
++        };
+ 
+-        let mut i = 0;
+-        for chunk in live.chunks_mut(MIBI) {
+-            print!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
+-            i += unsafe {
+-                fs.disk
+-                    .read_at(fs.block + i / redoxfs::BLOCK_SIZE, chunk)
+-                    .expect("Failed to read live disk") as u64
+-            };
+-        }
+-        println!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
++        if let Some(live) = live {
++            let mut i = 0;
++            for chunk in live.chunks_mut(MIBI) {
++                print!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
++                i += unsafe {
++                    fs.disk
++                        .read_at(fs.block + i / redoxfs::BLOCK_SIZE, chunk)
++                        .expect("Failed to read live disk") as u64
++                };
++            }
++            println!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
+ 
+-        println!("Switching to live disk");
+-        unsafe {
+-            LIVE_OPT = Some((fs.block, slice::from_raw_parts_mut(ptr, size as usize)));
+-        }
++            println!("Switching to live disk");
++            unsafe {
++                LIVE_OPT = Some((fs.block, slice::from_raw_parts_mut(ptr, live_size)));
++            }
+ 
+-        area_add(OsMemoryEntry {
+-            base: live.as_ptr() as u64,
+-            size: live.len() as u64,
+-            kind: OsMemoryKind::Reserved,
+-        });
++            area_add(OsMemoryEntry {
++                base: live.as_ptr() as u64,
++                size: live.len() as u64,
++                kind: OsMemoryKind::Reserved,
++            });
+ 
+-        Some(live)
++            Some(live)
++        } else {
++            None
++        }
+     } else {
+         None
+     };
+diff --git a/src/os/bios/disk.rs b/src/os/bios/disk.rs
+index 4570292..aeee85d 100644
+--- a/src/os/bios/disk.rs
++++ b/src/os/bios/disk.rs
+@@ -1,8 +1,8 @@
+ use core::{mem, ptr};
+-use redoxfs::{BLOCK_SIZE, Disk};
+-use syscall::error::{EIO, Error, Result};
++use redoxfs::{Disk, BLOCK_SIZE};
++use syscall::error::{Error, Result, EIO};
+ 
+-use super::{DISK_ADDRESS_PACKET_ADDR, DISK_BIOS_ADDR, ThunkData};
++use super::{ThunkData, DISK_ADDRESS_PACKET_ADDR, DISK_BIOS_ADDR};
+ 
+ const SECTOR_SIZE: u64 = 512;
+ const BLOCKS_PER_SECTOR: u64 = BLOCK_SIZE / SECTOR_SIZE;
+diff --git a/src/os/bios/memory_map.rs b/src/os/bios/memory_map.rs
+index d47f6b2..78677ec 100644
+--- a/src/os/bios/memory_map.rs
++++ b/src/os/bios/memory_map.rs
+@@ -3,7 +3,7 @@ use core::{cmp, mem, ptr};
+ use crate::area_add;
+ use crate::os::{OsMemoryEntry, OsMemoryKind};
+ 
+-use super::{MEMORY_MAP_ADDR, thunk::ThunkData};
++use super::{thunk::ThunkData, MEMORY_MAP_ADDR};
+ 
+ #[repr(C, packed)]
+ struct MemoryMapEntry {
+diff --git a/src/os/bios/mod.rs b/src/os/bios/mod.rs
+index a9873d7..c016688 100644
+--- a/src/os/bios/mod.rs
++++ b/src/os/bios/mod.rs
+@@ -1,11 +1,11 @@
+-use alloc::alloc::{Layout, alloc_zeroed};
++use alloc::alloc::{alloc_zeroed, Layout};
+ use core::{convert::TryFrom, mem, ptr, slice};
+ use linked_list_allocator::LockedHeap;
+ use spin::Mutex;
+ 
+-use crate::KernelArgs;
+ use crate::logger::LOGGER;
+ use crate::os::{Os, OsHwDesc, OsKey, OsVideoMode};
++use crate::KernelArgs;
+ 
+ use self::disk::DiskBios;
+ use self::memory_map::memory_map;
+@@ -109,9 +109,14 @@ impl Os for OsBios {
+ 
+         let page_size = self.page_size();
+         let pages = size.div_ceil(page_size);
++        let Some(total_size) = pages.checked_mul(page_size) else {
++            return ptr::null_mut();
++        };
++        let Ok(layout) = Layout::from_size_align(total_size, page_size) else {
++            return ptr::null_mut();
++        };
+ 
+-        let ptr =
+-            unsafe { alloc_zeroed(Layout::from_size_align(pages * page_size, page_size).unwrap()) };
++        let ptr = unsafe { alloc_zeroed(layout) };
+ 
+         assert!(!ptr.is_null());
+         ptr
+diff --git a/src/os/mod.rs b/src/os/mod.rs
+index 92c00c9..f01c222 100644
+--- a/src/os/mod.rs
++++ b/src/os/mod.rs
+@@ -32,6 +32,7 @@ pub enum OsKey {
+     Delete,
+     Enter,
+     Char(char),
++    Timeout,
+     Other,
+ }
+ 
+@@ -87,6 +88,9 @@ pub trait Os {
+     fn best_resolution(&self, output_i: usize) -> Option<(u32, u32)>;
+ 
+     fn get_key(&self) -> OsKey;
++    fn get_key_timeout(&self, _milliseconds: usize) -> OsKey {
++        self.get_key()
++    }
+ 
+     fn clear_text(&self);
+     fn get_text_position(&self) -> (usize, usize);
+diff --git a/src/os/uefi/arch/aarch64.rs b/src/os/uefi/arch/aarch64.rs
+index 3e36beb..bede418 100644
+--- a/src/os/uefi/arch/aarch64.rs
++++ b/src/os/uefi/arch/aarch64.rs
+@@ -2,12 +2,12 @@ use core::{arch::asm, fmt::Write, mem, slice};
+ use uefi::status::Result;
+ 
+ use crate::{
+-    KernelArgs,
+     arch::{ENTRY_ADDRESS_MASK, PAGE_ENTRIES, PF_PRESENT, PF_TABLE, PHYS_OFFSET},
+     logger::LOGGER,
++    KernelArgs,
+ };
+ 
+-use super::super::{OsEfi, memory_map::memory_map};
++use super::super::{memory_map::memory_map, OsEfi};
+ 
+ unsafe fn dump_page_tables(table_phys: u64, table_virt: u64, table_level: u64) {
+     unsafe {
+diff --git a/src/os/uefi/arch/riscv64/mod.rs b/src/os/uefi/arch/riscv64/mod.rs
+index ac3bc49..92dc280 100644
+--- a/src/os/uefi/arch/riscv64/mod.rs
++++ b/src/os/uefi/arch/riscv64/mod.rs
+@@ -1,8 +1,8 @@
+-use crate::KernelArgs;
+ use crate::arch::PHYS_OFFSET;
+ use crate::logger::LOGGER;
+-use crate::os::OsEfi;
+ use crate::os::uefi::memory_map::memory_map;
++use crate::os::OsEfi;
++use crate::KernelArgs;
+ use core::arch::asm;
+ use core::mem;
+ use uefi::status::Result;
+diff --git a/src/os/uefi/arch/x86_64.rs b/src/os/uefi/arch/x86_64.rs
+index e1ecaa5..52cef13 100644
+--- a/src/os/uefi/arch/x86_64.rs
++++ b/src/os/uefi/arch/x86_64.rs
+@@ -5,9 +5,9 @@ use x86::{
+     msr,
+ };
+ 
+-use crate::{KernelArgs, logger::LOGGER};
++use crate::{logger::LOGGER, KernelArgs};
+ 
+-use super::super::{OsEfi, memory_map::memory_map};
++use super::super::{memory_map::memory_map, OsEfi};
+ 
+ unsafe extern "C" fn kernel_entry(
+     page_phys: usize,
+diff --git a/src/os/uefi/device.rs b/src/os/uefi/device.rs
+index 36b48dc..0b7991f 100644
+--- a/src/os/uefi/device.rs
++++ b/src/os/uefi/device.rs
+@@ -1,13 +1,13 @@
+ use alloc::{string::String, vec, vec::Vec};
+ use core::{fmt::Write, mem, ptr, slice};
+ use uefi::{
+-    Handle,
+     device::{
+         DevicePath, DevicePathAcpiType, DevicePathBbsType, DevicePathEndType,
+         DevicePathHardwareType, DevicePathMediaType, DevicePathMessagingType, DevicePathType,
+     },
+     guid::Guid,
+     status::Status,
++    Handle,
+ };
+ use uefi_std::{fs::FileSystem, loaded_image::LoadedImage, proto::Protocol};
+ 
+diff --git a/src/os/uefi/disk.rs b/src/os/uefi/disk.rs
+index 31e02db..3f920bb 100644
+--- a/src/os/uefi/disk.rs
++++ b/src/os/uefi/disk.rs
+@@ -1,10 +1,10 @@
+ use alloc::vec::Vec;
+ use core::slice;
+-use redoxfs::{BLOCK_SIZE, Disk, RECORD_SIZE};
++use redoxfs::{Disk, BLOCK_SIZE, RECORD_SIZE};
+ use std::proto::Protocol;
+-use syscall::{EINVAL, EIO, Error, Result};
++use syscall::{Error, Result, EINVAL, EIO};
+ use uefi::block_io::BlockIo as UefiBlockIo;
+-use uefi::guid::{BLOCK_IO_GUID, Guid};
++use uefi::guid::{Guid, BLOCK_IO_GUID};
+ 
+ pub enum DiskOrFileEfi {
+     Disk(DiskEfi),
+diff --git a/src/os/uefi/display.rs b/src/os/uefi/display.rs
+index 95b7c2f..8bbe6e3 100644
+--- a/src/os/uefi/display.rs
++++ b/src/os/uefi/display.rs
+@@ -1,6 +1,6 @@
+ use std::proto::Protocol;
+ use uefi::graphics::GraphicsOutput;
+-use uefi::guid::{GRAPHICS_OUTPUT_PROTOCOL_GUID, Guid};
++use uefi::guid::{Guid, GRAPHICS_OUTPUT_PROTOCOL_GUID};
+ 
+ pub struct Output(pub &'static mut GraphicsOutput);
+ 
+diff --git a/src/os/uefi/dtb.rs b/src/os/uefi/dtb.rs
+index 812c752..975c983 100644
+--- a/src/os/uefi/dtb.rs
++++ b/src/os/uefi/dtb.rs
+@@ -1,7 +1,7 @@
+ use crate::Os;
+ use alloc::vec::Vec;
+-use byteorder::BE;
+ use byteorder::ByteOrder;
++use byteorder::BE;
+ use core::slice;
+ use fdt::Fdt;
+ use uefi::guid::DEVICE_TREE_GUID;
+diff --git a/src/os/uefi/mod.rs b/src/os/uefi/mod.rs
+index bbd034b..c79266e 100644
+--- a/src/os/uefi/mod.rs
++++ b/src/os/uefi/mod.rs
+@@ -2,13 +2,13 @@ use alloc::vec::Vec;
+ use core::{cell::RefCell, mem, ptr, slice};
+ use std::proto::Protocol;
+ use uefi::{
+-    Handle,
+     boot::LocateSearchType,
+     memory::MemoryType,
+     reset::ResetType,
+     status::{Result, Status},
+     system::SystemTable,
+     text::TextInputKey,
++    Handle,
+ };
+ 
+ use crate::os::{Os, OsHwDesc, OsKey, OsVideoMode};
+@@ -103,7 +103,7 @@ impl OsEfi {
+ 
+                                 for other_output in outputs.iter() {
+                                     if output.0.Mode.FrameBufferBase
+-                                        == other_output.0.0.Mode.FrameBufferBase
++                                        == other_output.0 .0.Mode.FrameBufferBase
+                                     {
+                                         log::debug!(
+                                             "Skipping output with frame buffer base matching another output"
+@@ -236,7 +236,7 @@ impl Os for OsEfi {
+         let output_opt = match self.outputs.borrow_mut().get_mut(output_i) {
+             Some(output) => unsafe {
+                 // Hack to enable clone
+-                let ptr = output.0.0 as *mut _;
++                let ptr = output.0 .0 as *mut _;
+                 Some(Output::new(&mut *ptr))
+             },
+             None => None,
+@@ -320,6 +320,40 @@ impl Os for OsEfi {
+         }
+     }
+ 
++    fn get_key_timeout(&self, milliseconds: usize) -> OsKey {
++        let slices = milliseconds.div_ceil(100);
++        for _ in 0..slices {
++            let mut key = TextInputKey {
++                ScanCode: 0,
++                UnicodeChar: 0,
++            };
++
++            let status = (self.st.ConsoleIn.ReadKeyStroke)(self.st.ConsoleIn, &mut key);
++            if status.is_success() {
++                return match key.ScanCode {
++                    0 => match key.UnicodeChar {
++                        8 => OsKey::Backspace,
++                        13 => OsKey::Enter,
++                        w => match char::from_u32(w as u32) {
++                            Some(c) => OsKey::Char(c),
++                            None => OsKey::Other,
++                        },
++                    },
++                    1 => OsKey::Up,
++                    2 => OsKey::Down,
++                    3 => OsKey::Right,
++                    4 => OsKey::Left,
++                    8 => OsKey::Delete,
++                    _ => OsKey::Other,
++                };
++            }
++
++            let _ = status_to_result((self.st.BootServices.Stall)(100_000));
++        }
++
++        OsKey::Timeout
++    }
++
+     fn clear_text(&self) {
+         //TODO: why does this sometimes return InvalidParameter, but otherwise appear to work?
+         let _ = status_to_result((self.st.ConsoleOut.ClearScreen)(self.st.ConsoleOut));
+diff --git a/src/os/uefi/video_mode.rs b/src/os/uefi/video_mode.rs
+index b6e020a..364dfbc 100644
+--- a/src/os/uefi/video_mode.rs
++++ b/src/os/uefi/video_mode.rs
+@@ -2,8 +2,8 @@ use core::ptr;
+ use log::error;
+ use uefi::status::Status;
+ 
+-use crate::os::OsVideoMode;
+ use crate::os::uefi::display::Output;
++use crate::os::OsVideoMode;
+ 
+ pub struct VideoModeIter {
+     output_opt: Option<Output>,
