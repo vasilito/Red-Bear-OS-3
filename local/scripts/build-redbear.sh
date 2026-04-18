@@ -213,6 +213,16 @@ if [ "$CONFIG" = "redbear-minimal" ] || [ "$CONFIG" = "redbear-desktop" ]; then
     echo "  ./local/scripts/validate-vm-network-baseline.sh"
     echo "  ./local/scripts/test-vm-network-qemu.sh $CONFIG"
 fi
+if [ "$CONFIG" = "redbear-desktop" ] || [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-wayland" ] || [ "$CONFIG" = "redbear-kde" ]; then
+    echo ""
+    echo "To validate bounded low-level controller proofs:"
+    echo "  ./local/scripts/test-lowlevel-controllers-qemu.sh $CONFIG"
+    echo "  # or run individual checks: test-xhci-irq-qemu.sh, test-iommu-qemu.sh, test-ps2-qemu.sh, test-timer-qemu.sh"
+    echo ""
+    echo "To validate bounded USB maturity proofs:"
+    echo "  ./local/scripts/test-usb-maturity-qemu.sh $CONFIG"
+    echo "  # or run individual checks: test-usb-qemu.sh --check, test-usb-storage-qemu.sh"
+fi
 if [ "$CONFIG" = "redbear-wayland" ]; then
     echo ""
     echo "To validate the bounded Phase 4 Wayland runtime harness:"

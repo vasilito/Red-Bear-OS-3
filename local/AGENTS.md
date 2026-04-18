@@ -181,7 +181,11 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── finalize-wifi-validation-run.sh ← Analyze a Wi-Fi capture bundle and package the final evidence set
 │   │   ├── validate-vm-network-baseline.sh ← Static repo-level VM networking baseline check
 │   │   ├── test-vm-network-qemu.sh ← QEMU launcher for the VirtIO VM networking baseline
-│   │   └── test-vm-network-runtime.sh ← In-guest runtime check for the VM networking baseline
+│   │   ├── test-vm-network-runtime.sh ← In-guest runtime check for the VM networking baseline
+│   │   ├── test-ps2-qemu.sh ← QEMU launcher for the bounded PS/2 + serio runtime proof
+│   │   ├── test-timer-qemu.sh ← QEMU launcher for the bounded monotonic timer runtime proof
+│   │   ├── test-lowlevel-controllers-qemu.sh ← Sequential wrapper for bounded low-level controller proofs
+│   │   └── test-usb-maturity-qemu.sh ← Sequential wrapper for bounded USB maturity proofs
 │   └── docs/                  ← Integration docs
 ```
 
@@ -214,14 +218,24 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/test-xhci-irq-qemu.sh --check
 ./local/scripts/test-msix-qemu.sh
 ./local/scripts/test-iommu-qemu.sh
+./local/scripts/test-ps2-qemu.sh --check
+./local/scripts/test-timer-qemu.sh --check
+./local/scripts/test-lowlevel-controllers-qemu.sh
 ./local/scripts/test-usb-storage-qemu.sh
 ./local/scripts/test-usb-qemu.sh --check
+./local/scripts/test-usb-maturity-qemu.sh
 
 # The current xHCI proof checks for an interrupt-driven mode in boot logs.
 # The current MSI-X proof uses the live virtio-net path in QEMU.
 # The current IOMMU proof runs a guest-driven first-use self-test and checks that discovered
 # AMD-Vi units initialize and drain events successfully in QEMU.
-# The USB storage proof currently verifies whether usbscsid autospawns without hitting crash-class errors.
+# The current PS/2 proof checks serio node visibility and then hands off to the existing Phase 3
+# input-path checker inside the guest.
+# The current timer proof checks that /scheme/time/CLOCK_MONOTONIC advances across two guest reads.
+# The aggregate low-level wrapper runs xHCI, IOMMU, PS/2, and timer proofs in sequence.
+# The USB storage proof now verifies usbscsid autospawn plus bounded sector-0 readback against a
+# host-seeded pattern, while guest-side write verification is still open.
+# The aggregate USB wrapper runs xHCI mode, full USB stack, and USB storage readback proofs in sequence.
 
 # Legacy Phase 4 Wayland runtime validation (historical P0-P6 numbering; script still works)
 ./local/scripts/build-redbear.sh redbear-wayland

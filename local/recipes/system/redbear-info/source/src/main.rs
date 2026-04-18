@@ -344,6 +344,26 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         functional_probe: Some(probe_iommu_scheme),
     },
     IntegrationCheck {
+        name: "redbear-phase-ps2-check",
+        category: "Validation",
+        description: "Bounded PS/2 + serio runtime proof helper",
+        artifact_path: Some("/usr/bin/redbear-phase-ps2-check"),
+        control_path: Some("/scheme/serio/0"),
+        test_hint: "redbear-phase-ps2-check",
+        note: "Functional when the PS/2 proof helper is installed and both serio keyboard/mouse nodes are visible.",
+        functional_probe: Some(probe_serio_surface),
+    },
+    IntegrationCheck {
+        name: "redbear-phase-timer-check",
+        category: "Validation",
+        description: "Bounded monotonic timer runtime proof helper",
+        artifact_path: Some("/usr/bin/redbear-phase-timer-check"),
+        control_path: Some("/scheme/time/4"),
+        test_hint: "redbear-phase-timer-check",
+        note: "Functional when the monotonic time scheme node is visible for bounded runtime timer proof.",
+        functional_probe: Some(probe_time_surface),
+    },
+    IntegrationCheck {
         name: "udev-shim",
         category: "System",
         description: "udev-compatible device enumeration shim",
@@ -2138,6 +2158,28 @@ fn probe_iommu_scheme(
     _check: &IntegrationCheck,
 ) -> Option<String> {
     probe_named_scheme(runtime, "iommu")
+}
+
+fn probe_serio_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    (runtime.exists("/scheme/serio/0") && runtime.exists("/scheme/serio/1")).then(|| {
+        "serio keyboard and mouse nodes are visible for PS/2 proof".to_string()
+    })
+}
+
+fn probe_time_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    runtime
+        .exists("/scheme/time/4")
+        .then(|| "monotonic time scheme node is visible for runtime proof".to_string())
 }
 
 fn probe_rtl8125_path(
