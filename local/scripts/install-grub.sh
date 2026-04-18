@@ -46,23 +46,14 @@ find_artifact() {
 }
 
 GRUB_EFI=""
-GRUB_CFG=""
+GRUB_CFG="${REPO_ROOT}/local/recipes/core/grub/grub.cfg"
 
 GRUB_TARGET="${REPO_ROOT}/local/recipes/core/grub/target"
 GRUB_EFI="$(find_artifact "${GRUB_TARGET}" "*/stage/usr/lib/boot/grub.efi")" || true
-GRUB_CFG="$(find_artifact "${GRUB_TARGET}" "*/stage/usr/lib/boot/grub.cfg")" || true
 
 # Fallback: search repo extracted packages
 if [ -z "${GRUB_EFI}" ]; then
     GRUB_EFI="$(find_artifact "${REPO_ROOT}/repo" "*/grub/*/usr/lib/boot/grub.efi")" || true
-fi
-
-if [ -z "${GRUB_CFG}" ]; then
-    GRUB_CFG="$(find_artifact "${REPO_ROOT}/repo" "*/grub/*/usr/lib/boot/grub.cfg")" || true
-fi
-
-if [ -z "${GRUB_CFG}" ] && [ -f "${REPO_ROOT}/local/recipes/core/grub/grub.cfg" ]; then
-    GRUB_CFG="${REPO_ROOT}/local/recipes/core/grub/grub.cfg"
 fi
 
 if [ -z "${GRUB_EFI}" ]; then

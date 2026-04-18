@@ -7,7 +7,8 @@
 # Output: /usr/lib/boot/grub.efi, /usr/lib/boot/grub.cfg
 #
 # Build: make r.grub
-# Install into image: ./local/scripts/install-grub.sh build/x86_64/harddrive.img
+# Install into image (Phase 1):  ./local/scripts/install-grub.sh build/x86_64/harddrive.img
+# Install into image (Phase 2):  make all CONFIG_NAME=redbear-full-grub
 #
 # Requires: gcc, make, bison, flex, autoconf, automake on host
 
