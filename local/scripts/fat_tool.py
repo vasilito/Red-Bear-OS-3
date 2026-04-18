@@ -98,6 +98,12 @@ class Fat32:
         if self.cluster_count == 0 or not 2 <= self.root_cluster <= self.max_cluster:
             raise RuntimeError("FAT32: invalid root cluster")
 
+        fat_bytes = self.fat_size * self.bytes_per_sector
+        if (self.max_cluster + 1) * 4 > fat_bytes:
+            raise RuntimeError(
+                f"FAT32: FAT too small ({fat_bytes} bytes) for {self.max_cluster} clusters"
+            )
+
         data_end = self.data_start + self.cluster_count * self.cluster_size
         if self.data_start > self.image_size or data_end > self.image_size:
             raise RuntimeError("FAT32: filesystem exceeds backing image")
@@ -144,7 +150,9 @@ class Fat32:
         write_le32(self.fat, cluster * 4, value & 0x0FFFFFFF)
 
     def _alloc_cluster(self):
-        for i in range(2, self.max_cluster + 1):
+        fat_entries = len(self.fat) // 4
+        limit = min(self.max_cluster + 1, fat_entries)
+        for i in range(2, limit):
             if read_le32(self.fat, i * 4) == 0:
                 self._set_fat(i, END_OF_CHAIN)
                 self._flush_fat()
