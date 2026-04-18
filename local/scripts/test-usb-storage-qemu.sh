@@ -3,6 +3,25 @@
 
 set -euo pipefail
 
+seed_usb_image() {
+    local image_path="$1"
+    python3 - "$image_path" <<'PY'
+import base64
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = (b"REDBEAR-USB-STORAGE-CHECK\0" * 32)[:512]
+payload = payload.ljust(512, b'\0')
+
+with path.open("r+b") as fh:
+    fh.seek(0)
+    fh.write(payload)
+
+print(base64.b64encode(payload).decode("ascii"))
+PY
+}
+
 find_uefi_firmware() {
     local candidates=(
         "/usr/share/ovmf/x64/OVMF.4m.fd"
@@ -66,6 +85,8 @@ if [[ ! -f "$usb_img" ]]; then
     truncate -s 64M "$usb_img"
 fi
 
+expected_sector_b64="$(seed_usb_image "$usb_img")"
+
 pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
 sleep 1
 
@@ -101,9 +122,14 @@ if ! grep -q "USB SCSI driver spawned" "$log_file"; then
     exit 1
 fi
 
+if ! grep -Fq "DISK CONTENT: $expected_sector_b64" "$log_file"; then
+    echo "ERROR: USB storage sector 0 readback did not match the seeded pattern; see $log_file" >&2
+    exit 1
+fi
+
 if grep -q "panic\|usbscsid: .*IO ERROR\|usbscsid: startup failed\|usbscsid: event queue error\|usbscsid: scheme tick failed\|bulk .* endpoint stalled" "$log_file"; then
     echo "ERROR: USB storage path hit a crash/error; see $log_file" >&2
     exit 1
 fi
 
-echo "USB mass-storage autospawn detected in $log_file"
+echo "USB mass-storage readback verified in $log_file"

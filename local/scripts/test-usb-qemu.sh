@@ -6,6 +6,25 @@
 
 set -euo pipefail
 
+seed_usb_image() {
+    local image_path="$1"
+    python3 - "$image_path" <<'PY'
+import base64
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = (b"REDBEAR-USB-FULL-STACK-CHECK\0" * 32)[:512]
+payload = payload.ljust(512, b'\0')
+
+with path.open("r+b") as fh:
+    fh.seek(0)
+    fh.write(payload)
+
+print(base64.b64encode(payload).decode("ascii"))
+PY
+}
+
 find_uefi_firmware() {
     local candidates=(
         "/usr/share/ovmf/x64/OVMF.4m.fd"
@@ -37,8 +56,9 @@ Checks performed:
   1. xHCI controller initializes and reports interrupt mode
   2. USB HID driver spawns for keyboard/tablet
   3. USB SCSI driver spawns for mass storage
-  4. BOS descriptor fetched (or gracefully skipped for USB 2)
-  5. No panics or crash-class errors in USB daemons
+  4. USB storage sector-0 readback matches a seeded host pattern
+  5. BOS descriptor fetched (or gracefully skipped for USB 2)
+  6. No panics or crash-class errors in USB daemons
 USAGE
 }
 
@@ -83,6 +103,8 @@ fi
 if [[ ! -f "$usb_img" ]]; then
     truncate -s 64M "$usb_img"
 fi
+
+expected_sector_b64="$(seed_usb_image "$usb_img")"
 
 pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
 sleep 1
@@ -136,11 +158,18 @@ else
     failures=$((failures + 1))
 fi
 
-# Check 3: USB SCSI driver spawn
+# Check 3: USB SCSI driver spawn + bounded data readback
 if grep -q "USB SCSI driver spawned" "$log_file"; then
     echo "  [PASS] USB SCSI driver spawned"
 else
     echo "  [FAIL] USB SCSI driver did not spawn" >&2
+    failures=$((failures + 1))
+fi
+
+if grep -Fq "DISK CONTENT: $expected_sector_b64" "$log_file"; then
+    echo "  [PASS] USB storage sector readback matched seeded pattern"
+else
+    echo "  [FAIL] USB storage sector readback did not match seeded pattern" >&2
     failures=$((failures + 1))
 fi
 
