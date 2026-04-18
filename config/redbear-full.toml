@@ -1,10 +1,11 @@
 # Red Bear OS Full Configuration
-# Desktop + RBOS branding + ext4 + input + Wayland + Qt6
+# Broader desktop/session plumbing profile beneath the KDE direction
 # Build: make all CONFIG_NAME=redbear-full
 # Live:  make live CONFIG_NAME=redbear-full
 #
-# GPU driver stack (redox-driver-sys, linux-kpi, redox-drm, amdgpu): WIP crates
-# need custom template (library-only, cargo install fails). Re-enable when fixed.
+# This is not the forward compositor/session target; it remains a broader integration slice.
+# GPU driver stack ships through redbear-meta for this profile.
+# redox-drm now carries the runtime/package dependency on the AMD backend library.
 # KDE Frameworks + KWin: depend on qtdeclarative/qtwayland. Re-enable when ported.
 # libinput/libevdev: WIP meson builds, not yet validated. Re-enable when tested.
 # seatd: now builds; DRM lease/runtime validation is still open before enabling broadly.
@@ -104,7 +105,6 @@ data = """
 [unit]
 description = "Orbital display server"
 requires_weak = [
-    "10_net.target",
 ]
 
 [service]

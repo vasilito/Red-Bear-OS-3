@@ -3,8 +3,15 @@
 # Build: ./local/scripts/build-redbear.sh redbear-wayland
 # Phase 1 substrate validation: ./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
 # Phase 2 Wayland validation:    ./local/scripts/test-phase4-wayland-qemu.sh
+#
+# Validation-only profile:
+# - smallvil remains the bounded compositor/runtime harness
+# - this profile is not the primary desktop path
+# - the primary desktop path is redbear-kde -> kwin_wayland
 
 include = ["wayland.toml"]
 
 [packages]
+redbear-firmware = {}
+redox-drm = {}
 qt6-wayland-smoke = {}
