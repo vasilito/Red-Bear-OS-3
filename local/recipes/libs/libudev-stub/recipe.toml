@@ -1,4 +1,4 @@
-#TODO: libudev stub — provides UDev::UDev cmake target for KWin linking
+#TODO: reduced libudev provider — exposes a real libudev.so / UDev::UDev surface for the current KWin path via scheme:udev and udev-shim; hotplug event delivery remains bounded
 [source]
 path = "source"
 
@@ -11,60 +11,28 @@ mkdir -p "${COOKBOOK_STAGE}/usr/include"
 mkdir -p "${COOKBOOK_STAGE}/usr/lib/cmake/UDev"
 mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
 
-cat > "${COOKBOOK_STAGE}/usr/include/libudev.h" << 'EOF'
-#pragma once
-#include <sys/types.h>
-void *udev_new(void) __attribute__((weak));
-void udev_unref(void *udev) __attribute__((weak));
-void *udev_enumerate_new(void *udev) __attribute__((weak));
-void udev_enumerate_unref(void *udev_enumerate) __attribute__((weak));
-int udev_enumerate_add_match_subsystem(void *udev_enumerate, const char *subsystem) __attribute__((weak));
-int udev_enumerate_scan_devices(void *udev_enumerate) __attribute__((weak));
-void *udev_enumerate_get_list_entry(void *udev_enumerate) __attribute__((weak));
-void *udev_list_entry_get_next(void *list_entry) __attribute__((weak));
-const char *udev_list_entry_get_name(void *list_entry) __attribute__((weak));
-void *udev_device_new_from_syspath(void *udev, const char *syspath) __attribute__((weak));
-void udev_device_unref(void *udev_device) __attribute__((weak));
-const char *udev_device_get_devnode(void *udev_device) __attribute__((weak));
-const char *udev_device_get_action(void *udev_device) __attribute__((weak));
-void *udev_monitor_new_from_netlink(void *udev, const char *name) __attribute__((weak));
-void udev_monitor_unref(void *udev_monitor) __attribute__((weak));
-int udev_monitor_enable_receiving(void *udev_monitor) __attribute__((weak));
-int udev_monitor_get_fd(void *udev_monitor) __attribute__((weak));
-void *udev_monitor_receive_device(void *udev_monitor) __attribute__((weak));
-int udev_monitor_filter_add_match_subsystem_devtype(void *udev_monitor, const char *subsystem, const char *devtype) __attribute__((weak));
-EOF
+cp "${COOKBOOK_SOURCE}/include/libudev.h" "${COOKBOOK_STAGE}/usr/include/libudev.h"
 
-cat > stub_udev.c << 'CEOF'
-void *udev_new(void) { return 0; }
-void udev_unref(void *u) { (void)u; }
-void *udev_enumerate_new(void *u) { (void)u; return 0; }
-void udev_enumerate_unref(void *e) { (void)e; }
-int udev_enumerate_add_match_subsystem(void *e, const char *s) { (void)e; (void)s; return -1; }
-int udev_enumerate_scan_devices(void *e) { (void)e; return 0; }
-void *udev_enumerate_get_list_entry(void *e) { (void)e; return 0; }
-void *udev_list_entry_get_next(void *l) { (void)l; return 0; }
-const char *udev_list_entry_get_name(void *l) { (void)l; return 0; }
-void *udev_device_new_from_syspath(void *u, const char *s) { (void)u; (void)s; return 0; }
-void udev_device_unref(void *d) { (void)d; }
-const char *udev_device_get_devnode(void *d) { (void)d; return 0; }
-const char *udev_device_get_action(void *d) { (void)d; return 0; }
-void *udev_monitor_new_from_netlink(void *u, const char *n) { (void)u; (void)n; return 0; }
-void udev_monitor_unref(void *m) { (void)m; }
-int udev_monitor_enable_receiving(void *m) { (void)m; return -1; }
-int udev_monitor_get_fd(void *m) { (void)m; return -1; }
-void *udev_monitor_receive_device(void *m) { (void)m; return 0; }
-int udev_monitor_filter_add_match_subsystem_devtype(void *m, const char *s, const char *d) { (void)m; (void)s; (void)d; return -1; }
-CEOF
-
-x86_64-unknown-redox-gcc -shared -fPIC -o "${COOKBOOK_STAGE}/usr/lib/libudev.so" stub_udev.c
+x86_64-unknown-redox-gcc \
+    -shared \
+    -fPIC \
+    -std=c11 \
+    -Wall \
+    -Wextra \
+    -Wl,-soname,libudev.so \
+    -I"${COOKBOOK_SOURCE}/include" \
+    -o "${COOKBOOK_STAGE}/usr/lib/libudev.so" \
+    "${COOKBOOK_SOURCE}/libudev.c"
 
 cat > "${COOKBOOK_STAGE}/usr/lib/cmake/UDev/UDevConfig.cmake" << 'EOF'
+set(UDev_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../../include")
+set(UDev_LIBRARIES "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libudev.so")
+set(UDev_VERSION "1.0.0")
 if(NOT TARGET UDev::UDev)
     add_library(UDev::UDev SHARED IMPORTED)
     set_target_properties(UDev::UDev PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libudev.so"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../../include"
+        IMPORTED_LOCATION "${UDev_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${UDev_INCLUDE_DIRS}"
     )
 endif()
 set(UDev_FOUND TRUE)
@@ -77,7 +45,7 @@ libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
 Name: libudev
-Description: udev stub for Redox
+Description: scheme-backed libudev provider for the reduced Red Bear path
 Version: 1.0.0
 Libs: -L${libdir} -ludev
 Cflags: -I${includedir}

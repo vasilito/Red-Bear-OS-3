@@ -65,7 +65,11 @@ set(CMAKE_CROSSCOMPILING TRUE)
 # COOKBOOK_HOST_SYSROOT is set to $(ROOT)/$(PREFIX_INSTALL) = prefix/x86_64-unknown-redox/sysroot
 # by mk/repo.mk and mk/prefix.mk. Fallback to hardcoded path if unset.
 if(NOT DEFINED COOKBOOK_HOST_SYSROOT OR COOKBOOK_HOST_SYSROOT STREQUAL "")
-    set(COOKBOOK_HOST_SYSROOT "/mnt/data/homes/kellito/Builds/rbos/prefix/x86_64-unknown-redox/sysroot")
+    if(EXISTS "$ENV{HOME}/.redoxer/x86_64-unknown-redox/toolchain/bin/x86_64-unknown-redox-gcc")
+        set(COOKBOOK_HOST_SYSROOT "$ENV{HOME}/.redoxer/x86_64-unknown-redox/toolchain")
+    else()
+        set(COOKBOOK_HOST_SYSROOT "/mnt/data/homes/kellito/Builds/rbos/prefix/x86_64-unknown-redox/sysroot")
+    endif()
 endif()
 
 set(CMAKE_C_COMPILER "${COOKBOOK_HOST_SYSROOT}/bin/x86_64-unknown-redox-gcc")

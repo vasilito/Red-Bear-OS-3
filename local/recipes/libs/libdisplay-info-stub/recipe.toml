@@ -1,4 +1,4 @@
-#TODO: libdisplay-info stub — provides libdisplay-info pkgconfig for KWin linking
+#TODO: bounded libdisplay-info shim for the KWin reduced path — parses base EDID vendor/product, strings, physical size, chromaticity, detailed timings, and preferred-timing metadata; CTA/DisplayID remain unsupported
 [source]
 path = "source"
 
@@ -8,27 +8,16 @@ script = """
 DYNAMIC_INIT
 
 mkdir -p "${COOKBOOK_STAGE}/usr/include/libdisplay-info"
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
 mkdir -p "${COOKBOOK_STAGE}/usr/lib/pkgconfig"
 
-cat > "${COOKBOOK_STAGE}/usr/include/libdisplay-info/info.h" << 'EOF'
-#pragma once
-#include <stddef.h>
-struct di_info;
-struct di_info *di_info_create(const void *data, size_t size) __attribute__((weak));
-void di_info_destroy(struct di_info *info) __attribute__((weak));
-const char *di_info_get_display_name(const struct di_info *info) __attribute__((weak));
-EOF
+cp -R "${COOKBOOK_SOURCE}/include/libdisplay-info/." "${COOKBOOK_STAGE}/usr/include/libdisplay-info/"
 
-cat > stub_di.c << 'CEOF'
-#include <stddef.h>
-
-struct di_info;
-struct di_info *di_info_create(const void *d, size_t s) { (void)d; (void)s; return 0; }
-void di_info_destroy(struct di_info *i) { (void)i; }
-const char *di_info_get_display_name(const struct di_info *i) { (void)i; return 0; }
-CEOF
-
-x86_64-unknown-redox-gcc -shared -fPIC -o "${COOKBOOK_STAGE}/usr/lib/libdisplay-info.so" stub_di.c
+x86_64-unknown-redox-gcc -shared -fPIC \
+    -Wl,-soname,libdisplay-info.so \
+    -I"${COOKBOOK_SOURCE}/include" \
+    -o "${COOKBOOK_STAGE}/usr/lib/libdisplay-info.so" \
+    "${COOKBOOK_SOURCE}/stub_di.c"
 
 cat > "${COOKBOOK_STAGE}/usr/lib/pkgconfig/libdisplay-info.pc" << 'EOF'
 prefix=/usr
@@ -37,9 +26,9 @@ libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
 Name: libdisplay-info
-Description: libdisplay-info stub for Redox
+Description: libdisplay-info compatibility shim for Redox
 Version: 0.2.0
 Libs: -L${libdir} -ldisplay-info
-Cflags: -I${includedir}/libdisplay-info
+Cflags: -I${includedir}
 EOF
 """
