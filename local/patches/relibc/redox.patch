@@ -1,0 +1,157 @@
+diff --git a/src/c/stdlib.c b/src/c/stdlib.c
+index 62e98108..a9c72392 100644
+--- a/src/c/stdlib.c
++++ b/src/c/stdlib.c
+@@ -4,6 +4,13 @@ long double strtold(const char *nptr, char **endptr) {
+     return (long double)strtod(nptr, endptr);
+ }
+ 
++long double relibc_compat_cpp_strtold(const char *nptr, char **endptr)
++    __asm__("_Z7strtoldPKcPPc");
++
++long double relibc_compat_cpp_strtold(const char *nptr, char **endptr) {
++    return strtold(nptr, endptr);
++}
++
+ double relibc_ldtod(const long double* val) {
+     return (double)(*val);
+ }
+diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
+index 6a4db2fa..82484375 100644
+--- a/src/header/fcntl/mod.rs
++++ b/src/header/fcntl/mod.rs
+@@ -7,6 +7,7 @@ use core::num::NonZeroU64;
+ use crate::{
+     c_str::CStr,
+     error::ResultExt,
++    header::unistd::{close, dup},
+     platform::{
+         Pal, Sys,
+         types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
+@@ -74,6 +75,18 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
+         _ => 0,
+     };
+ 
++    if cmd == F_DUPFD_CLOEXEC {
++        let new_fd = dup(fildes);
++        if new_fd < 0 {
++            return -1;
++        }
++        if unsafe { fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong) } < 0 {
++            let _ = close(new_fd);
++            return -1;
++        }
++        return new_fd;
++    }
++
+     Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
+ }
+ 
+diff --git a/src/header/mod.rs b/src/header/mod.rs
+index d3a7ba75..72f82084 100644
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -89,20 +89,23 @@ pub mod strings;
+ // TODO: stropts.h (deprecated)
+ pub mod sys_auxv;
+ pub mod sys_epoll;
++pub mod sys_eventfd;
+ pub mod sys_file;
+ pub mod sys_ioctl;
+-// TODO: sys/ipc.h
++pub mod sys_ipc;
+ pub mod sys_mman;
+ // TODO: sys/msg.h
+ pub mod sys_ptrace;
+ pub mod sys_resource;
+ pub mod sys_select;
+-// TODO: sys/sem.h
+-// TODO: sys/shm.h
++pub mod sys_sem;
++pub mod sys_shm;
+ pub mod sys_socket;
+ pub mod sys_stat;
+ pub mod sys_statvfs;
+ pub mod sys_time;
++pub mod sys_timerfd;
++pub mod sys_signalfd;
+ #[deprecated]
+ pub mod sys_timeb;
+ //pub mod sys_times;
+diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+index 858d5ed4..5b5172aa 100644
+--- a/src/header/signal/mod.rs
++++ b/src/header/signal/mod.rs
+@@ -32,6 +32,9 @@ pub mod sys;
+ #[path = "redox.rs"]
+ pub mod sys;
+ 
++mod signalfd;
++pub use self::signalfd::*;
++
+ type SigSet = BitSet<[u64; 1]>;
+ 
+ pub(crate) const SIG_DFL: usize = 0;
+diff --git a/src/header/stdio/mod.rs b/src/header/stdio/mod.rs
+index 069d4556..f7fe791a 100644
+--- a/src/header/stdio/mod.rs
++++ b/src/header/stdio/mod.rs
+@@ -47,6 +47,9 @@ mod default;
+ pub use self::getdelim::*;
+ mod getdelim;
+ 
++pub use self::open_memstream::*;
++mod open_memstream;
++
+ mod ext;
+ mod helpers;
+ pub mod printf;
+diff --git a/src/header/stdlib/cbindgen.toml b/src/header/stdlib/cbindgen.toml
+index 2e02e68a..07867c32 100644
+--- a/src/header/stdlib/cbindgen.toml
++++ b/src/header/stdlib/cbindgen.toml
+@@ -1,7 +1,20 @@
+ sys_includes = ["stddef.h", "alloca.h", "wchar.h", "features.h"]
+ include_guard = "_RELIBC_STDLIB_H"
+ trailer = """
++#ifndef _RELIBC_STDLIB_STRTOLD_H
++#define _RELIBC_STDLIB_STRTOLD_H
++
++#ifdef __cplusplus
++extern \"C\" {
++#endif
++
+ long double strtold(const char *nptr, char **endptr);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+ """
+ language = "C"
+ style = "Type"
+diff --git a/src/header/sys_socket/constants.rs b/src/header/sys_socket/constants.rs
+index ec42889b..bebfc7b2 100644
+--- a/src/header/sys_socket/constants.rs
++++ b/src/header/sys_socket/constants.rs
+@@ -51,6 +51,7 @@ pub const MSG_TRUNC: c_int = 32;
+ pub const MSG_DONTWAIT: c_int = 64;
+ pub const MSG_WAITALL: c_int = 256;
+ pub const MSG_CMSG_CLOEXEC: c_int = 0x40000000;
++pub const MSG_NOSIGNAL: c_int = 0x4000;
+ 
+ pub const IP_ADD_SOURCE_MEMBERSHIP: c_int = 70;
+ pub const IP_DROP_SOURCE_MEMBERSHIP: c_int = 71;
+diff --git a/src/header/sys_socket/mod.rs b/src/header/sys_socket/mod.rs
+index 1c0c6d74..73a7f2e7 100644
+--- a/src/header/sys_socket/mod.rs
++++ b/src/header/sys_socket/mod.rs
+@@ -334,6 +334,7 @@ pub unsafe extern "C" fn recvfrom(
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/recvmsg.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn recvmsg(socket: c_int, msg: *mut msghdr, flags: c_int) -> ssize_t {
++    let flags = flags & !constants::MSG_NOSIGNAL;
+     unsafe { Sys::recvmsg(socket, msg, flags) }
+         .map(|r| r as ssize_t)
+         .or_minus_one_errno()
