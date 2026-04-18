@@ -92,6 +92,11 @@ tree”. It is now proven as an overlay workflow:
 3. rebuild relibc
 4. rebuild real downstream consumers (`libwayland`, `qtbase`)
 
+For the current tree, that overlay story now includes the tracked
+`local/patches/relibc/redox.patch` carrier owning the bounded interface-enumeration and
+resolver-header compatibility deltas (`ifaddrs` / `net_if`, `arpa/nameser.h`, `resolv.h`) rather
+than leaving those as standalone transient patch files.
+
 ## Scope Map
 
 ### In scope in relibc today

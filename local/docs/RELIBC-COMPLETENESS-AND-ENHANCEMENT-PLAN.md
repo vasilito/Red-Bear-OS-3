@@ -114,6 +114,12 @@ The goal is durable compatibility, not a permanent relibc fork.
 > `CI=1 ./target/release/repo cook relibc`, then `CI=1 ./target/release/repo cook libwayland`, then
 > `CI=1 ./target/release/repo cook qtbase`. This is the strongest current proof that the relibc
 > compatibility work is preserved in the right place for long-term maintenance.
+>
+> **Current patch-carrier note:** the bounded `ifaddrs` / `net_if` work and the bounded
+> `arpa/nameser.h` / `resolv.h` compatibility work are now preserved in the tracked
+> `local/patches/relibc/redox.patch` carrier instead of separate transient patch files. The durable
+> relibc recipe patch chain therefore consists only of tracked local patch files plus
+> `recipes/core/relibc/recipe.toml` wiring.
 
 ### Summary
 
@@ -162,13 +168,11 @@ greenfield libc effort.
 ### 2. The historical P3 Wayland-facing API bridge is now source-visible
 
 The local relibc patch carriers documented the APIs that historically blocked Wayland and downstream
-consumers. Some of those fixes are still Red Bear-owned overlays; others are now present upstream and
-should no longer be carried locally.
-
-- `local/patches/relibc/P3-signalfd.patch`
-- `local/patches/relibc/P3-timerfd.patch`
-- `local/patches/relibc/P3-eventfd.patch`
-- `local/patches/relibc/P3-waitid.patch`
+consumers. In the current preserved tree, the overlapping Wayland/Qt-facing registration and API work
+for `signalfd`, `timerfd`, `eventfd`, `waitid`, `open_memstream`, socket flags, bounded
+`ifaddrs`/`net_if`, and the bounded resolver headers now lives in the tracked
+`local/patches/relibc/redox.patch` carrier so the recipe does not depend on a fragile stack of
+overlapping standalone patch files.
 
 The remaining Red Bear-owned relibc carriers currently add or complete:
 
