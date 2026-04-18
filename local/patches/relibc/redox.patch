@@ -24,20 +24,25 @@ index 6a4db2fa..82484375 100644
  use crate::{
      c_str::CStr,
      error::ResultExt,
-+    header::unistd::{close, dup},
++    header::unistd::close,
      platform::{
          Pal, Sys,
          types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
-@@ -74,6 +75,18 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
+@@ -74,5 +75,22 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
          _ => 0,
      };
  
 +    if cmd == F_DUPFD_CLOEXEC {
-+        let new_fd = dup(fildes);
++        let new_fd = Sys::fcntl(fildes, F_DUPFD_CLOEXEC, arg).or_minus_one_errno();
++        if new_fd >= 0 {
++            return new_fd;
++        }
++
++        let new_fd = Sys::fcntl(fildes, F_DUPFD, arg).or_minus_one_errno();
 +        if new_fd < 0 {
 +            return -1;
 +        }
-+        if unsafe { fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong) } < 0 {
++        if Sys::fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong).or_minus_one_errno() < 0 {
 +            let _ = close(new_fd);
 +            return -1;
 +        }
@@ -46,112 +51,200 @@ index 6a4db2fa..82484375 100644
 +
      Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
  }
+diff --git a/src/header/fcntl/linux.rs b/src/header/fcntl/linux.rs
+index 9a3978dc..906ad525 100644
+--- a/src/header/fcntl/linux.rs
++++ b/src/header/fcntl/linux.rs
+@@ -15,7 +15,7 @@ pub const O_DIRECTORY: c_int = 0x1_0000;
+ pub const O_NOFOLLOW: c_int = 0x2_0000;
+ pub const O_CLOEXEC: c_int = 0x8_0000;
+ pub const O_PATH: c_int = 0x20_0000;
  
+-pub const FD_CLOEXEC: c_int = 0x8_0000;
++pub const FD_CLOEXEC: c_int = 1;
+ 
+ // Defined for compatibility
+ pub const O_NDELAY: c_int = O_NONBLOCK;
 diff --git a/src/header/mod.rs b/src/header/mod.rs
-index d3a7ba75..72f82084 100644
+index d3a7ba75..4cdc9f1d 100644
 --- a/src/header/mod.rs
 +++ b/src/header/mod.rs
-@@ -89,20 +89,23 @@ pub mod strings;
- // TODO: stropts.h (deprecated)
- pub mod sys_auxv;
- pub mod sys_epoll;
-+pub mod sys_eventfd;
- pub mod sys_file;
- pub mod sys_ioctl;
--// TODO: sys/ipc.h
-+pub mod sys_ipc;
- pub mod sys_mman;
- // TODO: sys/msg.h
- pub mod sys_ptrace;
- pub mod sys_resource;
- pub mod sys_select;
--// TODO: sys/sem.h
--// TODO: sys/shm.h
-+pub mod sys_sem;
-+pub mod sys_shm;
- pub mod sys_socket;
- pub mod sys_stat;
- pub mod sys_statvfs;
- pub mod sys_time;
-+pub mod sys_timerfd;
-+pub mod sys_signalfd;
- #[deprecated]
- pub mod sys_timeb;
- //pub mod sys_times;
-diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
-index 858d5ed4..5b5172aa 100644
---- a/src/header/signal/mod.rs
-+++ b/src/header/signal/mod.rs
-@@ -32,6 +32,9 @@ pub mod sys;
- #[path = "redox.rs"]
- pub mod sys;
+@@ -2,6 +2,7 @@
  
-+mod signalfd;
-+pub use self::signalfd::*;
+ pub mod _aio;
+ pub mod _fenv;
++pub mod arpa_nameser;
+ pub mod arpa_inet;
+ pub mod assert;
+ pub mod bits_arpainet;
+@@ -66,6 +67,7 @@ pub mod pty;
+ pub mod pwd;
+ // TODO: re_comp.h (deprecated)
+ pub mod regex;
++pub mod resolv;
+ // TODO: regexp.h (deprecated)
+ pub mod sched;
+ // TODO: search.h
+diff --git a/src/header/arpa_nameser/cbindgen.toml b/src/header/arpa_nameser/cbindgen.toml
+new file mode 100644
+--- /dev/null
++++ b/src/header/arpa_nameser/cbindgen.toml
+@@ -0,0 +1,9 @@
++sys_includes = ["sys/types.h", "stdint.h"]
++include_guard = "_ARPA_NAMESER_H"
++trailer = """
++typedef struct HEADER HEADER;
++"""
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
+diff --git a/src/header/arpa_nameser/mod.rs b/src/header/arpa_nameser/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/arpa_nameser/mod.rs
+@@ -0,0 +1,74 @@
++//! `arpa/nameser.h` compatibility surface.
 +
- type SigSet = BitSet<[u64; 1]>;
- 
- pub(crate) const SIG_DFL: usize = 0;
-diff --git a/src/header/stdio/mod.rs b/src/header/stdio/mod.rs
-index 069d4556..f7fe791a 100644
---- a/src/header/stdio/mod.rs
-+++ b/src/header/stdio/mod.rs
-@@ -47,6 +47,9 @@ mod default;
- pub use self::getdelim::*;
- mod getdelim;
- 
-+pub use self::open_memstream::*;
-+mod open_memstream;
++use crate::{
++    header::errno::EINVAL,
++    platform::{
++        ERRNO,
++        types::{c_char, c_int, c_uchar},
++    },
++};
 +
- mod ext;
- mod helpers;
- pub mod printf;
-diff --git a/src/header/stdlib/cbindgen.toml b/src/header/stdlib/cbindgen.toml
-index 2e02e68a..07867c32 100644
---- a/src/header/stdlib/cbindgen.toml
-+++ b/src/header/stdlib/cbindgen.toml
-@@ -1,7 +1,20 @@
- sys_includes = ["stddef.h", "alloca.h", "wchar.h", "features.h"]
- include_guard = "_RELIBC_STDLIB_H"
- trailer = """
-+#ifndef _RELIBC_STDLIB_STRTOLD_H
-+#define _RELIBC_STDLIB_STRTOLD_H
++pub const HFIXEDSZ: c_int = 12;
++pub const MAXDNAME: c_int = 256;
 +
-+#ifdef __cplusplus
-+extern \"C\" {
-+#endif
-+
- long double strtold(const char *nptr, char **endptr);
-+
-+#ifdef __cplusplus
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++#[allow(non_camel_case_types)]
++pub struct HEADER {
++    pub id: u16,
++    pub flags: u16,
++    pub qdcount: u16,
++    pub ancount: u16,
++    pub nscount: u16,
++    pub arcount: u16,
 +}
-+#endif
 +
-+#endif
- """
- language = "C"
- style = "Type"
-diff --git a/src/header/sys_socket/constants.rs b/src/header/sys_socket/constants.rs
-index ec42889b..bebfc7b2 100644
---- a/src/header/sys_socket/constants.rs
-+++ b/src/header/sys_socket/constants.rs
-@@ -51,6 +51,7 @@ pub const MSG_TRUNC: c_int = 32;
- pub const MSG_DONTWAIT: c_int = 64;
- pub const MSG_WAITALL: c_int = 256;
- pub const MSG_CMSG_CLOEXEC: c_int = 0x40000000;
-+pub const MSG_NOSIGNAL: c_int = 0x4000;
- 
- pub const IP_ADD_SOURCE_MEMBERSHIP: c_int = 70;
- pub const IP_DROP_SOURCE_MEMBERSHIP: c_int = 71;
-diff --git a/src/header/sys_socket/mod.rs b/src/header/sys_socket/mod.rs
-index 1c0c6d74..73a7f2e7 100644
---- a/src/header/sys_socket/mod.rs
-+++ b/src/header/sys_socket/mod.rs
-@@ -334,6 +334,7 @@ pub unsafe extern "C" fn recvfrom(
- /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/recvmsg.html>.
- #[unsafe(no_mangle)]
- pub unsafe extern "C" fn recvmsg(socket: c_int, msg: *mut msghdr, flags: c_int) -> ssize_t {
-+    let flags = flags & !constants::MSG_NOSIGNAL;
-     unsafe { Sys::recvmsg(socket, msg, flags) }
-         .map(|r| r as ssize_t)
-         .or_minus_one_errno()
++#[unsafe(no_mangle)]
++pub extern "C" fn _cbindgen_export_nameser_header(header: HEADER) {
++    let _ = header;
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn dn_expand(
++    msg: *const c_uchar,
++    eomorig: *const c_uchar,
++    comp_dn: *const c_uchar,
++    exp_dn: *mut c_char,
++    length: c_int,
++) -> c_int {
++    if msg.is_null() || eomorig.is_null() || comp_dn.is_null() || exp_dn.is_null() || length <= 0 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++
++    let mut src = comp_dn;
++    let mut out = exp_dn.cast::<u8>();
++    let end = unsafe { exp_dn.add(length as usize) }.cast::<u8>();
++    let mut consumed: isize = 0;
++    let mut first = true;
++
++    loop {
++        if src >= eomorig {
++            ERRNO.set(EINVAL);
++            return -1;
++        }
++        let len = unsafe { *src };
++        src = unsafe { src.add(1) };
++        consumed += 1;
++        if len == 0 {
++            if out >= end { ERRNO.set(EINVAL); return -1; }
++            unsafe { *out = 0 };
++            return consumed as c_int;
++        }
++        if len & 0xC0 != 0 { ERRNO.set(EINVAL); return -1; }
++        if !first {
++            if out >= end { ERRNO.set(EINVAL); return -1; }
++            unsafe { *out = b'.' };
++            out = unsafe { out.add(1) };
++        }
++        first = false;
++        if unsafe { src.add(len as usize) } > eomorig || unsafe { out.add(len as usize) } >= end { ERRNO.set(EINVAL); return -1; }
++        unsafe { core::ptr::copy_nonoverlapping(src, out, len as usize); out = out.add(len as usize); src = src.add(len as usize); }
++        consumed += len as isize;
++    }
++}
+diff --git a/src/header/resolv/cbindgen.toml b/src/header/resolv/cbindgen.toml
+new file mode 100644
+--- /dev/null
++++ b/src/header/resolv/cbindgen.toml
+@@ -0,0 +1,6 @@
++sys_includes = ["sys/types.h", "netdb.h"]
++include_guard = "_RESOLV_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
+diff --git a/src/header/resolv/mod.rs b/src/header/resolv/mod.rs
+new file mode 100644
+--- /dev/null
++++ b/src/header/resolv/mod.rs
+@@ -0,0 +1,54 @@
++//! `resolv.h` bounded compatibility surface.
++
++use crate::{
++    header::{arpa_nameser::dn_expand, errno::ENOSYS, netdb},
++    platform::{
++        ERRNO,
++        types::{c_char, c_int, c_uchar},
++    },
++};
++
++pub const RES_INIT: c_int = 0x0000_0001;
++pub const RES_DEBUG: c_int = 0x0000_0002;
++pub const RES_USE_EDNS0: c_int = 0x0008_0000;
++pub const RES_USE_DNSSEC: c_int = 0x0010_0000;
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++#[allow(non_camel_case_types)]
++pub struct __res_state {
++    pub options: c_int,
++}
++
++pub type res_state = *mut __res_state;
++
++#[unsafe(no_mangle)]
++pub static mut _res: __res_state = __res_state { options: 0 };
++
++#[unsafe(no_mangle)]
++pub extern "C" fn _cbindgen_export_res_state(state: __res_state) {
++    let _ = state;
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn res_init() -> c_int {
++    unsafe { _res.options |= RES_INIT; }
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn res_query(_dname: *const c_char, _class: c_int, _rtype: c_int, _answer: *mut c_uchar, _anslen: c_int) -> c_int {
++    netdb::H_ERRNO.set(netdb::NO_DATA);
++    ERRNO.set(ENOSYS);
++    -1
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn res_search(dname: *const c_char, class: c_int, rtype: c_int, answer: *mut c_uchar, anslen: c_int) -> c_int {
++    unsafe { res_query(dname, class, rtype, answer, anslen) }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __dn_expand(msg: *const c_uchar, eomorig: *const c_uchar, comp_dn: *const c_uchar, exp_dn: *mut c_char, length: c_int) -> c_int {
++    unsafe { dn_expand(msg, eomorig, comp_dn, exp_dn, length) }
++}

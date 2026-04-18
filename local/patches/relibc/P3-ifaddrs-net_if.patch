@@ -1,0 +1,250 @@
+diff --git a/src/header/ifaddrs/mod.rs b/src/header/ifaddrs/mod.rs
+index bddb69b8..598beba3 100644
+--- a/src/header/ifaddrs/mod.rs
++++ b/src/header/ifaddrs/mod.rs
+@@ -3,7 +3,13 @@
+ //! Non-POSIX, see <https://www.man7.org/linux/man-pages/man3/getifaddrs.3.html>.
+ 
+ use crate::{
+-    header::{errno, stdlib, sys_socket::sockaddr},
++    header::{
++        errno,
++        net_if::interface_entries,
++        netinet_in::{in_addr, sockaddr_in},
++        stdlib,
++        sys_socket::{constants::AF_INET, sockaddr},
++    },
+     platform::{
+         self,
+         types::{c_char, c_int, c_uint, c_void},
+@@ -27,6 +33,68 @@ pub struct ifaddrs {
+     ifa_data: *mut c_void,
+ }
+ 
++fn ipv4_addr(bytes: [u8; 4]) -> sockaddr_in {
++    sockaddr_in {
++        sin_family: AF_INET as _,
++        sin_port: 0,
++        sin_addr: in_addr {
++            s_addr: u32::from_ne_bytes(bytes),
++        },
++        sin_zero: [0; 8],
++    }
++}
++
++unsafe fn make_ifaddrs_node(entry: &crate::header::net_if::InterfaceEntry) -> *mut ifaddrs {
++    let name_len = entry.name.to_bytes_with_nul().len();
++    let addr_size = if entry.addr.is_some() { core::mem::size_of::<sockaddr_in>() } else { 0 };
++    let netmask_size = if entry.netmask.is_some() { core::mem::size_of::<sockaddr_in>() } else { 0 };
++    let total = core::mem::size_of::<ifaddrs>() + name_len + addr_size + netmask_size;
++    let raw = unsafe { stdlib::malloc(total) } as *mut u8;
++    if raw.is_null() {
++        return core::ptr::null_mut();
++    }
++
++    unsafe { raw.write_bytes(0, total) };
++
++    let node = raw.cast::<ifaddrs>();
++    let mut cursor = unsafe { raw.add(core::mem::size_of::<ifaddrs>()) };
++
++    let name_ptr = cursor.cast::<c_char>();
++    unsafe { core::ptr::copy_nonoverlapping(entry.name.as_ptr(), name_ptr, name_len) };
++    cursor = unsafe { cursor.add(name_len) };
++
++    let addr_ptr = if let Some(addr) = entry.addr {
++        let ptr = cursor.cast::<sockaddr_in>();
++        unsafe { ptr.write(ipv4_addr(addr)) };
++        cursor = unsafe { cursor.add(core::mem::size_of::<sockaddr_in>()) };
++        ptr.cast::<sockaddr>()
++    } else {
++        core::ptr::null_mut()
++    };
++
++    let netmask_ptr = if let Some(netmask) = entry.netmask {
++        let ptr = cursor.cast::<sockaddr_in>();
++        unsafe { ptr.write(ipv4_addr(netmask)) };
++        ptr.cast::<sockaddr>()
++    } else {
++        core::ptr::null_mut()
++    };
++
++    unsafe {
++        node.write(ifaddrs {
++            ifa_next: core::ptr::null_mut(),
++            ifa_name: name_ptr,
++            ifa_flags: entry.flags,
++            ifa_addr: addr_ptr,
++            ifa_netmask: netmask_ptr,
++            ifa_ifu: ifaddrs_ifa_ifu { ifu_broadaddr: core::ptr::null_mut() },
++            ifa_data: core::ptr::null_mut(),
++        })
++    };
++
++    node
++}
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn freeifaddrs(mut ifa: *mut ifaddrs) {
+     while !ifa.is_null() {
+@@ -38,7 +106,31 @@ pub unsafe extern "C" fn freeifaddrs(mut ifa: *mut ifaddrs) {
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn getifaddrs(ifap: *mut *mut ifaddrs) -> c_int {
+-    //TODO: implement getifaddrs
+-    platform::ERRNO.set(errno::ENOSYS);
+-    -1
++    if ifap.is_null() {
++        platform::ERRNO.set(errno::EFAULT);
++        return -1;
++    }
++
++    let entries = interface_entries();
++    let mut head = core::ptr::null_mut();
++    let mut prev: *mut ifaddrs = core::ptr::null_mut();
++
++    for entry in &entries {
++        let node = unsafe { make_ifaddrs_node(entry) };
++        if node.is_null() {
++            unsafe { freeifaddrs(head) };
++            platform::ERRNO.set(errno::ENOMEM);
++            return -1;
++        }
++
++        if head.is_null() {
++            head = node;
++        } else {
++            unsafe { (*prev).ifa_next = node };
++        }
++        prev = node;
++    }
++
++    unsafe { *ifap = head };
++    0
+ }
+diff --git a/src/header/net_if/mod.rs b/src/header/net_if/mod.rs
+index edbfedec..bd07e2c9 100644
+--- a/src/header/net_if/mod.rs
++++ b/src/header/net_if/mod.rs
+@@ -21,21 +21,54 @@ pub struct if_nameindex {
+     if_name: *const c_char,
+ }
+ 
++#[derive(Clone)]
++pub(crate) struct InterfaceEntry {
++    pub index: c_uint,
++    pub name: CStr<'static>,
++    pub flags: c_uint,
++    pub addr: Option<[u8; 4]>,
++    pub netmask: Option<[u8; 4]>,
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/net_if.h.html>.
+ pub const IF_NAMESIZE: usize = 16;
+ 
+-const IF_STUB_INTERFACE: *const c_char = (c"stub").as_ptr();
++pub(crate) fn interface_entries() -> [InterfaceEntry; 2] {
++    [
++        InterfaceEntry {
++            index: 1,
++            name: c"loopback".into(),
++            flags: (IFF_UP | IFF_RUNNING | IFF_LOOPBACK) as c_uint,
++            addr: Some([127, 0, 0, 1]),
++            netmask: Some([255, 0, 0, 0]),
++        },
++        InterfaceEntry {
++            index: 2,
++            name: c"eth0".into(),
++            flags: (IFF_UP | IFF_RUNNING | IFF_BROADCAST | IFF_MULTICAST) as c_uint,
++            addr: None,
++            netmask: None,
++        },
++    ]
++}
+ 
+-const INTERFACES: &[if_nameindex] = &[
+-    if_nameindex {
+-        if_index: 1,
+-        if_name: IF_STUB_INTERFACE,
+-    },
+-    if_nameindex {
+-        if_index: 0,
+-        if_name: null::<c_char>(),
+-    },
+-];
++fn interface_nameindex_table() -> [if_nameindex; 3] {
++    let entries = interface_entries();
++    [
++        if_nameindex {
++            if_index: entries[0].index,
++            if_name: entries[0].name.as_ptr(),
++        },
++        if_nameindex {
++            if_index: entries[1].index,
++            if_name: entries[1].name.as_ptr(),
++        },
++        if_nameindex {
++            if_index: 0,
++            if_name: null::<c_char>(),
++        },
++    ]
++}
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/if_freenameindex.html>.
+ ///
+@@ -52,8 +85,21 @@ pub unsafe extern "C" fn if_freenameindex(s: *mut if_nameindex) {}
+ /// Currently only checks against inteface index 1.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn if_indextoname(idx: c_uint, buf: *mut c_char) -> *const c_char {
+-    if idx == 1 {
+-        return IF_STUB_INTERFACE;
++    let entries = interface_entries();
++    for entry in &entries {
++        if entry.index == idx {
++            if !buf.is_null() {
++                unsafe {
++                    core::ptr::copy_nonoverlapping(
++                        entry.name.as_ptr(),
++                        buf,
++                        entry.name.to_bytes_with_nul().len(),
++                    );
++                }
++                return buf;
++            }
++            return entry.name.as_ptr();
++        }
+     }
+     ERRNO.set(ENXIO);
+     null::<c_char>()
+@@ -66,7 +112,17 @@ pub unsafe extern "C" fn if_indextoname(idx: c_uint, buf: *mut c_char) -> *const
+ /// The end of the list is determined by an if_nameindex struct having if_index 0 and if_name NULL
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn if_nameindex() -> *const if_nameindex {
+-    core::ptr::from_ref::<if_nameindex>(&INTERFACES[0])
++    static mut TABLE: [if_nameindex; 3] = [
++        if_nameindex { if_index: 0, if_name: core::ptr::null() },
++        if_nameindex { if_index: 0, if_name: core::ptr::null() },
++        if_nameindex { if_index: 0, if_name: core::ptr::null() },
++    ];
++
++    let computed = interface_nameindex_table();
++    unsafe {
++        TABLE = computed;
++        core::ptr::from_ref::<if_nameindex>(&TABLE[0])
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/if_nametoindex.html>.
+@@ -80,8 +136,11 @@ pub unsafe extern "C" fn if_nametoindex(name: *const c_char) -> c_uint {
+         return 0;
+     }
+     let name = unsafe { CStr::from_ptr(name).to_str().unwrap_or("") };
+-    if name.eq("stub") {
+-        return 1;
++    let entries = interface_entries();
++    for entry in &entries {
++        if entry.name.to_str().map(|entry_name| entry_name == name).unwrap_or(false) {
++            return entry.index;
++        }
+     }
+     0
+ }

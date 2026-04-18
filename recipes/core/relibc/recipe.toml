@@ -1,6 +1,21 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/relibc.git"
-patches = ["redox.patch"]
+patches = [
+    "../../../local/patches/relibc/redox.patch",
+    "../../../local/patches/relibc/P3-eventfd.patch",
+    "../../../local/patches/relibc/P3-signalfd.patch",
+    "../../../local/patches/relibc/P3-signalfd-header.patch",
+    "../../../local/patches/relibc/P3-timerfd.patch",
+    "../../../local/patches/relibc/P3-open-memstream.patch",
+    "../../../local/patches/relibc/P3-socket-flags.patch",
+    "../../../local/patches/relibc/P3-ifaddrs-net_if.patch",
+    "../../../local/patches/relibc/P3-waitid.patch",
+    "../../../local/patches/relibc/P3-waitid-header.patch",
+    "../../../local/patches/relibc/P3-sysv-ipc.patch",
+    "../../../local/patches/relibc/P3-sysv-sem-impl.patch",
+    "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
+    "../../../local/patches/relibc/P3-ipc-tests.patch",
+]
 
 [build]
 template = "custom"
