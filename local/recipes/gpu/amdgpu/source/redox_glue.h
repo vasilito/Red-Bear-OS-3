@@ -261,6 +261,20 @@ extern void redox_pci_release_regions(struct pci_dev *pdev);
 #define pci_resource_flags(pdev, bar) ((pdev)->resource_flags[(bar)])
 #define pci_resource_end(pdev, bar) ((pdev)->resource_start[(bar)] + (pdev)->resource_len[(bar)] - 1)
 
+extern u64 pci_get_quirk_flags(struct pci_dev *dev);
+extern bool pci_has_quirk(struct pci_dev *dev, u64 flag);
+
+#define PCI_QUIRK_NO_MSI         (1ULL << 0)
+#define PCI_QUIRK_NO_MSIX        (1ULL << 1)
+#define PCI_QUIRK_FORCE_LEGACY   (1ULL << 2)
+#define PCI_QUIRK_NO_PM          (1ULL << 3)
+#define PCI_QUIRK_NO_D3COLD      (1ULL << 4)
+#define PCI_QUIRK_NO_ASPM        (1ULL << 5)
+#define PCI_QUIRK_NEED_IOMMU     (1ULL << 6)
+#define PCI_QUIRK_DMA_32BIT_ONLY (1ULL << 8)
+#define PCI_QUIRK_NEED_FIRMWARE  (1ULL << 11)
+#define PCI_QUIRK_DISABLE_ACCEL  (1ULL << 12)
+
 #define IORESOURCE_MEM 0x00000200U
 #define IORESOURCE_IO 0x00000100U
 #define IORESOURCE_MEM_64 0x00040000U

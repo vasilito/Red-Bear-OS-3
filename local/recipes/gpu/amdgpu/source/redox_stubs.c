@@ -296,6 +296,19 @@ void redox_pci_release_regions(struct pci_dev *pdev)
     (void)pdev;
 }
 
+u64 pci_get_quirk_flags(struct pci_dev *pdev)
+{
+    (void)pdev;
+    return 0;
+}
+
+bool pci_has_quirk(struct pci_dev *pdev, u64 flag)
+{
+    (void)pdev;
+    (void)flag;
+    return false;
+}
+
 int redox_request_firmware(const struct firmware **fw, const char *name, void *dev)
 {
     char path[512];

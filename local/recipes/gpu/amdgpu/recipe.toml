@@ -18,13 +18,13 @@ script = """
 DYNAMIC_INIT
 
 # Paths
-AMD_ROOT="${COOKBOOK_SOURCE}/../amdgpu-source/gpu/drm/amd"
+AMD_ROOT="${COOKBOOK_SOURCE}/../../amdgpu-source/gpu/drm/amd"
 AMD_SRC="${AMD_ROOT}"
-TTM_SRC="${COOKBOOK_SOURCE}/../amdgpu-source/gpu/drm/ttm"
-INCLUDES="${COOKBOOK_SOURCE}/../amdgpu-source/include"
-LINUX_KPI="${COOKBOOK_SYSROOT}/include/linux-kpi"
+TTM_SRC="${COOKBOOK_SOURCE}/../../amdgpu-source/gpu/drm/ttm"
+INCLUDES="${COOKBOOK_SOURCE}/../../amdgpu-source/include"
+LINUX_KPI="${COOKBOOK_ROOT}/local/recipes/drivers/linux-kpi/source/src/c_headers"
 REDOX_GLUE="${COOKBOOK_SOURCE}"
-TARGET_CC="${COOKBOOK_TARGET}-gcc"
+TARGET_CC="${TARGET}-gcc"
 
 # Compiler flags for AMD driver — DML2 enabled
 export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
@@ -132,8 +132,7 @@ if [ -z "$OBJS" ]; then
     echo "ERROR: no object files compiled successfully"
     exit 1
 fi
-"${TARGET_CC}" -shared -o libamdgpu_dc_redox.so $OBJS \
-    -lredox_driver_sys -llinux_kpi -lm -lpthread
+"${TARGET_CC}" -shared -o libamdgpu_dc_redox.so $OBJS -lm -lpthread
 
 # Install
 mkdir -p "${COOKBOOK_STAGE}/usr/lib/redox/drivers"
