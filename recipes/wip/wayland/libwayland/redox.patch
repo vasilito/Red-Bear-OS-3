@@ -71,3 +71,20 @@ diff --git a/src/connection.c b/src/connection.c
  #include "wayland-util.h"
  #include "wayland-private.h"
  #include "wayland-os.h"
+@@ -1503,6 +1510,15 @@
+ wl_closure_print(struct wl_closure *closure, struct wl_object *target,
+ 		 int send, int discarded, uint32_t (*n_parse)(union wl_argument *arg),
+ 		 const char *queue_name)
+ {
++#ifdef __redox__
++	(void)closure;
++	(void)target;
++	(void)send;
++	(void)discarded;
++	(void)n_parse;
++	(void)queue_name;
++	return;
++#endif
+	int i;
+	struct argument_details arg;
+	const char *signature = closure->message->signature;
