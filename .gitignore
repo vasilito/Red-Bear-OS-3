@@ -73,3 +73,4 @@ local/firmware/
 # Internal tooling
 .sisyphus/
 TASK_COMPLETION_SUMMARY.md
+__pycache__/
