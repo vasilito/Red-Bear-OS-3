@@ -1806,7 +1806,7 @@ index 8c03f8d3..8d3b3899 100644
  redox_syscall.workspace = true
  serde.workspace = true
  toml.workspace = true
-+redox-driver-sys = { path = "../../../../../../local/recipes/drivers/redox-driver-sys/source" }
++redox-driver-sys = { path = "../../../../../../../local/recipes/drivers/redox-driver-sys/source" }
  
  config = { path = "../../config" }
  common = { path = "../common" }
@@ -2046,6 +2046,196 @@ index 4a36934e..a9c6447c 100644
  xhcid = { path = "../../usb/xhcid" }
  
  [lints]
+diff --git a/drivers/storage/usbscsid/src/quirks.rs b/drivers/storage/usbscsid/src/quirks.rs
+new file mode 100644
+index 00000000..5051f1b0
+--- /dev/null
++++ b/drivers/storage/usbscsid/src/quirks.rs
+@@ -0,0 +1,212 @@
++use std::fs;
++use std::path::{Path, PathBuf};
++use std::sync::OnceLock;
++
++use bitflags::bitflags;
++use toml::Value;
++
++bitflags! {
++    #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
++    pub struct UsbStorageQuirkFlags: u32 {
++        const IGNORE_RESIDUE = 1 << 0;
++        const FIX_CAPACITY = 1 << 1;
++        const SINGLE_LUN = 1 << 2;
++        const MAX_SECTORS_64 = 1 << 3;
++        const INITIAL_READ10 = 1 << 4;
++
++        const FIX_INQUIRY = 1 << 5;
++        const NOT_LOCKABLE = 1 << 6;
++        const SCM_MULT_TARG = 1 << 7;
++        const SANE_SENSE = 1 << 8;
++        const BULK_IGNORE_TAG = 1 << 9;
++        const NEEDS_SYNC_CACHE = 1 << 10;
++        const NO_WP_DETECT = 1 << 11;
++        const NO_READ_CAP16 = 1 << 12;
++        const IGNORE_DEVICE = 1 << 13;
++    }
++}
++
++#[derive(Clone, Copy)]
++struct CompiledQuirkEntry {
++    vendor: u16,
++    product: u16,
++    flags: UsbStorageQuirkFlags,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++struct RuntimeQuirkEntry {
++    vendor: u16,
++    product: u16,
++    flags: UsbStorageQuirkFlags,
++}
++
++const COMPILED_QUIRKS: &[CompiledQuirkEntry] = &[
++    CompiledQuirkEntry { vendor: 0x03EB, product: 0x2002, flags: UsbStorageQuirkFlags::IGNORE_RESIDUE },
++    CompiledQuirkEntry { vendor: 0x03F0, product: 0x4002, flags: UsbStorageQuirkFlags::FIX_CAPACITY },
++    CompiledQuirkEntry { vendor: 0x0409, product: 0x0040, flags: UsbStorageQuirkFlags::SINGLE_LUN },
++    CompiledQuirkEntry { vendor: 0x0421, product: 0x0019, flags: UsbStorageQuirkFlags::MAX_SECTORS_64 },
++    CompiledQuirkEntry { vendor: 0x090C, product: 0x6000, flags: UsbStorageQuirkFlags::INITIAL_READ10 },
++    CompiledQuirkEntry { vendor: 0x1B1C, product: 0x1AB5, flags: UsbStorageQuirkFlags::INITIAL_READ10 },
++];
++
++static RUNTIME_QUIRKS: OnceLock<Vec<RuntimeQuirkEntry>> = OnceLock::new();
++
++pub fn lookup_usb_storage_quirks(vendor: u16, product: u16) -> UsbStorageQuirkFlags {
++    let mut flags = UsbStorageQuirkFlags::empty();
++
++    for entry in COMPILED_QUIRKS {
++        if entry.vendor == vendor && entry.product == product {
++            flags |= entry.flags;
++        }
++    }
++
++    for entry in runtime_quirks() {
++        if entry.vendor == vendor && entry.product == product {
++            flags |= entry.flags;
++        }
++    }
++
++    flags
++}
++
++fn runtime_quirks() -> &'static [RuntimeQuirkEntry] {
++    RUNTIME_QUIRKS.get_or_init(load_runtime_quirks).as_slice()
++}
++
++fn load_runtime_quirks() -> Vec<RuntimeQuirkEntry> {
++    let mut entries = Vec::new();
++    let Some(dir_entries) = quirk_files() else {
++        return entries;
++    };
++
++    for path in dir_entries {
++        let Ok(text) = fs::read_to_string(&path) else {
++            continue;
++        };
++        entries.extend(parse_runtime_quirks_from_toml(&text));
++    }
++
++    entries
++}
++
++fn quirk_files() -> Option<Vec<PathBuf>> {
++    let quirks_dir = Path::new("/etc/quirks.d");
++    let read_dir = fs::read_dir(quirks_dir).ok()?;
++
++    let mut files = read_dir
++        .filter_map(|entry| entry.ok())
++        .map(|entry| entry.path())
++        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
++        .collect::<Vec<_>>();
++    files.sort();
++    Some(files)
++}
++
++fn parse_runtime_quirks_from_toml(text: &str) -> Vec<RuntimeQuirkEntry> {
++    let Ok(value) = text.parse::<Value>() else {
++        return Vec::new();
++    };
++
++    let Some(entries) = value.get("usb_storage_quirk").and_then(Value::as_array) else {
++        return Vec::new();
++    };
++
++    entries.iter().filter_map(parse_runtime_quirk_entry).collect()
++}
++
++fn parse_runtime_quirk_entry(value: &Value) -> Option<RuntimeQuirkEntry> {
++    let table = value.as_table()?;
++    let vendor = u16::try_from(table.get("vendor")?.as_integer()?).ok()?;
++    let product = u16::try_from(table.get("product")?.as_integer()?).ok()?;
++    let flags = parse_flag_list(table.get("flags")?.as_array()?);
++
++    (!flags.is_empty()).then_some(RuntimeQuirkEntry { vendor, product, flags })
++}
++
++fn parse_flag_list(values: &[Value]) -> UsbStorageQuirkFlags {
++    let mut flags = UsbStorageQuirkFlags::empty();
++
++    for value in values {
++        if let Some(name) = value.as_str().and_then(parse_flag_name) {
++            flags |= name;
++        }
++    }
++
++    flags
++}
++
++fn parse_flag_name(name: &str) -> Option<UsbStorageQuirkFlags> {
++    Some(match name {
++        "ignore_residue" => UsbStorageQuirkFlags::IGNORE_RESIDUE,
++        "fix_capacity" => UsbStorageQuirkFlags::FIX_CAPACITY,
++        "single_lun" => UsbStorageQuirkFlags::SINGLE_LUN,
++        "max_sectors_64" => UsbStorageQuirkFlags::MAX_SECTORS_64,
++        "initial_read10" => UsbStorageQuirkFlags::INITIAL_READ10,
++        "fix_inquiry" => UsbStorageQuirkFlags::FIX_INQUIRY,
++        "not_lockable" => UsbStorageQuirkFlags::NOT_LOCKABLE,
++        "scm_mult_targ" => UsbStorageQuirkFlags::SCM_MULT_TARG,
++        "sane_sense" => UsbStorageQuirkFlags::SANE_SENSE,
++        "bulk_ignore_tag" => UsbStorageQuirkFlags::BULK_IGNORE_TAG,
++        "needs_sync_cache" => UsbStorageQuirkFlags::NEEDS_SYNC_CACHE,
++        "no_wp_detect" => UsbStorageQuirkFlags::NO_WP_DETECT,
++        "no_read_cap16" => UsbStorageQuirkFlags::NO_READ_CAP16,
++        "ignore_device" => UsbStorageQuirkFlags::IGNORE_DEVICE,
++        _ => return None,
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn compiled_fallback_lookup_returns_expected_flags() {
++        let flags = lookup_usb_storage_quirks(0x090C, 0x6000);
++        assert!(flags.contains(UsbStorageQuirkFlags::INITIAL_READ10));
++    }
++
++    #[test]
++    fn runtime_toml_parser_keeps_supported_flags_and_skips_unknown_ones() {
++        let entries = parse_runtime_quirks_from_toml(
++            r#"
++                [[usb_storage_quirk]]
++                vendor = 0x1234
++                product = 0x5678
++                flags = ["ignore_residue", "unknown_flag", "fix_capacity"]
++            "#,
++        );
++
++        assert_eq!(entries.len(), 1);
++        assert!(entries[0].flags.contains(UsbStorageQuirkFlags::IGNORE_RESIDUE));
++        assert!(entries[0].flags.contains(UsbStorageQuirkFlags::FIX_CAPACITY));
++        assert!(!entries[0].flags.contains(UsbStorageQuirkFlags::SINGLE_LUN));
++    }
++}
 diff --git a/drivers/storage/usbscsid/src/main.rs b/drivers/storage/usbscsid/src/main.rs
 index 5382d118..dca7762c 100644
 --- a/drivers/storage/usbscsid/src/main.rs
@@ -3910,6 +4100,34 @@ index 727f8d7e..557e6bce 100644
      pub fn get_standard_descs(&self) -> result::Result<DevDesc, XhciClientHandleError> {
          let json = self.read("descriptors")?;
          Ok(serde_json::from_slice(&json)?)
+diff --git a/drivers/usb/xhcid/Cargo.toml b/drivers/usb/xhcid/Cargo.toml
+index 778376b0..1651bcf5 100644
+--- a/drivers/usb/xhcid/Cargo.toml
++++ b/drivers/usb/xhcid/Cargo.toml
+@@ -32,6 +32,7 @@ common = { path = "../../common" }
+ daemon = { path = "../../../daemon" }
+ pcid = { path = "../../pcid" }
++redox-driver-sys = { path = "../../../../../../../local/recipes/drivers/redox-driver-sys/source" }
+ libredox.workspace = true
+ regex = "1.10.6"
+ 
+diff --git a/drivers/usb/xhcid/src/usb_quirks.rs b/drivers/usb/xhcid/src/usb_quirks.rs
+new file mode 100644
+index 00000000..83ca324d
+--- /dev/null
++++ b/drivers/usb/xhcid/src/usb_quirks.rs
+@@ -0,0 +1,10 @@
++pub use redox_driver_sys::quirks::UsbQuirkFlags;
++
++use crate::driver_interface::PortId;
++
++pub fn lookup_usb_quirks(vendor: u16, product: u16) -> UsbQuirkFlags {
++    redox_driver_sys::quirks::lookup_usb_quirks(vendor, product)
++}
++
++pub fn lookup_usb_quirks_early(_port_id: PortId) -> UsbQuirkFlags {
++    UsbQuirkFlags::empty()
++}
 diff --git a/drivers/usb/xhcid/src/main.rs b/drivers/usb/xhcid/src/main.rs
 index 25b2fdd6..d5dea9b2 100644
 --- a/drivers/usb/xhcid/src/main.rs
@@ -3921,8 +4139,30 @@ index 25b2fdd6..d5dea9b2 100644
 +mod usb_quirks;
  mod usb;
  mod xhci;
+
+@@ -141,8 +142,19 @@ fn daemon_with_context_size<const N: usize>(
  
-diff --git a/drivers/usb/xhcid/src/usb/hub.rs b/drivers/usb/xhcid/src/usb/hub.rs
+     let address = unsafe { pcid_handle.map_bar(0) }.ptr.as_ptr() as usize;
+ 
+-    let (irq_file, interrupt_method) = (None, InterruptMethod::Polling); //get_int_method(&mut pcid_handle);
+-                                                                         //TODO: Fix interrupts.
++    let (irq_file, interrupt_method) = get_int_method(&mut pcid_handle);
++
++    match interrupt_method {
++        InterruptMethod::Msi => {
++            log::info!("xhcid: using MSI/MSI-X interrupt delivery");
++        }
++        InterruptMethod::Intx => {
++            log::info!("xhcid: using legacy INTx interrupt delivery");
++        }
++        InterruptMethod::Polling => {
++            log::warn!("xhcid: using polling event delivery");
++        }
++    }
+ 
+     log::info!("XHCI {}", pci_config.func.display());
+ 
+ diff --git a/drivers/usb/xhcid/src/usb/hub.rs b/drivers/usb/xhcid/src/usb/hub.rs
 index 9dab55e8..fe6efdd2 100644
 --- a/drivers/usb/xhcid/src/usb/hub.rs
 +++ b/drivers/usb/xhcid/src/usb/hub.rs
