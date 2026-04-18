@@ -92,6 +92,27 @@ struct AllocatedVectors {
     vectors: Vec<i32>,
 }
 
+fn describe_irq_flags(flags: u32) -> String {
+    let mut parts = Vec::new();
+    if flags & PCI_IRQ_MSI != 0 {
+        parts.push("msi");
+    }
+    if flags & PCI_IRQ_MSIX != 0 {
+        parts.push("msix");
+    }
+    if flags & PCI_IRQ_LEGACY != 0 {
+        parts.push("legacy");
+    }
+    if flags & PCI_IRQ_NOLEGACY != 0 {
+        parts.push("nolegacy");
+    }
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join("|")
+    }
+}
+
 lazy_static::lazy_static! {
     static ref CURRENT_DEVICE: Mutex<Option<CurrentDevice>> = Mutex::new(None);
     static ref REGISTERED_PROBE: Mutex<Option<PciDriverProbe>> = Mutex::new(None);
@@ -294,6 +315,13 @@ fn allocate_vectors(dev: *mut PciDev, min_vecs: i32, max_vecs: i32, flags: u32) 
     }
 
     let allocated = (0..count).map(|index| base_irq + index).collect::<Vec<_>>();
+    log::info!(
+        "pci_alloc_irq_vectors: base_irq={} count={} flags={} vectors={:?}",
+        base_irq,
+        count,
+        describe_irq_flags(flags),
+        allocated
+    );
     vectors.insert(
         dev_key,
         AllocatedVectors {
@@ -309,6 +337,25 @@ pub extern "C" fn pci_enable_device(dev: *mut PciDev) -> i32 {
     if dev.is_null() {
         return -EINVAL;
     }
+
+    #[cfg(target_os = "redox")]
+    {
+        let mut pci = match open_current_device(dev) {
+            Ok(pci) => pci,
+            Err(error) => return error,
+        };
+
+        if let Err(error) = pci.enable_device() {
+            log::warn!(
+                "pci_enable_device: failed to enable {:04x}:{:04x}: {}",
+                unsafe { (*dev).vendor },
+                unsafe { (*dev).device },
+                error
+            );
+            return -EIO;
+        }
+    }
+
     log::info!(
         "pci_enable_device: vendor=0x{:04x} device=0x{:04x}",
         unsafe { (*dev).vendor },
@@ -498,6 +545,15 @@ pub extern "C" fn pci_alloc_irq_vectors(
 pub extern "C" fn pci_free_irq_vectors(dev: *mut PciDev) {
     if dev.is_null() {
         return;
+    }
+    if let Ok(vectors) = IRQ_VECTORS.lock() {
+        if let Some(allocated) = vectors.get(&(dev as usize)) {
+            log::info!(
+                "pci_free_irq_vectors: releasing {} vectors {:?}",
+                allocated.vectors.len(),
+                allocated.vectors
+            );
+        }
     }
     clear_irq_vectors_for_ptr(dev as usize);
 }
@@ -705,6 +761,17 @@ mod tests {
         assert_eq!(
             pci_alloc_irq_vectors(ptr::null_mut(), 1, 1, PCI_IRQ_MSI),
             -22
+        );
+    }
+
+    #[test]
+    fn describe_irq_flags_formats_requested_modes() {
+        assert_eq!(describe_irq_flags(0), "none");
+        assert_eq!(describe_irq_flags(PCI_IRQ_MSI), "msi");
+        assert_eq!(describe_irq_flags(PCI_IRQ_MSIX | PCI_IRQ_NOLEGACY), "msix|nolegacy");
+        assert_eq!(
+            describe_irq_flags(PCI_IRQ_MSI | PCI_IRQ_MSIX | PCI_IRQ_LEGACY),
+            "msi|msix|legacy"
         );
     }
 }

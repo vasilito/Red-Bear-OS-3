@@ -317,3 +317,91 @@ fn allocate_irq_vector(cpu_id: u8) -> Result<(u32, File)> {
         "no free IRQ vectors available in {dir}"
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pci::{PciBarInfo, PciBarKind, PciLocation};
+
+    fn test_device_info() -> PciDeviceInfo {
+        PciDeviceInfo {
+            location: PciLocation {
+                segment: 0,
+                bus: 0,
+                device: 0,
+                function: 0,
+            },
+            vendor_id: 0x1002,
+            device_id: 0x1234,
+            subsystem_vendor_id: 0xffff,
+            subsystem_device_id: 0xffff,
+            revision: 0,
+            class_code: 0,
+            subclass: 0,
+            prog_if: 0,
+            header_type: 0,
+            irq: None,
+            bars: Vec::new(),
+            capabilities: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn checked_bar_window_accepts_in_range_region() {
+        let start = checked_bar_window(0x1000, 0x400, 0x80, 0x40).expect("window in range");
+        assert_eq!(start, 0x1080);
+    }
+
+    #[test]
+    fn checked_bar_window_rejects_region_past_bar_end() {
+        let error = checked_bar_window(0x1000, 0x100, 0xf0, 0x20).expect_err("window past end");
+        assert!(matches!(error, DriverError::Irq(_)));
+    }
+
+    #[test]
+    fn checked_bar_window_rejects_address_overflow() {
+        let error = checked_bar_window(u64::MAX - 0x10, 0x200, 0x40, 0x20)
+            .expect_err("overflow should be rejected");
+        assert!(matches!(error, DriverError::InvalidParam("MSI-X BAR address overflow")));
+    }
+
+    #[test]
+    fn lookup_msix_bar_requires_memory_bar() {
+        let mut device = test_device_info();
+        device.bars.push(PciBarInfo {
+            index: 0,
+            kind: PciBarKind::Io,
+            addr: 0x3f8,
+            size: 8,
+            prefetchable: false,
+        });
+
+        let error = lookup_msix_bar(&device, 0, "table").expect_err("I/O BAR should be rejected");
+        assert!(matches!(error, DriverError::CapabilityNotFound(_)));
+    }
+
+    #[test]
+    fn lookup_msix_bar_returns_matching_memory_bar() {
+        let mut device = test_device_info();
+        device.bars.push(PciBarInfo {
+            index: 2,
+            kind: PciBarKind::Memory64,
+            addr: 0x20_0000,
+            size: 0x1000,
+            prefetchable: true,
+        });
+
+        let bar = lookup_msix_bar(&device, 2, "table").expect("memory BAR should be found");
+        assert_eq!(bar.index, 2);
+        assert_eq!(bar.addr, 0x20_0000);
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[test]
+    fn irq_request_reports_non_redox_platform_limit() {
+        match IrqHandle::request(5) {
+            Ok(_) => panic!("host builds should reject IRQ requests"),
+            Err(error) => assert!(matches!(error, DriverError::Irq(_))),
+        }
+    }
+}

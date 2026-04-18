@@ -90,7 +90,7 @@ impl PciBarInfo {
 
     pub fn io_port(&self) -> Option<u16> {
         if self.is_io() && self.addr != 0 {
-            Some(self.addr as u16)
+            u16::try_from(self.addr).ok()
         } else {
             None
         }
@@ -709,6 +709,9 @@ fn parse_scheme_entry(name: &str) -> Option<PciLocation> {
     }
     let device = u8::from_str_radix(dev_func[0], 16).ok()?;
     let function = u8::from_str_radix(dev_func[1], 16).ok()?;
+    if device > 0x1F || function > 0x07 {
+        return None;
+    }
     Some(PciLocation {
         segment,
         bus,
@@ -727,4 +730,66 @@ pub fn find_intel_gpus() -> Result<Vec<PciDeviceInfo>> {
     let mut all = enumerate_pci_class(PCI_CLASS_DISPLAY)?;
     all.retain(|d| d.is_intel_gpu());
     Ok(all)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pci_location_bdf_round_trip_preserves_bus_device_function() {
+        let location = PciLocation {
+            segment: 0,
+            bus: 0x5a,
+            device: 0x1c,
+            function: 0x03,
+        };
+
+        let round_trip = PciLocation::from_bdf(location.bdf());
+        assert_eq!(round_trip.segment, 0);
+        assert_eq!(round_trip.bus, location.bus);
+        assert_eq!(round_trip.device, location.device);
+        assert_eq!(round_trip.function, location.function);
+        assert_eq!(location.scheme_path(), "/scheme/pci/0000--5a--1c.3");
+    }
+
+    #[test]
+    fn io_bar_port_requires_nonzero_u16_address() {
+        let io_bar = PciBarInfo {
+            index: 0,
+            kind: PciBarKind::Io,
+            addr: 0x3f8,
+            size: 8,
+            prefetchable: false,
+        };
+        assert_eq!(io_bar.io_port(), Some(0x3f8));
+
+        let zero_io_bar = PciBarInfo {
+            addr: 0,
+            ..io_bar
+        };
+        assert_eq!(zero_io_bar.io_port(), None);
+
+        let oversized_io_bar = PciBarInfo {
+            addr: u64::from(u16::MAX) + 1,
+            ..io_bar
+        };
+        assert_eq!(oversized_io_bar.io_port(), None);
+    }
+
+    #[test]
+    fn parse_scheme_entry_rejects_invalid_bdf_components() {
+        assert!(parse_scheme_entry("0000--00--20.0").is_none());
+        assert!(parse_scheme_entry("0000--00--1f.8").is_none());
+        assert!(parse_scheme_entry("not-a-device").is_none());
+    }
+
+    #[test]
+    fn parse_scheme_entry_accepts_valid_pci_scheme_name() {
+        let parsed = parse_scheme_entry("0000--80--1f.0").expect("valid PCI entry should parse");
+        assert_eq!(parsed.segment, 0);
+        assert_eq!(parsed.bus, 0x80);
+        assert_eq!(parsed.device, 0x1f);
+        assert_eq!(parsed.function, 0x00);
+    }
 }
