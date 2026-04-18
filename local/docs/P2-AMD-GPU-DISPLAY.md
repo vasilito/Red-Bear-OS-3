@@ -1,11 +1,15 @@
-# Phase P2: AMD GPU Display Output
+# Historical Phase P2: AMD GPU Display Output
 
-## Status: P2 CODE COMPLETE — Implementation verified, hardware validation pending
+## Status: Historical implementation milestone complete — hardware validation pending
 
-All P2 code is implemented, compiles cleanly, and has been correctness-reviewed
-through 28 Oracle verification rounds (resource lifecycle, ownership, GTT, page flip).
-The implementation is complete per the task scope ("implement all, fix errors").
-Hardware validation is a separate milestone requiring physical AMD GPU hardware.
+> **Planning authority note (2026-04-18):** this file is an AMD display implementation/status
+> reference. For current GPU/DRM execution order, Intel/AMD parity criteria, and future task
+> sequencing, use `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md`.
+
+The original P2 implementation task was completed and compile-validated for its scoped deliverables.
+This file is now a historical AMD display implementation/status reference rather than the canonical
+GPU planning document. Hardware validation remains a separate milestone requiring physical AMD GPU
+hardware.
 
 ## Goal
 Enable AMD GPU display output (modesetting) on Redox OS via a DRM scheme daemon
@@ -60,7 +64,7 @@ pcid: local/config/pcid.d/amd_gpu.toml
 7. redox-drm initializes AMD DC (Display Core)
 8. AMD DC detects connectors, reads EDID
 9. scheme:drm/card0 registered
-10. Userspace can now use modetest or Orbital for display
+10. Userspace can begin bounded display-side probing (for example `modetest`) once runtime validation is available; this is not yet a hardware-backed support claim by itself
 
 ## Verification
 
@@ -72,7 +76,7 @@ pcid: local/config/pcid.d/amd_gpu.toml
 - [x] Page flip: one outstanding per CRTC, vblank-gated retirement
 - [x] Firmware: Rust cache validates blob availability at startup; C code loads via request_firmware() from scheme:firmware at runtime
 - [x] GTT page tables: free-list reuse, TLB-safe error rollback
-- [x] Oracle-verified: 28 rounds, zero use-after-free, zero double-free, zero resource leaks
+- [x] Original implementation pass received repeated review of resource lifecycle, ownership, GTT, and page-flip behavior
 - [x] All 4 Rust crates build with zero errors, zero warnings
 - [x] C glue files pass gcc -fsyntax-only
 - [x] Build symlinks and config files in place
@@ -81,6 +85,12 @@ pcid: local/config/pcid.d/amd_gpu.toml
 - [ ] modetest -M amd shows connector info and modes
 - [ ] modetest -M amd -s 0:1920x1080 sets mode and shows test pattern
 - [ ] Works on real AMD hardware (RDNA2/RDNA3)
+
+Current bounded runtime harness:
+- `redbear-drm-display-check` is now the in-guest bounded display checker.
+- `local/scripts/test-amd-gpu.sh` now wraps the shared `local/scripts/test-drm-display-runtime.sh` harness.
+- The checker now proves connector/mode enumeration directly and can perform a bounded direct modeset proof.
+- A successful harness run is still display-only evidence, not render proof.
 
 ## Key Files
 
@@ -94,7 +104,7 @@ pcid: local/config/pcid.d/amd_gpu.toml
 | local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs | MSI-X/legacy interrupt abstraction |
 | local/config/pcid.d/intel_gpu.toml | Intel GPU PCI auto-detection |
 | local/patches/base/P0-pcid-config-endpoint.patch | pcid /config file endpoint |
-| local/scripts/build-amd.sh | Build wrapper |
+| local/scripts/build-redbear.sh | Canonical build wrapper |
 | local/scripts/test-amd-gpu.sh | Test script |
 
 ## Dependencies (P1)
@@ -115,7 +125,7 @@ pcid: local/config/pcid.d/amd_gpu.toml
 ### MSI-X interrupt support (T2-T4)
 - Created shared `InterruptHandle` enum in `redox-drm/src/drivers/interrupt.rs`
 - Tries MSI-X first (find capability → parse → map table → mask_all → enable → request_vector)
-- Falls back to legacy IRQ if MSI-X unavailable
+- Falls back through MSI and then legacy IRQ, with `NO_MSIX`, `NO_MSI`, and `FORCE_LEGACY_IRQ` quirk gates applied before transport selection
 - Both AMD and Intel drivers use `InterruptHandle::setup()`
 
 ### Dynamic PCI device info (T6)
@@ -126,8 +136,8 @@ pcid: local/config/pcid.d/amd_gpu.toml
 ### linux-kpi quirk consumption (current)
 - `redox-drm` now also passes the real PCI BDF into the amdgpu C glue so linux-kpi quirk lookups resolve against the actual GPU, not a guessed location
 - `amdgpu_redox_main.c` now calls `pci_get_quirk_flags()` / `pci_has_quirk()` in the live Redox init path
-- `PCI_QUIRK_NEED_FIRMWARE` now gates DMCUB firmware loading as a hard requirement when present, while logs also spell out quirk-driven IRQ expectations (`NO_MSI`, `NO_MSIX`, `FORCE_LEGACY`)
+- firmware gating now stays at the Rust-side GPU driver boundary, while the AMD C backend logs quirk-driven IRQ expectations (`NO_MSI`, `NO_MSIX`, `FORCE_LEGACY`) via linux-kpi lookups on the real GPU BDF
 
 ### Intel GPU support (T4-T5)
-- Intel driver switched to shared `InterruptHandle` (MSI-X + legacy)
+- Intel driver switched to shared `InterruptHandle` (MSI-X / MSI / legacy with quirk-aware fallback)
 - Added `local/config/pcid.d/intel_gpu.toml` for auto-detection (vendor 0x8086, class 0x03)

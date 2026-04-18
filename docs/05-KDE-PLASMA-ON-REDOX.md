@@ -10,6 +10,9 @@
 > `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` together with
 > `local/docs/QT6-PORT-STATUS.md`. This file should now be read primarily as implementation history
 > plus deeper KDE-specific rationale and porting notes.
+>
+> The phase and step labels below are retained for historical structure. They are not the current
+> planning authority for KDE/desktop sequencing.
 
 ## Current State Snapshot
 
@@ -49,7 +52,7 @@ Before KDE work begins, these MUST be complete:
 
 ## Three-Phase KDE Implementation
 
-### Phase KDE-A: Qt Foundation — ✅ COMPLETE
+### Historical Phase KDE-A: Qt Foundation build milestone
 
 Qt6 core stack fully built for x86_64-unknown-redox:
 
@@ -60,7 +63,7 @@ Qt6 core stack fully built for x86_64-unknown-redox:
 | qtsvg | 6.11.0 | ✅ | Svg, SvgWidgets |
 | qtwayland | 6.11.0 | ✅ | WaylandClient (compositor disabled) |
 
-### Phase KDE-B: KF6 Frameworks — ✅ COMPLETE (32/32 built)
+### Historical Phase KDE-B: KF6 Frameworks build milestone (32/32 built, some shimmed/stubbed)
 
 All 32 KF6 frameworks built: ecm, kcoreaddons, kwidgetsaddons, kconfig, ki18n, kcodecs,
 kcolorscheme, kauth, kwindowsystem, knotifications, kjobwidgets, kconfigwidgets,
@@ -71,7 +74,7 @@ kbookmarks, kidletime, kio, kcmutils.
 Additional KDE-facing packages: kdecoration, plasma-wayland-protocols, kf6-kwayland,
 kf6-kcmutils (widget-only), kirigami (stub-only).
 
-### Phase KDE-C: KDE Plasma Assembly — 📋 PLANNED
+### Historical Phase KDE-C: KDE Plasma Assembly path
 
 Recipes created: kwin, plasma-workspace, plasma-desktop
 Config: config/redbear-kde.toml
@@ -79,7 +82,7 @@ Blocked on: KWin shimmed/stubbed deps resolution, KWin runtime integration, Plas
 
 **Goal**: A Qt application displays a window on the Redox Wayland compositor.
 
-#### Step 1: Port `qtbase` (6-8 weeks)
+#### Historical Step 1: Port `qtbase` (6-8 weeks)
 
 > **Historical recipe note:** the `recipes/wip/qt/...` path below is retained as design history.
 > For current Red Bear ownership and shipping decisions, use the WIP ownership policy and current
@@ -162,7 +165,7 @@ cmake --install . --prefix ${COOKBOOK_STAGE}/usr
 
 **Estimated patch size**: ~500-800 lines for qtbase.
 
-#### Step 2: Port `qtwayland` (1-2 weeks)
+#### Historical Step 2: Port `qtwayland` (1-2 weeks)
 
 ```toml
 # recipes/wip/qt/qtwayland/recipe.toml
@@ -185,7 +188,7 @@ cmake --install . --prefix ${COOKBOOK_STAGE}/usr
 """
 ```
 
-#### Step 3: Port `qtdeclarative` (QML) (2-3 weeks)
+#### Historical Step 3: Port `qtdeclarative` (QML) (2-3 weeks)
 
 ```toml
 # recipes/wip/qt/qtdeclarative/recipe.toml
@@ -201,7 +204,7 @@ script = """
 """
 ```
 
-#### Step 4: Verify
+#### Historical Step 4: Verify
 
 ```bash
 # Build and run a simple Qt Wayland app:
@@ -224,7 +227,7 @@ x86_64-unknown-redox-g++ test.cpp -o test-qt -I/usr/include/qt6 -lQt6Widgets -lQ
 
 ---
 
-### Phase KDE-B: KDE Frameworks (2-3 months)
+### Historical KDE Frameworks porting plan (2-3 months)
 
 **Goal**: KDE applications can be built and run.
 
@@ -307,7 +310,7 @@ cmake --install . --prefix ${COOKBOOK_STAGE}/usr
 
 **Goal**: Full KDE Plasma desktop session.
 
-#### Step 1: Port KWin (4-6 weeks)
+#### Historical Step 1: Port KWin (4-6 weeks)
 
 KWin is the hardest component. It needs:
 - DRM/KMS (for display control) → via our DRM scheme
@@ -377,7 +380,7 @@ cmake --install . --prefix ${COOKBOOK_STAGE}/usr
 
 **Estimated KWin patches**: ~1000-1500 lines.
 
-#### Step 2: Port `plasma-workspace` (2-3 weeks)
+#### Historical Step 2: Port `plasma-workspace` (2-3 weeks)
 
 ```toml
 # recipes/wip/kde/plasma-workspace/recipe.toml
@@ -399,11 +402,11 @@ dependencies = [
 **Key component**: `plasmashell` — the desktop shell. Creates panels, desktop containment,
 applet loader. Depends heavily on QML (qtdeclarative).
 
-#### Step 3: Port `plasma-desktop` (1-2 weeks)
+#### Historical Step 3: Port `plasma-desktop` (1-2 weeks)
 
 System settings, desktop containment configuration. Mostly Qt/QML.
 
-#### Step 4: Create session config
+#### Historical Step 4: Create session config
 
 ```toml
 # config/kde.toml (new file)
@@ -513,9 +516,9 @@ Once Qt + KDE Frameworks are ported, these apps should compile with minimal patc
 
 ## System Integration Points
 
-### D-Bus (Already Working)
-D-Bus is ported and working in the X11 config. KDE uses D-Bus extensively.
-Already configured in `config/x11.toml`.
+### D-Bus (Already Ported)
+D-Bus is ported, and current KDE-facing runtime wiring belongs to the Red Bear desktop/KDE profiles.
+It should not be framed as an X11-only or X11-primary integration surface.
 
 ### Audio: PulseAudio PipeWire Shim Needed
 KDE expects PulseAudio or PipeWire for audio. Redox has its own `scheme:audio`.

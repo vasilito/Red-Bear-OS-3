@@ -1,4 +1,4 @@
-# AMD-FIRST REDOX OS — AMD-SPECIFIC INTEGRATION PLAN
+# AMD-SPECIFIC REDOX OS — GPU/DRIVER INTEGRATION REFERENCE
 
 > **Status note (2026-04-16):** This document remains the detailed AMD-focused hardware roadmap.
 > It is no longer the canonical desktop path plan — see
@@ -11,6 +11,10 @@
 >
 > Red Bear OS now treats AMD and Intel machines as equal-priority targets. Read this file as the
 > deeper AMD-specific technical plan, not as a platform-priority statement.
+>
+> **Planning authority note (2026-04-18):** for current GPU/DRM execution order and acceptance
+> criteria, use `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md`. This file remains a detailed AMD
+> technical/reference document, not the canonical GPU plan.
 
 **Target**: AMD64 bare metal machine with AMD GPU (RDNA2/RDNA3), within an overall Red Bear OS
 hardware policy that treats AMD and Intel machines as equal-priority targets.
@@ -36,7 +40,7 @@ take 5+ years.
 |-----------|--------|--------|
 | UEFI boot | ✅ Works | x86_64 UEFI bootloader functional |
 | AMD CPUs | ✅ Works | AMD 32/64-bit supported, Ryzen Threadripper verified |
-| ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
+| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, and validation work |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
@@ -46,10 +50,9 @@ take 5+ years.
 
 ### Known AMD-Specific Issues
 
-1. **Framework Laptop 16 (AMD Ryzen 7040)**: CRASHES — unimplemented ACPI function (jackpot51/acpi#3)
-2. **ASUS PRIME B350M-E**: Partial PS/2 keyboard, mouse broken
-3. **Zen3+ page alignment**: Potential memory corruption with 16k-aligned pages
-4. **I2C on AMD platforms**: Touchpad may fail
+1. **ASUS PRIME B350M-E**: Partial PS/2 keyboard, mouse broken
+2. **Zen3+ page alignment**: Potential memory corruption with 16k-aligned pages
+3. **I2C on AMD platforms**: Touchpad may fail
 
 ---
 
@@ -57,14 +60,19 @@ take 5+ years.
 
 Before any GPU or desktop work, Redox must boot reliably on modern AMD hardware.
 
-### P0-1: Fix ACPI for AMD
+### P0-1: Fix ACPI for AMD (historical milestone)
 
-**Problem**: Framework AMD Ryzen 7040 crashes. ACPI is incomplete.
+**Historical problem**: Framework AMD Ryzen 7040 crashed because the early ACPI boot baseline was
+incomplete.
 
-**What to do**:
-- Identify which ACPI function is unimplemented (see jackpot51/acpi#3)
-- Implement missing ACPI table parsers (FACP, DSDT, SSDT)
-- Test on: Framework 16, ASUS B350M-E, any modern AMD board
+**Current status**: This historical P0 boot-baseline gap is materially complete. The remaining ACPI
+work is no longer "make AMD machines boot at all"; it is now ownership cleanup, robustness,
+consumer integration, and validation depth as tracked in `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
+
+**What was done**:
+- Implement the missing ACPI boot-baseline support needed for modern AMD bring-up
+- Validate the repaired path on the bounded AMD bare-metal targets available during the P0 pass
+- Preserve the resulting work in the kernel and `acpid` patch carriers
 
 **Where**: 
 - Kernel: `recipes/core/kernel/source/src/acpi/`
@@ -247,7 +255,7 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 | linux-kpi | ✅ | `local/recipes/drivers/linux-kpi/source/` — C compat headers + Rust shims |
 | firmware-loader | ✅ | `local/recipes/system/firmware-loader/source/` — scheme:firmware daemon |
 | pcid /config endpoint | ✅ | `local/patches/base/P0-pcid-config-endpoint.patch` — raw PCI config space via scheme:pci |
-| MSI-X interrupt support | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs` — shared MSI-X/legacy abstraction |
+| MSI-X interrupt support | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs` — shared MSI-X/MSI/legacy abstraction with quirk-aware fallback |
 | Intel pcid-spawner config | ✅ | `local/config/pcid.d/intel_gpu.toml` — auto-detect Intel GPUs |
 
 ### P2: AMD GPU Display — COMPLETE (compiles, no HW validation)
@@ -265,6 +273,13 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 | GEM buffer mgmt | ✅ | `local/recipes/gpu/redox-drm/source/src/gem.rs` |
 | DMA-BUF | ✅ | `local/recipes/gpu/redox-drm/source/src/scheme.rs` (PRIME export/import via opaque tokens) |
 | Intel driver | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs` + `display.rs` |
+
+For bounded runtime display validation, Red Bear now uses the shared
+`local/scripts/test-drm-display-runtime.sh` harness, with `local/scripts/test-amd-gpu.sh` as the
+AMD wrapper.
+
+Human-readable PCI naming for AMD/Intel devices now comes from the shipped `pciids` database rather
+than from hand-maintained GPU name tables in local runtime tools.
 
 ### Build Verification
 
@@ -333,17 +348,16 @@ smithay/src/backend/
 
 ### P4-2: libdrm AMD Backend
 
-libdrm now builds with `-Damdgpu=enabled` and `-Dintel=enabled`. The amdgpu and Intel
-backends are present in the built sysroot. Runtime hardware validation through real GPU
-hardware is still pending.
-
-**Patches**: `local/patches/libdrm/`
+libdrm currently builds with `-Damdgpu=enabled` and `-Dintel=disabled` in the shipped recipe.
+That is enough for the current AMD-oriented build-side path, but it is not yet a full Intel libdrm
+feature claim. Runtime hardware validation through real GPU hardware is still pending.
 
 ---
 
 ## PHASE 5: AMD GPU ACCELERATION (16-24 weeks, parallel with P4)
 
-> Note: this AMD-first Phase 5 is a hardware-driver track. In the v2.0 desktop plan
+> Note: this historical P5 hardware-driver track remains useful as AMD-specific implementation
+> detail. In the v2.0 desktop plan
 > (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), hardware GPU enablement is also Phase 5, so the
 > numbering happens to align. The P0–P6 labels in this document refer to the historical
 > hardware-enablement sequence, not the current desktop-plan phases.
@@ -380,7 +394,7 @@ Same as previous plan (docs/05). GPU vendor doesn't affect Qt/KDE path.
 
 ---
 
-## REVISED TIMELINE (AMD-FIRST)
+## HISTORICAL P0-P6 TIMELINE
 
 ```
 Week 1-6:     P0 — Fix ACPI, boot on AMD bare metal
@@ -417,6 +431,7 @@ P0 (ACPI boot)
 |----------|----------|--------|
 | This file | `local/docs/AMD-FIRST-INTEGRATION.md` | ✅ Created |
 | ACPI fix guide | `local/docs/ACPI-FIXES.md` | ✅ Created |
+| ACPI improvement plan | `local/docs/ACPI-IMPROVEMENT-PLAN.md` | ✅ Created |
 | Bare metal testing log | `local/docs/BAREMETAL-LOG.md` | ✅ Created |
 | Overlay usage guide | `local/AGENTS.md` | ✅ Created |
 | Desktop path plan | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | ✅ Created |
@@ -432,10 +447,10 @@ P0 (ACPI boot)
 
 ---
 
-## ANTI-PATTERNS FOR AMD-FIRST
+## ANTI-PATTERNS FOR AMD GPU ENABLEMENT
 
 - **DO NOT** attempt a clean Rust rewrite of amdgpu — 6M lines, 5+ years
-- **DO NOT** skip ACPI fixes — AMD machines WILL NOT BOOT without complete ACPI
+- **DO NOT** skip the ACPI boot baseline — AMD machines WILL NOT BOOT without the RSDP/SDT/MADT/FADT bring-up path; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the separate post-bring-up ownership and robustness work
 - **DO NOT** forget firmware blobs — amdgpu CANNOT FUNCTION without PSP/GC/SDMA firmware
 - **DO NOT** test only in QEMU — AMD GPU behavior differs significantly from VirtIO
 - **DO NOT** assume Intel patterns work for AMD — AMD uses different register maps, different firmware flow
