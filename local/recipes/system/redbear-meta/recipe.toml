@@ -11,6 +11,7 @@
 #   - firmware-loader: firmware loading daemon used by GPU and Wi-Fi bring-up
 #   - redbear-wifictl: Wi-Fi control daemon and scheme
 #   - redox-drm: DRM display driver (AMD + Intel)
+#   - amdgpu: AMD display-core backend shared library for redox-drm
 #   - evdevd: Event device daemon (input translation)
 #   - udev-shim: udev-compatible device enumeration shim
 
@@ -37,6 +38,7 @@ Installed components:
   - firmware-loader: firmware daemon
   - redbear-wifictl: Wi-Fi control plane
   - redox-drm: DRM display driver (AMD + Intel)
+  - amdgpu: AMD display-core backend shared library
   - evdevd: Input event translation
   - udev-shim: Device enumeration
 
@@ -54,6 +56,7 @@ dependencies = [
     "redbear-iwlwifi",
     "redbear-firmware",
     "redox-drm",
+    "amdgpu",
     "firmware-loader",
     "redbear-wifictl",
     "evdevd",

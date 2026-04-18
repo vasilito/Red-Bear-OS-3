@@ -31,6 +31,8 @@ fn find_amdgpu_dc_library(manifest_dir: &Path) -> Option<PathBuf> {
         }
     }
 
+    push_candidate_dirs(&mut candidates, &manifest_dir.join("../../amdgpu"));
+    push_candidate_dirs(&mut candidates, &manifest_dir.join("../../amdgpu/stage"));
     push_candidate_dirs(&mut candidates, &manifest_dir.join("../amdgpu"));
     push_candidate_dirs(&mut candidates, &manifest_dir.join("../amdgpu/stage"));
 
