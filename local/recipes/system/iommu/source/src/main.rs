@@ -22,6 +22,32 @@ struct StderrLogger {
     level: LevelFilter,
 }
 
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
+struct DiscoveryResult {
+    units: Vec<AmdViUnit>,
+    source: DiscoverySource,
+    kernel_acpi_status: &'static str,
+    ivrs_path: Option<PathBuf>,
+}
+
+#[cfg_attr(not(target_os = "redox"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DiscoverySource {
+    KernelAcpi,
+    Filesystem,
+    None,
+}
+
+impl DiscoverySource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::KernelAcpi => "kernel_acpi",
+            Self::Filesystem => "filesystem",
+            Self::None => "none",
+        }
+    }
+}
+
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
         metadata.level() <= self.level
@@ -65,15 +91,20 @@ fn discover_ivrs_path() -> Option<PathBuf> {
     discover_ivrs_path_from_candidates(&candidate_ivrs_paths())
 }
 
-fn detect_units() -> Result<Vec<AmdViUnit>, String> {
-    let Some(path) = discover_ivrs_path() else {
-        return Ok(Vec::new());
-    };
-
-    let bytes = fs::read(&path)
+fn detect_units_from_ivrs_path(path: &PathBuf) -> Result<Vec<AmdViUnit>, String> {
+    let bytes = fs::read(path)
         .map_err(|err| format!("failed to read IVRS table from {}: {err}", path.display()))?;
     let units = AmdViUnit::detect(&bytes).map_err(|err| format!("failed to parse IVRS: {err}"))?;
     Ok(units)
+}
+
+fn detect_units_from_discovered_ivrs() -> Result<(Vec<AmdViUnit>, Option<PathBuf>), String> {
+    let Some(path) = discover_ivrs_path() else {
+        return Ok((Vec::new(), None));
+    };
+
+    let units = detect_units_from_ivrs_path(&path)?;
+    Ok((units, Some(path)))
 }
 
 #[cfg(target_os = "redox")]
@@ -149,13 +180,81 @@ fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
 }
 
 #[cfg(target_os = "redox")]
+fn discover_units() -> Result<DiscoveryResult, String> {
+    match detect_units_from_kernel_acpi() {
+        Ok(units) if !units.is_empty() => Ok(DiscoveryResult {
+            units,
+            source: DiscoverySource::KernelAcpi,
+            kernel_acpi_status: "ok",
+            ivrs_path: None,
+        }),
+        Ok(_units) => {
+            let (units, ivrs_path) = detect_units_from_discovered_ivrs()?;
+            Ok(DiscoveryResult {
+                source: if ivrs_path.is_some() {
+                    DiscoverySource::Filesystem
+                } else {
+                    DiscoverySource::None
+                },
+                units,
+                kernel_acpi_status: "empty",
+                ivrs_path,
+            })
+        }
+        Err(err) => {
+            info!("iommu: kernel ACPI discovery unavailable: {err}");
+            let (units, ivrs_path) = detect_units_from_discovered_ivrs()?;
+            Ok(DiscoveryResult {
+                source: if ivrs_path.is_some() {
+                    DiscoverySource::Filesystem
+                } else {
+                    DiscoverySource::None
+                },
+                units,
+                kernel_acpi_status: "error",
+                ivrs_path,
+            })
+        }
+    }
+}
+
+#[cfg(not(target_os = "redox"))]
+fn discover_units() -> Result<DiscoveryResult, String> {
+    let (units, ivrs_path) = detect_units_from_discovered_ivrs()?;
+    Ok(DiscoveryResult {
+        source: if ivrs_path.is_some() {
+            DiscoverySource::Filesystem
+        } else {
+            DiscoverySource::None
+        },
+        units,
+        kernel_acpi_status: "unsupported",
+        ivrs_path,
+    })
+}
+
+#[cfg(target_os = "redox")]
 fn run() -> Result<(), String> {
-    let units = detect_units_from_kernel_acpi().or_else(|err| {
-        info!("iommu: kernel ACPI discovery unavailable: {err}");
-        detect_units()
-    })?;
-    info!("iommu: detected {} AMD-Vi unit(s)", units.len());
-    for (index, unit) in units.iter().enumerate() {
+    let discovery = discover_units()?;
+    if discovery.units.is_empty() {
+        info!(
+            "iommu: no AMD-Vi units found (source={}, kernel_acpi_status={}, ivrs_path={})",
+            discovery.source.as_str(),
+            discovery.kernel_acpi_status,
+            discovery
+                .ivrs_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string())
+        );
+    } else {
+        info!(
+            "iommu: detected {} AMD-Vi unit(s) via {}",
+            discovery.units.len(),
+            discovery.source.as_str()
+        );
+    }
+    for (index, unit) in discovery.units.iter().enumerate() {
         info!(
             "iommu: discovered unit {} at MMIO {:#x}; initialization is deferred until first use",
             index,
@@ -167,7 +266,7 @@ fn run() -> Result<(), String> {
         Socket::create("iommu").map_err(|e| format!("failed to register iommu scheme: {e}"))?;
     info!("iommu: registered scheme:iommu");
 
-    let mut scheme = IommuScheme::with_units(units);
+    let mut scheme = IommuScheme::with_units(discovery.units);
 
     loop {
         let request = match socket.next_request(SignalBehavior::Restart) {
@@ -204,11 +303,19 @@ fn run() -> Result<(), String> {
 
 #[cfg(target_os = "redox")]
 fn run_self_test() -> Result<(), String> {
-    let mut units = detect_units_from_kernel_acpi().or_else(|err| {
-        info!("iommu: kernel ACPI discovery unavailable: {err}");
-        detect_units()
-    })?;
+    let discovery = discover_units()?;
+    let mut units = discovery.units;
 
+    println!("discovery_source={}", discovery.source.as_str());
+    println!("kernel_acpi_status={}", discovery.kernel_acpi_status);
+    println!(
+        "ivrs_path={}",
+        discovery
+            .ivrs_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string())
+    );
     println!("units_detected={}", units.len());
     if units.is_empty() {
         return Err("iommu self-test detected zero AMD-Vi unit(s)".to_string());
@@ -254,10 +361,11 @@ fn run_self_test() -> Result<(), String> {
 
 #[cfg(not(target_os = "redox"))]
 fn run() -> Result<(), String> {
-    let units = detect_units()?;
+    let discovery = discover_units()?;
     info!(
-        "iommu: host build stub active; parsed {} AMD-Vi unit(s) from discovered IVRS source",
-        units.len()
+        "iommu: host build stub active; parsed {} AMD-Vi unit(s) via {}",
+        discovery.units.len(),
+        discovery.source.as_str()
     );
     Ok(())
 }
@@ -292,7 +400,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate_ivrs_paths, discover_ivrs_path_from_candidates};
+    use super::{
+        candidate_ivrs_paths, discover_ivrs_path_from_candidates, DiscoverySource,
+    };
     use std::path::PathBuf;
 
     #[test]
@@ -312,5 +422,12 @@ mod tests {
         ];
         let discovered = discover_ivrs_path_from_candidates(&candidates);
         assert_eq!(discovered, Some(PathBuf::from("/tmp")));
+    }
+
+    #[test]
+    fn discovery_source_strings_are_stable() {
+        assert_eq!(DiscoverySource::KernelAcpi.as_str(), "kernel_acpi");
+        assert_eq!(DiscoverySource::Filesystem.as_str(), "filesystem");
+        assert_eq!(DiscoverySource::None.as_str(), "none");
     }
 }

@@ -46,6 +46,9 @@ fn run() -> Result<(), String> {
     if !stdout.contains("units_detected=") {
         return Err("iommu self-test did not report detected unit count".to_string());
     }
+    if !stdout.contains("discovery_source=") {
+        return Err("iommu self-test did not report discovery source".to_string());
+    }
     if !stdout.contains("units_initialized_now=") {
         return Err("iommu self-test did not report initialized unit count".to_string());
     }
