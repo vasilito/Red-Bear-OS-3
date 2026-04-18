@@ -1,7 +1,9 @@
 use std::fs;
 use std::process;
 
-use redbear_hwutils::{parse_args, parse_pci_location, PciLocation};
+use redbear_hwutils::{
+    lookup_pci_device_name, lookup_pci_vendor_name, parse_args, parse_pci_location, PciLocation,
+};
 use redox_driver_sys::pci::PciDeviceInfo;
 use redox_driver_sys::quirks::{lookup_pci_quirks, PciQuirkFlags};
 
@@ -153,6 +155,11 @@ fn run() -> Result<(), String> {
             device.device_id,
             device.revision,
         );
+        if let Some(device_name) = lookup_pci_device_name(device.vendor_id, device.device_id) {
+            print!(" ({device_name})");
+        } else if let Some(vendor_name) = lookup_pci_vendor_name(device.vendor_id) {
+            print!(" ({vendor_name})");
+        }
         if !device.quirk_flags.is_empty() {
             print!(" quirks: {}", format_quirk_flags(device.quirk_flags));
         }

@@ -1,67 +1,42 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use zbus::Connection;
 
-static SLEEP_ACTIVE: AtomicBool = AtomicBool::new(false);
-static SHUTDOWN_FIRED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "redox")]
+const KSTOP_PATH: &str = "/scheme/kernel.acpi/kstop";
 
-const ACPI_SLEEP_PATH: &str = "/scheme/acpi/sleep";
-const ACPI_SHUTDOWN_PATH: &str = "/scheme/acpi/shutdown";
-const POLL_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(target_os = "redox")]
+fn wait_for_shutdown_edge() -> std::io::Result<()> {
+    use std::io::Read;
 
-fn read_acpi_flag(path: &str) -> bool {
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            let trimmed = content.trim().to_lowercase();
-            !trimmed.is_empty() && trimmed != "0"
-        }
-        Err(_) => false,
-    }
+    let mut file = std::fs::File::open(KSTOP_PATH)?;
+    let mut byte = [0_u8; 1];
+    let _ = file.read(&mut byte)?;
+    Ok(())
 }
 
 pub async fn watch_and_emit(connection: Connection) {
-    loop {
-        tokio::time::sleep(POLL_INTERVAL).await;
-
-        let sleep_now = tokio::task::spawn_blocking(|| read_acpi_flag(ACPI_SLEEP_PATH))
-            .await
-            .unwrap_or(false);
-
-        let was_sleeping = SLEEP_ACTIVE.load(Ordering::Relaxed);
-
-        if sleep_now && !was_sleeping {
-            SLEEP_ACTIVE.store(true, Ordering::Relaxed);
-            let _ = connection.emit_signal(
-                None::<&str>,
-                "/org/freedesktop/login1",
-                "org.freedesktop.login1.Manager",
-                "PrepareForSleep",
-                &true,
-            ).await;
-        } else if !sleep_now && was_sleeping {
-            SLEEP_ACTIVE.store(false, Ordering::Relaxed);
-            let _ = connection.emit_signal(
-                None::<&str>,
-                "/org/freedesktop/login1",
-                "org.freedesktop.login1.Manager",
-                "PrepareForSleep",
-                &false,
-            ).await;
+    #[cfg(target_os = "redox")]
+    match tokio::task::spawn_blocking(wait_for_shutdown_edge).await {
+        Ok(Ok(())) => {
+            let _ = connection
+                .emit_signal(
+                    None::<&str>,
+                    "/org/freedesktop/login1",
+                    "org.freedesktop.login1.Manager",
+                    "PrepareForShutdown",
+                    &true,
+                )
+                .await;
         }
-
-        let shutdown_now = tokio::task::spawn_blocking(|| read_acpi_flag(ACPI_SHUTDOWN_PATH))
-            .await
-            .unwrap_or(false);
-
-        if shutdown_now && !SHUTDOWN_FIRED.load(Ordering::Relaxed) {
-            SHUTDOWN_FIRED.store(true, Ordering::Relaxed);
-            let _ = connection.emit_signal(
-                None::<&str>,
-                "/org/freedesktop/login1",
-                "org.freedesktop.login1.Manager",
-                "PrepareForShutdown",
-                &true,
-            ).await;
+        Ok(Err(err)) => {
+            eprintln!("redbear-sessiond: ACPI shutdown watcher failed: {err}");
         }
+        Err(err) => {
+            eprintln!("redbear-sessiond: ACPI shutdown watcher task failed: {err}");
+        }
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    {
+        let _ = connection;
     }
 }

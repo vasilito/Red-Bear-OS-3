@@ -105,9 +105,14 @@ impl DeviceInfo {
 }
 
 pub fn classify_pci_device(bus: u8, dev: u8, func: u8) -> DeviceInfo {
-    let devpath = format!("/devices/pci/{:04x}:{:02x}:{:02x}.{}", bus, 0, dev, func);
-
-    let config_path = format!("/scheme/pci/{}.{}.{}", bus, dev, func);
+    let location = PciLocation {
+        segment: 0,
+        bus,
+        device: dev,
+        function: func,
+    };
+    let devpath = format!("/devices/pci/{}", location);
+    let config_path = format!("{}/config", location.scheme_path());
     let (vendor_id, device_id, class_code, subclass) = read_pci_config(&config_path);
     let input_kind = detect_input_kind(class_code, subclass);
 
@@ -174,10 +179,8 @@ fn format_device_name(
     subclass: u8,
     input_kind: Option<InputKind>,
 ) -> String {
-    if class_code == 0x03 {
-        if let Some(name) = gpu_device_name(vendor_id, device_id) {
-            return format!("{name} [{vendor_id:04x}:{device_id:04x}]");
-        }
+    if let Some(name) = lookup_pci_device_name(vendor_id, device_id) {
+        return format!("{name} [{vendor_id:04x}:{device_id:04x}]");
     }
 
     if class_code == 0x09 {
@@ -189,15 +192,7 @@ fn format_device_name(
         return format!("{name} [{vendor_id:04x}:{device_id:04x}]");
     }
 
-    let vendor_name = match vendor_id {
-        0x8086 => "Intel",
-        0x1002 => "AMD",
-        0x10DE => "NVIDIA",
-        0x10EC => "Realtek",
-        0x8087 => "Intel",
-        0x14E4 => "Broadcom",
-        _ => "Unknown",
-    };
+    let vendor_name = lookup_pci_vendor_name(vendor_id).unwrap_or_else(|| "Unknown".to_string());
 
     let class_name = match class_code {
         0x03 => "GPU",
@@ -215,29 +210,22 @@ fn format_device_name(
     )
 }
 
-fn gpu_device_name(vendor_id: u16, device_id: u16) -> Option<&'static str> {
-    match vendor_id {
-        0x1002 => match device_id {
-            0x73A3 => Some("AMD Radeon RX 6600 XT / 6650 XT (RDNA2)"),
-            0x73BF => Some("AMD Radeon RX 6800 XT / 6900 XT (RDNA2)"),
-            0x73DF => Some("AMD Radeon RX 6700 XT / 6750 XT (RDNA2)"),
-            0x73EF => Some("AMD Radeon RX 6800 / 6850M XT (RDNA2)"),
-            0x7422 => Some("AMD Radeon 780M (RDNA3)"),
-            0x7448 => Some("AMD Radeon RX 7900 XT (RDNA3)"),
-            0x744C => Some("AMD Radeon RX 7900 XTX (RDNA3)"),
-            0x7480 => Some("AMD Radeon RX 7800 XT / 7700 XT (RDNA3)"),
-            _ => Some("AMD Radeon GPU"),
-        },
-        0x8086 => match device_id {
-            0x3E92 => Some("Intel UHD Graphics 630"),
-            0x5912 => Some("Intel HD Graphics 630"),
-            0x9A49 => Some("Intel Iris Xe Graphics (Tiger Lake)"),
-            0x46A6 => Some("Intel Iris Xe Graphics (Alder Lake-P)"),
-            0x56A0 => Some("Intel Arc Graphics (DG2)"),
-            0x56A1 => Some("Intel Arc A380 (DG2)"),
-            _ => Some("Intel Graphics"),
-        },
-        _ => None,
+#[cfg(test)]
+mod tests {
+    use super::classify_pci_device;
+
+    #[test]
+    fn classify_pci_device_uses_shared_location_format() {
+        let device = classify_pci_device(0x02, 0x00, 0x0);
+
+        assert_eq!(device.devpath, "/devices/pci/0000:02:00.0");
+    }
+
+    #[test]
+    fn id_path_tracks_shared_pci_devpath_shape() {
+        let device = classify_pci_device(0x02, 0x00, 0x0);
+
+        assert_eq!(device.id_path(), "pci-0000:02:00.0");
     }
 }
 
@@ -305,3 +293,4 @@ pub fn format_uevent_info(dev: &DeviceInfo) -> String {
     }
     info
 }
+use redbear_hwutils::{lookup_pci_device_name, lookup_pci_vendor_name, PciLocation};

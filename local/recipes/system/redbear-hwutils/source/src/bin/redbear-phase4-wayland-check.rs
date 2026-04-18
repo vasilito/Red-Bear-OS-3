@@ -60,9 +60,8 @@ fn run() -> Result<(), String> {
     })?;
 
     println!("=== Red Bear OS Phase 4 Wayland Runtime Check ===");
-    require_path("/usr/bin/orbital-wayland")?;
+    require_path("/usr/bin/redbear-validation-session")?;
     require_path("/usr/bin/wayland-session")?;
-    require_path("/usr/bin/smallvil")?;
     require_path("/usr/bin/qt6-bootstrap-check")?;
     require_path("/usr/bin/qt6-plugin-check")?;
     require_path("/usr/bin/qt6-wayland-smoke")?;

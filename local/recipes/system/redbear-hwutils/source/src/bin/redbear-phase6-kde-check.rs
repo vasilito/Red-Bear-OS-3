@@ -204,7 +204,7 @@ fn run() -> Result<(), String> {
     })?;
 
     println!("=== Red Bear OS Phase 6 KDE Runtime Check ===");
-    require_path("/usr/bin/orbital-kde")?;
+    require_path("/usr/bin/redbear-kde-session")?;
     require_path("/usr/bin/kwin_wayland")?;
     require_path("/usr/bin/dbus-daemon")?;
     require_path("/usr/bin/seatd")?;

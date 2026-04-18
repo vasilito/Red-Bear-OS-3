@@ -2,7 +2,7 @@ mod device_db;
 mod scheme;
 
 use std::env;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::fd::RawFd;
 
 use log::{error, info, LevelFilter, Metadata, Record};
 use redox_scheme::{

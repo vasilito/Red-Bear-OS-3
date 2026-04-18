@@ -631,10 +631,6 @@ impl SchemeSync for UdevScheme {
     }
 }
 
-fn path_exists(path: &str) -> bool {
-    std::fs::metadata(path).is_ok()
-}
-
 fn scheme_registered(name: &str) -> bool {
     std::fs::read_dir("/scheme")
         .ok()
