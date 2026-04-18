@@ -1,5 +1,5 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 91185a1f..01150fb3 100644
+index 3986e775..87c1a277 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -21,7 +21,6 @@ dependencies = [
@@ -28,7 +28,7 @@ index 91185a1f..01150fb3 100644
  
  [[package]]
 @@ -1109,7 +1109,7 @@ dependencies = [
-  "redox_syscall 0.7.3",
+  "redox_syscall 0.7.4",
   "serde",
   "serde_json",
 - "toml",
@@ -41,7 +41,7 @@ index 91185a1f..01150fb3 100644
   "pcid",
   "pico-args",
 + "redox-driver-sys",
-  "redox_syscall 0.7.3",
+  "redox_syscall 0.7.4",
   "serde",
 - "toml",
 + "toml 1.0.6+spec-1.1.0",
@@ -60,7 +60,7 @@ index 91185a1f..01150fb3 100644
 + "bitflags 2.11.0",
 + "libredox",
 + "log",
-+ "redox_syscall 0.7.3",
++ "redox_syscall 0.7.4",
 + "serde",
 + "thiserror 2.0.18",
 + "toml 0.8.23",
@@ -173,7 +173,7 @@ index 91185a1f..01150fb3 100644
   "libredox",
 @@ -2445,6 +2511,7 @@ dependencies = [
   "redox_event",
-  "redox_syscall 0.7.3",
+  "redox_syscall 0.7.4",
   "thiserror 2.0.18",
 + "toml 1.0.6+spec-1.1.0",
   "xhcid",
@@ -198,6 +198,26 @@ index 91185a1f..01150fb3 100644
  ]
  
  [[package]]
+diff --git a/bootstrap/Cargo.lock b/bootstrap/Cargo.lock
+index e738c973..50057616 100644
+--- a/bootstrap/Cargo.lock
++++ b/bootstrap/Cargo.lock
+@@ -41,6 +41,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+ [[package]]
+ name = "generic-rt"
+ version = "0.1.0"
++source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#c35c291beabda0818fd3369d5de5d38553a1759e"
+ 
+ [[package]]
+ name = "goblin"
+@@ -150,6 +151,7 @@ checksum = "436d45c2b6a5b159d43da708e62b25be3a4a3d5550d654b72216ade4c4bfd717"
+ [[package]]
+ name = "redox-rt"
+ version = "0.1.0"
++source = "git+https://gitlab.redox-os.org/redox-os/relibc.git#c35c291beabda0818fd3369d5de5d38553a1759e"
+ dependencies = [
+  "bitflags",
+  "generic-rt",
 diff --git a/drivers/acpid/Cargo.toml b/drivers/acpid/Cargo.toml
 index 2d22a8f9..fea105c8 100644
 --- a/drivers/acpid/Cargo.toml
@@ -2308,6 +2328,37 @@ index ea76f6b6..ae63aea8 100644
 +acpi = { path = "../acpi" }
  serde.workspace = true
  toml.workspace = true
+diff --git a/drivers/graphics/ihdgd/config.toml b/drivers/graphics/ihdgd/config.toml
+index acbb4e78..210731ae 100644
+--- a/drivers/graphics/ihdgd/config.toml
++++ b/drivers/graphics/ihdgd/config.toml
+@@ -51,5 +51,26 @@ ids = { 0x8086 = [
+     0x56B3, # Pro A60
+     0x56C0, # GPU Flex 170
+     0x56C1, # GPU Flex 140
++    # Alder Lake-S Desktop
++    0x4680, 0x4682, 0x4688, 0x468A, 0x468B,
++    0x4690, 0x4692, 0x4693,
++    # Alder Lake-P Mobile
++    0x46A0, 0x46A1, 0x46A2, 0x46A3, 0x46A6,
++    0x46A8, 0x46AA, 0x462A, 0x4626, 0x4628,
++    0x46B0, 0x46B1, 0x46B2, 0x46B3,
++    0x46C0, 0x46C1, 0x46C2, 0x46C3,
++    # Alder Lake-N Low-Power
++    0x46D0, 0x46D1, 0x46D2, 0x46D3, 0x46D4,
++    # Raptor Lake-S Desktop
++    0xA780, 0xA781, 0xA782, 0xA783,
++    0xA788, 0xA789, 0xA78A, 0xA78B,
++    # Raptor Lake-P Mobile
++    0xA720, 0xA7A0, 0xA7A8, 0xA7AA, 0xA7AB,
++    # Raptor Lake-U Mobile
++    0xA721, 0xA7A1, 0xA7A9, 0xA7AC, 0xA7AD,
++    # Meteor Lake
++    0x7D40, 0x7D45, 0x7D55, 0x7D60, 0x7DD5,
++    # Arrow Lake-H
++    0x7D51, 0x7DD1,
+ ] }
+ command = ["ihdgd"]
 diff --git a/drivers/hwd/src/backend/acpi.rs b/drivers/hwd/src/backend/acpi.rs
 index 3da41d63..ec8828ee 100644
 --- a/drivers/hwd/src/backend/acpi.rs
@@ -2385,6 +2436,208 @@ index 3da41d63..ec8828ee 100644
          for entry_res in entries {
              let entry = entry_res?;
              if let Some(file_name) = entry.file_name().to_str() {
+diff --git a/drivers/input/ps2d/src/controller.rs b/drivers/input/ps2d/src/controller.rs
+index d7af4cba..561aa527 100644
+--- a/drivers/input/ps2d/src/controller.rs
++++ b/drivers/input/ps2d/src/controller.rs
+@@ -13,7 +13,7 @@ use common::io::Pio;
+ #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+ use common::io::Mmio;
+ 
+-use log::{debug, error, info, trace, warn};
++use log::{debug, error, trace, warn};
+ 
+ use std::fmt;
+ 
+@@ -271,6 +271,20 @@ impl Ps2 {
+         }
+     }
+ 
++    pub fn probe(&mut self) -> bool {
++        let status = self.status();
++        let status_bits = status.bits();
++
++        if status_bits == 0x00 || status_bits == 0xFF {
++            debug!(
++                "ps/2 controller probe returned suspicious status {:02X}",
++                status_bits
++            );
++        }
++
++        self.config().is_ok()
++    }
++
+     pub fn init_keyboard(&mut self) -> Result<(), Error> {
+         let mut b;
+ 
+diff --git a/drivers/input/ps2d/src/main.rs b/drivers/input/ps2d/src/main.rs
+index db17de2a..faa02e99 100644
+--- a/drivers/input/ps2d/src/main.rs
++++ b/drivers/input/ps2d/src/main.rs
+@@ -20,7 +20,7 @@ mod mouse;
+ mod state;
+ mod vm;
+ 
+-fn daemon(daemon: daemon::Daemon) -> ! {
++fn run() -> ! {
+     common::setup_logging(
+         "input",
+         "ps2",
+@@ -29,9 +29,18 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         common::file_level(),
+     );
+ 
+-    acquire_port_io_rights().expect("ps2d: failed to get I/O permission");
++    if let Err(err) = acquire_port_io_rights() {
++        log::error!("ps2d: failed to get I/O permission: {}", err);
++        process::exit(1);
++    }
+ 
+-    let input = ProducerHandle::new().expect("ps2d: failed to open input producer");
++    let input = match ProducerHandle::new() {
++        Ok(input) => input,
++        Err(err) => {
++            log::error!("ps2d: failed to open input producer: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     user_data! {
+         enum Source {
+@@ -44,12 +53,19 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     let event_queue: EventQueue<Source> =
+         EventQueue::new().expect("ps2d: failed to create event queue");
+ 
+-    let mut key_file = OpenOptions::new()
++    let key_file = OpenOptions::new()
+         .read(true)
+         .write(true)
+         .custom_flags(syscall::O_NONBLOCK as i32)
+-        .open("/scheme/serio/0")
+-        .expect("ps2d: failed to open /scheme/serio/0");
++        .open("/scheme/serio/0");
++
++    let mut key_file = match key_file {
++        Ok(key_file) => key_file,
++        Err(err) => {
++            log::error!("ps2d: failed to open /scheme/serio/0: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     event_queue
+         .subscribe(
+@@ -59,12 +75,19 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         )
+         .unwrap();
+ 
+-    let mut mouse_file = OpenOptions::new()
++    let mouse_file = OpenOptions::new()
+         .read(true)
+         .write(true)
+         .custom_flags(syscall::O_NONBLOCK as i32)
+-        .open("/scheme/serio/1")
+-        .expect("ps2d: failed to open /scheme/serio/1");
++        .open("/scheme/serio/1");
++
++    let mut mouse_file = match mouse_file {
++        Ok(mouse_file) => mouse_file,
++        Err(err) => {
++            log::error!("ps2d: failed to open /scheme/serio/1: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     event_queue
+         .subscribe(
+@@ -78,8 +101,15 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         .read(true)
+         .write(true)
+         .custom_flags(syscall::O_NONBLOCK as i32)
+-        .open(format!("/scheme/time/{}", syscall::CLOCK_MONOTONIC))
+-        .expect("ps2d: failed to open /scheme/time");
++        .open(format!("/scheme/time/{}", syscall::CLOCK_MONOTONIC));
++
++    let time_file = match time_file {
++        Ok(time_file) => time_file,
++        Err(err) => {
++            log::error!("ps2d: failed to open /scheme/time: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     event_queue
+         .subscribe(
+@@ -89,11 +119,15 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         )
+         .unwrap();
+ 
+-    libredox::call::setrens(0, 0).expect("ps2d: failed to enter null namespace");
+-
+-    daemon.ready();
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        log::error!("ps2d: failed to enter null namespace: {}", err);
++        process::exit(1);
++    }
+ 
+-    let mut ps2d = Ps2d::new(input, time_file);
++    let Some(mut ps2d) = Ps2d::new(input, time_file) else {
++        log::warn!("ps2d: no PS/2 hardware available, exiting");
++        process::exit(0);
++    };
+ 
+     let mut data = [0; 256];
+     for event in event_queue.map(|e| e.expect("ps2d: failed to get next event").user_data) {
+@@ -131,5 +165,5 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ }
+ 
+ fn main() {
+-    daemon::Daemon::new(daemon);
++    run();
+ }
+diff --git a/drivers/input/ps2d/src/state.rs b/drivers/input/ps2d/src/state.rs
+index 9018dc6b..2721c4fd 100644
+--- a/drivers/input/ps2d/src/state.rs
++++ b/drivers/input/ps2d/src/state.rs
+@@ -59,9 +59,18 @@ pub struct Ps2d {
+ }
+ 
+ impl Ps2d {
+-    pub fn new(input: ProducerHandle, time_file: File) -> Self {
++    pub fn new(input: ProducerHandle, time_file: File) -> Option<Self> {
+         let mut ps2 = Ps2::new();
+-        ps2.init().expect("failed to initialize");
++
++        if !ps2.probe() {
++            warn!("ps2d: no PS/2 controller detected, skipping initialization");
++            return None;
++        }
++
++        if let Err(err) = ps2.init() {
++            error!("ps2d: failed to initialize PS/2 controller: {:?}", err);
++            return None;
++        }
+ 
+         // FIXME add an option for orbital to disable this when an app captures the mouse.
+         let vmmouse_relative = false;
+@@ -70,7 +79,7 @@ impl Ps2d {
+         // TODO: QEMU hack, maybe do this when Init timed out?
+         if vmmouse {
+             // 3 = MouseId::Intellimouse1
+-            MouseState::Bat.handle(3, &mut ps2);
++            let _ = MouseState::Bat.handle(3, &mut ps2);
+         }
+ 
+         let mut this = Ps2d {
+@@ -96,7 +105,7 @@ impl Ps2d {
+             this.handle_mouse(None);
+         }
+ 
+-        this
++        Some(this)
+     }
+ 
+     pub fn irq(&mut self) {
 diff --git a/drivers/input/usbhidd/src/main.rs b/drivers/input/usbhidd/src/main.rs
 index 15c5b778..c67fb8bc 100644
 --- a/drivers/input/usbhidd/src/main.rs
@@ -5484,945 +5737,81 @@ index f2d439a4..b0fb9b85 100644
          let mut port_state = self
              .port_states
              .get_mut(&port_num)
-diff --git a/drivers/usb/xhcid/src/xhci/mod.rs b/drivers/usb/xhcid/src/xhci/mod.rs
-index f2143676..74126f67 100644
---- a/drivers/usb/xhcid/src/xhci/mod.rs
-+++ b/drivers/usb/xhcid/src/xhci/mod.rs
-@@ -311,6 +311,22 @@ struct PortState<const N: usize> {
-     input_context: Mutex<Dma<InputContext<N>>>,
-     dev_desc: Option<DevDesc>,
-     endpoint_states: BTreeMap<u8, EndpointState>,
-+    quirks: crate::usb_quirks::UsbQuirkFlags,
-+    pm_state: PortPmState,
-+}
-+
-+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-+pub(crate) enum PortPmState {
-+    Active,
-+    Suspended,
-+}
-+impl PortPmState {
-+    pub fn as_str(&self) -> &'static str {
-+        match self {
-+            Self::Active => "active",
-+            Self::Suspended => "suspended",
-+        }
-+    }
- }
+diff --git a/init.initfs.d/40_ps2d.service b/init.initfs.d/40_ps2d.service
+index 881e75ea..bbee2699 100644
+--- a/init.initfs.d/40_ps2d.service
++++ b/init.initfs.d/40_ps2d.service
+@@ -5,4 +5,4 @@ condition_architecture = ["x86", "x86_64"]
  
- impl<const N: usize> PortState<N> {
-@@ -809,6 +825,7 @@ impl<const N: usize> Xhci<N> {
-         );
+ [service]
+ cmd = "ps2d"
+-type = "notify"
++type = "oneshot_async"
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+index d42a4e57..f8ac5cd3 100644
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -1,7 +1,8 @@
+ use std::collections::VecDeque;
  
-         if flags.contains(port::PortFlags::CCS) {
-+            let early_quirks = crate::usb_quirks::lookup_usb_quirks_early(port_id);
-             let slot_ty = match self.supported_protocol(port_id) {
-                 Some(protocol) => protocol.proto_slot_ty(),
-                 None => {
-@@ -838,7 +855,15 @@ impl<const N: usize> Xhci<N> {
+-use crate::InitConfig;
++use crate::service::ServiceType;
+ use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
++use crate::InitConfig;
  
-             debug!("Attempting to address the device");
-             let mut ring = match self
--                .address_device(&mut input, port_id, slot_ty, slot, protocol_speed, speed)
-+                .address_device(
-+                    &mut input,
-+                    port_id,
-+                    slot_ty,
-+                    slot,
-+                    protocol_speed,
-+                    speed,
-+                    early_quirks,
-+                )
-                 .await
-             {
-                 Ok(device_ring) => device_ring,
-@@ -866,6 +891,8 @@ impl<const N: usize> Xhci<N> {
-                     },
-                 ))
-                 .collect::<BTreeMap<_, _>>(),
-+                quirks: early_quirks,
-+                pm_state: PortPmState::Active,
-             };
-             self.port_states.insert(port_id, port_state);
-             debug!("Got port states!");
-@@ -884,8 +911,14 @@ impl<const N: usize> Xhci<N> {
-             debug!("Got the 8 byte dev descriptor: {:X?}", dev_desc_8_byte);
- 
-             let dev_desc = self.get_desc(port_id, slot).await?;
-+            let quirks = early_quirks
-+                | crate::usb_quirks::lookup_usb_quirks(dev_desc.vendor, dev_desc.product);
-             debug!("Got the full device descriptor!");
--            self.port_states.get_mut(&port_id).unwrap().dev_desc = Some(dev_desc);
-+            {
-+                let mut port_state = self.port_states.get_mut(&port_id).unwrap();
-+                port_state.quirks = quirks;
-+                port_state.dev_desc = Some(dev_desc);
-+            }
- 
-             debug!("Got the port states again!");
-             {
-@@ -1052,6 +1085,7 @@ impl<const N: usize> Xhci<N> {
-         slot: u8,
-         protocol_speed: &ProtocolSpeed,
-         speed: u8,
-+        quirks: crate::usb_quirks::UsbQuirkFlags,
-     ) -> Result<Ring> {
-         // Collect MTT, parent port number, parent slot ID
-         let mut mtt = false;
-@@ -1162,11 +1196,16 @@ impl<const N: usize> Xhci<N> {
- 
-         let input_context_physical = input_context.physical();
- 
--        let (event_trb, _) = self
--            .execute_command(|trb, cycle| {
--                trb.address_device(slot, input_context_physical, false, cycle)
--            })
--            .await;
-+        let address_timeout = if quirks.contains(crate::usb_quirks::UsbQuirkFlags::SHORT_SET_ADDR_TIMEOUT)
-+        {
-+            Timeout::from_millis(100)
-+        } else {
-+            Timeout::from_secs(1)
-+        };
-+
-+        let (event_trb, _) = self.execute_command_with_timeout(address_timeout, |trb, cycle| {
-+            trb.address_device(slot, input_context_physical, false, cycle)
-+        })?;
- 
-         if event_trb.completion_code() != TrbCompletionCode::Success as u8 {
-             error!(
-diff --git a/drivers/usb/xhcid/src/xhci/scheme.rs b/drivers/usb/xhcid/src/xhci/scheme.rs
-index f2d439a4..dfe9fdec 100644
---- a/drivers/usb/xhcid/src/xhci/scheme.rs
-+++ b/drivers/usb/xhcid/src/xhci/scheme.rs
-@@ -24,6 +24,7 @@ use std::{cmp, fmt, io, mem, str};
- 
- use common::dma::Dma;
- use futures::executor::block_on;
-+use futures::FutureExt;
- use log::{debug, error, info, trace, warn};
- use redox_scheme::scheme::SchemeSync;
- use smallvec::SmallVec;
-@@ -32,9 +33,9 @@ use common::io::Io;
- use redox_scheme::{CallerCtx, OpenResult};
- use syscall::schemev2::NewFdFlags;
- use syscall::{
--    Error, Result, Stat, EACCES, EBADF, EBADFD, EBADMSG, EINVAL, EIO, EISDIR, ENOENT, ENOSYS,
--    ENOTDIR, EOPNOTSUPP, EPROTO, ESPIPE, MODE_CHR, MODE_DIR, MODE_FILE, O_DIRECTORY, O_RDWR,
--    O_STAT, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET,
-+    Error, Result, Stat, EACCES, EBADF, EBADFD, EBADMSG, EBUSY, EINVAL, EIO, EISDIR, ENOENT,
-+    ENOSYS, ENOTDIR, EOPNOTSUPP, EPROTO, ESPIPE, MODE_CHR, MODE_DIR, MODE_FILE, O_DIRECTORY,
-+    O_RDWR, O_STAT, O_WRONLY, SEEK_CUR, SEEK_END, SEEK_SET,
- };
- 
- use super::{port, usb};
-@@ -60,10 +61,16 @@ lazy_static! {
-         .expect("Failed to create the regex for the port<n>/attach scheme.");
-     static ref REGEX_PORT_DETACH: Regex = Regex::new(r"^port([\d\.]+)/detach$")
-         .expect("Failed to create the regex for the port<n>/detach scheme.");
-+    static ref REGEX_PORT_SUSPEND: Regex = Regex::new(r"^port([\d\.]+)/suspend$")
-+        .expect("Failed to create the regex for the port<n>/suspend scheme.");
-+    static ref REGEX_PORT_RESUME: Regex = Regex::new(r"^port([\d\.]+)/resume$")
-+        .expect("Failed to create the regex for the port<n>/resume scheme.");
-     static ref REGEX_PORT_DESCRIPTORS: Regex = Regex::new(r"^port([\d\.]+)/descriptors$")
-         .expect("Failed to create the regex for the port<n>/descriptors");
-     static ref REGEX_PORT_STATE: Regex = Regex::new(r"^port([\d\.]+)/state$")
-         .expect("Failed to create the regex for the port<n>/state scheme");
-+    static ref REGEX_PORT_PM_STATE: Regex = Regex::new(r"^port([\d\.]+)/pm_state$")
-+        .expect("Failed to create the regex for the port<n>/pm_state scheme");
-     static ref REGEX_PORT_REQUEST: Regex = Regex::new(r"^port([\d\.]+)/request$")
-         .expect("Failed to create the regex for the port<n>/request scheme");
-     static ref REGEX_PORT_ENDPOINTS: Regex = Regex::new(r"^port([\d\.]+)/endpoints$")
-@@ -137,12 +144,15 @@ pub enum Handle {
-     Port(PortId, Vec<u8>),                  // port, contents
-     PortDesc(PortId, Vec<u8>),              // port, contents
-     PortState(PortId),                      // port
-+    PortPmState(PortId),                    // port
-     PortReq(PortId, PortReqState),          // port, state
-     Endpoints(PortId, Vec<u8>),             // port, contents
-     Endpoint(PortId, u8, EndpointHandleTy), // port, endpoint, state
-     ConfigureEndpoints(PortId),             // port
-     AttachDevice(PortId),                   // port
-     DetachDevice(PortId),                   // port
-+    SuspendDevice(PortId),                  // port
-+    ResumeDevice(PortId),                   // port
-     SchemeRoot,
- }
- 
-@@ -172,6 +182,8 @@ enum SchemeParameters {
-     PortDesc(PortId), // port number
-     /// /port<n>/state
-     PortState(PortId), // port number
-+    /// /port<n>/pm_state
-+    PortPmState(PortId), // port number
-     /// /port<n>/request
-     PortReq(PortId), // port number
-     /// /port<n>/endpoints
-@@ -187,6 +199,10 @@ enum SchemeParameters {
-     AttachDevice(PortId), // port number
-     /// /port<n>/detach
-     DetachDevice(PortId), // port number
-+    /// /port<n>/suspend
-+    SuspendDevice(PortId), // port number
-+    /// /port<n>/resume
-+    ResumeDevice(PortId), // port number
- }
- 
- impl Handle {
-@@ -209,6 +225,9 @@ impl Handle {
-             Handle::PortState(port_num) => {
-                 format!("port{}/state", port_num)
-             }
-+            Handle::PortPmState(port_num) => {
-+                format!("port{}/pm_state", port_num)
-+            }
-             Handle::PortReq(port_num, _) => {
-                 format!("port{}/request", port_num)
-             }
-@@ -235,6 +254,12 @@ impl Handle {
-             Handle::DetachDevice(port_num) => {
-                 format!("port{}/detach", port_num)
-             }
-+            Handle::SuspendDevice(port_num) => {
-+                format!("port{}/suspend", port_num)
-+            }
-+            Handle::ResumeDevice(port_num) => {
-+                format!("port{}/resume", port_num)
-+            }
-             Handle::SchemeRoot => String::from(""),
+ pub struct Scheduler {
+     pending: VecDeque<Job>,
+@@ -92,22 +93,31 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
          }
-     }
-@@ -258,10 +283,13 @@ impl Handle {
-             &Handle::PortReq(_, PortReqState::Tmp) => unreachable!(),
-             &Handle::PortReq(_, PortReqState::TmpSetup(_)) => unreachable!(),
-             &Handle::PortState(_) => HandleType::Character,
-+            &Handle::PortPmState(_) => HandleType::Character,
-             &Handle::PortReq(_, _) => HandleType::Character,
-             &Handle::ConfigureEndpoints(_) => HandleType::Character,
-             &Handle::AttachDevice(_) => HandleType::Character,
-             &Handle::DetachDevice(_) => HandleType::Character,
-+            &Handle::SuspendDevice(_) => HandleType::Character,
-+            &Handle::ResumeDevice(_) => HandleType::Character,
-             &Handle::Endpoint(_, _, ref st) => match st {
-                 EndpointHandleTy::Data => HandleType::Character,
-                 EndpointHandleTy::Ctl => HandleType::Character,
-@@ -289,10 +317,13 @@ impl Handle {
-             &Handle::PortReq(_, PortReqState::Tmp) => None,
-             &Handle::PortReq(_, PortReqState::TmpSetup(_)) => None,
-             &Handle::PortState(_) => None,
-+            &Handle::PortPmState(_) => None,
-             &Handle::PortReq(_, _) => None,
-             &Handle::ConfigureEndpoints(_) => None,
-             &Handle::AttachDevice(_) => None,
-             &Handle::DetachDevice(_) => None,
-+            &Handle::SuspendDevice(_) => None,
-+            &Handle::ResumeDevice(_) => None,
-             &Handle::Endpoint(_, _, ref st) => match st {
-                 EndpointHandleTy::Data => None,
-                 EndpointHandleTy::Ctl => None,
-@@ -383,6 +414,14 @@ impl SchemeParameters {
-             let port_num = get_port_id_from_regex(&REGEX_PORT_DETACH, scheme, 0)?;
- 
-             Ok(Self::DetachDevice(port_num))
-+        } else if REGEX_PORT_SUSPEND.is_match(scheme) {
-+            let port_num = get_port_id_from_regex(&REGEX_PORT_SUSPEND, scheme, 0)?;
+         UnitKind::Service { service } => {
+             if config.skip_cmd.contains(&service.cmd) {
+-                eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
++                eprintln!("init: SKIP {} {}", service.cmd, service.args.join(" "));
+                 return;
+             }
+-            if config.log_debug {
+-                eprintln!(
+-                    "Starting {} ({})",
+-                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                    service.cmd,
+-                );
 +
-+            Ok(Self::SuspendDevice(port_num))
-+        } else if REGEX_PORT_RESUME.is_match(scheme) {
-+            let port_num = get_port_id_from_regex(&REGEX_PORT_RESUME, scheme, 0)?;
++            // Always log blocking service types (notify, scheme, oneshot)
++            // since these can hang the boot if the child fails to signal.
++            // OneshotAsync services are fire-and-forget, only log at debug.
++            let is_blocking = !matches!(service.type_, ServiceType::OneshotAsync);
 +
-+            Ok(Self::ResumeDevice(port_num))
-         } else if REGEX_PORT_DESCRIPTORS.is_match(scheme) {
-             let port_num = get_port_id_from_regex(&REGEX_PORT_DESCRIPTORS, scheme, 0)?;
- 
-@@ -391,6 +430,10 @@ impl SchemeParameters {
-             let port_num = get_port_id_from_regex(&REGEX_PORT_STATE, scheme, 0)?;
- 
-             Ok(Self::PortState(port_num))
-+        } else if REGEX_PORT_PM_STATE.is_match(scheme) {
-+            let port_num = get_port_id_from_regex(&REGEX_PORT_PM_STATE, scheme, 0)?;
++            if is_blocking || config.log_debug {
++                let desc = unit.info.description.as_ref().map(|s| s.as_str()).unwrap_or("-");
++                eprintln!("init: START {desc} | {} {}", service.cmd, service.args.join(" "));
+             }
 +
-+            Ok(Self::PortPmState(port_num))
-         } else if REGEX_PORT_REQUEST.is_match(scheme) {
-             let port_num = get_port_id_from_regex(&REGEX_PORT_REQUEST, scheme, 0)?;
- 
-@@ -564,15 +607,22 @@ impl<const N: usize> Xhci<N> {
-         endps: impl IntoIterator<Item = EndpDesc>,
-         hid_descs: impl IntoIterator<Item = HidDesc>,
-         lang_id: u16,
-+        quirks: crate::usb_quirks::UsbQuirkFlags,
-     ) -> Result<IfDesc> {
-         Ok(IfDesc {
-             alternate_setting: desc.alternate_setting,
-             class: desc.class,
-             interface_str: if desc.interface_str > 0 {
--                Some(
-+                if quirks.contains(crate::usb_quirks::UsbQuirkFlags::BAD_DESCRIPTOR) {
-                     self.fetch_string_desc(port_id, slot, desc.interface_str, lang_id)
--                        .await?,
--                )
-+                        .await
-+                        .ok()
-+                } else {
-+                    Some(
-+                        self.fetch_string_desc(port_id, slot, desc.interface_str, lang_id)
-+                            .await?,
-+                    )
-+                }
-             } else {
-                 None
-             },
-@@ -628,6 +678,53 @@ impl<const N: usize> Xhci<N> {
- 
-         (event_trb, command_trb)
-     }
-+    pub fn execute_command_with_timeout<F: FnOnce(&mut Trb, bool)>(
-+        &self,
-+        timeout: common::timeout::Timeout,
-+        f: F,
-+    ) -> Result<(Trb, Trb)> {
-+        if self.interrupt_is_pending(0) {
-+            debug!("The EHB bit is already set!");
-+        }
+             service.spawn(&config.envs);
 +
-+        let next_event = {
-+            let mut command_ring = self.cmd.lock().unwrap();
-+            let (cmd_index, cycle) = (command_ring.next_index(), command_ring.cycle);
-+
-+            debug!("Sending command with cycle bit {}", cycle as u8);
-+
-+            {
-+                let command_trb = &mut command_ring.trbs[cmd_index];
-+                f(command_trb, cycle);
++            if is_blocking || config.log_debug {
++                let desc = unit.info.description.as_ref().map(|s| s.as_str()).unwrap_or("-");
++                eprintln!("init: DONE  {desc} | {} {}", service.cmd, service.args.join(" "));
 +            }
-+
-+            let command_trb = &command_ring.trbs[cmd_index];
-+            self.next_command_completion_event_trb(
-+                &*command_ring,
-+                command_trb,
-+                EventDoorbell::new(self, 0, 0),
-+            )
-+        };
-+
-+        let mut next_event = Box::pin(next_event);
-+
-+        loop {
-+            if let Some(trbs) = next_event.as_mut().now_or_never() {
-+                let event_trb = trbs.event_trb;
-+                let command_trb = trbs.src_trb.ok_or(Error::new(EIO))?;
-+
-+                assert_eq!(
-+                    event_trb.trb_type(),
-+                    TrbType::CommandCompletion as u8,
-+                    "The IRQ reactor (or the xHC) gave an invalid event TRB"
-+                );
-+
-+                return Ok((event_trb, command_trb));
-+            }
-+
-+            timeout.run().map_err(|()| Error::new(EIO))?;
-+        }
-+    }
-     pub async fn execute_control_transfer<D>(
-         &self,
-         port_num: PortId,
-@@ -639,6 +736,8 @@ impl<const N: usize> Xhci<N> {
-     where
-         D: FnMut(&mut Trb, bool) -> ControlFlow,
-     {
-+        self.ensure_port_active(port_num)?;
-+
-         let future = {
-             let mut port_state = self.port_state_mut(port_num)?;
-             let slot = port_state.slot;
-@@ -690,6 +789,20 @@ impl<const N: usize> Xhci<N> {
- 
-         handle_transfer_event_trb("CONTROL_TRANSFER", &event_trb, &status_trb)?;
- 
-+        let delay_ctrl_msg = self
-+            .port_states
-+            .get(&port_num)
-+            .map(|port_state| {
-+                port_state
-+                    .quirks
-+                    .contains(crate::usb_quirks::UsbQuirkFlags::DELAY_CTRL_MSG)
-+            })
-+            .unwrap_or(false);
-+
-+        if delay_ctrl_msg {
-+            std::thread::sleep(std::time::Duration::from_millis(20));
-+        }
-+
-         //self.event_handler_finished();
- 
-         Ok(event_trb)
-@@ -709,6 +822,8 @@ impl<const N: usize> Xhci<N> {
-     where
-         D: FnMut(&mut Trb, bool) -> ControlFlow,
-     {
-+        self.ensure_port_active(port_num)?;
-+
-         let endp_idx = endp_num.checked_sub(1).ok_or(Error::new(EIO))?;
-         let mut port_state = self.port_state_mut(port_num)?;
- 
-@@ -785,7 +900,29 @@ impl<const N: usize> Xhci<N> {
-         let event_trb = trbs.event_trb;
-         let transfer_trb = trbs.src_trb.ok_or(Error::new(EIO))?;
- 
--        handle_transfer_event_trb("EXECUTE_TRANSFER", &event_trb, &transfer_trb)?;
-+        if let Err(err) = handle_transfer_event_trb("EXECUTE_TRANSFER", &event_trb, &transfer_trb)
-+        {
-+            let need_reset = self
-+                .port_states
-+                .get(&port_num)
-+                .map(|port_state| {
-+                    port_state
-+                        .quirks
-+                        .contains(crate::usb_quirks::UsbQuirkFlags::NEED_RESET)
-+                })
-+                .unwrap_or(false);
-+
-+            if need_reset {
-+                if let Err(reset_err) = self.reset_device_slot(port_num).await {
-+                    error!(
-+                        "EXECUTE_TRANSFER reset recovery failed for port {}: {}",
-+                        port_num, reset_err
-+                    );
-+                }
-+            }
-+
-+            return Err(err);
-+        }
- 
-         // FIXME: EDTLA if event data was set
-         if event_trb.completion_code() != TrbCompletionCode::ShortPacket as u8
-@@ -861,6 +998,21 @@ impl<const N: usize> Xhci<N> {
- 
-         handle_event_trb("RESET_ENDPOINT", &event_trb, &command_trb)
-     }
-+    async fn reset_device_slot(&self, port_num: PortId) -> Result<()> {
-+        let slot = self
-+            .port_states
-+            .get(&port_num)
-+            .ok_or(Error::new(EBADF))?
-+            .slot;
-+
-+        let (event_trb, command_trb) = self
-+            .execute_command(|trb, cycle| {
-+                trb.reset_device(slot, cycle);
-+            })
-+            .await;
-+
-+        handle_event_trb("RESET_DEVICE", &event_trb, &command_trb)
-+    }
- 
-     fn endp_ctx_interval(speed_id: &ProtocolSpeed, endp_desc: &EndpDesc) -> u8 {
-         /// Logarithmic (base 2) 125 µs periods per millisecond.
-@@ -1205,7 +1357,19 @@ impl<const N: usize> Xhci<N> {
          }
- 
-         // Tell the device about this configuration.
--        self.set_configuration(port, configuration_value).await?;
-+        let skip_set_configuration = self
-+            .port_states
-+            .get(&port)
-+            .map(|port_state| {
-+                port_state
-+                    .quirks
-+                    .contains(crate::usb_quirks::UsbQuirkFlags::NO_SET_CONFIG)
-+            })
-+            .unwrap_or(false);
-+
-+        if !skip_set_configuration {
-+            self.set_configuration(port, configuration_value).await?;
-+        }
- 
-         Ok(())
-     }
-@@ -1234,8 +1398,20 @@ impl<const N: usize> Xhci<N> {
- 
-         if let Some(interface_num) = req.interface_desc {
-             if let Some(alternate_setting) = req.alternate_setting {
--                self.set_interface(port, interface_num, alternate_setting)
--                    .await?;
-+                let skip_set_interface = self
-+                    .port_states
-+                    .get(&port)
-+                    .map(|port_state| {
-+                        port_state
-+                            .quirks
-+                            .contains(crate::usb_quirks::UsbQuirkFlags::NO_SET_INTF)
-+                    })
-+                    .unwrap_or(false);
-+
-+                if !skip_set_interface {
-+                    self.set_interface(port, interface_num, alternate_setting)
-+                        .await?;
-+                }
+         UnitKind::Target {} => {
+             if config.log_debug {
+                 eprintln!(
+-                    "Reached target {}",
++                    "init: TARGET {}",
+                     unit.info.description.as_ref().unwrap_or(&unit.id.0),
+                 );
              }
-         }
+diff --git a/init/src/script.rs b/init/src/script.rs
+index d18e3a04..40bcf9a4 100644
+--- a/init/src/script.rs
++++ b/init/src/script.rs
+@@ -1,8 +1,8 @@
+ use std::collections::BTreeMap;
+ use std::{env, io, iter};
  
-@@ -1453,52 +1629,109 @@ impl<const N: usize> Xhci<N> {
-         let raw_dd = self.fetch_dev_desc(port_id, slot).await?;
-         log::debug!("port {} slot {} desc {:X?}", port_id, slot, raw_dd);
+-use crate::InitConfig;
+ use crate::unit::UnitId;
++use crate::InitConfig;
  
-+        let vendor = raw_dd.vendor;
-+        let product = raw_dd.product;
-+        let quirks = crate::usb_quirks::lookup_usb_quirks(vendor, product);
-+        if !quirks.is_empty() {
-+            log::info!(
-+                "port {}: USB quirks for {:04x}:{:04x}: {:?}",
-+                port_id, vendor, product, quirks
-+            );
-+        }
-+
-         // Only fetch language IDs if we need to. Some devices will fail to return this descriptor
-         //TODO: also check configurations and interfaces for defined strings?
-+        let bad_descriptor = quirks.contains(crate::usb_quirks::UsbQuirkFlags::BAD_DESCRIPTOR);
-+
-         let lang_id =
--            if raw_dd.manufacturer_str > 0 || raw_dd.product_str > 0 || raw_dd.serial_str > 0 {
--                let lang_ids = self.fetch_lang_ids_desc(port_id, slot).await?;
--                // Prefer US English, but fall back to first language ID, or zero
--                let en_us_id = 0x409;
--                if lang_ids.contains(&en_us_id) {
--                    en_us_id
--                } else {
--                    match lang_ids.first() {
--                        Some(some) => *some,
--                        None => 0,
-+            if !quirks.contains(crate::usb_quirks::UsbQuirkFlags::NO_STRING_FETCH)
-+                && (raw_dd.manufacturer_str > 0
-+                    || raw_dd.product_str > 0
-+                    || raw_dd.serial_str > 0)
-+            {
-+                match self.fetch_lang_ids_desc(port_id, slot).await {
-+                    Ok(lang_ids) => {
-+                        // Prefer US English, but fall back to first language ID, or zero
-+                        let en_us_id = 0x409;
-+                        if lang_ids.contains(&en_us_id) {
-+                            en_us_id
-+                        } else {
-+                            match lang_ids.first() {
-+                                Some(some) => *some,
-+                                None => 0,
-+                            }
-+                        }
-+                    }
-+                    Err(err) if bad_descriptor => {
-+                        log::warn!(
-+                            "port {} slot {}: failed to fetch language IDs with BAD_DESCRIPTOR set: {}",
-+                            port_id,
-+                            slot,
-+                            err
-+                        );
-+                        0
-                     }
-+                    Err(err) => return Err(err),
-                 }
-             } else {
-                 0
-             };
-         log::debug!("port {} using language ID 0x{:04x}", port_id, lang_id);
- 
--        let (manufacturer_str, product_str, serial_str) = (
--            if raw_dd.manufacturer_str > 0 {
--                Some(
--                    self.fetch_string_desc(port_id, slot, raw_dd.manufacturer_str, lang_id)
--                        .await?,
--                )
--            } else {
--                None
--            },
--            if raw_dd.product_str > 0 {
--                Some(
--                    self.fetch_string_desc(port_id, slot, raw_dd.product_str, lang_id)
--                        .await?,
--                )
-+        let (manufacturer_str, product_str, serial_str) =
-+            if quirks.contains(crate::usb_quirks::UsbQuirkFlags::NO_STRING_FETCH) {
-+                (None, None, None)
-             } else {
--                None
--            },
--            if raw_dd.serial_str > 0 {
--                Some(
--                    self.fetch_string_desc(port_id, slot, raw_dd.serial_str, lang_id)
--                        .await?,
-+                (
-+                    if raw_dd.manufacturer_str > 0 {
-+                        if bad_descriptor {
-+                            self.fetch_string_desc(port_id, slot, raw_dd.manufacturer_str, lang_id)
-+                                .await
-+                                .ok()
-+                        } else {
-+                            Some(
-+                                self.fetch_string_desc(
-+                                    port_id,
-+                                    slot,
-+                                    raw_dd.manufacturer_str,
-+                                    lang_id,
-+                                )
-+                                .await?,
-+                            )
-+                        }
-+                    } else {
-+                        None
-+                    },
-+                    if raw_dd.product_str > 0 {
-+                        if bad_descriptor {
-+                            self.fetch_string_desc(port_id, slot, raw_dd.product_str, lang_id)
-+                                .await
-+                                .ok()
-+                        } else {
-+                            Some(
-+                                self.fetch_string_desc(port_id, slot, raw_dd.product_str, lang_id)
-+                                    .await?,
-+                            )
-+                        }
-+                    } else {
-+                        None
-+                    },
-+                    if raw_dd.serial_str > 0 {
-+                        if bad_descriptor {
-+                            self.fetch_string_desc(port_id, slot, raw_dd.serial_str, lang_id)
-+                                .await
-+                                .ok()
-+                        } else {
-+                            Some(
-+                                self.fetch_string_desc(port_id, slot, raw_dd.serial_str, lang_id)
-+                                    .await?,
-+                            )
-+                        }
-+                    } else {
-+                        None
-+                    },
-                 )
--            } else {
--                None
--            },
--        );
-+            };
-         log::debug!(
-             "manufacturer {:?} product {:?} serial {:?}",
-             manufacturer_str,
-@@ -1508,14 +1741,39 @@ impl<const N: usize> Xhci<N> {
- 
-         //TODO let (bos_desc, bos_data) = self.fetch_bos_desc(port_id, slot).await?;
- 
--        let supports_superspeed = false;
--        //TODO usb::bos_capability_descs(bos_desc, &bos_data).any(|desc| desc.is_superspeed());
--        let supports_superspeedplus = false;
--        //TODO usb::bos_capability_descs(bos_desc, &bos_data).any(|desc| desc.is_superspeedplus());
-+        let (supports_superspeed, supports_superspeedplus) =
-+            if quirks.contains(crate::usb_quirks::UsbQuirkFlags::NO_BOS) {
-+                (false, false)
-+            } else {
-+                match self.fetch_bos_desc(port_id, slot).await {
-+                    Ok((bos_desc, bos_data)) => (
-+                        usb::bos_capability_descs(bos_desc, &bos_data)
-+                            .any(|desc| desc.is_superspeed()),
-+                        usb::bos_capability_descs(bos_desc, &bos_data)
-+                            .any(|desc| desc.is_superspeedplus()),
-+                    ),
-+                    Err(err) => {
-+                        log::debug!(
-+                            "port {} slot {}: failed to fetch BOS descriptor: {}",
-+                            port_id,
-+                            slot,
-+                            err
-+                        );
-+                        (false, false)
-+                    }
-+                }
-+            };
- 
-         let mut config_descs = SmallVec::new();
- 
--        for index in 0..raw_dd.configurations {
-+        let configuration_indices: Vec<u8> =
-+            if quirks.contains(crate::usb_quirks::UsbQuirkFlags::FORCE_ONE_CONFIG) {
-+                vec![0]
-+            } else {
-+                (0..raw_dd.configurations).collect()
-+            };
-+
-+        for index in configuration_indices {
-             debug!("Fetching the config descriptor at index {}", index);
-             let (desc, data) = self.fetch_config_desc(port_id, slot, index).await?;
-             log::debug!(
-@@ -1541,6 +1799,12 @@ impl<const N: usize> Xhci<N> {
-             let mut iter = descriptors.into_iter().peekable();
- 
-             while let Some(item) = iter.next() {
-+                if quirks.contains(crate::usb_quirks::UsbQuirkFlags::HONOR_BNUMINTERFACES)
-+                    && interface_descs.len() >= desc.interfaces as usize
-+                {
-+                    break;
-+                }
-+
-                 if let AnyDescriptor::Interface(idesc) = item {
-                     let mut endpoints = SmallVec::<[EndpDesc; 4]>::new();
-                     let mut hid_descs = SmallVec::<[HidDesc; 1]>::new();
-@@ -1554,6 +1818,9 @@ impl<const N: usize> Xhci<N> {
-                             }
-                             Some(unexpected) => {
-                                 log::warn!("expected endpoint, got {:X?}", unexpected);
-+                                if bad_descriptor {
-+                                    continue;
-+                                }
-                                 break;
-                             }
-                             None => break,
-@@ -1578,8 +1845,16 @@ impl<const N: usize> Xhci<N> {
-                     }
- 
-                     interface_descs.push(
--                        self.new_if_desc(port_id, slot, idesc, endpoints, hid_descs, lang_id)
--                            .await?,
-+                        self.new_if_desc(
-+                            port_id,
-+                            slot,
-+                            idesc,
-+                            endpoints,
-+                            hid_descs,
-+                            lang_id,
-+                            quirks,
-+                        )
-+                        .await?,
-                     );
-                 } else {
-                     log::warn!("expected interface, got {:?}", item);
-@@ -1590,11 +1865,20 @@ impl<const N: usize> Xhci<N> {
- 
-             config_descs.push(ConfDesc {
-                 kind: desc.kind,
--                configuration: if desc.configuration_str > 0 {
--                    Some(
-+                configuration: if quirks.contains(crate::usb_quirks::UsbQuirkFlags::NO_STRING_FETCH)
-+                {
-+                    None
-+                } else if desc.configuration_str > 0 {
-+                    if bad_descriptor {
-                         self.fetch_string_desc(port_id, slot, desc.configuration_str, lang_id)
--                            .await?,
--                    )
-+                            .await
-+                            .ok()
-+                    } else {
-+                        Some(
-+                            self.fetch_string_desc(port_id, slot, desc.configuration_str, lang_id)
-+                                .await?,
-+                        )
-+                    }
-                 } else {
-                     None
-                 },
-@@ -1856,7 +2140,7 @@ impl<const N: usize> Xhci<N> {
-         if (flags & O_DIRECTORY != 0) || (flags & O_STAT != 0) {
-             let mut contents = Vec::new();
- 
--            write!(contents, "descriptors\nendpoints\n").unwrap();
-+            write!(contents, "descriptors\nendpoints\npm_state\nsuspend\nresume\n").unwrap();
- 
-             if self.slot_state(
-                 self.port_states
-@@ -1893,6 +2177,14 @@ impl<const N: usize> Xhci<N> {
-         Ok(Handle::PortState(port_num))
-     }
- 
-+    fn open_handle_port_pm_state(&self, port_num: PortId, flags: usize) -> Result<Handle> {
-+        if flags & O_DIRECTORY != 0 && flags & O_STAT == 0 {
-+            return Err(Error::new(ENOTDIR));
-+        }
-+
-+        Ok(Handle::PortPmState(port_num))
-+    }
-+
-     /// implements open() for /port<n>/endpoints
-     ///
-     /// # Arguments
-@@ -2087,6 +2379,30 @@ impl<const N: usize> Xhci<N> {
-         Ok(Handle::DetachDevice(port_num))
-     }
- 
-+    fn open_handle_suspend_device(&self, port_num: PortId, flags: usize) -> Result<Handle> {
-+        if flags & O_DIRECTORY != 0 && flags & O_STAT == 0 {
-+            return Err(Error::new(ENOTDIR));
-+        }
-+
-+        if flags & O_RDWR != O_WRONLY && flags & O_STAT == 0 {
-+            return Err(Error::new(EACCES));
-+        }
-+
-+        Ok(Handle::SuspendDevice(port_num))
-+    }
-+
-+    fn open_handle_resume_device(&self, port_num: PortId, flags: usize) -> Result<Handle> {
-+        if flags & O_DIRECTORY != 0 && flags & O_STAT == 0 {
-+            return Err(Error::new(ENOTDIR));
-+        }
-+
-+        if flags & O_RDWR != O_WRONLY && flags & O_STAT == 0 {
-+            return Err(Error::new(EACCES));
-+        }
-+
-+        Ok(Handle::ResumeDevice(port_num))
-+    }
-+
-     /// implements open() for /port<n>/request
-     ///
-     /// # Arguments
-@@ -2155,6 +2471,9 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
-             SchemeParameters::PortState(port_number) => {
-                 self.open_handle_port_state(port_number, flags)?
-             }
-+            SchemeParameters::PortPmState(port_number) => {
-+                self.open_handle_port_pm_state(port_number, flags)?
-+            }
-             SchemeParameters::PortReq(port_number) => {
-                 self.open_handle_port_request(port_number, flags)?
-             }
-@@ -2173,6 +2492,12 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
-             SchemeParameters::DetachDevice(port_number) => {
-                 self.open_handle_detach_device(port_number, flags)?
-             }
-+            SchemeParameters::SuspendDevice(port_number) => {
-+                self.open_handle_suspend_device(port_number, flags)?
-+            }
-+            SchemeParameters::ResumeDevice(port_number) => {
-+                self.open_handle_resume_device(port_number, flags)?
-+            }
-         };
- 
-         let fd = self.next_handle.fetch_add(1, atomic::Ordering::Relaxed);
-@@ -2203,7 +2528,11 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
- 
-         //If we have a handle to the configure scheme, we need to mark it as write only.
-         match &*guard {
--            Handle::ConfigureEndpoints(_) | Handle::AttachDevice(_) | Handle::DetachDevice(_) => {
-+            Handle::ConfigureEndpoints(_)
-+            | Handle::AttachDevice(_)
-+            | Handle::DetachDevice(_)
-+            | Handle::SuspendDevice(_)
-+            | Handle::ResumeDevice(_) => {
-                 stat.st_mode = stat.st_mode | 0o200;
-             }
-             _ => {}
-@@ -2263,6 +2592,8 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
-             Handle::ConfigureEndpoints(_) => Err(Error::new(EBADF)),
-             Handle::AttachDevice(_) => Err(Error::new(EBADF)),
-             Handle::DetachDevice(_) => Err(Error::new(EBADF)),
-+            Handle::SuspendDevice(_) => Err(Error::new(EBADF)),
-+            Handle::ResumeDevice(_) => Err(Error::new(EBADF)),
-             Handle::SchemeRoot => Err(Error::new(EBADF)),
- 
-             &mut Handle::Endpoint(port_num, endp_num, ref mut st) => match st {
-@@ -2294,6 +2625,10 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
- 
-                 Ok(Xhci::<N>::write_dyn_string(string, buf, offset))
-             }
-+            &mut Handle::PortPmState(port_num) => {
-+                let ps = self.port_states.get(&port_num).ok_or(Error::new(EBADF))?;
-+                Ok(Xhci::<N>::write_dyn_string(ps.pm_state.as_str().as_bytes(), buf, offset))
-+            }
-             &mut Handle::PortReq(port_num, ref mut st) => {
-                 let state = std::mem::replace(st, PortReqState::Tmp);
-                 drop(guard); // release the lock
-@@ -2333,6 +2668,14 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
-                 block_on(self.detach_device(port_num))?;
-                 Ok(buf.len())
-             }
-+            &mut Handle::SuspendDevice(port_num) => {
-+                block_on(self.suspend_device(port_num))?;
-+                Ok(buf.len())
-+            }
-+            &mut Handle::ResumeDevice(port_num) => {
-+                block_on(self.resume_device(port_num))?;
-+                Ok(buf.len())
-+            }
-             &mut Handle::Endpoint(port_num, endp_num, ref ep_file_ty) => match ep_file_ty {
-                 EndpointHandleTy::Ctl => block_on(self.on_write_endp_ctl(port_num, endp_num, buf)),
-                 EndpointHandleTy::Data => {
-@@ -2356,6 +2699,38 @@ impl<const N: usize> Xhci<N> {
-         self.handles.remove(&fd);
-     }
- 
-+    fn ensure_port_active(&self, port_num: PortId) -> Result<()> {
-+        let pm_state = self
-+            .port_states
-+            .get(&port_num)
-+            .ok_or(Error::new(EBADFD))?
-+            .pm_state;
-+        match pm_state {
-+            super::PortPmState::Active => Ok(()),
-+            super::PortPmState::Suspended => Err(Error::new(EBUSY)),
-+        }
-+    }
-+
-+    pub async fn suspend_device(&self, port_num: PortId) -> Result<()> {
-+        let mut port_state = self.port_states.get_mut(&port_num).ok_or(Error::new(EBADFD))?;
-+
-+        if port_state
-+            .quirks
-+            .contains(crate::usb_quirks::UsbQuirkFlags::NO_SUSPEND)
-+        {
-+            return Err(Error::new(EOPNOTSUPP));
-+        }
-+
-+        port_state.pm_state = super::PortPmState::Suspended;
-+        Ok(())
-+    }
-+
-+    pub async fn resume_device(&self, port_num: PortId) -> Result<()> {
-+        let mut port_state = self.port_states.get_mut(&port_num).ok_or(Error::new(EBADFD))?;
-+        port_state.pm_state = super::PortPmState::Active;
-+        Ok(())
-+    }
-+
-     pub fn get_endp_status(&self, port_num: PortId, endp_num: u8) -> Result<EndpointStatus> {
-         let port_state = self.port_states.get(&port_num).ok_or(Error::new(EBADFD))?;
- 
-@@ -2406,6 +2781,8 @@ impl<const N: usize> Xhci<N> {
-         endp_num: u8,
-         clear_feature: bool,
-     ) -> Result<()> {
-+        self.ensure_port_active(port_num)?;
-+
-         if self.get_endp_status(port_num, endp_num)? != EndpointStatus::Halted {
-             return Err(Error::new(EPROTO));
-         }
-@@ -2562,6 +2939,7 @@ impl<const N: usize> Xhci<N> {
-             },
-             XhciEndpCtlReq::Reset { no_clear_feature } => match ep_if_state {
-                 EndpIfState::Init => {
-+                    self.ensure_port_active(port_num)?;
-                     self.on_req_reset_device(port_num, endp_num, !no_clear_feature)
-                         .await?
-                 }
-@@ -2571,6 +2949,7 @@ impl<const N: usize> Xhci<N> {
-             },
-             XhciEndpCtlReq::Transfer { direction, count } => match ep_if_state {
-                 state @ EndpIfState::Init => {
-+                    self.ensure_port_active(port_num)?;
-                     if direction == XhciEndpCtlDirection::NoData {
-                         // Yield the result directly because no bytes have to be sent or received
-                         // beforehand.
-@@ -2631,6 +3010,8 @@ impl<const N: usize> Xhci<N> {
-         endp_num: u8,
-         buf: &[u8],
-     ) -> Result<usize> {
-+        self.ensure_port_active(port_num)?;
-+
-         let mut port_state = self
-             .port_states
-             .get_mut(&port_num)
-@@ -2732,6 +3113,8 @@ impl<const N: usize> Xhci<N> {
-         endp_num: u8,
-         buf: &mut [u8],
-     ) -> Result<usize> {
-+        self.ensure_port_active(port_num)?;
-+
-         let mut port_state = self
-             .port_states
-             .get_mut(&port_num)
+ pub fn subst_env<'a>(arg: &str) -> String {
+     if arg.starts_with('$') {
