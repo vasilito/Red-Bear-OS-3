@@ -41,6 +41,7 @@ predictably from the Red Bear-owned overlay.
 
 ## What's New
 
+- KWin Wayland is now treated as the only intended Red Bear desktop direction in the tracked plans, build defaults, live profile wiring, and profile guidance.
 - KDE bring-up moved forward: `config/redbear-kde.toml` exists, the Qt6 stack builds in-tree, and the KDE recipe tree is now populated.
 - Native Red Bear runtime tooling expanded with `redbear-info`, `redbear-hwutils` (`lspci`, `lsusb`), and a Redox-native `netctl` flow.
 - Build and status docs were refreshed to distinguish current in-tree progress from older historical roadmap text.
@@ -69,6 +70,9 @@ Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets
 language in historical integration notes should be read as earlier sequencing context, not as the
 current platform policy.
 
+The tracked default desktop target is now `redbear-kde` with KWin Wayland, and runtime support
+claims remain evidence-qualified until compositor/session proof is stronger.
+
 ## Historical Phase Snapshot
 
 The table below is a legacy P0-P6 snapshot retained for historical continuity with older Red Bear
@@ -82,12 +86,12 @@ with the subsystem plans listed above.
 
 | Phase | Status | Notes |
 |---|---|---|
-| P0 ACPI boot | ✅ Complete | In-tree and documented in `local/docs/ACPI-FIXES.md` |
+| P0 ACPI boot | ✅ Materially complete (boot bring-up) | In-tree and documented in `local/docs/ACPI-FIXES.md`; forward ownership/robustness work lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | P1 driver infra | ✅ Complete | Compile-oriented infrastructure present |
 | P2 DRM / display | ✅ Code complete | Hardware validation still pending |
 | P3 POSIX + input | 🚧 In progress | relibc exports now cover the rebuilt `signalfd`/`timerfd`/`eventfd`/`open_memstream` consumer path; runtime validation remains |
-| P4 Wayland runtime | 🚧 In progress | `redbear-wayland` is now a first-class profile, builds to a bootable image, and reaches the `orbital-wayland` → `smallvil` runtime path in QEMU/UEFI |
-| P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
+| P4 Wayland runtime | 🚧 In progress | bounded Wayland runtime validation builds to a bootable image and reaches its packaged runtime entrypoint in QEMU/UEFI |
+| P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing as a broader integration slice, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
 | P6 KDE Plasma | 🚧 In progress | Mix of real builds, shims, and stubs |
 
 There is no distinct first-class **P7** artifact in this older historical numbering. The canonical
@@ -123,10 +127,10 @@ expand on top of them.
 
 | Component | Status | Detail |
 |-----------|--------|--------|
-| AMD GPU driver (amdgpu) | ✅ Compiles | LinuxKPI compat + AMD DC modesetting + MSI-X (no HW validation) |
-| Intel GPU driver | ✅ Compiles | Display pipe modesetting + MSI-X (no HW validation) |
+| AMD GPU driver (amdgpu) | ✅ Compiles | LinuxKPI compat + AMD DC modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
+| Intel GPU driver | ✅ Compiles | Display pipe modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
 | ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
-| ACPI for AMD bare metal | ✅ Complete | x2APIC, MADT, FADT shutdown/reboot, power methods |
+| ACPI for AMD bare metal | ✅ Materially complete (boot bring-up) | x2APIC, MADT, FADT shutdown/reboot, power methods; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, and validation work |
 | Wired networking | 🚧 Improved | native net stack present, Redox-native `netctl` shipped, RTL8125 autoload wired through the existing Realtek path |
 | Custom branding | ✅ | Boot identity, hostname, os-release |
 | POSIX gaps (relibc) | 🚧 In progress | implementations exist in-tree; runtime validation against Wayland stack is still ongoing |
@@ -154,12 +158,15 @@ expand on top of them.
 Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. See the [Redox Build Instructions](https://doc.redox-os.org/book/podman-build.html) for full prerequisites.
 
 ```bash
-make all CONFIG_NAME=redbear-full        # Full desktop + custom drivers
+make all                                # Default tracked KWin Wayland desktop target
+make all CONFIG_NAME=redbear-kde         # Explicit KWin Wayland desktop target
+make all CONFIG_NAME=redbear-full        # Broader integration slice + custom drivers
 make all CONFIG_NAME=redbear-minimal     # Minimal server
-make all CONFIG_NAME=redbear-full-grub   # Full desktop with GRUB boot manager
+make all CONFIG_NAME=redbear-full-grub   # Broader integration slice with GRUB boot manager
 make live CONFIG_NAME=redbear-live       # Live install ISO (redbear-live.iso)
 make live CONFIG_NAME=redbear-live-mini  # Tiny boot-test live ISO (~256 MiB image)
-make qemu                                # Boot in QEMU
+make qemu                                # Boot the default tracked KWin Wayland desktop target in QEMU
+make qemu CONFIG_NAME=redbear-kde        # Explicit KWin Wayland desktop target in QEMU
 ```
 
 ### GRUB Boot Manager (optional)
@@ -167,7 +174,7 @@ make qemu                                # Boot in QEMU
 Red Bear OS can use GNU GRUB as an alternative boot manager with Linux-compatible CLI:
 
 ```bash
-make all CONFIG_NAME=redbear-full-grub   # Build with GRUB chainload
+make all CONFIG_NAME=redbear-full-grub   # Build broader integration slice with GRUB chainload
 ./local/scripts/grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
 ./local/scripts/grub-mkconfig -o local/recipes/core/grub/grub.cfg
 ```

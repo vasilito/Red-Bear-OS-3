@@ -44,7 +44,7 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
 
 ## Status
 
-- **Recommended:** The operating system boots with video, sound, PS/2 or USB input, Ethernet, terminal and Orbital working.
+- **Recommended:** The operating system boots with video, sound, PS/2 or USB input, Ethernet, terminal, and the graphical session working.
 - **Booting:** The operating system boots with some issues or lacking hardware support (write the issues and what supported hardware is not working in the "Report" section).
 - **Broken:** The boot loader don't work or can't bootstrap the operating system.
 
@@ -52,8 +52,10 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
 
 This section contain limitations that apply to any status.
 
-- ACPI bring-up is materially complete for the current boot baseline, but broader platform coverage
-  and hardware validation are still uneven across machines
+- ACPI bring-up is **materially complete for boot baseline**; implemented: RSDP/RSDT/XSDT/MADT/FADT
+  with typed startup errors, AML mutexes with real tracked state, EC widened accesses via byte
+  transactions, kstop-based shutdown eventing; sleep state transitions are a **known gap**; broader
+  platform validation remains uneven — see `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 - Wi-Fi broad support is not available yet; bounded Intel Wi-Fi scaffolding and validation paths now
   cover probe/status/prepare/init/activate plus bounded scan/connect/disconnect/retry surfaces, but
   validated real wireless connectivity support remains incomplete
@@ -100,30 +102,32 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 
 | **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
-| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital |
-| System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
-| System76 | Lemur Pro (lemp9) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
+| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to graphical session |
+| System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session |
+| System76 | Lemur Pro (lemp9) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session |
 
 ## Booting
 
 | **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
-| ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, No ethernet driver, Correct video mode not offered (firmware issue) |
+| ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to graphical session, No ethernet driver, Correct video mode not offered (firmware issue) |
 | ASUS | PRIME B350M-E (custom) | 0.9.0 | 2024-09-20 | desktop | x86-64 | UEFI | Partial support for the PS/2 keyboard, PS/2 mouse is broken |
-| ASUS | ROG g55vw | 0.8.0 | 2023-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, UEFI panic in SETUP |
-| ASUS | X554L | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No audio, HDA driver cannot find output pins |
-| ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
-| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, NVMe driver livelocks |
-| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital, NVMe driver livelocks |
-| HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
-| HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
-| Lenovo | ThinkPad Yoga 260 Laptop - Type 20FE | 0.9.0 | 2024-09-07 | demo | x86-64 | UEFI | Boots to Orbital, No audio |
-| Lenovo | Yoga S730-13IWL | 0.9.0 | 2024-11-09 | desktop | x86-64 | UEFI | Boots to Orbital, No trackpad or USB mouse input support |
+| ASUS | ROG g55vw | 0.8.0 | 2023-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, UEFI panic in SETUP |
+| ASUS | X554L | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, No audio, HDA driver cannot find output pins |
+| ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
+| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to graphical session, NVMe driver livelocks |
+| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to graphical session, NVMe driver livelocks |
+| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | ACPI fix applied (RSDP/SDT checksums, MADT NMI types, FADT parse); **hardware validation still needed**; moved from Broken table |
+| HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, requires I2C HID |
+| HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
+| HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | xAPIC fix applied; **hardware validation still needed**; moved from Broken table |
+| Lenovo | ThinkPad Yoga 260 Laptop - Type 20FE | 0.9.0 | 2024-09-07 | demo | x86-64 | UEFI | Boots to graphical session, No audio |
+| Lenovo | Yoga S730-13IWL | 0.9.0 | 2024-11-09 | desktop | x86-64 | UEFI | Boots to graphical session, No trackpad or USB mouse input support |
 | Raspberry Pi | 3 Model B+ | 0.8.0 | Unknown | server | ARM64 | U-Boot | Boots to UART serial console (pl011) |
-| Samsung | Series 3 (NP350V5C) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad works, USB does not work, can connect to the Internet through LAN. Wrong maximum display resolution 1024x768 |
-| System76 | Oryx Pro (oryp10) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, though it should be working |
-| System76 | Pangolin (pang12) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
-| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No Ethernet driver, Correct video mode not offered (firmware issue) |
+| Samsung | Series 3 (NP350V5C) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad works, USB does not work, can connect to the Internet through LAN. Wrong maximum display resolution 1024x768 |
+| System76 | Oryx Pro (oryp10) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, though it should be working |
+| System76 | Pangolin (pang12) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, requires I2C HID |
+| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, No Ethernet driver, Correct video mode not offered (firmware issue) |
 
 ## Broken
 
@@ -131,8 +135,6 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
 | ASUS | PN41 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
 | BEELINK | U59 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
-| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | Crash due to unimplemented acpi function, see [jackpot51/acpi #3](https://github.com/jackpot51/acpi/pull/3) on GitHub |
-| HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | Unloads into memory at a rate slower than 1MB/s after selecting resolution. When unloading is complete the logger initializes and crashes after kernel::acpi, some information about APIC is printed. Boot logs do not progress after this point. |
 | HP | EliteBook 2570p | 0.8.0 | 2022-11-23 | demo | x86-64 | BIOS (CSM mode?) | Gets to resolution selection, Fails assert in `src/os/bios/mod.rs:77` after selecting resolution |
 | Lenovo | G570 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Bootloader panics in `alloc_zeroed_page_aligned`, Correct video mode not offered (firmware issue) |
 | Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |

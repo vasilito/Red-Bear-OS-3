@@ -27,13 +27,13 @@ project is in the right shape for long-term maintenance.
 
 ```
 redox-master/
-├── config/          # Build configs (TOML): desktop, server, wayland, x11, minimal
+├── config/          # Build configs (TOML): tracked redbear-* targets plus mainline references
 ├── mk/              # Makefile fragments: config.mk, repo.mk, prefix.mk, disk.mk, qemu.mk
 ├── recipes/         # Package recipes (TOML + source). 26 categories. See recipes/AGENTS.md
 │   ├── core/        # kernel, bootloader, relibc, base drivers — See recipes/core/AGENTS.md
 │   ├── wip/         # Wayland, KDE, driver WIP ports — See recipes/wip/AGENTS.md
 │   ├── libs/        # Libraries: mesa, cairo, SDL, zlib, openssl, etc.
-│   ├── gui/         # Orbital, orbterm, orbutils
+│   ├── gui/         # Legacy GUI stack packages
 │   └── ...          # 21 other categories (net, dev, games, shells, etc.)
 ├── src/             # Cookbook Rust tooling (repo binary, cook logic)
 ├── docs/            # Architecture docs (6 detailed integration guides) — See docs/AGENTS.md
@@ -43,7 +43,7 @@ redox-master/
 │   ├── patches/     # Patches against mainline sources (kernel, relibc, base)
 │   ├── Assets/      # Branding assets (icon, loading background)
 │   ├── firmware/    # AMD GPU firmware blobs (fetched, not committed)
-│   ├── scripts/     # Build/deploy scripts (fetch-firmware.sh, build-amd.sh)
+│   ├── scripts/     # Build/deploy scripts (fetch-firmware.sh, build-redbear.sh)
 │   └── docs/        # Red Bear integration docs (AMD roadmap, Wi-Fi/Bluetooth plans, status notes)
 ├── prefix/          # Cross-compiler toolchain (Clang/LLVM for x86_64-unknown-redox)
 ├── build/           # Build outputs, logs, fstools, per-arch directories
@@ -73,7 +73,7 @@ redox-master/
 | Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture (**GPU and Wi-Fi only — not USB**) |
 | Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
-| Display server | Orbital: `recipes/gui/orbital/` | Userspace scheme-based display server |
+| Display/session surface | `config/redbear-kde.toml`, `config/wayland.toml` | Tracked KWin desktop target plus bounded validation slice |
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
 | GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
 | D-Bus integration | `local/docs/DBUS-INTEGRATION-PLAN.md` | Architecture, gap analysis, phased implementation for KDE Plasma D-Bus |
@@ -92,8 +92,8 @@ echo 'PODMAN_BUILD?=0' > .config          # Native build (no container)
 echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 
 # Build Red Bear OS
-make all                                  # Build desktop config → harddrive.img
-make all CONFIG_NAME=redbear-full         # Full Red Bear OS desktop + custom drivers
+make all                                  # Build tracked KWin Wayland target → harddrive.img
+make all CONFIG_NAME=redbear-full         # Broader Red Bear integration slice + custom drivers
 make all CONFIG_NAME=redbear-minimal      # Minimal Red Bear OS server
 CI=1 make all CONFIG_NAME=redbear-minimal # CI mode (disables TUI, for non-interactive)
 
@@ -250,7 +250,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 |-----------|--------|--------|
 | UEFI boot | ✅ | x86_64 bootloader functional |
 | AMD CPUs | ✅ | Ryzen Threadripper 128-thread verified |
-| ACPI | ✅ Complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot |
+| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership/robustness work |
 | ACPI shutdown | ✅ | PM1a/PM1b S5 via `\_S5` AML |
 | ACPI reboot | ✅ | Reset register + keyboard controller fallback |
 | ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
@@ -266,7 +266,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 
 | Phase | Duration | Delivers |
 |-------|----------|----------|
-| ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Complete — boots on modern AMD bare metal |
+| ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Materially complete — boots on modern AMD bare metal; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for forward work |
 | ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
 | ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | ✅ Complete — redox-drm + AMD DC port + Intel driver (compiles, no HW validation) |
 | ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — relibc gaps exported to downstream consumers, evdevd/udev-shim/libevdev/libinput/D-Bus build; runtime validation still open |

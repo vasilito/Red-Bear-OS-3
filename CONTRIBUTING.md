@@ -165,7 +165,6 @@ You can contribute to the Red Bear OS documentation and code on the following re
 - [Website](https://gitlab.redox-os.org/redox-os/website)
 - [Book](https://gitlab.redox-os.org/redox-os/book) - High-level documentation
 - [Build System Configuration](https://gitlab.redox-os.org/redox-os/redox) - Our main repository
-- [Orbital](https://gitlab.redox-os.org/redox-os/orbital) - Display Server and Window Manager
 - [pkgutils](https://gitlab.redox-os.org/redox-os/pkgutils) - Package Manager
 - [acid](https://gitlab.redox-os.org/redox-os/acid) - Redox Test Suite
 - [relibc](https://gitlab.redox-os.org/redox-os/relibc) - Redox C Library
@@ -219,8 +218,8 @@ If you know how to code in Rust, and have experience with systems software/OS de
 
 For those who want to contribute to the Redox GUI, our GUI strategy has changed.
 
-- We are improving the [Orbital](https://gitlab.redox-os.org/redox-os/orbital) display server and window manager, you can read more about it on [this tracking issue](https://gitlab.redox-os.org/redox-os/redox/-/issues/1430).
-- OrbTk is in maintenance mode, and its developers have moved to other projects such as the ones below. There is currently no Redox-specific GUI development underway.
+- We are concentrating current forward desktop work on the KWin Wayland path in the main build-system repository.
+- Legacy GUI toolkit efforts are in maintenance mode, and there is currently no separate Redox-specific GUI toolkit effort underway.
 
 ## Priorities
 
