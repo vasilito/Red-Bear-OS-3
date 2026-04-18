@@ -5,7 +5,7 @@
 # blake3.  Falls back to file-size comparison when no blake3 is recorded.
 #
 # Usage:
-#   ./scripts/fetch-all-sources.sh                    # Fetch for default desktop config
+#   ./scripts/fetch-all-sources.sh                    # Fetch for the tracked KWin default config
 #   ./scripts/fetch-all-sources.sh redbear-full       # Fetch for a specific config
 #   ./scripts/fetch-all-sources.sh --all-configs      # Fetch for every config
 #   ./scripts/fetch-all-sources.sh --recipe kernel    # Fetch a single recipe
@@ -32,7 +32,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 REPO_BIN="./target/release/repo"
-CONFIG_NAME="${1:-desktop}"
+CONFIG_NAME="${1:-redbear-kde}"
 ACTION="fetch"
 
 # ── Colors (disabled when not a terminal) ───────────────────────────
@@ -58,8 +58,8 @@ usage() {
     echo "  --force          Force re-download even if checksums match"
     echo "  --help           Show this help"
     echo ""
-    echo "Configs: desktop, redbear-full, redbear-minimal, server, minimal, wayland, x11"
-    echo "Default config: desktop"
+    echo "Configs: redbear-kde, redbear-live, redbear-full, redbear-minimal, redbear-wayland"
+    echo "Default config: redbear-kde"
 }
 
 ALL_CONFIGS=0
@@ -481,7 +481,7 @@ case "$ACTION" in
     preflight)
         build_repo
         if [ "$ALL_CONFIGS" -eq 1 ]; then
-            for cfg in desktop redbear-full redbear-minimal server minimal wayland x11; do
+            for cfg in redbear-kde redbear-live redbear-full redbear-minimal redbear-wayland; do
                 preflight_scan "$cfg" || true
             done
         else
@@ -491,7 +491,7 @@ case "$ACTION" in
     list)
         build_repo
         if [ "$ALL_CONFIGS" -eq 1 ]; then
-            for cfg in desktop redbear-full redbear-minimal server minimal wayland x11; do
+            for cfg in redbear-kde redbear-live redbear-full redbear-minimal redbear-wayland; do
                 list_for_config "$cfg" 2>/dev/null || true
             done
         else
@@ -506,7 +506,7 @@ case "$ACTION" in
         elif [ "$ALL_CONFIGS" -eq 1 ]; then
             echo "==> Fetching sources for ALL configs"
             echo "    This ensures every recipe needed by any config is downloaded."
-            for cfg in desktop redbear-full redbear-minimal server minimal wayland x11; do
+            for cfg in redbear-kde redbear-live redbear-full redbear-minimal redbear-wayland; do
                 fetch_for_config "$cfg" 2>/dev/null || {
                     echo "    WARNING: failed to fetch for $cfg (some recipes may not exist)"
                     echo ""

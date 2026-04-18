@@ -63,6 +63,8 @@ else
 	cp -r "$(PREFIX)/gcc-install/include/c++" "$@.partial/include/c++"
 endif
 	export PATH="$(ROOT)/$@.partial/bin:$$PATH" && \
+	export COOKBOOK_TOOLCHAIN="$(ROOT)/$@.partial" REDBEAR_REDOX_SYSROOT="$(ROOT)/$@.partial" && \
+	export RUSTUP_TOOLCHAIN="$(ROOT)/$@.partial" REDOXER_TOOLCHAIN="$(ROOT)/$@.partial" && \
 	export CARGO="env -u CARGO cargo" $(PREFIX_CONFIG) && \
 	$(REPO_BIN) cook relibc
 ifneq ($(HOSTED_REDOX),1)

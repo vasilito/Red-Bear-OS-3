@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tool_name="${1:?missing tool name}"
+shift
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+root_dir="$(CDPATH= cd -- "${script_dir}/.." && pwd)"
+target_prefix="${tool_name%-*}"
+
+candidate_roots=()
+
+for env_var in REDBEAR_REDOX_SYSROOT COOKBOOK_TOOLCHAIN REDOXER_TOOLCHAIN RUSTUP_TOOLCHAIN; do
+    env_value="${!env_var:-}"
+    if [ -n "${env_value}" ]; then
+        candidate_roots+=("${env_value}")
+    fi
+done
+
+candidate_roots+=("${root_dir}/prefix/${target_prefix}/sysroot")
+
+for tool_root in "${candidate_roots[@]}"; do
+    tool_path="${tool_root}/bin/${tool_name}"
+    if [ -x "${tool_path}" ]; then
+        exec "${tool_path}" "$@"
+    fi
+done
+
+missing_root="${candidate_roots[0]}"
+echo "error: missing toolchain binary: ${missing_root}/bin/${tool_name}" >&2
+echo "hint: run 'make prefix' or otherwise populate ${missing_root}" >&2
+exit 1

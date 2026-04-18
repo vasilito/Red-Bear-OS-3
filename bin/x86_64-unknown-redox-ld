@@ -2,15 +2,4 @@
 set -euo pipefail
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-root_dir="$(CDPATH= cd -- "${script_dir}/.." && pwd)"
-
-sysroot="${REDBEAR_REDOX_SYSROOT:-${root_dir}/prefix/x86_64-unknown-redox/sysroot}"
-tool="${sysroot}/bin/x86_64-unknown-redox-ld"
-
-if [ ! -x "${tool}" ]; then
-    echo "error: missing toolchain binary: ${tool}" >&2
-    echo "hint: run 'make prefix' or otherwise populate ${sysroot}" >&2
-    exit 1
-fi
-
-exec "${tool}" "$@"
+exec "${script_dir}/redbear-run-tool" "$(basename "$0")" "$@"
