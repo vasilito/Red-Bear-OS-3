@@ -40,7 +40,7 @@ take 5+ years.
 |-----------|--------|--------|
 | UEFI boot | ✅ Works | x86_64 UEFI bootloader functional |
 | AMD CPUs | ✅ Works | AMD 32/64-bit supported, Ryzen Threadripper verified |
-| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, and validation work |
+| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; historical bring-up goal met, but not release-grade complete; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, sleep-state, and validation work |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
@@ -65,8 +65,9 @@ Before any GPU or desktop work, Redox must boot reliably on modern AMD hardware.
 **Historical problem**: Framework AMD Ryzen 7040 crashed because the early ACPI boot baseline was
 incomplete.
 
-**Current status**: This historical P0 boot-baseline gap is materially complete. The remaining ACPI
-work is no longer "make AMD machines boot at all"; it is now ownership cleanup, robustness,
+**Current status**: This historical P0 boot-baseline gap is materially complete for the AMD bring-up
+goal, but it should not be read as release-grade ACPI completeness. The remaining ACPI work is no
+longer "make AMD machines boot at all"; it is now ownership cleanup, robustness, sleep-state scope,
 consumer integration, and validation depth as tracked in `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 
 **What was done**:

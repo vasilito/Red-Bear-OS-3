@@ -363,8 +363,8 @@ device access control, session management, and power signaling.
 | `TakeControl(force)` | Records compositor ownership; no kernel-level operation needed (seatd already provides seat arbitration) |
 | `Activate()` | Sets session as active; signals to compositor via D-Bus |
 | `SwitchTo(vt)` | Delegates to `inputd -A <vt>` (existing Redox VT switching) |
-| `PrepareForSleep` | Generated from ACPI sleep signal via `scheme:acpi` |
-| `PrepareForShutdown` | Generated from ACPI shutdown signal via `scheme:acpi` |
+| `PrepareForSleep` | Future/conditional: only available once ACPI sleep eventing exists; currently a known gap in the ACPI stack |
+| `PrepareForShutdown` | Generated from the current ACPI-backed shutdown signal path via `scheme:acpi` / `kstop` |
 
 #### Device Number Mapping
 
@@ -588,14 +588,14 @@ APIs, which relibc provides.
 | 3.1 | Implement `redbear-upower` — minimal UPower D-Bus service | Registers `org.freedesktop.UPower`, enumerates power devices from `scheme:acpi` |
 | 3.2 | Implement `redbear-udisks` — minimal UDisks2 D-Bus service | Registers `org.freedesktop.UDisks2`, enumerates block devices from `scheme:` filesystem |
 | 3.3 | Re-enable D-Bus in kf6-solid (`-DUSE_DBUS=ON`, re-enable UPower backend) | kf6-solid builds with D-Bus enabled, UPower backend active |
-| 3.4 | Implement ACPI sleep/shutdown integration in `redbear-sessiond` | `PrepareForSleep` and `PrepareForShutdown` signals emitted from ACPI events |
+| 3.4 | Implement ACPI sleep/shutdown integration in `redbear-sessiond` | `PrepareForShutdown` emitted from the current ACPI shutdown event path; `PrepareForSleep` only after ACPI sleep eventing exists |
 | 3.5 | Validate PowerDevil (if plasma-workspace includes it) | Power management UI shows battery/AC status |
 
 **Exit criteria:**
 - [ ] `org.freedesktop.UPower` registers and enumerates devices
 - [ ] `org.freedesktop.UDisks2` registers and enumerates block devices
 - [ ] kf6-solid uses UPower backend for power queries
-- [ ] Sleep/shutdown signals flow through login1 D-Bus interface
+- [ ] Shutdown signal flows through login1 D-Bus interface now; sleep signal only if ACPI sleep eventing is implemented
 
 **Dependencies:** Phase DB-2 complete, ACPI boot-baseline integration working; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the remaining ownership, robustness, and validation work
 
