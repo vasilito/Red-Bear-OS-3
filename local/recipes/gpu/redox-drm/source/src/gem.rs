@@ -7,6 +7,8 @@ use crate::driver::{DriverError, Result};
 
 pub type GemHandle = u32;
 
+const MAX_GEM_BYTES: u64 = 256 * 1024 * 1024;
+
 #[derive(Clone, Debug)]
 pub struct GemObject {
     #[allow(dead_code)]
@@ -41,6 +43,11 @@ impl GemManager {
         if size == 0 {
             return Err(DriverError::InvalidArgument(
                 "GEM create size must be non-zero",
+            ));
+        }
+        if size > MAX_GEM_BYTES {
+            return Err(DriverError::InvalidArgument(
+                "GEM create size exceeds the trusted shared-core limit",
             ));
         }
 
@@ -112,14 +119,5 @@ impl GemManager {
 
     pub fn gpu_addr(&self, handle: GemHandle) -> Result<Option<u64>> {
         Ok(self.object(handle)?.gpu_addr)
-    }
-
-    #[allow(dead_code)]
-    pub fn object_mut_ptr(&mut self, handle: GemHandle) -> Result<usize> {
-        let allocation = self
-            .objects
-            .get_mut(&handle)
-            .ok_or_else(|| DriverError::NotFound(format!("unknown GEM handle {handle}")))?;
-        Ok(allocation.dma.as_mut_ptr() as usize)
     }
 }

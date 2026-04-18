@@ -10,7 +10,7 @@ use log::{debug, info, warn};
 use redox_driver_sys::memory::MmioRegion;
 use redox_driver_sys::pci::{PciBarInfo, PciDevice, PciDeviceInfo};
 
-use crate::driver::{DriverError, GpuDriver, Result};
+use crate::driver::{DriverError, DriverEvent, GpuDriver, Result};
 use crate::drivers::interrupt::InterruptHandle;
 use crate::gem::{GemHandle, GemManager};
 use crate::kms::connector::{synthetic_edid, Connector};
@@ -41,17 +41,10 @@ const AMD_HPD_RX_INT_ACK_MASK: u32 = 0x0000_0100;
 const AMD_IH_STATUS_INTERRUPT_PENDING_MASK: u32 = 0x0000_0001;
 const AMD_IH_STATUS_RING_OVERFLOW_MASK: u32 = 0x0000_0002;
 
-#[derive(Clone, Debug)]
-pub enum IrqEvent {
-    Vblank { crtc_id: u32, count: u64 },
-    Hotplug { connector_id: u32 },
-    Unknown,
-}
-
 pub struct AmdDriver {
     info: PciDeviceInfo,
     mmio: MmioRegion,
-    irq_handle: Option<InterruptHandle>,
+    irq_handle: Mutex<Option<InterruptHandle>>,
     display: DisplayCore,
     gem: Mutex<GemManager>,
     connectors: Mutex<Vec<Connector>>,
@@ -119,6 +112,7 @@ impl AmdDriver {
                 info.location
             ))
         })?);
+        let irq_mode = irq_handle.as_ref().map(|handle| handle.mode_name()).unwrap_or("none");
 
         let display = DisplayCore::with_framebuffer(mmio.as_ptr(), mmio.size(), fb_phys, fb_size)?;
         let (connectors, encoders) = detect_display_topology(&display)?;
@@ -140,16 +134,17 @@ impl AmdDriver {
         }
 
         info!(
-            "redox-drm: AMD driver ready for {} with {} connector(s), {} firmware blob(s) loaded",
+            "redox-drm: AMD driver ready for {} with {} connector(s), {} firmware blob(s) loaded, IRQ mode {}",
             info.location,
             connectors.len(),
-            fw_count
+            fw_count,
+            irq_mode
         );
 
         Ok(Self {
             info,
             mmio,
-            irq_handle,
+            irq_handle: Mutex::new(irq_handle),
             display,
             gem: Mutex::new(GemManager::new()),
             connectors: Mutex::new(connectors),
@@ -163,7 +158,7 @@ impl AmdDriver {
         })
     }
 
-    pub fn process_irq(&self) -> Result<IrqEvent> {
+    pub fn process_irq(&self) -> Result<Option<DriverEvent>> {
         let ih_status = self.read_mmio_reg(AMD_IH_STATUS);
         let ih_cntl = self.read_mmio_reg(AMD_IH_CNTL);
         let ih_rptr = self.read_mmio_reg(AMD_IH_RB_RPTR);
@@ -188,7 +183,7 @@ impl AmdDriver {
                 connector_id, ih_status, ih_cntl, ih_rptr, ih_wptr
             );
 
-            return Ok(IrqEvent::Hotplug { connector_id });
+            return Ok(Some(DriverEvent::Hotplug { connector_id }));
         }
 
         if ring_pending || (ih_status & AMD_IH_STATUS_INTERRUPT_PENDING_MASK != 0) {
@@ -201,12 +196,12 @@ impl AmdDriver {
                     crtc_id, count, ih_status, ih_cntl, ih_rptr, ih_wptr
                 );
 
-                return Ok(IrqEvent::Vblank { crtc_id, count });
+                return Ok(Some(DriverEvent::Vblank { crtc_id, count }));
             }
         }
 
         self.acknowledge_ih(ih_wptr);
-        Ok(IrqEvent::Unknown)
+        Ok(None)
     }
 
     fn read_mmio_reg(&self, register_index: usize) -> u32 {
@@ -541,32 +536,53 @@ impl GpuDriver for AmdDriver {
         }
     }
 
-    fn handle_irq(&self) -> Result<Option<(u32, u64)>> {
+    fn handle_irq(&self) -> Result<Option<DriverEvent>> {
+        let irq_event = {
+            let mut irq_handle = self
+                .irq_handle
+                .lock()
+                .map_err(|_| DriverError::Initialization("AMD IRQ state poisoned".into()))?;
+            match irq_handle.as_mut() {
+                Some(handle) => handle.try_wait()?,
+                None => return Ok(None),
+            }
+        };
+
+        if !irq_event {
+            return Ok(None);
+        }
+
+        let irq = self
+            .irq_handle
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|h| h.irq()));
+
         match self.process_irq()? {
-            IrqEvent::Vblank { crtc_id, count } => {
+            Some(DriverEvent::Vblank { crtc_id, count }) => {
                 debug!(
                     "redox-drm: handled AMD vblank IRQ for {} CRTC {} count={} irq={:?}",
                     self.info.location,
                     crtc_id,
                     count,
-                    self.irq_handle.as_ref().map(|h| h.irq())
+                    irq
                 );
-                Ok(Some((crtc_id, count)))
+                Ok(Some(DriverEvent::Vblank { crtc_id, count }))
             }
-            IrqEvent::Hotplug { connector_id } => {
+            Some(DriverEvent::Hotplug { connector_id }) => {
                 info!(
                     "redox-drm: handled AMD hotplug IRQ for {} connector {} irq={:?}",
                     self.info.location,
                     connector_id,
-                    self.irq_handle.as_ref().map(|h| h.irq())
+                    irq
                 );
-                Ok(None)
+                Ok(Some(DriverEvent::Hotplug { connector_id }))
             }
-            IrqEvent::Unknown => {
+            None => {
                 debug!(
                     "redox-drm: handled AMD IRQ for {} with no decoded source irq={:?}",
                     self.info.location,
-                    self.irq_handle.as_ref().map(|h| h.irq())
+                    irq
                 );
                 Ok(None)
             }

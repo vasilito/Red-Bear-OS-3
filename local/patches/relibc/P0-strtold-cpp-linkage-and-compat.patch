@@ -17,27 +17,27 @@ index 62e98108..a9c72392 100644
      return (double)(*val);
  }
 diff --git a/src/header/stdlib/cbindgen.toml b/src/header/stdlib/cbindgen.toml
-index 2e02e68a..07867c32 100644
+index 2e02e68a..c2643c49 100644
 --- a/src/header/stdlib/cbindgen.toml
 +++ b/src/header/stdlib/cbindgen.toml
-@@ -1,7 +1,20 @@
+@@ -1,17 +1,4 @@
  sys_includes = ["stddef.h", "alloca.h", "wchar.h", "features.h"]
  include_guard = "_RELIBC_STDLIB_H"
- trailer = """
-+#ifndef _RELIBC_STDLIB_STRTOLD_H
-+#define _RELIBC_STDLIB_STRTOLD_H
-+
-+#ifdef __cplusplus
-+extern \"C\" {
-+#endif
-+
- long double strtold(const char *nptr, char **endptr);
-+
-+#ifdef __cplusplus
-+}
-+#endif
-+
-+#endif
- """
+-trailer = """
+-#ifndef _RELIBC_STDLIB_STRTOLD_H
+-#define _RELIBC_STDLIB_STRTOLD_H
+-
+-#ifdef __cplusplus
+-extern \"C\" {
+-#endif
+-
+-long double strtold(const char *nptr, char **endptr);
+-
+-#ifdef __cplusplus
+-}
+-#endif
+-
+-#endif
+-"""
  language = "C"
  style = "Type"

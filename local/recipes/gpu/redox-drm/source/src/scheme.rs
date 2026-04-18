@@ -2,13 +2,17 @@ use std::collections::{BTreeMap, HashSet};
 use std::mem::size_of;
 use std::sync::Arc;
 
+use getrandom::getrandom;
 use log::{debug, warn};
 use redox_scheme::SchemeBlockMut;
 use syscall04::data::Stat;
 use syscall04::error::{Error, Result, EBADF, EBUSY, EINVAL, ENOENT, EOPNOTSUPP};
 use syscall04::flag::{EventFlags, MapFlags, MunmapFlags, MODE_FILE};
 
-use crate::driver::GpuDriver;
+use crate::driver::{
+    DriverEvent, GpuDriver, RedoxPrivateCsSubmit, RedoxPrivateCsSubmitResult, RedoxPrivateCsWait,
+    RedoxPrivateCsWaitResult,
+};
 use crate::gem::GemHandle;
 use crate::kms::ModeInfo;
 
@@ -43,6 +47,12 @@ const DRM_IOCTL_GEM_CLOSE: usize = DRM_IOCTL_BASE + 27;
 const DRM_IOCTL_GEM_MMAP: usize = DRM_IOCTL_BASE + 28;
 const DRM_IOCTL_PRIME_HANDLE_TO_FD: usize = DRM_IOCTL_BASE + 29;
 const DRM_IOCTL_PRIME_FD_TO_HANDLE: usize = DRM_IOCTL_BASE + 30;
+const DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT: usize = DRM_IOCTL_BASE + 31;
+const DRM_IOCTL_REDOX_PRIVATE_CS_WAIT: usize = DRM_IOCTL_BASE + 32;
+const DRM_IOCTL_REDOX_AMD_SDMA_SUBMIT: usize = DRM_IOCTL_BASE + 0x40;
+const DRM_IOCTL_REDOX_AMD_SDMA_WAIT: usize = DRM_IOCTL_BASE + 0x41;
+
+const MAX_SCHEME_GEM_BYTES: u64 = 256 * 1024 * 1024;
 
 // ---- Wire types for DRM ioctls ----
 #[repr(C)]
@@ -238,6 +248,29 @@ struct DrmPrimeFdToHandleResponseWire {
     _pad: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct RedoxAmdSdmaSubmitWire {
+    src_handle: u32,
+    dst_handle: u32,
+    flags: u32,
+    _pad: u32,
+    src_offset: u64,
+    dst_offset: u64,
+    size: u64,
+    seqno: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct RedoxAmdSdmaWaitWire {
+    seqno: u64,
+    timeout_ns: u64,
+    flags: u32,
+    completed: u32,
+    completed_seqno: u64,
+}
+
 // ---- Internal handle types ----
 
 #[derive(Clone, Debug)]
@@ -257,6 +290,7 @@ struct Handle {
     mapped_gem_refs: usize,
     owned_fbs: Vec<u32>,
     owned_gems: Vec<GemHandle>,
+    imported_gems: HashSet<GemHandle>,
     closing: bool,
 }
 
@@ -264,7 +298,6 @@ pub struct DrmScheme {
     driver: Arc<dyn GpuDriver>,
     next_id: usize,
     next_fb_id: u32,
-    next_export_token: u32,
     handles: BTreeMap<usize, Handle>,
     active_crtc_fb: BTreeMap<u32, u32>,
     active_crtc_mode: BTreeMap<u32, ModeInfo>,
@@ -281,7 +314,6 @@ impl DrmScheme {
             driver,
             next_id: 0,
             next_fb_id: 1,
-            next_export_token: 1,
             handles: BTreeMap::new(),
             active_crtc_fb: BTreeMap::new(),
             active_crtc_mode: BTreeMap::new(),
@@ -293,25 +325,6 @@ impl DrmScheme {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn on_close(&mut self, id: usize) {
-        let mapped = self
-            .handles
-            .get(&id)
-            .map(|handle| handle.mapped_gem_refs != 0)
-            .unwrap_or(false);
-        if mapped {
-            if let Some(handle) = self.handles.get_mut(&id) {
-                handle.closing = true;
-            }
-            return;
-        }
-
-        if let Some(handle) = self.handles.remove(&id) {
-            self.finalize_handle_close(handle);
-        }
-    }
-
     fn is_fb_active(&self, fb_id: u32) -> bool {
         self.active_crtc_fb.values().any(|&id| id == fb_id)
             || self.pending_flip_fb.values().any(|&(_, id)| id == fb_id)
@@ -319,6 +332,14 @@ impl DrmScheme {
 
     fn handle_has_gem_ref(handle: &Handle, gem_handle: GemHandle) -> bool {
         handle.owned_gems.contains(&gem_handle)
+    }
+
+    fn handle_has_local_gem_ref(handle: &Handle, gem_handle: GemHandle) -> bool {
+        Self::handle_has_gem_ref(handle, gem_handle) && !handle.imported_gems.contains(&gem_handle)
+    }
+
+    fn handle_has_imported_gem_ref(handle: &Handle, gem_handle: GemHandle) -> bool {
+        Self::handle_has_gem_ref(handle, gem_handle) && handle.imported_gems.contains(&gem_handle)
     }
 
     fn gem_is_still_referenced(&self, gem_handle: GemHandle) -> bool {
@@ -339,6 +360,26 @@ impl DrmScheme {
 
     fn gem_export_refcount(&self, gem_handle: GemHandle) -> usize {
         self.gem_export_refs.get(&gem_handle).copied().unwrap_or(0)
+    }
+
+    fn allocate_export_token(&self) -> Result<u32> {
+        for _ in 0..64 {
+            let mut bytes = [0u8; 4];
+            getrandom(&mut bytes).map_err(|e| {
+                warn!("redox-drm: failed to draw PRIME export token entropy: {e}");
+                Error::new(syscall04::error::EIO)
+            })?;
+
+            let token = u32::from_le_bytes(bytes) & 0x7fff_ffff;
+            if token == 0 || self.prime_exports.contains_key(&token) {
+                continue;
+            }
+
+            return Ok(token);
+        }
+
+        warn!("redox-drm: unable to allocate unique PRIME export token");
+        Err(Error::new(EBUSY))
     }
 
     fn bump_export_ref(&mut self, gem_handle: GemHandle) {
@@ -370,6 +411,113 @@ impl DrmScheme {
             && !self.gem_is_still_referenced(gem_handle)
             && !self.gem_is_mapped(gem_handle)
             && self.gem_export_refcount(gem_handle) == 0
+    }
+
+    fn validate_private_cs_handles(
+        &self,
+        id: usize,
+        src_handle: GemHandle,
+        dst_handle: GemHandle,
+        operation: &str,
+    ) -> Result<()> {
+        let handle = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
+
+        if !Self::handle_has_gem_ref(handle, src_handle)
+            || !Self::handle_has_gem_ref(handle, dst_handle)
+        {
+            warn!(
+                "redox-drm: {} rejected — src={} dst={} not owned by this fd",
+                operation, src_handle, dst_handle
+            );
+            return Err(Error::new(EBADF));
+        }
+
+        if Self::handle_has_imported_gem_ref(handle, src_handle)
+            || Self::handle_has_imported_gem_ref(handle, dst_handle)
+        {
+            warn!(
+                "redox-drm: {} rejected — imported DMA-BUF handles are outside the bounded private CS path",
+                operation
+            );
+            return Err(Error::new(EOPNOTSUPP));
+        }
+
+        Ok(())
+    }
+
+    fn validate_private_cs_ranges(
+        &self,
+        submit: &RedoxPrivateCsSubmit,
+        operation: &str,
+    ) -> Result<()> {
+        if submit.byte_count == 0 {
+            warn!("redox-drm: {} rejected — zero-sized submission", operation);
+            return Err(Error::new(EINVAL));
+        }
+
+        let src_size = self
+            .driver
+            .gem_size(submit.src_handle)
+            .map_err(driver_to_syscall)?;
+        let dst_size = self
+            .driver
+            .gem_size(submit.dst_handle)
+            .map_err(driver_to_syscall)?;
+
+        let src_end = submit
+            .src_offset
+            .checked_add(submit.byte_count)
+            .ok_or_else(|| {
+                warn!("redox-drm: {} rejected — source range overflow", operation);
+                Error::new(EINVAL)
+            })?;
+        if src_end > src_size {
+            warn!(
+                "redox-drm: {} rejected — source range {}..{} exceeds GEM size {}",
+                operation,
+                submit.src_offset,
+                src_end,
+                src_size
+            );
+            return Err(Error::new(EINVAL));
+        }
+
+        let dst_end = submit
+            .dst_offset
+            .checked_add(submit.byte_count)
+            .ok_or_else(|| {
+                warn!("redox-drm: {} rejected — destination range overflow", operation);
+                Error::new(EINVAL)
+            })?;
+        if dst_end > dst_size {
+            warn!(
+                "redox-drm: {} rejected — destination range {}..{} exceeds GEM size {}",
+                operation,
+                submit.dst_offset,
+                dst_end,
+                dst_size
+            );
+            return Err(Error::new(EINVAL));
+        }
+
+        Ok(())
+    }
+
+    fn validate_gem_create_size(&self, size: u64, operation: &str) -> Result<()> {
+        if size == 0 {
+            warn!("redox-drm: {} rejected — zero-sized GEM allocation", operation);
+            return Err(Error::new(EINVAL));
+        }
+        if size > MAX_SCHEME_GEM_BYTES {
+            warn!(
+                "redox-drm: {} rejected — size {} exceeds trusted shared-core cap {}",
+                operation,
+                size,
+                MAX_SCHEME_GEM_BYTES
+            );
+            return Err(Error::new(EINVAL));
+        }
+        Ok(())
     }
 
     fn maybe_close_gem(&mut self, gem_handle: GemHandle, context: &str) -> bool {
@@ -404,6 +552,7 @@ impl DrmScheme {
                 mapped_gem_refs: 0,
                 owned_fbs: Vec::new(),
                 owned_gems: Vec::new(),
+                imported_gems: HashSet::new(),
                 closing: false,
             },
         );
@@ -485,6 +634,13 @@ impl DrmScheme {
         }
     }
 
+    pub fn handle_driver_event(&mut self, event: DriverEvent) {
+        match event {
+            DriverEvent::Vblank { crtc_id, count } => self.retire_vblank(crtc_id, count),
+            DriverEvent::Hotplug { .. } => {}
+        }
+    }
+
     fn try_reap_fb(&mut self, fb_id: u32) {
         let gem_handle = match self.fb_registry.get(&fb_id) {
             Some(info) => info.gem_handle,
@@ -507,7 +663,11 @@ impl DrmScheme {
             crtc_count: 1,
             encoder_count: connectors.len() as u32,
         };
-        bytes_of(&payload)
+        let mut out = bytes_of(&payload);
+        for connector in connectors {
+            out.extend_from_slice(&bytes_of(&connector.id));
+        }
+        out
     }
 
     fn encode_connector(&self, connector_id: u32) -> Result<Vec<u8>> {
@@ -673,6 +833,7 @@ impl DrmScheme {
                 let pitch = (req.width.saturating_mul(req.bpp).saturating_add(7)) / 8;
                 req.pitch = pitch;
                 req.size = (pitch as u64).saturating_mul(req.height as u64);
+                self.validate_gem_create_size(req.size, "CREATE_DUMB")?;
                 req.handle = self
                     .driver
                     .gem_create(req.size)
@@ -758,6 +919,7 @@ impl DrmScheme {
                 }
                 if let Some(handle) = self.handles.get_mut(&id) {
                     handle.owned_gems.retain(|&h| h != req.handle);
+                    handle.imported_gems.remove(&req.handle);
                 }
                 Vec::new()
             }
@@ -925,9 +1087,7 @@ impl DrmScheme {
 
             DRM_IOCTL_GEM_CREATE => {
                 let mut req = decode_wire::<DrmGemCreateWire>(payload)?;
-                if req.size == 0 {
-                    return Err(Error::new(EINVAL));
-                }
+                self.validate_gem_create_size(req.size, "GEM_CREATE")?;
                 req.handle = self
                     .driver
                     .gem_create(req.size)
@@ -980,6 +1140,7 @@ impl DrmScheme {
                 }
                 if let Some(handle) = self.handles.get_mut(&id) {
                     handle.owned_gems.retain(|&h| h != req.handle);
+                    handle.imported_gems.remove(&req.handle);
                 }
                 Vec::new()
             }
@@ -1017,6 +1178,65 @@ impl DrmScheme {
                 bytes_of(&req)
             }
 
+            DRM_IOCTL_REDOX_AMD_SDMA_SUBMIT => {
+                let mut req = decode_wire::<RedoxAmdSdmaSubmitWire>(payload)?;
+                if req.flags != 0 {
+                    warn!(
+                        "redox-drm: AMD SDMA submit rejected — unsupported flags {:#x}",
+                        req.flags
+                    );
+                    return Err(Error::new(EINVAL));
+                }
+                if req.size == 0 {
+                    warn!("redox-drm: AMD SDMA submit rejected — zero-sized copy");
+                    return Err(Error::new(EINVAL));
+                }
+
+                self.validate_private_cs_handles(
+                    id,
+                    req.src_handle,
+                    req.dst_handle,
+                    "AMD SDMA submit",
+                )?;
+
+                let submit = RedoxPrivateCsSubmit {
+                    src_handle: req.src_handle,
+                    dst_handle: req.dst_handle,
+                    src_offset: req.src_offset,
+                    dst_offset: req.dst_offset,
+                    byte_count: req.size,
+                };
+                self.validate_private_cs_ranges(&submit, "AMD SDMA submit")?;
+                req.seqno = self
+                    .driver
+                    .redox_private_cs_submit(&submit)
+                    .map_err(driver_to_syscall)?
+                    .seqno;
+                bytes_of(&req)
+            }
+
+            DRM_IOCTL_REDOX_AMD_SDMA_WAIT => {
+                let mut req = decode_wire::<RedoxAmdSdmaWaitWire>(payload)?;
+                if req.flags != 0 {
+                    warn!(
+                        "redox-drm: AMD SDMA wait rejected — unsupported flags {:#x}",
+                        req.flags
+                    );
+                    return Err(Error::new(EINVAL));
+                }
+
+                let result = self
+                    .driver
+                    .redox_private_cs_wait(&RedoxPrivateCsWait {
+                        seqno: req.seqno,
+                        timeout_ns: req.timeout_ns,
+                    })
+                    .map_err(driver_to_syscall)?;
+                req.completed = u32::from(result.completed);
+                req.completed_seqno = result.completed_seqno;
+                bytes_of(&req)
+            }
+
             DRM_IOCTL_PRIME_HANDLE_TO_FD => {
                 let req = decode_wire::<DrmPrimeHandleToFdWire>(payload)?;
                 let owned = self
@@ -1032,8 +1252,7 @@ impl DrmScheme {
                     return Err(Error::new(EBADF));
                 }
 
-                let token = self.next_export_token;
-                self.next_export_token = self.next_export_token.saturating_add(1);
+                let token = self.allocate_export_token()?;
                 self.prime_exports.insert(token, req.handle);
 
                 let resp = DrmPrimeHandleToFdResponseWire {
@@ -1077,12 +1296,38 @@ impl DrmScheme {
                 let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
                 if !handle.owned_gems.contains(&gem_handle) {
                     handle.owned_gems.push(gem_handle);
+                    handle.imported_gems.insert(gem_handle);
                 }
 
                 let resp = DrmPrimeFdToHandleResponseWire {
                     handle: gem_handle,
                     _pad: 0,
                 };
+                bytes_of(&resp)
+            }
+
+            DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT => {
+                let req = decode_wire::<RedoxPrivateCsSubmit>(payload)?;
+                self.validate_private_cs_handles(
+                    id,
+                    req.src_handle,
+                    req.dst_handle,
+                    "private CS submit",
+                )?;
+                self.validate_private_cs_ranges(&req, "private CS submit")?;
+                let resp: RedoxPrivateCsSubmitResult = self
+                    .driver
+                    .redox_private_cs_submit(&req)
+                    .map_err(driver_to_syscall)?;
+                bytes_of(&resp)
+            }
+
+            DRM_IOCTL_REDOX_PRIVATE_CS_WAIT => {
+                let req = decode_wire::<RedoxPrivateCsWait>(payload)?;
+                let resp: RedoxPrivateCsWaitResult = self
+                    .driver
+                    .redox_private_cs_wait(&req)
+                    .map_err(driver_to_syscall)?;
                 bytes_of(&resp)
             }
 
@@ -1190,7 +1435,10 @@ impl SchemeBlockMut for DrmScheme {
 
     fn fsync(&mut self, id: usize) -> Result<Option<usize>> {
         let _ = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
-        Ok(Some(0))
+        warn!(
+            "redox-drm: fsync rejected — shared core has no implicit render-fence sync contract"
+        );
+        Err(Error::new(EOPNOTSUPP))
     }
 
     fn fevent(&mut self, id: usize, _flags: EventFlags) -> Result<Option<EventFlags>> {
@@ -1384,5 +1632,418 @@ fn decode_wire<T: Copy>(buf: &[u8]) -> Result<T> {
 
 fn driver_to_syscall(error: crate::driver::DriverError) -> Error {
     warn!("redox-drm: driver error: {}", error);
-    Error::new(EINVAL)
+    match error {
+        crate::driver::DriverError::Unsupported(_) => Error::new(EOPNOTSUPP),
+        crate::driver::DriverError::InvalidArgument(_) => Error::new(EINVAL),
+        crate::driver::DriverError::NotFound(_) => Error::new(ENOENT),
+        crate::driver::DriverError::Initialization(_)
+        | crate::driver::DriverError::Mmio(_)
+        | crate::driver::DriverError::Pci(_)
+        | crate::driver::DriverError::Buffer(_)
+        | crate::driver::DriverError::Io(_) => Error::new(EINVAL),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+
+    use redox_scheme::SchemeBlockMut;
+
+    use super::*;
+    use crate::driver::{DriverError, DriverEvent, GpuDriver};
+    use crate::kms::{ConnectorInfo, ModeInfo};
+
+    #[derive(Default)]
+    struct FakeDriverState {
+        next_handle: GemHandle,
+        gem_sizes: BTreeMap<GemHandle, u64>,
+        submit_calls: usize,
+    }
+
+    struct FakeDriver {
+        state: Mutex<FakeDriverState>,
+        support_private_cs: bool,
+    }
+
+    impl FakeDriver {
+        fn new(support_private_cs: bool) -> Self {
+            Self {
+                state: Mutex::new(FakeDriverState {
+                    next_handle: 1,
+                    ..FakeDriverState::default()
+                }),
+                support_private_cs,
+            }
+        }
+
+        fn submit_calls(&self) -> usize {
+            self.state.lock().unwrap().submit_calls
+        }
+    }
+
+    impl GpuDriver for FakeDriver {
+        fn driver_name(&self) -> &str {
+            "fake"
+        }
+
+        fn driver_desc(&self) -> &str {
+            "fake"
+        }
+
+        fn driver_date(&self) -> &str {
+            "1970-01-01"
+        }
+
+        fn detect_connectors(&self) -> Vec<ConnectorInfo> {
+            Vec::new()
+        }
+
+        fn get_modes(&self, _connector_id: u32) -> Vec<ModeInfo> {
+            Vec::new()
+        }
+
+        fn set_crtc(
+            &self,
+            _crtc_id: u32,
+            _fb_handle: u32,
+            _connectors: &[u32],
+            _mode: &ModeInfo,
+        ) -> crate::driver::Result<()> {
+            Ok(())
+        }
+
+        fn page_flip(&self, _crtc_id: u32, _fb_handle: u32, _flags: u32) -> crate::driver::Result<u64> {
+            Ok(0)
+        }
+
+        fn get_vblank(&self, _crtc_id: u32) -> crate::driver::Result<u64> {
+            Ok(0)
+        }
+
+        fn gem_create(&self, size: u64) -> crate::driver::Result<GemHandle> {
+            let mut state = self.state.lock().unwrap();
+            let handle = state.next_handle;
+            state.next_handle = state.next_handle.saturating_add(1);
+            state.gem_sizes.insert(handle, size);
+            Ok(handle)
+        }
+
+        fn gem_close(&self, handle: GemHandle) -> crate::driver::Result<()> {
+            let removed = self.state.lock().unwrap().gem_sizes.remove(&handle);
+            if removed.is_some() {
+                Ok(())
+            } else {
+                Err(DriverError::NotFound(format!("unknown GEM handle {handle}")))
+            }
+        }
+
+        fn gem_mmap(&self, handle: GemHandle) -> crate::driver::Result<usize> {
+            if self.state.lock().unwrap().gem_sizes.contains_key(&handle) {
+                Ok((handle as usize).saturating_mul(4096))
+            } else {
+                Err(DriverError::NotFound(format!("unknown GEM handle {handle}")))
+            }
+        }
+
+        fn gem_size(&self, handle: GemHandle) -> crate::driver::Result<u64> {
+            self.state
+                .lock()
+                .unwrap()
+                .gem_sizes
+                .get(&handle)
+                .copied()
+                .ok_or_else(|| DriverError::NotFound(format!("unknown GEM handle {handle}")))
+        }
+
+        fn get_edid(&self, _connector_id: u32) -> Vec<u8> {
+            Vec::new()
+        }
+
+        fn handle_irq(&self) -> crate::driver::Result<Option<DriverEvent>> {
+            Ok(None)
+        }
+
+        fn redox_private_cs_submit(
+            &self,
+            _submit: &RedoxPrivateCsSubmit,
+        ) -> crate::driver::Result<RedoxPrivateCsSubmitResult> {
+            if !self.support_private_cs {
+                return Err(DriverError::Unsupported(
+                    "private command submission is unavailable on this backend",
+                ));
+            }
+
+            let mut state = self.state.lock().unwrap();
+            state.submit_calls = state.submit_calls.saturating_add(1);
+            Ok(RedoxPrivateCsSubmitResult { seqno: 7 })
+        }
+    }
+
+    fn open_card(scheme: &mut DrmScheme) -> usize {
+        scheme.open("card0", 0, 0, 0).unwrap().unwrap()
+    }
+
+    fn write_ioctl<T>(scheme: &mut DrmScheme, id: usize, request: usize, payload: &T) -> Result<usize> {
+        let mut buf = request.to_le_bytes().to_vec();
+        buf.extend_from_slice(&bytes_of(payload));
+        scheme.write(id, &buf).map(|written| written.unwrap_or(0))
+    }
+
+    fn read_response<T: Copy>(scheme: &mut DrmScheme, id: usize) -> T {
+        let mut buf = vec![0; size_of::<T>()];
+        let len = scheme.read(id, &mut buf).unwrap().unwrap();
+        assert_eq!(len, size_of::<T>());
+        decode_wire::<T>(&buf).unwrap()
+    }
+
+    #[test]
+    fn private_cs_submit_rejects_imported_dma_buf_handles() {
+        let driver = Arc::new(FakeDriver::new(true));
+        let mut scheme = DrmScheme::new(driver.clone());
+
+        let exporter = open_card(&mut scheme);
+        let importer = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, exporter, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, exporter);
+
+        let export = DrmPrimeHandleToFdWire {
+            handle: created.handle,
+            flags: 0,
+        };
+        write_ioctl(&mut scheme, exporter, DRM_IOCTL_PRIME_HANDLE_TO_FD, &export).unwrap();
+        let exported = read_response::<DrmPrimeHandleToFdResponseWire>(&mut scheme, exporter);
+
+        let import = DrmPrimeFdToHandleWire {
+            fd: exported.fd,
+            _pad: 0,
+        };
+        write_ioctl(&mut scheme, importer, DRM_IOCTL_PRIME_FD_TO_HANDLE, &import).unwrap();
+        let imported = read_response::<DrmPrimeFdToHandleResponseWire>(&mut scheme, importer);
+
+        let submit = RedoxPrivateCsSubmit {
+            src_handle: imported.handle,
+            dst_handle: imported.handle,
+            src_offset: 0,
+            dst_offset: 0,
+            byte_count: 64,
+        };
+        let err = write_ioctl(
+            &mut scheme,
+            importer,
+            DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT,
+            &submit,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.errno, EOPNOTSUPP);
+        assert_eq!(driver.submit_calls(), 0);
+    }
+
+    #[test]
+    fn prime_handle_to_fd_returns_distinct_nonzero_tokens() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        for _ in 0..2 {
+            let create = DrmGemCreateWire {
+                size: 4096,
+                ..DrmGemCreateWire::default()
+            };
+            write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+            let _ = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        }
+
+        let handles = scheme.handles.get(&card).unwrap().owned_gems.clone();
+
+        let export_a = DrmPrimeHandleToFdWire {
+            handle: handles[0],
+            flags: 0,
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_PRIME_HANDLE_TO_FD, &export_a).unwrap();
+        let token_a = read_response::<DrmPrimeHandleToFdResponseWire>(&mut scheme, card).fd;
+
+        let export_b = DrmPrimeHandleToFdWire {
+            handle: handles[1],
+            flags: 0,
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_PRIME_HANDLE_TO_FD, &export_b).unwrap();
+        let token_b = read_response::<DrmPrimeHandleToFdResponseWire>(&mut scheme, card).fd;
+
+        assert_ne!(token_a, 0);
+        assert_ne!(token_b, 0);
+        assert_ne!(token_a, token_b);
+    }
+
+    #[test]
+    fn private_cs_wait_is_explicitly_unsupported_without_backend_support() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+        let wait = RedoxPrivateCsWait {
+            seqno: 1,
+            timeout_ns: 0,
+        };
+
+        let err = write_ioctl(&mut scheme, card, DRM_IOCTL_REDOX_PRIVATE_CS_WAIT, &wait).unwrap_err();
+
+        assert_eq!(err.errno, EOPNOTSUPP);
+    }
+
+    #[test]
+    fn fsync_is_not_a_fake_render_sync_success() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let err = scheme.fsync(card).unwrap_err();
+
+        assert_eq!(err.errno, EOPNOTSUPP);
+    }
+
+    #[test]
+    fn private_cs_submit_still_reaches_backend_for_local_gems() {
+        let driver = Arc::new(FakeDriver::new(true));
+        let mut scheme = DrmScheme::new(driver.clone());
+        let card = open_card(&mut scheme);
+
+        for _ in 0..2 {
+            let create = DrmGemCreateWire {
+                size: 4096,
+                ..DrmGemCreateWire::default()
+            };
+            write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+            let _ = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        }
+
+        let handles = match scheme.handles.get(&card) {
+            Some(handle) => handle.owned_gems.clone(),
+            None => panic!("missing fake card handle"),
+        };
+        let submit = RedoxPrivateCsSubmit {
+            src_handle: handles[0],
+            dst_handle: handles[1],
+            src_offset: 0,
+            dst_offset: 0,
+            byte_count: 128,
+        };
+
+        write_ioctl(&mut scheme, card, DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT, &submit).unwrap();
+        let response = read_response::<RedoxPrivateCsSubmitResult>(&mut scheme, card);
+
+        assert_eq!(response.seqno, 7);
+        assert_eq!(driver.submit_calls(), 1);
+    }
+
+    #[test]
+    fn private_cs_submit_rejects_out_of_bounds_ranges() {
+        let driver = Arc::new(FakeDriver::new(true));
+        let mut scheme = DrmScheme::new(driver.clone());
+        let card = open_card(&mut scheme);
+
+        for _ in 0..2 {
+            let create = DrmGemCreateWire {
+                size: 4096,
+                ..DrmGemCreateWire::default()
+            };
+            write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+            let _ = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        }
+
+        let handles = scheme.handles.get(&card).unwrap().owned_gems.clone();
+        let submit = RedoxPrivateCsSubmit {
+            src_handle: handles[0],
+            dst_handle: handles[1],
+            src_offset: 4090,
+            dst_offset: 0,
+            byte_count: 64,
+        };
+
+        let err = write_ioctl(&mut scheme, card, DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT, &submit)
+            .unwrap_err();
+
+        assert_eq!(err.errno, EINVAL);
+        assert_eq!(driver.submit_calls(), 0);
+    }
+
+    #[test]
+    fn vblank_driver_event_retires_pending_page_flip() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        scheme.fb_registry.insert(
+            7,
+            FbInfo {
+                gem_handle: 41,
+                width: 0,
+                height: 0,
+                pitch: 0,
+                bpp: 0,
+            },
+        );
+        scheme.pending_flip_fb.insert(3, (5, 7));
+
+        scheme.handle_driver_event(DriverEvent::Vblank {
+            crtc_id: 3,
+            count: 5,
+        });
+
+        assert!(!scheme.pending_flip_fb.contains_key(&3));
+        assert!(!scheme.fb_registry.contains_key(&7));
+    }
+
+    #[test]
+    fn non_vblank_driver_event_does_not_retire_pending_page_flip() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        scheme.fb_registry.insert(
+            9,
+            FbInfo {
+                gem_handle: 99,
+                width: 0,
+                height: 0,
+                pitch: 0,
+                bpp: 0,
+            },
+        );
+        scheme.pending_flip_fb.insert(1, (2, 9));
+
+        scheme.handle_driver_event(DriverEvent::Hotplug { connector_id: 1 });
+
+        assert_eq!(scheme.pending_flip_fb.get(&1), Some(&(2, 9)));
+        assert!(scheme.fb_registry.contains_key(&9));
+    }
+
+    #[test]
+    fn gem_create_rejects_oversized_allocations() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+        let create = DrmGemCreateWire {
+            size: MAX_SCHEME_GEM_BYTES + 1,
+            ..DrmGemCreateWire::default()
+        };
+
+        let err = write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap_err();
+
+        assert_eq!(err.errno, EINVAL);
+    }
+
+    #[test]
+    fn create_dumb_rejects_oversized_allocations() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+        let create = DrmCreateDumbWire {
+            width: 16384,
+            height: 16384,
+            bpp: 32,
+            ..DrmCreateDumbWire::default()
+        };
+
+        let err = write_ioctl(&mut scheme, card, DRM_IOCTL_MODE_CREATE_DUMB, &create).unwrap_err();
+
+        assert_eq!(err.errno, EINVAL);
+    }
 }

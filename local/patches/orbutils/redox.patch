@@ -1,0 +1,57 @@
+diff --git a/orbutils/src/orblogin/keymap.rs b/orbutils/src/orblogin/keymap.rs
+index 8d5d8cf0..8ef61992 100644
+--- a/orbutils/src/orblogin/keymap.rs
++++ b/orbutils/src/orblogin/keymap.rs
+@@
+-use std::{fs, path::PathBuf, process::Command};
++use std::process::Command;
+
+diff --git a/orbutils/src/orblogin/main.rs b/orbutils/src/orblogin/main.rs
+index 660aa8f1..1a9ca703 100644
+--- a/orbutils/src/orblogin/main.rs
++++ b/orbutils/src/orblogin/main.rs
+@@
+-use log::{error, info};
++use log::{error, info};
++use std::path::Path;
+ use std::process::Command;
+ use std::{env, io, str};
+@@
+ fn normal_usernames() -> Vec<String> {
+     let users = match AllUsers::authenticator(Config::default()) {
+         Ok(ok) => ok,
+         Err(_) => return Vec::new(),
+     };
+@@
+     usernames.sort();
+     usernames
+ }
++
++fn available_session_options(default_launcher: &str) -> Vec<(&'static str, &'static str)> {
++    let mut options = vec![("Orbital", "launcher")];
++
++    if default_launcher == "orbital-wayland" || Path::new("/usr/bin/orbital-wayland").exists() {
++        options.push(("Wayland", "orbital-wayland"));
++    }
++
++    if default_launcher == "orbital-kde" || Path::new("/usr/bin/orbital-kde").exists() {
++        options.push(("KDE", "orbital-kde"));
++    }
++
++    options
++}
+@@
+-    let session_options = vec![
+-        ("Orbital", "launcher"),
+-        ("Wayland", "orbital-wayland"),
+-        ("KDE", "orbital-kde"),
+-    ];
++    let session_options = available_session_options(launcher_cmd);
+@@
+                 let _ =
+                     syscall::fcntl(before_ns_fd.raw(), syscall::F_SETFD, syscall::O_CLOEXEC);
+                 before_ns_fd
+             };
++            #[cfg(not(target_os = "redox"))]
++            let _ = username;
+             match command.spawn() {

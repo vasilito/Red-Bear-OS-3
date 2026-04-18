@@ -23,9 +23,21 @@ pub enum InterruptHandle {
     },
 }
 
+fn force_legacy_irq(quirks: PciQuirkFlags) -> bool {
+    quirks.contains(PciQuirkFlags::FORCE_LEGACY_IRQ)
+}
+
 impl InterruptHandle {
     pub fn setup(device_info: &PciDeviceInfo, pci_device: &mut PciDevice) -> Result<Self> {
         let quirks = device_info.quirks();
+
+        if force_legacy_irq(quirks) {
+            info!(
+                "redox-drm: forcing legacy IRQ for {} (FORCE_LEGACY_IRQ quirk)",
+                device_info.location
+            );
+            return Self::try_legacy(device_info);
+        }
 
         if !quirks.contains(PciQuirkFlags::NO_MSIX) {
             if let Ok(Some(handle)) = Self::try_msix(device_info, pci_device) {
@@ -45,13 +57,6 @@ impl InterruptHandle {
         } else {
             info!(
                 "redox-drm: skipping MSI for {} (NO_MSI quirk)",
-                device_info.location
-            );
-        }
-
-        if quirks.contains(PciQuirkFlags::FORCE_LEGACY_IRQ) {
-            info!(
-                "redox-drm: forcing legacy IRQ for {} (FORCE_LEGACY_IRQ quirk)",
                 device_info.location
             );
         }
@@ -196,7 +201,6 @@ impl InterruptHandle {
                     .map_err(|e| DriverError::Io(e.to_string()))
             }
             InterruptHandle::Msi { handle, .. } | InterruptHandle::Legacy { handle, .. } => {
-                let mut buf = [0u8; 8];
                 let _ = handle.wait().map_err(|e| DriverError::Io(e.to_string()))?;
                 Ok(())
             }
@@ -210,7 +214,31 @@ impl InterruptHandle {
         }
     }
 
+    pub fn mode_name(&self) -> &'static str {
+        match self {
+            InterruptHandle::Msix { .. } => "MSI-X",
+            InterruptHandle::Msi { .. } => "MSI",
+            InterruptHandle::Legacy { .. } => "legacy INTx",
+        }
+    }
+
     pub fn is_msix(&self) -> bool {
         matches!(self, InterruptHandle::Msix { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::force_legacy_irq;
+    use redox_driver_sys::quirks::PciQuirkFlags;
+
+    #[test]
+    fn force_legacy_irq_only_triggers_on_quirk() {
+        assert!(!force_legacy_irq(PciQuirkFlags::empty()));
+        assert!(!force_legacy_irq(PciQuirkFlags::NO_MSI));
+        assert!(force_legacy_irq(PciQuirkFlags::FORCE_LEGACY_IRQ));
+        assert!(force_legacy_irq(
+            PciQuirkFlags::FORCE_LEGACY_IRQ | PciQuirkFlags::NO_MSIX
+        ));
     }
 }

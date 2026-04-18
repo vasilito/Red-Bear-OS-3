@@ -20,11 +20,14 @@ use redox_driver_sys::pci::{
     enumerate_pci_class, PciDevice, PciDeviceInfo, PciLocation, PCI_CLASS_DISPLAY,
     PCI_VENDOR_ID_AMD, PCI_VENDOR_ID_INTEL,
 };
+use redox_driver_sys::quirks::PciQuirkFlags;
 use redox_scheme::{SignalBehavior, Socket};
 
-use crate::driver::{DriverError, GpuDriver, Result};
+use crate::driver::{DriverError, DriverEvent, GpuDriver, Result};
 use crate::drivers::DriverRegistry;
 use crate::scheme::DrmScheme;
+
+const MAX_FIRMWARE_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
 struct StderrLogger {
     level: LevelFilter,
@@ -70,13 +73,16 @@ fn run() -> Result<()> {
         .map_err(|e| DriverError::Initialization(format!("failed to register drm scheme: {e}")))?;
     info!("redox-drm: registered scheme:drm");
 
-    let (vblank_tx, vblank_rx) = mpsc::sync_channel::<(u32, u64)>(8);
+    let (event_tx, event_rx) = mpsc::sync_channel::<DriverEvent>(8);
 
     let irq_driver: Arc<dyn GpuDriver> = driver.clone();
     std::thread::spawn(move || loop {
         match irq_driver.handle_irq() {
-            Ok(Some((crtc_id, count))) => {
-                let _ = vblank_tx.try_send((crtc_id, count));
+            Ok(Some(event)) => {
+                if event_tx.send(event).is_err() {
+                    error!("redox-drm: event consumer dropped, stopping IRQ event thread");
+                    break;
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -87,12 +93,12 @@ fn run() -> Result<()> {
     });
 
     let drm_scheme = Arc::new(Mutex::new(DrmScheme::new(driver)));
-    let vblank_scheme = drm_scheme.clone();
+    let event_scheme = drm_scheme.clone();
 
     std::thread::spawn(move || loop {
-        if let Ok((crtc_id, vblank_count)) = vblank_rx.recv() {
-            if let Ok(mut scheme) = vblank_scheme.lock() {
-                scheme.retire_vblank(crtc_id, vblank_count);
+        if let Ok(event) = event_rx.recv() {
+            if let Ok(mut scheme) = event_scheme.lock() {
+                scheme.handle_driver_event(event);
             }
         }
     });
@@ -209,20 +215,42 @@ struct FirmwareCache {
     blobs: HashMap<String, Vec<u8>>,
 }
 
-impl FirmwareCache {
-    fn load_for_device(info: &PciDeviceInfo) -> Result<Self> {
-        if info.vendor_id != PCI_VENDOR_ID_AMD {
-            info!(
-                "redox-drm: skipping firmware load for Intel GPU {}",
-                info.location
-            );
-            return Ok(Self {
-                blobs: HashMap::new(),
-            });
-        }
+struct FirmwareExpectation {
+    vendor_name: &'static str,
+    keys: &'static [&'static str],
+    required: bool,
+    required_label: &'static str,
+}
 
-        let firmware_keys: &[&str] = if info.vendor_id == PCI_VENDOR_ID_AMD {
-            &[
+const AMD_DISPLAY_FIRMWARE_KEYS: &[&str] = &[
+    "amdgpu/dcn_3_1_dmcub",
+    "amdgpu/dmcub_dcn20.bin",
+    "amdgpu/dmcub_dcn31.bin",
+];
+
+const INTEL_TGL_DMC_KEYS: &[&str] = &["i915/tgl_dmc.bin", "i915/tgl_dmc_ver2_12.bin"];
+const INTEL_ADLP_DMC_KEYS: &[&str] = &["i915/adlp_dmc.bin", "i915/adlp_dmc_ver2_16.bin"];
+const INTEL_DG2_DMC_KEYS: &[&str] = &["i915/dg2_dmc.bin", "i915/dg2_dmc_ver2_06.bin"];
+const INTEL_MTL_DMC_KEYS: &[&str] = &["i915/mtl_dmc.bin"];
+
+fn intel_display_firmware_keys(device_id: u16) -> Option<&'static [&'static str]> {
+    match device_id {
+        0x9A40 | 0x9A49 | 0x9A60 | 0x9A68 | 0x9A70 | 0x9A78 => Some(INTEL_TGL_DMC_KEYS),
+        0x46A6 => Some(INTEL_ADLP_DMC_KEYS),
+        0x5690 | 0x5691 | 0x5692 | 0x5693 | 0x5694 | 0x5696 | 0x5697 | 0x56A0 | 0x56A1
+        | 0x56A5 | 0x56A6 | 0x56B0 | 0x56B1 | 0x56B2 | 0x56B3 | 0x56C0 | 0x56C1 => {
+            Some(INTEL_DG2_DMC_KEYS)
+        }
+        0x7D55 | 0x7D45 | 0x7D40 => Some(INTEL_MTL_DMC_KEYS),
+        _ => None,
+    }
+}
+
+fn firmware_expectation(info: &PciDeviceInfo, quirks: PciQuirkFlags) -> FirmwareExpectation {
+    match info.vendor_id {
+        PCI_VENDOR_ID_AMD => FirmwareExpectation {
+            vendor_name: "AMD",
+            keys: &[
                 "amdgpu/psp_13_0_0_sos",
                 "amdgpu/psp_13_0_0_ta",
                 "amdgpu/gc_11_0_0_pfp",
@@ -238,47 +266,165 @@ impl FirmwareCache {
                 "amdgpu/sdma_5_2",
                 "amdgpu/vcn_3_0_0",
                 "amdgpu/vcn_3_1_0",
-            ]
-        } else {
-            &[]
-        };
+            ],
+            required: quirks.contains(PciQuirkFlags::NEED_FIRMWARE),
+            required_label: "AMD firmware",
+        },
+        PCI_VENDOR_ID_INTEL => {
+            let keys = intel_display_firmware_keys(info.device_id).unwrap_or(&[]);
+            FirmwareExpectation {
+                vendor_name: "Intel",
+                keys,
+                required: !keys.is_empty(),
+                required_label: "Intel display DMC firmware",
+            }
+        }
+        _ => FirmwareExpectation {
+            vendor_name: "unknown",
+            keys: &[],
+            required: false,
+            required_label: "firmware",
+        },
+    }
+}
+
+fn summarize_missing_firmware(missing: &[String]) -> String {
+    const MAX_SHOWN: usize = 3;
+
+    if missing.is_empty() {
+        return "none".to_string();
+    }
+
+    let shown: Vec<&str> = missing.iter().take(MAX_SHOWN).map(String::as_str).collect();
+    if missing.len() > MAX_SHOWN {
+        format!("{} (+{} more)", shown.join(", "), missing.len() - MAX_SHOWN)
+    } else {
+        shown.join(", ")
+    }
+}
+
+fn firmware_requirement_error(
+    expectation: &FirmwareExpectation,
+    loaded: &HashMap<String, Vec<u8>>,
+    missing: &[String],
+) -> Option<String> {
+    if !expectation.required {
+        return None;
+    }
+
+    if loaded.is_empty() {
+        return Some(format!(
+            "no {} firmware blobs available from scheme:firmware; checked {} candidates ({})",
+            expectation.required_label,
+            expectation.keys.len(),
+            summarize_missing_firmware(missing)
+        ));
+    }
+
+    if expectation.vendor_name == "AMD"
+        && !AMD_DISPLAY_FIRMWARE_KEYS
+            .iter()
+            .any(|key| loaded.contains_key(*key))
+    {
+        return Some(format!(
+            "AMD firmware policy requires a DMCUB/display blob before backend init; checked {} candidates ({})",
+            expectation.keys.len(),
+            summarize_missing_firmware(missing)
+        ));
+    }
+
+    None
+}
+
+impl FirmwareCache {
+    fn load_for_device(info: &PciDeviceInfo) -> Result<Self> {
+        let quirks = info.quirks();
+        let expectation = firmware_expectation(info, quirks);
+
+        if expectation.keys.is_empty() {
+            if expectation.required {
+                info!(
+                    "redox-drm: {} GPU {} declares NEED_FIRMWARE in canonical quirk policy, but no Rust-side firmware manifest is defined for this vendor yet",
+                    expectation.vendor_name,
+                    info.location
+                );
+            } else {
+                info!(
+                    "redox-drm: skipping firmware preload for {} GPU {} (no Rust-side firmware manifest)",
+                    expectation.vendor_name,
+                    info.location
+                );
+            }
+            return Ok(Self {
+                blobs: HashMap::new(),
+            });
+        }
 
         let mut blobs = HashMap::new();
-        let mut loaded_any = false;
+        let mut missing = Vec::new();
 
-        for &key in firmware_keys {
+        info!(
+            "redox-drm: firmware preload for {} GPU {} expects {} candidate blob(s); required_by_quirk={}",
+            expectation.vendor_name,
+            info.location,
+            expectation.keys.len(),
+            expectation.required
+        );
+
+        for &key in expectation.keys {
             let path = format!("/scheme/firmware/{}", key);
             match File::open(&path) {
                 Ok(mut file) => {
                     let metadata = file.metadata();
-                    let estimated_size = metadata.map(|m| m.len() as usize).unwrap_or(1024 * 1024);
-                    let mut buf = Vec::with_capacity(estimated_size);
+                    let estimated_size = metadata.map(|m| m.len()).unwrap_or(1024 * 1024);
+                    if estimated_size > MAX_FIRMWARE_BLOB_BYTES {
+                        info!(
+                            "redox-drm: firmware {} rejected — {} bytes exceeds trusted preload cap {}",
+                            key,
+                            estimated_size,
+                            MAX_FIRMWARE_BLOB_BYTES
+                        );
+                        missing.push(key.to_string());
+                        continue;
+                    }
+                    let mut buf = Vec::with_capacity(estimated_size as usize);
                     match file.read_to_end(&mut buf) {
                         Ok(bytes_read) => {
                             info!("redox-drm: loaded firmware {} ({} bytes)", key, bytes_read);
-                            loaded_any = true;
                             blobs.insert(key.to_string(), buf);
                         }
                         Err(e) => {
                             info!("redox-drm: failed to read firmware {}: {}", key, e);
+                            missing.push(key.to_string());
                         }
                     }
                 }
                 Err(e) => {
                     info!("redox-drm: firmware {} not available: {}", key, e);
+                    missing.push(key.to_string());
                 }
             }
         }
 
-        if !loaded_any && info.vendor_id == PCI_VENDOR_ID_AMD {
-            return Err(DriverError::NotFound(
-                "no AMD firmware blobs available from scheme:firmware".to_string(),
-            ));
+        if let Some(message) = firmware_requirement_error(&expectation, &blobs, &missing) {
+            return Err(DriverError::NotFound(message));
+        }
+
+        if !missing.is_empty() {
+            info!(
+                "redox-drm: firmware preload for {} GPU {} left {} blob(s) unavailable: {}",
+                expectation.vendor_name,
+                info.location,
+                missing.len(),
+                summarize_missing_firmware(&missing)
+            );
         }
 
         info!(
-            "redox-drm: firmware cache populated with {} blob(s)",
-            blobs.len()
+            "redox-drm: firmware cache populated with {} blob(s) for {} GPU {}",
+            blobs.len(),
+            expectation.vendor_name,
+            info.location
         );
         Ok(Self { blobs })
     }
@@ -307,5 +453,130 @@ fn main() {
     if let Err(error) = run() {
         error!("redox-drm: fatal error: {}", error);
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_gpu_info(vendor_id: u16, device_id: u16) -> PciDeviceInfo {
+        PciDeviceInfo {
+            location: PciLocation {
+                segment: 0,
+                bus: 0,
+                device: 0,
+                function: 0,
+            },
+            vendor_id,
+            device_id,
+            subsystem_vendor_id: 0,
+            subsystem_device_id: 0,
+            revision: 0,
+            class_code: PCI_CLASS_DISPLAY,
+            subclass: 0,
+            prog_if: 0,
+            header_type: 0,
+            irq: None,
+            bars: Vec::new(),
+            capabilities: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn firmware_expectation_marks_amd_need_firmware_as_required() {
+        let expectation = firmware_expectation(
+            &PciDeviceInfo {
+                location: PciLocation {
+                    segment: 0,
+                    bus: 0,
+                    device: 0,
+                    function: 0,
+                },
+                vendor_id: PCI_VENDOR_ID_AMD,
+                device_id: 0x744C,
+                subsystem_vendor_id: 0,
+                subsystem_device_id: 0,
+                revision: 0,
+                class_code: PCI_CLASS_DISPLAY,
+                subclass: 0,
+                prog_if: 0,
+                header_type: 0,
+                irq: None,
+                bars: Vec::new(),
+                capabilities: Vec::new(),
+            },
+            PciQuirkFlags::from_bits_truncate(PciQuirkFlags::NEED_FIRMWARE.bits()),
+        );
+
+        assert_eq!(expectation.vendor_name, "AMD");
+        assert!(expectation.required);
+        assert!(!expectation.keys.is_empty());
+    }
+
+    #[test]
+    fn summarize_missing_firmware_truncates_long_lists() {
+        let summary = summarize_missing_firmware(&[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ]);
+
+        assert_eq!(summary, "a, b, c (+1 more)");
+    }
+
+    #[test]
+    fn amd_required_firmware_needs_display_blob() {
+        let expectation = firmware_expectation(
+            &PciDeviceInfo {
+                location: PciLocation {
+                    segment: 0,
+                    bus: 0,
+                    device: 0,
+                    function: 0,
+                },
+                vendor_id: PCI_VENDOR_ID_AMD,
+                device_id: 0x744C,
+                subsystem_vendor_id: 0,
+                subsystem_device_id: 0,
+                revision: 0,
+                class_code: PCI_CLASS_DISPLAY,
+                subclass: 0,
+                prog_if: 0,
+                header_type: 0,
+                irq: None,
+                bars: Vec::new(),
+                capabilities: Vec::new(),
+            },
+            PciQuirkFlags::from_bits_truncate(PciQuirkFlags::NEED_FIRMWARE.bits()),
+        );
+        let mut loaded = HashMap::new();
+        loaded.insert("amdgpu/gc_11_0_0_pfp".to_string(), vec![1, 2, 3]);
+        let missing = vec!["amdgpu/dmcub_dcn31.bin".to_string()];
+
+        let error = firmware_requirement_error(&expectation, &loaded, &missing);
+
+        assert!(error.is_some());
+        assert!(error.unwrap().contains("DMCUB/display blob"));
+    }
+
+    #[test]
+    fn intel_tgl_manifest_is_required_from_startup() {
+        let expectation = firmware_expectation(&test_gpu_info(PCI_VENDOR_ID_INTEL, 0x9A49), PciQuirkFlags::empty());
+
+        assert_eq!(expectation.vendor_name, "Intel");
+        assert!(expectation.required);
+        assert_eq!(expectation.required_label, "Intel display DMC firmware");
+        assert!(expectation.keys.contains(&"i915/tgl_dmc_ver2_12.bin"));
+    }
+
+    #[test]
+    fn unknown_intel_device_has_no_startup_manifest_yet() {
+        let expectation = firmware_expectation(&test_gpu_info(PCI_VENDOR_ID_INTEL, 0x3E92), PciQuirkFlags::empty());
+
+        assert_eq!(expectation.vendor_name, "Intel");
+        assert!(!expectation.required);
+        assert!(expectation.keys.is_empty());
     }
 }

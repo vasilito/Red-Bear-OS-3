@@ -222,6 +222,8 @@ void redox_dma_free_coherent(size_t size, void *vaddr, dma_addr_t dma_handle)
 static struct pci_dev g_pci_dev;
 static int g_pci_dev_populated;
 
+#define REDOX_MAX_FIRMWARE_BYTES (64U * 1024U * 1024U)
+
 void redox_pci_set_device_info(u16 vendor, u16 device,
                                 u8 bus_number, u8 dev_number,
                                 u8 func_number, u8 revision, u32 irq,
@@ -317,6 +319,11 @@ int redox_request_firmware(const struct firmware **fw, const char *name, void *d
     if (fstat(fd, &st) != 0 || st.st_size < 0) {
         close(fd);
         return -EIO;
+    }
+
+    if ((unsigned long long)st.st_size > REDOX_MAX_FIRMWARE_BYTES) {
+        close(fd);
+        return -EFBIG;
     }
 
     image = calloc(1, sizeof(*image));

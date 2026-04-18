@@ -5,6 +5,42 @@ use crate::kms::{ConnectorInfo, ModeInfo};
 
 pub type Result<T> = std::result::Result<T, DriverError>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriverEvent {
+    Vblank { crtc_id: u32, count: u64 },
+    Hotplug { connector_id: u32 },
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RedoxPrivateCsSubmit {
+    pub src_handle: GemHandle,
+    pub dst_handle: GemHandle,
+    pub src_offset: u64,
+    pub dst_offset: u64,
+    pub byte_count: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RedoxPrivateCsSubmitResult {
+    pub seqno: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RedoxPrivateCsWait {
+    pub seqno: u64,
+    pub timeout_ns: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct RedoxPrivateCsWaitResult {
+    pub completed: bool,
+    pub completed_seqno: u64,
+}
+
 #[derive(Debug, Error)]
 pub enum DriverError {
     #[error("driver initialization failed: {0}")]
@@ -16,7 +52,6 @@ pub enum DriverError {
     #[error("resource not found: {0}")]
     NotFound(String),
 
-    #[allow(dead_code)]
     #[error("operation not supported: {0}")]
     Unsupported(&'static str),
 
@@ -58,5 +93,23 @@ pub trait GpuDriver: Send + Sync {
 
     #[allow(dead_code)]
     fn get_edid(&self, connector_id: u32) -> Vec<u8>;
-    fn handle_irq(&self) -> Result<Option<(u32, u64)>>;
+    fn handle_irq(&self) -> Result<Option<DriverEvent>>;
+
+    fn redox_private_cs_submit(
+        &self,
+        _submit: &RedoxPrivateCsSubmit,
+    ) -> Result<RedoxPrivateCsSubmitResult> {
+        Err(DriverError::Unsupported(
+            "private command submission is unavailable on this backend",
+        ))
+    }
+
+    fn redox_private_cs_wait(
+        &self,
+        _wait: &RedoxPrivateCsWait,
+    ) -> Result<RedoxPrivateCsWaitResult> {
+        Err(DriverError::Unsupported(
+            "private command completion waits are unavailable on this backend",
+        ))
+    }
 }

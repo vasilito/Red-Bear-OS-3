@@ -9,8 +9,9 @@ use std::sync::Mutex;
 use log::{debug, info, warn};
 use redox_driver_sys::memory::MmioRegion;
 use redox_driver_sys::pci::{PciBarInfo, PciDevice, PciDeviceInfo};
+use redox_driver_sys::quirks::PciQuirkFlags;
 
-use crate::driver::{DriverError, GpuDriver, Result};
+use crate::driver::{DriverError, DriverEvent, GpuDriver, Result};
 use crate::drivers::interrupt::InterruptHandle;
 use crate::gem::{GemHandle, GemManager};
 use crate::kms::connector::{synthetic_edid, Connector};
@@ -57,6 +58,27 @@ impl IntelDriver {
             )));
         }
 
+        let quirks = info.quirks();
+        if !quirks.is_empty() {
+            info!(
+                "redox-drm: Intel init for {} using quirk policy {:?}",
+                info.location, quirks
+            );
+        }
+        if quirks.contains(PciQuirkFlags::DISABLE_ACCEL) {
+            return Err(DriverError::Pci(format!(
+                "device {:#06x}:{:#06x} at {} has DISABLE_ACCEL quirk — refusing Intel init",
+                info.vendor_id, info.device_id, info.location
+            )));
+        }
+        if quirks.contains(PciQuirkFlags::NEED_FIRMWARE) {
+            info!(
+                "redox-drm: Intel device {} entered init with explicit firmware policy and {} cached blob(s)",
+                info.location,
+                firmware.len()
+            );
+        }
+
         let gtt_bar = find_memory_bar(&info, 0, "GGTT BAR0")?;
         let mmio_bar = find_memory_bar(&info, 2, "MMIO BAR2")?;
         validate_intel_bars(&info, &gtt_bar, &mmio_bar)?;
@@ -93,18 +115,21 @@ impl IntelDriver {
                 None
             }
         };
+        let irq_mode = irq_handle.as_ref().map(|handle| handle.mode_name()).unwrap_or("none");
 
         if !firmware.is_empty() {
-            warn!(
-                "redox-drm: Intel driver ignores {} firmware blob(s); i915-class GPUs usually boot without scheme:firmware blobs",
-                firmware.len()
+            info!(
+                "redox-drm: Intel startup firmware cache populated with {} blob(s) for {}",
+                firmware.len(),
+                info.location
             );
         }
 
         info!(
-            "redox-drm: Intel driver ready for {} with {} connector(s)",
+            "redox-drm: Intel driver ready for {} with {} connector(s), IRQ mode {}",
             info.location,
-            connectors.len()
+            connectors.len(),
+            irq_mode
         );
 
         Ok(Self {
@@ -177,7 +202,7 @@ impl IntelDriver {
         Ok(connector.info.connector_type_id.saturating_sub(1) as u8)
     }
 
-    fn process_irq(&self) -> Result<Option<(u32, u64)>> {
+    fn process_irq(&self) -> Result<Option<DriverEvent>> {
         let previous = self.cached_connectors();
         let current = self.refresh_connectors()?;
 
@@ -186,6 +211,20 @@ impl IntelDriver {
                 "redox-drm: Intel hotplug event detected on {}",
                 self.info.location
             );
+            if let Some(connector) = current
+                .iter()
+                .find(|connector| {
+                    previous
+                        .iter()
+                        .find(|old| old.id == connector.id)
+                        .map(|old| old.connection != connector.connection)
+                        .unwrap_or(true)
+                })
+            {
+                return Ok(Some(DriverEvent::Hotplug {
+                    connector_id: connector.id,
+                }));
+            }
         }
 
         let ring_busy = self
@@ -200,7 +239,7 @@ impl IntelDriver {
                 "redox-drm: Intel IRQ decoded as display event crtc={} ring_busy={}",
                 crtc_id, ring_busy
             );
-            return Ok(Some((crtc_id, count)));
+            return Ok(Some(DriverEvent::Vblank { crtc_id, count }));
         }
 
         if ring_busy {
@@ -459,7 +498,7 @@ impl GpuDriver for IntelDriver {
         }
     }
 
-    fn handle_irq(&self) -> Result<Option<(u32, u64)>> {
+    fn handle_irq(&self) -> Result<Option<DriverEvent>> {
         let irq_event = {
             let mut irq_handle = self
                 .irq_handle

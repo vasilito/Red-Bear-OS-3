@@ -222,29 +222,14 @@ int amdgpu_dc_init(void *mmio_base, size_t mmio_size)
     {
         const struct firmware *fw = NULL;
         int fw_ret = request_firmware(&fw, firmware_name, NULL);
-        bool firmware_required =
-            g_pci_dev && pci_has_quirk(g_pci_dev, PCI_QUIRK_NEED_FIRMWARE);
 
         if (fw_ret != 0 || !fw) {
-            if (firmware_required) {
-                pr_err("amdgpu_redox: firmware %s is required by quirk policy (flags=%#llx, err=%d)\n",
-                       firmware_name,
-                       (unsigned long long)quirk_flags,
-                       fw_ret);
-                return fw_ret != 0 ? fw_ret : -ENOENT;
-            }
-            pr_warn("amdgpu_redox: firmware %s not available (err=%d), continuing without (quirks=%#llx)\n",
+            pr_warn("amdgpu_redox: firmware %s not available in backend load path (err=%d), continuing with Rust-side quirk policy already applied (quirks=%#llx)\n",
                     firmware_name,
                     fw_ret,
                     (unsigned long long)quirk_flags);
         } else {
-            if (firmware_required) {
-                printk("amdgpu_redox: firmware %s loaded (%zu bytes) to satisfy NEED_FIRMWARE quirk\n",
-                       firmware_name,
-                       fw->size);
-            } else {
-                printk("amdgpu_redox: firmware %s loaded (%zu bytes)\n", firmware_name, fw->size);
-            }
+            printk("amdgpu_redox: firmware %s loaded (%zu bytes)\n", firmware_name, fw->size);
             release_firmware(fw);
         }
     }
@@ -280,7 +265,6 @@ int amdgpu_redox_init(void *mmio_base, size_t mmio_size, uint64_t fb_phys, size_
     }
 
     g_pci_dev->mmio_base = g_mmio_base;
-    g_pci_dev->resource_start[0] = (phys_addr_t)(uintptr_t)g_mmio_base;
     g_pci_dev->resource_len[0] = g_mmio_size;
 
     g_device.pci_dev = g_pci_dev;
