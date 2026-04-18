@@ -1,13 +1,20 @@
 [source]
 tar = "https://www.x.org/releases/individual/proto/xextproto-7.3.0.tar.bz2"
 blake3 = "08cdd8b3838da9c99176778c925327aa35661d41d0e4d7458a378f14a42172c0"
-script = """
-autotools_recursive_regenerate
-"""
 
 [build]
 template = "custom"
 script = """
 DYNAMIC_INIT
+
+for f in config.sub config.guess; do
+    for dir in /usr/share/automake-* /usr/share/libtool/build-aux; do
+        if [ -f "${dir}/${f}" ]; then
+            cp "${dir}/${f}" "${COOKBOOK_SOURCE}/${f}"
+            break
+        fi
+    done
+done
+
 cookbook_configure
 """

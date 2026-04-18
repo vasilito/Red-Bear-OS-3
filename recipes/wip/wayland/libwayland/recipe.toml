@@ -15,6 +15,12 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+if [ -d "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include" ]; then
+    mkdir -p "${COOKBOOK_SYSROOT}/include" "${COOKBOOK_SYSROOT}/usr/include"
+    cp -a "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include/." "${COOKBOOK_SYSROOT}/include/"
+    cp -a "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include/." "${COOKBOOK_SYSROOT}/usr/include/"
+fi
+
 python - <<'PY'
 import os
 from pathlib import Path
@@ -28,14 +34,15 @@ meson_text = meson_text.replace(
 \twayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))''',
     '''\twayland_scanner_for_build = find_program('wayland-scanner', native: true)''',
 )
+meson_text = meson_text.replace(
+    "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
+    "{ 'header': 'signal.h', 'symbol': 'SFD_CLOEXEC' }",
+)
 meson.write_text(meson_text)
 
 event_loop = source_root / "src/event-loop.c"
 event_text = event_loop.read_text()
 event_text = event_text.replace(
-    '''#include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>''',
     '''#include <sys/epoll.h>
 #ifdef __redox__
 #include <sys/types.h>
@@ -64,21 +71,23 @@ int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struc
 #include <sys/signalfd.h>
 #include <sys/timerfd.h>
 #endif''',
+    '''#include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>''',
 )
-if "TFD_TIMER_ABSTIME" not in event_text:
-    event_text = event_text.replace(
-        '''#ifndef TFD_NONBLOCK
-#define TFD_NONBLOCK O_NONBLOCK
-#endif
-int timerfd_create''',
-        '''#ifndef TFD_NONBLOCK
-#define TFD_NONBLOCK O_NONBLOCK
-#endif
-#ifndef TFD_TIMER_ABSTIME
-#define TFD_TIMER_ABSTIME TIMER_ABSTIME
-#endif
-int timerfd_create''',
-    )
+event_text = event_text.replace(
+    '''#include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>''',
+    '''#include <sys/epoll.h>
+#ifdef __redox__
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
+#else
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
+#endif''',
+)
 event_loop.write_text(event_text)
 
 server = source_root / "src/wayland-server.c"

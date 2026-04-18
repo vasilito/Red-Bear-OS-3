@@ -1,9 +1,6 @@
 [source]
 tar = "https://www.x.org/releases/individual/xcb/libxcb-1.17.0.tar.xz"
 blake3 = "3dce3b8adc257177dfec9b6b6cf55eeac13921520dd6c372fd8f9d867600337b"
-script = """
-autotools_recursive_regenerate
-"""
 
 [build]
 dependencies = [
@@ -12,7 +9,21 @@ dependencies = [
     "x11proto",
     "xcb-proto",
 ]
-template = "configure"
-configureflags = [
-    "--disable-devel-docs",
-]
+template = "custom"
+script = """
+DYNAMIC_INIT
+COOKBOOK_CONFIGURE_FLAGS+=("--disable-devel-docs")
+cookbook_configure
+
+if ! grep -q '^#define XCB_QUEUE_BUFFER_SIZE ' src/config.h; then
+    printf '\n#define XCB_QUEUE_BUFFER_SIZE 16384\n' >> src/config.h
+fi
+
+make -j${COOKBOOK_MAKE_JOBS}
+make install DESTDIR="${COOKBOOK_STAGE}"
+
+for dir in "${COOKBOOK_STAGE}/lib" "${COOKBOOK_STAGE}/usr/lib"; do
+    [ -d "${dir}" ] || continue
+    find "${dir}" -type f -name '*.la' -exec rm -fv '{}' ';'
+done
+"""

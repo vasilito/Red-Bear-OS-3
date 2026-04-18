@@ -21,7 +21,14 @@ DYNAMIC_INIT
 #TODO: Should be CPPFLAGS but cookbook_meson isn't reading it
 export CFLAGS+=" -DHAVE_PTHREAD=1 -I${COOKBOOK_SYSROOT}/include/libdrm"
 export LLVM_CONFIG="${TARGET}-llvm-config"
+if [ -x "${HOME}/.redoxer/${TARGET}/toolchain/bin/llvm-config" ]; then
+    export COOKBOOK_HOST_SYSROOT="${HOME}/.redoxer/${TARGET}/toolchain"
+fi
 export LDFLAGS+=" -lorbital"
+
+mkdir -p .cookbook-tools
+ln -sf "$(command -v "${LLVM_CONFIG}")" .cookbook-tools/llvm-config
+export PATH="$(pwd)/.cookbook-tools:${PATH}"
 
 if [ "${COOKBOOK_DYNAMIC}" == "1" ]; then
     COOKBOOK_MESON_FLAGS+=(-Dshared-llvm=enabled)

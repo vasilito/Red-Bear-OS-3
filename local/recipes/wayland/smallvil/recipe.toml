@@ -1,4 +1,4 @@
-#TODO: libwayland native build done, needs libinput for full input support
+#TODO: historical bounded validation compositor reference only; no longer part of the active forward desktop workflow
 [source]
 git = "https://github.com/jackpot51/smithay"
 branch = "redox"

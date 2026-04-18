@@ -14,25 +14,12 @@ diff --git a/src/meson.build b/src/meson.build
 diff --git a/src/event-loop.c b/src/event-loop.c
 --- a/src/event-loop.c
 +++ b/src/event-loop.c
-@@ -35,7 +35,32 @@
+@@ -35,7 +35,9 @@
  #include <sys/socket.h>
  #include <sys/un.h>
  #include <sys/epoll.h>
-+#ifdef __redox__
-+#include <sys/types.h>
-+#ifndef SFD_CLOEXEC
-+#define SFD_CLOEXEC O_CLOEXEC
-+#endif
-+#ifndef SFD_NONBLOCK
-+#define SFD_NONBLOCK O_NONBLOCK
-+#endif
-+struct signalfd_siginfo {
-+	uint8_t pad[128];
-+};
-+int signalfd(int fd, const sigset_t *mask, int flags);
-+#else
  #include <sys/signalfd.h>
-+#endif
++#include <sys/timerfd.h>
  #ifdef __redox__
  #ifndef TFD_CLOEXEC
  #define TFD_CLOEXEC O_CLOEXEC
@@ -43,7 +30,6 @@ diff --git a/src/event-loop.c b/src/event-loop.c
  int timerfd_create(int clockid, int flags);
  int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
  #else
- #include <sys/timerfd.h>
  #endif
  #include <unistd.h>
  #include "timespec-util.h"

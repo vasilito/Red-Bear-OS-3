@@ -2,7 +2,37 @@
 [source]
 tar = "https://github.com/mm2/Little-CMS/releases/download/lcms2.15/lcms2-2.15.tar.gz"
 [build]
-template = "configure"
+template = "custom"
+script = """
+DYNAMIC_INIT
+export CFLAGS="${CFLAGS} -fPIC"
+export CXXFLAGS="${CXXFLAGS} -fPIC"
+COOKBOOK_CONFIGURE_FLAGS+=("--enable-shared" "--disable-static")
+cookbook_configure
+make -j${COOKBOOK_MAKE_JOBS}
+
+if [ -d src/.libs ]; then
+    x86_64-unknown-redox-gcc -shared -Wl,-soname,liblcms2.so.2 \
+        -o src/.libs/liblcms2.so.2.15 \
+        src/*.o -lm -lpthread
+    ln -sf liblcms2.so.2.15 src/.libs/liblcms2.so.2
+    ln -sf liblcms2.so.2.15 src/.libs/liblcms2.so
+fi
+
+make install DESTDIR="${COOKBOOK_STAGE}"
+
+if [ -f src/.libs/liblcms2.so.2.15 ]; then
+    mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+    cp -f src/.libs/liblcms2.so.2.15 "${COOKBOOK_STAGE}/usr/lib/"
+    ln -sf liblcms2.so.2.15 "${COOKBOOK_STAGE}/usr/lib/liblcms2.so.2"
+    ln -sf liblcms2.so.2.15 "${COOKBOOK_STAGE}/usr/lib/liblcms2.so"
+fi
+
+for dir in "${COOKBOOK_STAGE}/lib" "${COOKBOOK_STAGE}/usr/lib"; do
+    [ -d "${dir}" ] || continue
+    find "${dir}" -type f -name '*.la' -exec rm -fv '{}' ';'
+done
+"""
 dependencies = [
     "libtiff",
 ]

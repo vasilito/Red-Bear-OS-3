@@ -1,9 +1,6 @@
 [source]
 tar = "https://www.x.org/releases/individual/lib/libXxf86vm-1.1.6.tar.xz"
 blake3 = "cd99c05a03e81f8579a56272debd554b2a44c2ac8211f0170a39be86e03221bb"
-script = """
-autotools_recursive_regenerate
-"""
 
 [build]
 dependencies = [

@@ -7,20 +7,13 @@ patches = ["redox.patch"]
 template = "custom"
 dependencies = [
     "libpthread-stubs",
-    "libx11",
-    "libxau",
-    "libxcb",
-    "libxext",
-    "libxfixes",
-    "libxxf86vm",
-    "mesa-x11",
-    "x11proto",
+    "mesa",
     "zlib",
 ]
 script = """
 DYNAMIC_INIT
 cookbook_meson \
     -Degl=yes \
-    -Dglx=yes \
+    -Dglx=no \
     -Dtests=false
 """
