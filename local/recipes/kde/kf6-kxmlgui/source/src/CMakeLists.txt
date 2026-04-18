@@ -99,7 +99,7 @@ PUBLIC
 PRIVATE
             #QNetworkAccessManager in kaboutapplicationpersonmodel_p
        #QPrinter in kshortcutseditor
-##    Qt6::CorePrivate    #QSystemLocale in initializeLanguages
+###    Qt6::CorePrivate    #QSystemLocale in initializeLanguages
     KF6::CoreAddons     #KAboutData
     KF6::GuiAddons
     KF6::WidgetsAddons

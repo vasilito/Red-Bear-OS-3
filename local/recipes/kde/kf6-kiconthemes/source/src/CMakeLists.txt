@@ -2,7 +2,7 @@ configure_file(config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 add_subdirectory(tools/kiconfinder)
 if (KICONTHEMES_USE_QTQUICK)
-########################    add_subdirectory(qml)
+#########################    add_subdirectory(qml)
 endif()
 if (APPLE)
     add_subdirectory(tools/ksvg2icns)

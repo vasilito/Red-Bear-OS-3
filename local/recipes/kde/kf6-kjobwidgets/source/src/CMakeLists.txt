@@ -75,7 +75,7 @@ target_link_libraries(KF6JobWidgets
       KF6::CoreAddons    # KJob
    PRIVATE
       KF6::WidgetsAddons # KSqueezedTextLabel
-      #KF6::Notifications
+      ##KF6::Notifications
 )
 if (HAVE_QTDBUS)
     target_link_libraries(KF6JobWidgets PRIVATE Qt6::DBus)
@@ -93,7 +93,7 @@ ecm_generate_headers(KJobWidgets_HEADERS
   KUiServerV2JobTracker
   KStatusBarJobTracker
   KWidgetJobTracker
-  #KNotificationJobUiDelegate
+  ##KNotificationJobUiDelegate
 
   REQUIRED_HEADERS KJobWidgets_HEADERS
 )

@@ -15,6 +15,27 @@
 #include <QFile>
 #include <QSharedMemory>
 
+#ifdef __redox__
+static bool sharedMemoryLock(QSharedMemory &)
+{
+    return true;
+}
+
+static void sharedMemoryUnlock(QSharedMemory &)
+{
+}
+#else
+static bool sharedMemoryLock(QSharedMemory &memory)
+{
+    return memory.lock();
+}
+
+static void sharedMemoryUnlock(QSharedMemory &memory)
+{
+    memory.unlock();
+}
+#endif
+
 class KMemFile::Private
 {
 public:
@@ -82,7 +103,7 @@ bool KMemFile::Private::loadContentsFromFile()
         parent->setErrorString(QCoreApplication::translate("", "Cannot create memory segment for file %1").arg(filename));
         return false;
     }
-    shmData.lock();
+    sharedMemoryLock(shmData);
     qint64 size = 0;
     qint64 bytesRead;
     char *data = static_cast<char *>(shmData.data());
@@ -93,15 +114,15 @@ bool KMemFile::Private::loadContentsFromFile()
         return false;
     }
     shmDataSize = size;
-    shmData.unlock();
+    sharedMemoryUnlock(shmData);
     return true;
 }
 
 void KMemFile::Private::close()
 {
-    shmData.unlock();
+    sharedMemoryUnlock(shmData);
     shmData.detach();
-    shmInfo.unlock();
+    sharedMemoryUnlock(shmInfo);
     shmInfo.detach();
     readWritePos = 0;
     shmDataSize = 0;
@@ -151,44 +172,44 @@ bool KMemFile::open(OpenMode mode)
     }
 
     QSharedMemory lock(QDir(d->filename).canonicalPath());
-    lock.lock();
+    sharedMemoryLock(lock);
 
     Private::sharedInfoData *infoPtr;
     d->shmInfo.setKey(d->getShmKey());
     // see if it's already in memory
     if (!d->shmInfo.attach(QSharedMemory::ReadWrite)) {
         if (!d->shmInfo.create(sizeof(Private::sharedInfoData))) {
-            lock.unlock();
+            sharedMemoryUnlock(lock);
             setErrorString(QCoreApplication::translate("", "Cannot create memory segment for file %1").arg(d->filename));
             return false;
         }
-        d->shmInfo.lock();
+        sharedMemoryLock(d->shmInfo);
         // no -> create it
         infoPtr = static_cast<Private::sharedInfoData *>(d->shmInfo.data());
         memset(infoPtr, 0, sizeof(Private::sharedInfoData));
         infoPtr->shmCounter = 1;
         if (!d->loadContentsFromFile()) {
-            d->shmInfo.unlock();
+            sharedMemoryUnlock(d->shmInfo);
             d->shmInfo.detach();
-            lock.unlock();
+            sharedMemoryUnlock(lock);
             return false;
         }
     } else {
-        d->shmInfo.lock();
+        sharedMemoryLock(d->shmInfo);
         infoPtr = static_cast<Private::sharedInfoData *>(d->shmInfo.data());
         d->shmData.setKey(d->getShmKey(infoPtr->shmCounter));
         if (!d->shmData.attach(QSharedMemory::ReadOnly)) {
             if (!d->loadContentsFromFile()) {
-                d->shmInfo.unlock();
+                sharedMemoryUnlock(d->shmInfo);
                 d->shmInfo.detach();
-                lock.unlock();
+                sharedMemoryUnlock(lock);
                 return false;
             }
         }
     }
     d->shmDataSize = infoPtr->shmDataSize;
-    d->shmInfo.unlock();
-    lock.unlock();
+    sharedMemoryUnlock(d->shmInfo);
+    sharedMemoryUnlock(lock);
 
     setOpenMode(mode);
     return true;
@@ -232,17 +253,17 @@ qint64 KMemFile::writeData(const char *, qint64)
 void KMemFile::fileContentsChanged(const QString &filename)
 {
     QSharedMemory lock(QDir(filename).canonicalPath());
-    lock.lock();
+    sharedMemoryLock(lock);
 
     QSharedMemory shmData(Private::getShmKey(filename));
     if (!shmData.attach()) {
         return;
     }
-    shmData.lock();
+    sharedMemoryLock(shmData);
     Private::sharedInfoData *infoPtr = static_cast<Private::sharedInfoData *>(shmData.data());
     infoPtr->shmCounter++;
     infoPtr->shmDataSize = 0;
-    shmData.unlock();
+    sharedMemoryUnlock(shmData);
 }
 
 #endif // QT_NO_SHAREDMEMORY

@@ -36,6 +36,7 @@ rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
 cmake "${COOKBOOK_SOURCE}" \
+    -GNinja \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -46,12 +47,33 @@ cmake "${COOKBOOK_SOURCE}" \
     -DWITH_X11=OFF \
     -Wno-dev
 
+mkdir -p "${COOKBOOK_BUILD}/src"
+if [ -e "${HOST_BUILD}/bin/qdbuscpp2xml" ]; then
+    ln -sf "${HOST_BUILD}/bin/qdbuscpp2xml" "${COOKBOOK_BUILD}/src/Qt6::qdbuscpp2xml"
+fi
+if [ -e "${HOST_BUILD}/bin/qdbusxml2cpp" ]; then
+    ln -sf "${HOST_BUILD}/bin/qdbusxml2cpp" "${COOKBOOK_BUILD}/src/Qt6::qdbusxml2cpp"
+fi
+export PATH="${COOKBOOK_BUILD}/src:${HOST_BUILD}/bin:${PATH}"
+
 if [ -f "${COOKBOOK_BUILD}/src/kglobalaccel_component_interface.cpp" ]; then
     sed -i 's/kglobalaccel_component_interface.moc/moc_kglobalaccel_component_interface.cpp/' "${COOKBOOK_BUILD}/src/kglobalaccel_component_interface.cpp"
 fi
 if [ -f "${COOKBOOK_BUILD}/src/kglobalaccel_interface.cpp" ]; then
     sed -i 's/kglobalaccel_interface.moc/moc_kglobalaccel_interface.cpp/' "${COOKBOOK_BUILD}/src/kglobalaccel_interface.cpp"
 fi
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS} || true
+
+BUILD_DIR="${COOKBOOK_BUILD}"
+for src in "${BUILD_DIR}"/src/moc_*.cpp; do
+    [ -f "$src" ] || continue
+    base=$(basename "$src" .cpp)
+    mocname="${base#moc_}.moc"
+    if [ ! -e "${BUILD_DIR}/src/$mocname" ]; then
+        ln -sf "$base.cpp" "${BUILD_DIR}/src/$mocname"
+    fi
+done
 
 cmake --build . -j${COOKBOOK_MAKE_JOBS}
 cmake --install . --prefix "${COOKBOOK_STAGE}/usr"

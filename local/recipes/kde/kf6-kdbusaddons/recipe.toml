@@ -44,6 +44,7 @@ rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
 cmake "${COOKBOOK_SOURCE}" \
+    -GNinja \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -53,6 +54,15 @@ cmake "${COOKBOOK_SOURCE}" \
     -DBUILD_QCH=OFF \
     -DCMAKE_DISABLE_FIND_PACKAGE_X11=ON \
     -Wno-dev
+
+mkdir -p "${COOKBOOK_BUILD}/src"
+if [ -e "${HOST_BUILD}/bin/qdbuscpp2xml" ]; then
+    ln -sf "${HOST_BUILD}/bin/qdbuscpp2xml" "${COOKBOOK_BUILD}/src/Qt6::qdbuscpp2xml"
+fi
+if [ -e "${HOST_BUILD}/bin/qdbusxml2cpp" ]; then
+    ln -sf "${HOST_BUILD}/bin/qdbusxml2cpp" "${COOKBOOK_BUILD}/src/Qt6::qdbusxml2cpp"
+fi
+export PATH="${COOKBOOK_BUILD}/src:${HOST_BUILD}/bin:${PATH}"
 
 cmake --build . -j${COOKBOOK_MAKE_JOBS} || true
 
