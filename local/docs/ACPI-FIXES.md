@@ -9,8 +9,9 @@ Status of ACPI fixes for AMD bare metal boot. Cross-referenced with
 This file is the **historical P0 bring-up ledger**. The forward-looking ownership, robustness, and
 validation plan now lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 
-P0 ACPI boot-baseline work is **materially complete**. Kernel patch is 574 lines, base/acpid patch
-is 558 lines.
+P0 ACPI boot-baseline work is **materially complete for the historical boot goal**. It should not
+be read as release-grade ACPI completeness; ownership cleanup, sleep-state support, and bounded
+bare-metal validation still remain open. Kernel patch is 574 lines, base/acpid patch is 558 lines.
 
 ## Crash Reports
 
@@ -46,7 +47,7 @@ access.
 | RSDT/XSDT | `acpi/rsdt.rs`, `acpi/xsdt.rs` | N/A | Root table pointer iteration + SDT checksum validation |
 | MADT (APIC) | `acpi/madt/` | N/A | xAPIC + x2APIC (type 0x9) + NMI (0x4, 0xA) + address override (0x5) |
 | HPET | `acpi/hpet.rs` | N/A | Assumes single HPET |
-| DMAR (Intel VT-d) | N/A | `acpi/dmar/` (present, not wired) | DMAR table parsing present in `dmar/mod.rs` but not initialized at acpid startup; effectively owned by `iommu` daemon. Iterator bug fixed, re-enabled, safe on AMD (early return) |
+| DMAR (Intel VT-d) | N/A | `acpi/dmar/` (present, not wired) | DMAR parsing code remains in `dmar/mod.rs` but is not initialized at `acpid` startup. Ownership is still transitional/orphaned from `acpid`, not cleanly transferred to a real Intel runtime owner. Iterator bug fixed, re-enabled, safe on AMD (early return) |
 | FADT | N/A | `acpi.rs` | Full: PM1a/b CNT, reset register, `\_S5` sleep types, GenericAddress I/O |
 | Power Methods | N/A | `acpi.rs` | `\_PS0`/`\_PS3`/`\_PPC` AML evaluation for device power control |
 | SPCR | `acpi/spcr.rs` | N/A | ARM64 serial console |
@@ -104,7 +105,7 @@ platforms, not just AMD.
 | `acpi.rs` | 643 | Handle SLP_TYPb for sleep states | Upstream | Mainline power management | Open (known gap) |
 | `aml_physmem.rs` | 418,423,428 | Mutex create/acquire/release | Upstream | Mainline AML interpreter | **Partially addressed** — real tracked state implemented, not placeholder |
 | `ec.rs` | 193+ (8 occurrences) | Proper error types | Upstream | Mainline EC handler | **Partially addressed** — widened accesses implemented via byte transactions |
-| `dmar/mod.rs` | 7 | Move DMAR to separate driver | Upstream | Mainline driver refactor | **Partially addressed** — DMAR module present but not wired into startup; effectively deferred to `iommu` daemon |
+| `dmar/mod.rs` | 7 | Move DMAR to separate driver | Upstream | Mainline driver refactor | **Partially addressed** — DMAR module present but not wired into startup; ownership remains transitional/orphaned rather than cleanly moved |
 | `main.rs` | — | Startup panic/expect handling | Local | Boot-path hardening | **Addressed** — typed `StartupError` enum with explicit error messages and clean exit paths |
 
 ## P0 Fixes Applied
@@ -137,7 +138,7 @@ platforms, not just AMD.
 |---|-----|-------------|
 | 1 | DMAR iterator fix | `type_bytes` renamed to `len_bytes` bug fix + `len < 4` guard |
 | 2 | DMAR init re-enabled | Safe on AMD (no DMAR table = early return, no crash) |
-| 3 | DMAR not wired into acpid startup | DMAR module present in `dmar/mod.rs` but not imported or called from `main.rs`; effectively deferred to `iommu` daemon ownership |
+| 3 | DMAR not wired into acpid startup | DMAR module present in `dmar/mod.rs` but not imported or called from `main.rs`; this removes active startup ownership from `acpid`, but does not yet establish a clean Intel runtime owner |
 | 4 | FADT shutdown | `acpi_shutdown()` using PM1a/PM1b CNT_BLK writes with `\_S5` sleep types |
 | 5 | FADT reboot | `acpi_reboot()` using ACPI reset register via GenericAddress |
 | 6 | Keyboard controller fallback | `Pio::<u8>::new(0x64).write(0xFE)` when reset_reg unavailable |

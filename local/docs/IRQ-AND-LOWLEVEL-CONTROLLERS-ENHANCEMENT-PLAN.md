@@ -74,10 +74,20 @@ Red Bear OS already has a meaningful low-level controller and interrupt foundati
   MSI-X table mapping, and IRQ affinity control.
 - `linux-kpi` exposes Linux-style IRQ, PCI, memory, and synchronization APIs on top of
   `redox-driver-sys`.
+- `redox-driver-sys` now has direct host-runnable unit coverage for pure PCI/IRQ substrate rules,
+  including PCI scheme-entry parsing bounds, I/O BAR port conversion safety, and MSI-X BAR window
+  helper validation. This should be treated as **source + host-test evidence**, not as runtime
+  controller proof.
 - `redox-drm` already contains a shared interrupt abstraction with MSI-X-first and legacy-IRQ
   fallback paths for GPU drivers.
 - The AMD-Vi / Intel VT-d reference material and the in-tree `iommu` daemon establish a serious
   implementation direction for IOMMU and interrupt-remapping work.
+- the repo now has a bounded timer proof path via `redbear-phase-timer-check` and
+  `local/scripts/test-timer-qemu.sh --check`, which verifies the monotonic time scheme is present
+  and advances across two reads inside a guest runtime
+- the bounded low-level controller proof hooks can now be run together through
+  `local/scripts/test-lowlevel-controllers-qemu.sh`, which sequences xHCI, IOMMU, PS/2, and timer
+  runtime checks on the desktop validation image
 
 ### What is still weak
 
@@ -161,7 +171,7 @@ especially under real runtime scenarios.
 
 ### ACPI / APIC / x2APIC
 
-**State**: materially complete for current platform bring-up goals.
+**State**: materially complete for the historical boot-baseline bring-up goals, but not release-grade complete.
 
 **Important source note**: the checked-in MADT parser in
 `recipes/core/kernel/source/src/acpi/madt/mod.rs` visibly handles `LocalApic`, `IoApic`,
@@ -179,6 +189,7 @@ Open enhancement items:
 
 - Better controller/runtime characterization on diverse hardware.
 - Clearer documentation for what is kernel-complete versus only tested on limited platforms.
+- Keep sleep-state support beyond `\_S5`, DMAR ownership cleanup, and bounded validation visible as open ACPI work rather than implying subsystem closure.
 
 ### IOAPIC / interrupt source override routing
 
@@ -268,6 +279,9 @@ Current implementation improvement:
 - a guest-driven self-test path now exists (`/usr/bin/iommu --self-test-init` via
   `redbear-phase-iommu-check` / `test-iommu-qemu.sh`) and now proves first-use unit initialization
   and event-drain completion in QEMU
+- the self-test output now includes structured discovery diagnostics (`discovery_source`,
+  `kernel_acpi_status`, `ivrs_path`) so zero-unit failures can be distinguished from kernel-ACPI
+  fallback and missing-IVRS cases without changing the IOMMU MMIO path itself
 
 ### Legacy IRQ ownership and dispatch map
 
@@ -311,6 +325,9 @@ Open enhancement items:
 
 - keep validation language explicit about the PS/2 path versus the later generic input stack
 - add platform notes for systems that still rely on PS/2 keyboard/mouse delivery
+- the repo now has a bounded PS/2 runtime-proof path via `redbear-phase-ps2-check` and
+  `local/scripts/test-ps2-qemu.sh --check`, which proves serio node presence and a successful
+  handoff into the existing Phase 3 input-path checker inside a guest
 
 ### USB xHCI controller interrupt path
 
@@ -323,8 +340,8 @@ Concrete checked-in owner:
 Current behavior:
 
 - xHCI has MSI/MSI-X and legacy INTx detection logic in source
-- the hardwired polling override in `xhcid` has been removed, and the driver now uses the existing
-  MSI-X / MSI / INTx selection logic again
+- the checked-in `xhcid` source now calls the existing `get_int_method` path again instead of
+  hardwiring polling, and it logs whether it selected MSI/MSI-X, legacy INTx, or polling
 - `local/scripts/test-xhci-irq-qemu.sh --check` now provides a repo-visible runtime proof path by
   booting a Red Bear image in QEMU and checking the xHCI interrupt-mode log output
 - `redox-driver-sys` now logs allocated MSI-X vectors so interrupt selection is more observable in
@@ -359,7 +376,7 @@ Open enhancement items:
   above.
 - The repository already has serious implementation artifacts, not just speculative plans.
 - The low-level controller work is documented more deeply than many higher-level desktop areas.
-- ACPI and early-platform work is significantly more mature than the rest of the low-level stack.
+- ACPI and early-platform work are significantly more mature than the rest of the low-level stack, but that maturity is still best read as boot-baseline progress with bounded validation rather than subsystem-complete closure.
 
 ### Weak points
 
@@ -537,7 +554,7 @@ runtime-evidence surface:
 - `local/scripts/test-xhci-irq-qemu.sh --check` — xHCI interrupt-mode proof from QEMU boot logs
 - `local/scripts/test-msix-qemu.sh` — live MSI-X proof via `virtio-net`
 - `local/scripts/test-iommu-qemu.sh --check` — AMD IOMMU device visibility plus guest boot reachability
-- `local/scripts/test-usb-storage-qemu.sh` — USB mass-storage autospawn probe
+- `local/scripts/test-usb-storage-qemu.sh` — USB mass-storage autospawn plus bounded sector-0 readback proof
 
 ## Bottom Line
 

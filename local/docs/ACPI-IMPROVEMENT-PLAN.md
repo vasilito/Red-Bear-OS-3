@@ -1,383 +1,330 @@
 # Red Bear OS ACPI Improvement Plan
 
+## Truth Statement
+
+Red Bear ACPI is **boot-baseline complete for the historical P0 bring-up goal**, but it is **not
+release-grade complete**.
+
+What is real today:
+
+- kernel early discovery and MADT/xAPIC/x2APIC bring-up are in place,
+- `acpid` owns FADT shutdown/reboot, AML execution, DMI exposure, and ACPI power exposure,
+- IVRS/AMD-Vi ownership moved out of the broken `acpid` path and into `iommu`,
+- `kstop` shutdown eventing exists and is integrated with `redbear-sessiond`.
+
+What is still open:
+
+- sleep-state support beyond `\_S5`,
+- AML portability and runtime robustness on real firmware,
+- clean ownership boundaries across kernel / `acpid` / IOMMU,
+- bounded real-hardware validation on AMD, Intel, and at least one EC-backed platform.
+
+This document is therefore a **ULW execution plan** for turning the current ACPI stack from
+historical bring-up success into a subsystem that is honest, maintainable, and release-grade.
+
 ## Purpose
 
-This document turns the current ACPI assessment into a concrete execution plan.
+This plan does **not** replace `local/docs/ACPI-FIXES.md`.
 
-It does **not** replace `local/docs/ACPI-FIXES.md`. That file remains the historical record for the
-P0 bring-up work and the current table-by-table status snapshot. This document is the forward-looking
-plan for improving **completeness**, **robustness**, **ownership clarity**, **consumer integration**,
-and **validation quality**.
+- `local/docs/ACPI-FIXES.md` remains the historical ledger for P0 ACPI bring-up and the current
+  table-by-table implementation snapshot.
+- This file is the forward execution plan for closing the remaining ACPI gaps in correctness,
+  ownership clarity, consumer integration, and validation trust.
 
-The goal is not to treat ACPI as a generic checklist of table parsers. The goal is to make the Red
-Bear ACPI stack:
+The goal is not to maximize the number of parsed ACPI tables. The goal is to make the Red Bear ACPI
+stack:
 
-- correct enough to survive bad firmware,
-- clear enough that ownership boundaries stay maintainable,
-- observable enough that failures are diagnosable,
-- and validated enough that "complete" means more than "boots on one machine".
+- correct under bad firmware,
+- explicit about who owns what,
+- observable when it fails,
+- and validated enough that status claims are evidence-backed rather than inferred.
 
 ## Scope
 
-This plan covers the Red Bear ACPI stack and its direct dependency chain:
+This plan covers the Red Bear ACPI stack and its direct consumers:
 
-- kernel ACPI discovery and early table handling,
-- `acpid` as the main ACPI/AML/FADT/DMI/power daemon,
-- `iommu` as the IVRS/AMD-Vi runtime owner,
-- `pcid` / `/config` as the MCFG replacement path,
+- kernel ACPI discovery and early platform setup,
+- `acpid` as the main ACPI / AML / FADT / DMI / power daemon,
+- `iommu` as the IVRS / AMD-Vi runtime owner,
+- `pcid` and `/config` as the PCI config-space path replacing broken MCFG-in-`acpid` stubs,
 - DMI-backed quirks flowing through `acpid` and `redox-driver-sys`,
-- ACPI-consuming services such as `redbear-sessiond` and `redbear-info`.
+- ACPI consumers such as `redbear-sessiond`, `redbear-info`, and downstream services.
 
-Primary focus is the current x86_64 path, because that is the active Red Bear hardware target and the
-area where the current implementation and validation debt is concentrated. ARM64 ACPI support remains
-in scope only where kernel ownership decisions or generic parser quality would affect it.
-
-## Evidence Model
-
-This plan uses five evidence buckets and does **not** treat them as equivalent:
-
-- **source-visible** — behavior is visible in the current checked-in source tree
-- **patch-carried** — behavior exists through `local/patches/*` rather than plain upstream source
-- **build-visible** — code compiles and stages successfully in the current build
-- **runtime-validated** — behavior has been exercised successfully in real boot/runtime paths
-- **negative-result-documented** — failure modes and platform gaps are recorded explicitly
-
-This matters because the current ACPI stack has already crossed the bring-up threshold, but still has
-meaningful gaps between **implemented**, **robust**, and **trusted**.
-
-## Ownership Model
-
-The long-term ownership split should be:
-
-- **Kernel ACPI** — minimum early discovery and unavoidable early platform setup
-- **`acpid`** — ACPI table serving, AML execution, FADT power/reboot logic, DMI exposure,
-  power-state exposure, ACPI table quirk filtering
-- **`iommu` daemon** — IVRS runtime parsing and AMD-Vi controller ownership
-- **future Intel IOMMU owner** — DMAR runtime handling, not `acpid`
-- **`pcid`** — PCI config space access replacing broken MCFG-in-acpid stubs
-- **consumers** — query ACPI-exposed services; do not parse ACPI firmware directly unless they are
-  the designated owner
-
-This ownership split is **not fully enforced today**. The plan below is designed to move the current
-tree from transitional ownership to explicit ownership without destabilizing the working bring-up
-path.
-
-## Current State Summary
-
-### What is strong today
-
-- Kernel RSDP/RSDT/XSDT/MADT handling exists and is sufficient for current boot bring-up.
-- `acpid` owns FADT parsing, AML integration, DMI exposure, and ACPI-backed power state exposure.
-- IVRS was correctly removed from the broken `acpid` stub path and moved to the `iommu` daemon.
-- MCFG ownership was correctly removed from `acpid` and replaced with the `pcid /config` path.
-- DMI-backed quirks are integrated through `/scheme/acpi/dmi` and `redox-driver-sys`.
-- `acpid` startup uses typed `StartupError` with explicit error messages and clean exit paths (Wave 1
-  boot-path hardening partially complete).
-- AML mutex state has real tracked implementation with handle-based acquire/release semantics in
-  `aml_physmem.rs` (Wave 2 AML mutex work partially complete).
-- EC access width is handled via `read_bytes`/`write_bytes` byte-transaction sequences for u16/u32/u64
-  accesses (Wave 2 EC width work partially complete).
-- DMAR table parsing module exists in `acpid` but is not wired into the startup path; DMAR ownership
-  is effectively deferred to the `iommu` daemon (Wave 3 DMAR separation partially complete).
-- Shutdown eventing uses `/scheme/kernel.acpi/kstop` as the kernel-to-userspace shutdown signal;
-  `redbear-sessiond` listens on this path for `PrepareForShutdown` D-Bus signals.
-- Kernel registers the `kstop` scheme at boot and ACPI subsystem shutdown uses PM1a/PM1b CNT writes
-  with `\_S5` sleep types.
-
-### What is still weak today
-
-- Sleep state transitions (`\_Sx` methods beyond `\_S5`) and sleep eventing remain unsupported; there is
-  no `/scheme/acpi/sleep` or event-driven sleep contract.
-- AML opregion error propagation still has some silent failure paths; not all correctness-critical
-  reads return error to caller.
-- `AmlSymbols` initialization order is still tied to PCI FD registration timing; AML initialization
-  is not fully deterministic.
-- `SLP_TYPb` handling remains unimplemented for sleep states beyond `\_S5`.
-- DMAR table parsing module is present but unused; the module itself has not been removed, creating
-  latent confusion about ownership.
-- Docs still risk equating "implemented" with "validated" without explicit evidence qualification.
-
-### Honest status statement
-
-Red Bear ACPI is **materially complete for the historical P0 boot goal**, but it is **not yet complete
-for robustness, ownership cleanliness, sleep state support, or broad platform confidence**. Sleep
-state eventing is a known gap. The shutdown eventing contract via `kstop` is implemented but only
-validated in QEMU; bare-metal validation is still outstanding.
+Primary focus is the current `x86_64` path. ARM64 remains in scope only where parser quality or
+kernel-ownership decisions are shared.
 
 ## Canonical Related Documents
 
 Read these alongside this plan:
 
-- `local/docs/ACPI-FIXES.md` — current status ledger and historical P0 fixes
-- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — controller-level validation and
-  quality context
-- `local/docs/IOMMU-SPEC-REFERENCE.md` — IVRS/DMAR technical reference
-- `local/docs/QUIRKS-SYSTEM.md` — DMI-backed quirks and ACPI table blacklist behavior
-- `local/docs/AMD-FIRST-INTEGRATION.md` — historical AMD-first framing and hardware context
-- `local/docs/BAREMETAL-LOG.md` — real-machine failure notes and negative results
+- `local/docs/ACPI-FIXES.md`
+- `local/docs/BAREMETAL-LOG.md`
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
+- `local/docs/IOMMU-SPEC-REFERENCE.md`
+- `local/docs/QUIRKS-SYSTEM.md`
+- `docs/02-GAP-ANALYSIS.md`
 
-## Work Classification
+## Evidence Model
 
-Every task in this plan is tagged by its main purpose:
+This plan uses five evidence buckets and does **not** treat them as equivalent:
 
-- **Completeness** — functionality exists but is still missing or partial
-- **Robustness** — behavior exists but is too fragile under bad firmware or runtime stress
-- **Quality** — ownership, observability, maintainability, or docs are below target
+- **source-visible** — behavior is visible in the checked-in source tree
+- **patch-carried** — behavior exists through `local/patches/*`
+- **build-visible** — code compiles and stages in the current build
+- **runtime-validated** — behavior has been exercised successfully in boot or runtime
+- **negative-result-documented** — failures and platform gaps are explicitly recorded
+
+This distinction matters because the current ACPI stack has already crossed the bring-up threshold,
+but still has meaningful distance between **implemented**, **robust**, and **trusted**.
+
+## Status Vocabulary
+
+All ACPI status claims in Red Bear docs should use one of these meanings:
+
+- **implemented** — present in code today
+- **validated in QEMU** — exercised in QEMU / OVMF only
+- **validated on bounded real hardware** — proven on named tested hardware only
+- **transitional** — exists, but ownership or architecture is still not clean
+- **known gap** — absent, incomplete, or intentionally deferred and documented
+
+Do **not** use a bare “complete” claim without also saying whether it means boot-baseline,
+bounded-hardware, or release-grade completeness.
+
+## Current State Summary
+
+### Strong today
+
+- Kernel RSDP / RSDT / XSDT / MADT handling is sufficient for current boot bring-up.
+- `acpid` owns FADT parsing, AML integration, DMI exposure, and ACPI-backed power-state exposure.
+- `acpid` startup uses typed `StartupError` and clean exits for several boot-critical failure paths.
+- AML mutex state is real-tracked in `aml_physmem.rs`, not placeholder-only.
+- EC width access is implemented via byte-transaction sequences for widened reads and writes.
+- IVRS ownership was removed from the broken `acpid` stub path and moved into the `iommu` daemon.
+- MCFG handling was removed from `acpid` and replaced with the `pcid /config` path.
+- Shutdown eventing via `/scheme/kernel.acpi/kstop` is implemented and consumed by
+  `redbear-sessiond`.
+
+### Weak today
+
+- Sleep-state transitions beyond `\_S5` are unsupported.
+- Sleep eventing is unsupported.
+- `SLP_TYPb` remains incomplete for broader sleep-state handling.
+- AML init order is still tied to PCI FD registration timing.
+- Some physmem / opregion failure paths are still not explicit enough.
+- DMAR remains orphaned in `acpid` source: present, not wired, not fully transferred.
+- Repo status language can still blur “implemented” vs “validated”.
+- Bare-metal validation is too thin to justify release-grade claims.
+
+## Ownership Model
+
+The long-term ownership split should be:
+
+| Component | Intended owner | Current status |
+|---|---|---|
+| RSDP / RSDT / XSDT early discovery | Kernel | implemented |
+| MADT / HPET / early unavoidable platform setup | Kernel | implemented, broader scope still transitional |
+| FADT parsing, `\_S5`, PM register writes, reboot | `acpid` | implemented |
+| AML execution and opregion handling | `acpid` | implemented, robustness still partial |
+| DMI exposure and ACPI power surfaces | `acpid` | implemented |
+| IVRS / AMD-Vi runtime handling | `iommu` | implemented |
+| DMAR / Intel VT-d runtime handling | future Intel IOMMU owner | transitional / not fully assigned |
+| PCI config-space access | `pcid` | implemented |
+| ACPI consumers | downstream services | should consume ACPI-owned surfaces, not firmware directly |
+
+Important ownership truth:
+
+- **DMAR is not cleanly transferred today.**
+- The `acpi/dmar/mod.rs` module still exists inside `acpid` source, but is not wired into startup.
+- `iommu` is the real IVRS runtime owner today.
+- Do **not** describe Intel DMAR ownership as fully complete until the orphaned `acpid` carrier is
+  removed or a real Intel runtime owner is implemented and validated.
+
+## Degraded-Mode Contract
+
+The ACPI stack must distinguish between **fatal**, **degradable**, and **out-of-scope** failures.
+
+| Condition | Expected behavior today | Classification |
+|---|---|---|
+| ACPI absent / empty root table | `acpid` exits cleanly without ACPI services | degradable |
+| Bad SDT checksum | warn, continue best-effort where supported | degradable |
+| Bad table length / malformed table | behavior varies too much today; must be normalized | open contract |
+| AML init failure | `acpid` exits, ACPI scheme unavailable | currently fatal |
+| EC timeout | AML error path should surface failure, not fabricate success | degradable |
+| Missing `\_S5` | shutdown path cannot use PM registers | degradable if fallback exists |
+| Sleep-state transition request | unsupported today | known gap |
+| Missing `kstop` path | no kernel-orchestrated shutdown event contract | fatal for that integration path |
+| Missing DMAR on Intel | no Intel VT-d runtime | degradable for non-IOMMU boot |
+| Missing IVRS on AMD | no AMD-Vi runtime | degradable for non-IOMMU boot |
+
+Wave 1 must convert the still-fuzzy cases into explicit, table-specific policy.
+
+## ULW Execution Rules
+
+These rules govern all work from this plan:
+
+1. **No hidden status inflation.** Status words must match evidence.
+2. **No ownership moves without a handoff contract.** “Not wired” is not the same as “cleanly moved.”
+3. **No validation laundering.** QEMU success is not bare-metal success.
+4. **No Wave 5 shortcuts.** Validation cannot substitute for unfinished architecture.
+5. **No cross-wave dependency drift.** Later waves must not silently depend on work that was never
+   formalized in earlier waves.
 
 ## Wave 0 — Contracts, truthfulness, and degraded-mode policy
 
 ### Goal
 
-Stop treating ACPI as a loose cluster of working code and instead define:
+Establish one canonical answer to:
 
 1. who owns what,
-2. which failures are fatal versus degradable,
-3. and what status words in the docs actually mean.
+2. what counts as degraded but acceptable,
+3. and what ACPI status words mean.
 
 ### Why this wave is first
 
-Without an explicit contract, later hardening work turns into hidden rewrites and docs drift.
+Without a contract, all later hardening work turns into undocumented rewrites and docs drift.
 
-### Scope
+### Primary files
 
 - `local/docs/ACPI-FIXES.md`
-- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - this file
-- related references in `README.md`, `docs/02-GAP-ANALYSIS.md`, and `AGENTS.md` if needed
+- `docs/02-GAP-ANALYSIS.md`
+- `README.md` and related status surfaces if needed
 
-### Status: Wave 0 execution partially complete
+### Dependencies
 
-Tasks 0.1, 0.2, and 0.3 are partially executed in this documentation pass. The degraded-mode matrix
-and normalized vocabulary are new in this pass. Ownership boundaries are partially documented below;
-the canonical statement still lives in `local/docs/ACPI-FIXES.md`.
+- none
 
-### Vocabulary normalization (Task 0.2 — partially executed)
+### Deliverables
 
-Replace ambiguous wording such as "complete" with one of:
+- one normalized ACPI vocabulary,
+- one degraded-mode contract,
+- one canonical ownership statement,
+- removal of doc language that implies subsystem completeness without evidence.
 
-- **implemented** — behavior exists in the current source tree
-- **validated in QEMU** — behavior has been exercised in QEMU/OVMF but not on real hardware
-- **validated on bounded real hardware** — behavior verified on specific hardware that was tested
-- **still transitional** — behavior exists but ownership or robustness is not yet clean
-- **known gap** — functionality is absent or broken; the gap is documented
+### Verification
 
-### ACPI degraded-mode matrix (Task 0.1 — new)
+- documentation review only,
+- no contradictory ownership claims across ACPI docs,
+- no bare “complete” wording without scope.
 
-This matrix documents the expected system behavior for ACPI failure cases. All entries reflect
-implemented behavior visible in the current source tree.
+### Exit criteria
 
-| Condition | Kernel behavior | Userspace (`acpid`) behavior | Session impact |
-|-----------|----------------|----------------------------|----------------|
-| Bad RSDP checksum | Warns, continues with best-effort RSDP parse | No ACPI init if RSDT/XSDT unreadable; exits cleanly | No ACPI services |
-| Bad SDT checksum | Logs warning per table, continues | Table skipped; other tables still served | Reduced ACPI surface |
-| Truncated FADT | FADT fields fall back to zero defaults | Uses zero defaults for PM registers; `acpi_shutdown` may not fire | Shutdown may fall back to keyboard controller |
-| Truncated DMAR | N/A (DMAR not used by kernel) | Logs error, continues without DMAR; `iommu` daemon not started | No Intel IOMMU via DMAR |
-| Truncated IVRS | N/A (IVRS not used by kernel) | No effect on `acpid` (IVRS owned by `iommu` daemon) | No AMD-Vi via IVRS |
-| AML interpreter init failure | N/A | `acpid` exits with typed error; no ACPI scheme | No AML, no power methods |
-| EC timeout | N/A | Returns `AmlError::MutexAcquireTimeout` to AML interpreter | AML opregion access fails gracefully |
-| EC unsupported width access | N/A | Wider accesses split into byte transactions via `read_bytes`/`write_bytes` | Works on byte-access ECs only |
-| Missing DMAR on Intel | N/A | `acpid` logs DMAR absent; `iommu` daemon not started | No Intel VT-d |
-| Missing IVRS on AMD | N/A | No effect (IVRS owned by `iommu` daemon) | No AMD-Vi |
-| Missing `\_S5` sleep types | N/A | `acpi_shutdown` logs error and returns without writing PM registers | Shutdown may fall back to keyboard controller |
-| Missing `/scheme/kernel.acpi/kstop` | Kernel does not register kstop scheme | `acpid` exits with error on startup | No kernel-orchestrated shutdown |
-| Sleep state transition (`\_Sx`) | N/A | Not implemented; no event-driven sleep contract | Sleep states not available |
-| `redbear-sessiond` shutdown watcher | Kernel signals `kstop` on shutdown | `acpi_watcher.rs` reads kstop and emits D-Bus `PrepareForShutdown` | Login1 session manager informed |
+- one canonical ownership statement exists,
+- one degraded-mode matrix exists,
+- all top-level ACPI docs use the same vocabulary.
 
-### Ownership boundaries (Task 0.3 — partially documented)
+### Current status
 
-This section documents the current ownership split as visible in the source tree. Items marked
-**transitional** indicate the ownership boundary is not yet fully enforced by code.
-
-| Component | Owner | Status |
-|-----------|-------|--------|
-| Early table discovery (RSDP, RSDT, XSDT) | Kernel | implemented |
-| MADT, HPET, SPCR, GTDT parsing | Kernel | implemented |
-| FADT parsing, `\_S5` sleep types, PM registers | `acpid` | implemented |
-| AML interpreter initialization and execution | `acpid` | implemented |
-| EC access (byte-wide and widened via byte transactions) | `acpid` | implemented |
-| AML mutex state tracking | `acpid` (`aml_physmem.rs`) | implemented (real tracked state, not placeholder) |
-| FADT shutdown/reboot via PM1a/PM1b CNT | `acpid` | implemented |
-| Keyboard controller fallback reboot | `acpid` | implemented |
-| DMAR table parsing | `acpid` (module present) | **transitional** — module not wired; effectively owned by `iommu` daemon |
-| IVRS ownership | `iommu` daemon | implemented |
-| MCFG/PCI config space | `pcid` `/config` endpoint | implemented |
-| DMI exposure and quirks | `acpid` via `/scheme/acpi/dmi` | implemented |
-| Power methods (`\_PS0`/`\_PS3`/`\_PPC`) | `acpid` | implemented |
-| Sleep state transitions (`\_Sx` beyond `\_S5`) | none | **known gap** |
-| Sleep eventing | none | **known gap** |
-| Shutdown event via `kstop` | Kernel + `acpid` + `redbear-sessiond` | implemented (QEMU-validated; bare-metal validation outstanding) |
-| DMAR runtime ownership (Intel VT-d) | `iommu` daemon | **transitional** — not yet fully separated from `acpid` DMAR module |
-
-### Acceptance criteria
-
-- one canonical ownership statement exists — **partially met** (this table, plus `ACPI-FIXES.md`)
-- one degraded-mode matrix exists — **met** (this pass)
-- all high-level ACPI status claims use the same vocabulary — **partially met** (normalized in this pass)
-
-### Validation
-
-- doc review only,
-- no code changes required for vocabulary and matrix,
-- Wave 0 should be treated as ongoing; new evidence may require matrix updates
+- partially complete
 
 ## Wave 1 — Boot-path hardening and parser strictness
 
 ### Goal
 
-Remove catastrophic or silent failure behavior from the boot-critical ACPI path.
+Remove catastrophic or silent failure behavior from boot-critical ACPI initialization.
 
-### Main files
+### Primary files
 
 - `recipes/core/base/source/drivers/acpid/src/main.rs`
 - `recipes/core/base/source/drivers/acpid/src/acpi.rs`
 - `recipes/core/base/source/drivers/acpid/src/scheme.rs`
 - `recipes/core/kernel/source/src/acpi/mod.rs`
-- kernel ACPI submodules for RSDP/RSDT/XSDT/MADT/HPET/SPCR/GTDT
+- kernel ACPI submodules as needed
 
-### Status: Task 1.1 partially executed
+### Dependencies
 
-`acpid` main.rs now uses a typed `StartupError` enum covering:
+- Wave 0 ownership and degraded-mode vocabulary in place
 
-- `ReadRootTable` — failed to read `/scheme/kernel.acpi/rxsdt`
-- `ParseRootTable` — failed to parse `[R|X]SDT`
-- `UnexpectedRootTableSignature` — wrong root table signature
-- `MalformedRootTableEntries` — malformed entry area
-- `InitializeAcpi` — failed ACPI context init
-- port I/O rights acquisition failure
-- shutdown pipe open failure (`/scheme/kernel.acpi/kstop`)
-- event queue creation failure
-- scheme socket creation failure
-- event queue subscription failure
-- scheme registration failure
+### Deliverables
 
-Each failure path logs a human-readable error and calls `std::process::exit(1)`. No `panic!`
-remains on these paths. Empty RSDT (no ACPI) causes a clean `exit(0)` after `daemon.ready()`.
+- startup paths are typed and explicit,
+- table rejection policy is documented per table class,
+- parser observability is strong enough to reconstruct failures,
+- degraded boot succeeds for all conditions classified as degradable.
 
-Tasks 1.2 and 1.3 remain open.
+### Specific tasks
 
-### Tasks
+1. Finish replacing panic-grade startup behavior in active firmware-origin paths.
+2. Define table-specific reject / warn / degrade / fail rules.
+3. Log accepted and rejected tables with enough evidence to debug failures.
 
-#### Task 1.1 — Replace panic-grade startup failures in `acpid` — **partially done**
+### Verification
 
-Typed `StartupError` enum is implemented in `main.rs`. The following failure classes are now handled:
-
-- hard fail with typed error message and exit code 1,
-- soft fail with degraded behavior (ACPI absent → clean exit 0),
-- or early clean exit when `/scheme/kernel.acpi/rxsdt` is empty.
-
-#### Task 1.2 — Make table rejection policy explicit — **open**
-
-For kernel and `acpid` table use, define when a bad length/checksum/revision:
-
-- is logged and ignored,
-- is logged and downgraded,
-- or is fatal.
-
-This policy must be table-specific, not one global "warn and continue" convention.
-
-#### Task 1.3 — Improve parser observability — **open**
-
-Every accepted or rejected table should leave enough evidence to reconstruct why:
-
-- table signature,
-- physical address if known,
-- length/revision/checksum status,
-- consumer that requested it,
-- fallback path chosen.
-
-### Acceptance criteria
-
-- no `panic!/expect()` remains on firmware-origin or optional-service startup paths in `acpid` — **partially met** (Tasks 1.2 and 1.3 still open),
-- malformed-table decisions are deterministic and documented — **open**,
-- degraded boot still succeeds in all cases classified as degradable by Wave 0 — **open**.
-
-### Validation
-
-- negative tests for malformed checksums and table lengths,
+- malformed checksum / truncated-length tests,
 - QEMU validation with intentionally damaged tables if feasible,
-- one AMD and one Intel bounded hardware boot recheck,
-- evidence captured in `local/docs/BAREMETAL-LOG.md` or a successor log.
+- one bounded AMD hardware boot recheck,
+- one bounded Intel hardware boot recheck,
+- evidence captured in `local/docs/BAREMETAL-LOG.md` or its successor.
+
+### Exit criteria
+
+- no unjustified `panic!/expect()` remains on firmware-origin startup paths,
+- malformed-table decisions are deterministic and documented,
+- degraded boot behavior matches Wave 0 classification.
+
+### Current status
+
+- partially complete
 
 ## Wave 2 — AML, opregions, EC, and power-state correctness
 
 ### Goal
 
-Close the biggest runtime-correctness gaps in the ACPI stack.
+Close the biggest runtime-correctness gaps in the `acpid` layer.
 
-### Main files
+### Primary files
 
 - `recipes/core/base/source/drivers/acpid/src/acpi.rs`
 - `recipes/core/base/source/drivers/acpid/src/aml_physmem.rs`
 - `recipes/core/base/source/drivers/acpid/src/ec.rs`
 
-### Status: Tasks 2.1, 2.2, and 2.5 partially executed
+### Dependencies
 
-#### Task 2.1 — Remove placeholder AML mutex behavior — **partially done**
+- Wave 1 startup paths hardened enough that runtime work is not sitting on a fragile base
 
-`AmlMutexState` in `aml_physmem.rs` implements real tracked state:
+### Deliverables
 
-- `AmlMutexState::create_handle()` generates unique handles via incrementing `next_handle`
-- `AmlMutexState::states` is a `FxHashMap<Handle, bool>` tracking locked/unlocked state
-- `lock_aml_mutexes()` wraps the state map with proper `Mutex` guard and poisoned-state recovery
-- The `acquire()` method looks up the handle in the map, sets it to `true` on success, and returns
-  `AmlError::MutexAcquireTimeout` on timeout or unknown handle
+- real AML synchronization semantics,
+- explicit physmem / opregion failure behavior,
+- deterministic AML init order,
+- explicit sleep-state scope,
+- honest EC behavior bounds.
 
-This is no longer a placeholder implementation. Remaining work: timeout semantics documentation
-and concurrent acquire/release stress testing.
+### Specific tasks
 
-#### Task 2.2 — Eliminate silent zero-on-failure physical reads — **partially done**
+1. Document and stress AML mutex timeout semantics.
+2. Remove silent correctness-critical physmem failure paths.
+3. Finish `AmlSymbols` initialization contract; stop tying AML readiness to fragile PCI timing.
+4. Decide whether sleep support is in-scope now or explicitly deferred.
+5. If in-scope now, implement and validate the missing sleep-state pieces, including `SLP_TYPb`.
 
-EC reads via `read_bytes` now propagate `AmlError::MutexAcquireTimeout` on EC timeout rather than
-returning zero. Kernel-physmem reads still have some silent failure paths; this task is not fully
-closed.
-
-#### Task 2.5 — Decide and validate EC width behavior — **partially done**
-
-`ec.rs` now implements `read_u16`, `read_u32`, `read_u64`, `write_u16`, `write_u32`, and `write_u64`
-on `Ec` via byte-transaction sequences in `read_bytes`/`write_bytes`:
-
-- `ensure_access()` validates the access fits in a u8 addressable range
-- `read_bytes<const N: usize>` loops over individual byte reads with timeout per byte
-- `write_bytes()` loops over individual byte writes with timeout per byte
-
-Wider accesses are emulated through byte transactions rather than being rejected. This is implemented
-behavior, not a placeholder. Validation on real EC hardware remains outstanding.
-
-### Tasks still open
-
-#### Task 2.3 — Finish `AmlSymbols` initialization contract — **open**
-
-`AmlSymbols` initialization order is still tied to PCI FD registration timing. AML initialization
-is not fully deterministic. The upstream TODO to "use these parsed tables for the rest of acpid"
-remains.
-
-#### Task 2.4 — Fix power-state completeness gaps — **open**
-
-`SLP_TYPb` handling remains unimplemented. Sleep state transitions beyond `\_S5` are not supported.
-Sleep eventing is not implemented. These are documented as known gaps.
-
-### Acceptance criteria
-
-- AML synchronization is no longer placeholder-driven — **partially met** (2.1 done; 2.3 open),
-- physmem failures do not silently fabricate correctness-critical values — **partially met** (EC done; kernel-physmem still open),
-- AML initialization order is reproducible and documented — **open** (Task 2.3),
-- sleep-state handling is explicit for both implemented and out-of-scope states — **open** (Task 2.4),
-- EC behavior is either implemented or honestly bounded — **met** (byte transactions for wider widths)
-
-### Validation
+### Verification
 
 - targeted AML method execution tests,
-- shutdown/reboot proof on QEMU and bounded real hardware,
-- EC timeout/error-path tests where possible,
-- concurrent ACPI scheme reads while AML methods run.
+- shutdown / reboot proof in QEMU and bounded hardware,
+- EC timeout and error-path tests,
+- concurrent ACPI scheme reads while AML methods run,
+- at least one EC-backed platform check if available.
 
-## Wave 3 — Ownership cleanup: reduce kernel ACPI scope and remove DMAR from `acpid`
+### Exit criteria
+
+- AML synchronization is no longer placeholder-grade,
+- physmem failures do not silently fabricate correctness-critical values,
+- AML initialization order is reproducible and documented,
+- sleep-state handling is either implemented or explicitly bounded as a known gap,
+- EC behavior is implemented or honestly constrained.
+
+### Current status
+
+- partially complete
+
+## Wave 3 — Ownership cleanup and kernel-surface reduction
 
 ### Goal
 
-Move from transitional ownership to architecture that is easier to maintain.
+Move from transitional ownership to an architecture that can survive long-term maintenance.
 
-### Main files
+### Primary files
 
 - `recipes/core/kernel/source/src/acpi/mod.rs`
 - kernel ACPI submodules as needed
@@ -385,203 +332,239 @@ Move from transitional ownership to architecture that is easier to maintain.
 - `recipes/core/base/source/drivers/acpid/src/scheme.rs`
 - `local/recipes/system/iommu/source/src/*`
 
-### Status: Tasks 3.1 and 3.2 partially executed
+### Dependencies
 
-#### Task 3.1 — Define the minimum kernel ACPI surface — **open**
+- Wave 1 and Wave 2 are at least partially complete
 
-The kernel still carries TODOs for kernel ACPI scope reduction. No staged migration contract has
-been written yet.
+### Deliverables
 
-#### Task 3.2 — Move DMAR to the correct owner — **partially done**
+- a minimum kernel ACPI contract,
+- explicit handoff paths for table discovery and topology,
+- DMAR no longer orphaned in `acpid`,
+- ownership wording that matches the code.
 
-The `acpi/dmar/mod.rs` module remains present in `acpid` source but is not imported or called from
-`main.rs` startup. The DMAR parsing code itself is not executed at daemon startup. However, the
-module has not been removed from the source tree, creating latent confusion about ownership.
+### Specific tasks
 
-The `iommu` daemon is responsible for IVRS/DMAR runtime handling. DMAR is not initialized by
-`acpid`. The exit path from `acpid` for DMAR is therefore effectively achieved, but the cleanup
-(task: remove the unused module or move it to the `iommu` crate) is not complete.
+1. Define the minimum kernel ACPI surface that must remain in early boot.
+2. Document the userspace handoff contract for topology and table consumers.
+3. Remove or relocate the orphaned DMAR carrier in `acpid`.
+4. Do not claim Intel DMAR runtime ownership complete unless a real owner exists and is validated.
 
-#### Task 3.3 — Ensure handoff paths are explicit — **open**
+### Verification
 
-Handoff paths for table discovery and CPU/topology are not yet documented as a staged migration
-contract.
+- before / after boot regressions,
+- Intel-specific validation for any DMAR ownership move,
+- AMD regression checks showing IVRS ownership remains isolated in `iommu`.
 
-### Acceptance criteria
+### Exit criteria
 
-- the minimal kernel ACPI contract is written down — **open**,
-- DMAR has a concrete exit path from `acpid` — **partially met** (not wired; module still present),
-- ownership reductions are staged and do not break current bring-up — **open**
+- the minimum kernel ACPI contract is written down,
+- DMAR has a concrete, non-ambiguous owner or is explicitly deferred,
+- ownership reductions do not regress current bring-up.
 
-### Validation
+### Current status
 
-- before/after boot regressions,
-- Intel-specific validation for DMAR path changes,
-- AMD regression checks proving IVRS ownership remains isolated in `iommu`.
+- partially complete
 
 ## Wave 4 — Consumer integration and eventing quality
 
 ### Goal
 
-Make ACPI consumers correct and low-friction, not just functional.
+Make ACPI consumers correct, observable, and low-friction.
 
-### Main files
+### Primary files
 
 - `local/recipes/system/redbear-sessiond/source/src/acpi_watcher.rs`
 - `recipes/core/base/source/drivers/acpid/src/scheme.rs`
-- DMI/quirk consumers under `redox-driver-sys` and reporting surfaces
+- DMI / quirk consumers in `redox-driver-sys`
+- reporting surfaces such as `redbear-info`
 
-### Status: Task 4.1 partially executed; sleep eventing still a gap
+### Dependencies
 
-#### Task 4.1 — Replace polling-based ACPI state consumption — **partially done**
+- Wave 2 runtime behavior is stable enough for downstream consumers to depend on it
 
-Shutdown eventing is now event-driven via `/scheme/kernel.acpi/kstop`:
+### Deliverables
 
-- `acpid` opens `kstop` at startup and subscribes to it via `RawEventQueue`
-- When the kernel triggers shutdown, `acpid` receives an event on the `kstop` file descriptor
-- `redbear-sessiond`'s `acpi_watcher.rs` opens `kstop` and reads one byte in a blocking
-  `spawn_blocking` call, then emits D-Bus `PrepareForShutdown(true)` signal
+- event-driven core power-session behavior where feasible,
+- bounded DMI quirk authority,
+- operator-facing observability strong enough to diagnose behavior,
+- explicit treatment of unsupported sleep eventing if it remains deferred.
 
-Sleep eventing (`\_Sx` transitions) remains unsupported. There is no `/scheme/acpi/sleep` surface
-and no event-driven sleep contract. This is a known gap.
+### Specific tasks
 
-#### Task 4.2 — Bound DMI quirk authority — **open**
+1. Keep shutdown eventing on `kstop` as the canonical shutdown signal.
+2. Improve consumer-facing observability for ACPI state and failures.
+3. Define DMI quirk precedence and limits.
+4. If sleep eventing remains out-of-scope, document that explicitly and consistently.
 
-#### Task 4.3 — Improve operator-facing observability — **open**
+### Verification
 
-### Acceptance criteria
-
-- no periodic polling remains for core ACPI power/session transitions if eventing is feasible — **partially met** (shutdown done; sleep still polling/absent),
-- quirk precedence is documented — **open**,
-- consumer-visible behavior is diagnosable from logs and status outputs — **open**
-
-### Validation
-
-- repeated shutdown/sleep edge tests,
+- repeated shutdown edge tests,
+- sleep-edge tests if sleep work is in scope,
 - DMI quirk application checks on known systems,
 - race checks with multiple simultaneous consumers of `/scheme/acpi/*`.
 
-## Wave 5 — Validation closure and release gate
+### Exit criteria
+
+- no unnecessary polling remains for core ACPI transitions where eventing is feasible,
+- quirk precedence is documented,
+- consumer-visible behavior is diagnosable from logs and status outputs.
+
+### Current status
+
+- partially complete
+
+## Wave 5 — Validation closure and release gates
 
 ### Goal
 
-Convert the current implementation from bring-up evidence into release-grade trust.
+Turn the current ACPI stack from bring-up evidence into release-grade trust.
 
-### Validation matrix
+### Dependencies
 
-At minimum, require:
+- Waves 1 through 4 have produced stable behavior worth validating
 
-- QEMU/OVMF boot with ACPI active,
-- modern AMD hardware,
-- modern Intel hardware,
+### Required validation matrix
+
+At minimum:
+
+- QEMU / OVMF boot with ACPI active,
+- one modern AMD machine,
+- one modern Intel machine,
 - one platform that exercises EC-backed AML behavior,
 - malformed-table or degraded-mode evidence where feasible.
 
-### Tasks
+### Deliverables
 
-#### Task 5.1 — Publish a platform matrix
+- a bounded platform matrix,
+- negative-result capture,
+- explicit release gates for both boot-baseline and full ACPI claims,
+- docs that distinguish implemented from validated.
 
-For each validated platform, record:
+### Specific tasks
 
-- firmware mode,
-- key ACPI tables detected,
-- APIC mode,
-- whether shutdown/reboot worked,
-- whether DMI and power exposure worked,
-- whether any AML/EC failure was observed.
+1. Publish the platform matrix in `local/docs/BAREMETAL-LOG.md` or its successor.
+2. Record for each platform: firmware mode, key ACPI tables, APIC mode, shutdown / reboot,
+   DMI / power exposure, AML / EC failures, and notable degraded behavior.
+3. Preserve negative results such as unsupported AML opcodes or platform-specific regressions.
+4. Require evidence before any stronger ACPI completeness claim is made.
 
-#### Task 5.2 — Capture negative results
+### Verification
 
-Do not hide unsupported AML opcodes, partial EC behavior, or platform-specific regressions behind a
-generic "works on tested hardware" label.
+- repeated QEMU proof,
+- bounded repeated bare-metal proof on AMD and Intel,
+- one EC-heavy platform check,
+- cross-check docs so claims match recorded evidence.
 
-#### Task 5.3 — Define the ACPI release gate
+### Exit criteria
 
-Before calling ACPI complete for current Red Bear goals, require:
-
-- clean boot on the bounded matrix,
-- explicit degraded-mode behavior for known bad firmware cases,
-- documented ownership state,
-- and current docs that distinguish implemented vs validated.
-
-### Acceptance criteria
-
-- one bounded but honest validation matrix exists,
+- one bounded but honest platform matrix exists,
 - negative results are documented,
-- ACPI status claims are tied to explicit evidence rather than inference.
+- ACPI status claims are tied to explicit evidence,
+- release gates are defined and followed.
+
+### Current status
+
+- open
+
+## Release Gates
+
+### Gate A — Boot-Baseline ACPI Ready
+
+This is the strongest claim the repo can make before sleep and broader ownership cleanup are done.
+
+Require:
+
+- clean boot on bounded QEMU + AMD + Intel validation targets,
+- working MADT / APIC initialization on those targets,
+- shutdown / reboot proof where supported,
+- explicit degraded behavior for known firmware-bad cases,
+- current docs that distinguish implemented from validated.
+
+### Gate B — Full ACPI / Power-Management Ready
+
+Do **not** claim this until all of the following are true:
+
+- AML runtime behavior is stable across the bounded matrix,
+- sleep-state scope is implemented and validated or explicitly excluded from the release claim,
+- ownership boundaries are clean rather than merely transitional,
+- consumer integration is observable and race-bounded,
+- the platform matrix supports the stronger claim.
 
 ## Upstream vs Red Bear Work Split
 
-### Upstream-first work
+### Prefer upstream for
 
-These are generic ACPI correctness or architecture issues and should be solved upstream whenever
-possible, with temporary Red Bear patch carriers only if necessary:
+- generic `acpid` startup hardening,
+- AML mutex semantics,
+- `SLP_TYPb` completion,
+- EC error typing and generic width behavior,
+- reuse of parsed tables inside `acpid`,
+- DMAR leaving `acpid`,
+- kernel ACPI scope reduction TODOs,
+- generic parser quality in kernel ACPI modules.
 
-- `acpid` startup hardening
-- AML mutex semantics in `aml_physmem.rs`
-- `SLP_TYPb` completion
-- EC error typing and possibly EC access-width handling
-- using parsed tables for the rest of `acpid`
-- DMAR leaving `acpid`
-- kernel ACPI scope reduction TODOs
-- generic parser quality for kernel ACPI modules
+### Red Bear owns
 
-### Red Bear-owned work
-
-These remain Red Bear responsibilities even if upstream code improves:
-
-- honest status/phase documentation
-- bounded validation matrix and operator runbooks
-- `redbear-sessiond` event consumption quality
-- DMI quirk governance and integration policy
-- temporary durable patch carriers in `local/patches/*`
-- coordination between `acpid`, `iommu`, `pcid`, and downstream consumers
+- honest status language,
+- bounded validation matrices and runbooks,
+- `redbear-sessiond` shutdown-consumer quality,
+- DMI quirk governance and integration policy,
+- patch carriers in `local/patches/*`,
+- coordination across `acpid`, `iommu`, `pcid`, and downstream consumers.
 
 ## Sequencing Constraints
 
-1. **Wave 0 must come first** so later changes do not drift architecturally.
-2. **Wave 1 must come before Wave 2** so runtime correctness sits on a hardened startup path.
-3. **Wave 2 should come before Wave 4** because consumer contracts should depend on correct AML and
-   power behavior.
-4. **Wave 3 should not start until Waves 1 and 2 are at least partially complete**; ownership moves
-   are dangerous if the runtime behavior is still fragile.
-5. **Wave 5 closes the work**; it must not be used as a substitute for architecture.
+1. **Wave 0 first** — architecture and wording must stop drifting.
+2. **Wave 1 before Wave 2** — runtime correctness should not sit on fragile startup behavior.
+3. **Wave 2 before Wave 4** — consumer contracts must rely on correct AML / power behavior.
+4. **Wave 3 after Waves 1 and 2 are partially stable** — ownership moves are risky on unstable
+   behavior.
+5. **Wave 5 last** — validation closes work; it does not replace architecture.
 
 ## Main Risks
 
-- stricter parser/error handling may expose machines that currently boot only by luck,
-- AML/EC changes may uncover hidden ordering assumptions with PCI registration,
-- reducing kernel ownership too early may regress early platform bring-up,
-- moving DMAR out of `acpid` may create Intel-only regressions if the replacement contract is vague,
-- DMI quirks can become a crutch if they are allowed to override runtime facts indiscriminately.
+- stricter parser behavior may expose machines currently booting only by luck,
+- AML / EC changes may uncover hidden PCI-registration ordering assumptions,
+- reducing kernel scope too early may regress early bring-up,
+- careless DMAR cleanup may create Intel-only regressions,
+- DMI quirks can become a crutch if allowed to override runtime facts indiscriminately.
+
+## Non-Goals
+
+- claiming sleep support that does not exist,
+- calling DMAR ownership “complete” while the orphaned `acpid` module still exists,
+- treating one-machine success as subsystem-level proof,
+- using Wave 5 validation language to hide unfinished ownership work.
 
 ## Deliverable Order
 
-If work from this plan is executed, the recommended order is:
+Recommended order:
 
-1. documentation and degraded-mode contract,
+1. truth contract and doc normalization,
 2. startup hardening,
-3. AML/EC correctness,
+3. AML / EC / power-state correctness,
 4. ownership cleanup,
-5. consumer/eventing quality,
-6. validation closure.
+5. consumer / eventing quality,
+6. validation closure and release gate.
 
-## Definition of Done for the Current ACPI Plan
+## Definition of Done
 
-This plan can be considered substantially complete only when:
+This plan is substantially complete only when:
 
-- ownership boundaries are explicit — **partially met** (this doc; module-level cleanup still needed)
-- boot-critical panic/silent-fallback paths are removed or justified — **partially met** (Task 1.1 done; Tasks 1.2 and 1.3 open)
-- AML and EC behavior are no longer TODO-grade — **partially met** (mutex state and EC width done; AML init order and SLP_TYPb open)
-- DMAR and IVRS ownership are cleanly separated — **partially met** (DMAR not wired; module still present in acpid)
-- ACPI consumers are event-driven or explicitly bounded — **partially met** (shutdown done via kstop; sleep not implemented)
-- sleep state transitions and eventing are implemented or explicitly documented as known gaps — **open**
-- the repo contains platform evidence that supports its status claims — **open** (QEMU validated; bare-metal evidence still needed)
+- ownership boundaries are explicit and not contradicted by the code,
+- boot-critical panic / silent-fallback paths are removed or justified,
+- AML and EC behavior are no longer TODO-grade,
+- DMAR and IVRS ownership are no longer described ambiguously,
+- consumers are event-driven or explicitly bounded where eventing is not feasible,
+- sleep-state handling is implemented or explicitly excluded from the release claim,
+- the repo contains bounded platform evidence that supports every status claim.
 
-Current truthful status for Red Bear ACPI:
+## Current Truthful Status
 
-> materially complete for historical bring-up, but still under active robustness, ownership,
-> sleep-state, and validation improvement. Shutdown eventing is implemented via kstop. Sleep state
-> transitions are a known gap. EC width support is implemented via byte transactions. AML mutex
-> state is real-tracked, not placeholder. DMAR is not initialized by acpid. Bare-metal validation
-> for the full ACPI surface is still outstanding.
+> Red Bear ACPI is materially complete for historical boot bring-up, but still under active
+> robustness, ownership, sleep-state, and validation improvement. Shutdown eventing is implemented
+> via `kstop`. Sleep-state transitions remain a known gap. EC widened access is implemented via byte
+> transactions. AML mutex state is real-tracked, not placeholder. DMAR is not initialized by
+> `acpid`, and Intel DMAR runtime ownership is not yet cleanly closed. Bare-metal validation for the
+> full ACPI surface is still outstanding.
