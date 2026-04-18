@@ -2,16 +2,16 @@
 # When pcid detects an Intel GPU (vendor 0x8086, class 0x03),
 # it launches redox-drm with the PCI device location.
 
-[[device]]
-vendor = 0x8086
+[[drivers]]
+name = "Intel GPU (VGA compatible)"
 class = 0x03
+vendor = 0x8086
 subclass = 0x00
 command = ["redox-drm"]
-args = ["$BUS", "$DEV", "$FUNC"]
 
-[[device]]
-vendor = 0x8086
+[[drivers]]
+name = "Intel GPU (3D controller)"
 class = 0x03
+vendor = 0x8086
 subclass = 0x02
 command = ["redox-drm"]
-args = ["$BUS", "$DEV", "$FUNC"]

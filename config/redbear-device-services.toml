@@ -13,6 +13,44 @@ directory = true
 mode = 0o755
 
 [[files]]
+path = "/lib/pcid.d/intel_gpu.toml"
+data = """
+# PCID configuration for Intel GPU auto-detection
+[[drivers]]
+name = "Intel GPU (VGA compatible)"
+class = 0x03
+vendor = 0x8086
+subclass = 0x00
+command = ["redox-drm"]
+
+[[drivers]]
+name = "Intel GPU (3D controller)"
+class = 0x03
+vendor = 0x8086
+subclass = 0x02
+command = ["redox-drm"]
+"""
+
+[[files]]
+path = "/lib/pcid.d/amd_gpu.toml"
+data = """
+# PCID configuration for AMD GPU auto-detection
+[[drivers]]
+name = "AMD GPU (VGA compatible)"
+class = 0x03
+vendor = 0x1002
+subclass = 0x00
+command = ["redox-drm"]
+
+[[drivers]]
+name = "AMD GPU (3D controller)"
+class = 0x03
+vendor = 0x1002
+subclass = 0x02
+command = ["redox-drm"]
+"""
+
+[[files]]
 path = "/usr/lib/init.d/05_firmware-loader.service"
 data = """
 [unit]
