@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch or validate the Phase 6 KDE runtime surface in QEMU.
+# Launch or validate the Phase 6 primary KWin Wayland runtime surface in QEMU.
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ usage() {
     cat <<'USAGE'
 Usage: test-phase6-kde-qemu.sh [--check] [extra qemu args...]
 
-Boot or validate the Red Bear OS Phase 6 KDE session surface on redbear-kde.
+Boot or validate the Red Bear OS primary KWin Wayland session surface on redbear-kde.
 USAGE
 }
 
@@ -112,7 +112,7 @@ send "password\r"
 expect "Type 'help' for available commands."
 send "redbear-phase6-kde-check\r"
 expect "Red Bear OS Phase 6 KDE Runtime Check"
-expect "orbital-kde"
+ expect "redbear-kde-session"
 expect "kwin_wayland"
 expect {
     "PHASE6_UPOWER_ENUMERATE=ok" {}

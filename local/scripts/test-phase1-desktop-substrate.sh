@@ -111,6 +111,9 @@ run_guest_checks() {
         echo "  FAIL  /scheme/drm does not exist"
         failures=$((failures + 1))
     fi
+    if command -v redbear-drm-display-check >/dev/null 2>&1; then
+        echo "  NOTE  redbear-drm-display-check available (run manually for bounded display validation)"
+    fi
     echo
 
     echo "--- health check summary ---"

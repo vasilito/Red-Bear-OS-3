@@ -9,11 +9,12 @@ Usage:
 Outputs TOML quirk entries to stdout that can be appended to files in
 /etc/quirks.d/ or local/recipes/system/redbear-quirks/source/quirks.d/.
 
-PCI mode: handler-name → flag mapping is heuristic (substring match).  Output
-requires manual review — the script may misinfer flags.  USB table extraction is
-direct and does not require review.
+PCI mode only maps explicit, high-confidence handler body effects. Unsupported
+handlers are omitted instead of guessed. USB table extraction is direct and does
+not require review.
 """
 
+from dataclasses import dataclass
 import re
 import sys
 
@@ -25,6 +26,10 @@ PCI_FLAG_MAP = {
     "PCI_DEV_FLAGS_NO_MSIX": "no_msix",
     "PCI_DEV_FLAGS_ASSIGN_BARS": "disable_bar_sizing",
     "PCI_DEV_FLAGS_BROKEN_PM": "no_pm",
+}
+
+PCI_HELPER_CALL_MAP = {
+    "pci_d3cold_disable": "no_d3cold",
 }
 
 USB_FLAG_MAP = {
@@ -56,6 +61,15 @@ PCI_FIXUP_RE = re.compile(
     r'(\w+)\s*\)'
 )
 
+PCI_FIXUP_CLASS_RE = re.compile(
+    r'DECLARE_PCI_FIXUP_CLASS_(?:FINAL|HEADER|EARLY|ENABLE|RESUME|LATE)\s*\(\s*'
+    r'(?:0x([0-9a-fA-F]+)|PCI_ANY_ID)\s*,\s*'
+    r'(?:0x([0-9a-fA-F]+)|PCI_ANY_ID)\s*,\s*'
+    r'(?:0x([0-9a-fA-F]+)|PCI_ANY_ID)\s*,\s*'
+    r'(?:0x([0-9a-fA-F]+)|PCI_ANY_ID)\s*,\s*'
+    r'(\w+)\s*\)'
+)
+
 DMI_MATCH_RE = re.compile(
     r'DMI_MATCH\s*\(\s*DMI_([A-Z_]+)\s*,\s*"([^"]+)"\s*\)'
 )
@@ -66,6 +80,18 @@ USB_QUIRK_TABLE_RE = re.compile(
     r'([^}]+)\}'
 )
 
+PCI_HANDLER_RE = re.compile(r'\b(?P<name>\w+)\s*\([^;{}]*?\)\s*\{', re.DOTALL)
+PCI_DEV_FLAGS_ASSIGNMENT_RE = re.compile(r'\b\w+\s*->\s*dev_flags\s*(?:\|=|=)\s*[^;]+;')
+
+
+@dataclass(frozen=True)
+class PciFixup:
+    vendor: int
+    device: int
+    handler: str
+    klass: int | None = None
+    class_mask: int | None = None
+
 
 def extract_pci_fixups(source):
     entries = []
@@ -73,8 +99,84 @@ def extract_pci_fixups(source):
         vendor = int(m.group(1), 16) if m.group(1) else 0xFFFF
         device = int(m.group(2), 16) if m.group(2) else 0xFFFF
         handler = m.group(3)
-        entries.append((vendor, device, handler))
+        entries.append(PciFixup(vendor=vendor, device=device, handler=handler))
+    for m in PCI_FIXUP_CLASS_RE.finditer(source):
+        vendor = int(m.group(1), 16) if m.group(1) else 0xFFFF
+        device = int(m.group(2), 16) if m.group(2) else 0xFFFF
+        klass = int(m.group(3), 16) if m.group(3) else 0xFFFF
+        class_mask = int(m.group(4), 16) if m.group(4) else 0xFFFF
+        handler = m.group(5)
+        entries.append(
+            PciFixup(
+                vendor=vendor,
+                device=device,
+                handler=handler,
+                klass=klass,
+                class_mask=class_mask,
+            )
+        )
     return entries
+
+
+def _extract_brace_block(source, brace_start):
+    depth = 0
+    for index in range(brace_start, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace_start + 1 : index]
+    return None
+
+
+def index_handler_bodies(source, handler_names):
+    bodies = {}
+    wanted = set(handler_names)
+    if not wanted:
+        return bodies
+
+    for match in PCI_HANDLER_RE.finditer(source):
+        name = match.group("name")
+        if name not in wanted or name in bodies:
+            continue
+        brace_start = match.end() - 1
+        body = _extract_brace_block(source, brace_start)
+        if body is not None:
+            bodies[name] = body
+    return bodies
+
+
+def extract_pci_flags_from_handler(body):
+    flags = []
+    seen = set()
+
+    for match in PCI_DEV_FLAGS_ASSIGNMENT_RE.finditer(body):
+        statement = match.group(0)
+        for flag_name, toml_name in PCI_FLAG_MAP.items():
+            pattern = re.escape(flag_name) + r'(?:\s|$|\||\)|;|,)'
+            if re.search(pattern, statement) and toml_name not in seen:
+                flags.append(toml_name)
+                seen.add(toml_name)
+
+    for helper_name, toml_name in PCI_HELPER_CALL_MAP.items():
+        pattern = rf'\b{re.escape(helper_name)}\s*\(\s*\w+\s*\)'
+        if re.search(pattern, body) and toml_name not in seen:
+            flags.append(toml_name)
+            seen.add(toml_name)
+
+    return flags
+
+
+def map_pci_fixups_to_flags(source):
+    fixups = extract_pci_fixups(source)
+    handler_bodies = index_handler_bodies(source, [fixup.handler for fixup in fixups])
+    mapped = []
+    for fixup in fixups:
+        flags = extract_pci_flags_from_handler(handler_bodies.get(fixup.handler, ""))
+        mapped.append((fixup, flags))
+    return mapped
 
 
 def extract_usb_quirks(source):
@@ -94,14 +196,18 @@ def extract_usb_quirks(source):
 
 def format_pci_toml(entries):
     lines = []
-    for vendor, device, flags in entries:
+    for fixup, flags in entries:
         if not flags:
             continue
         lines.append("[[pci_quirk]]")
-        if vendor != 0xFFFF:
-            lines.append(f"vendor = 0x{vendor:04X}")
-        if device != 0xFFFF:
-            lines.append(f"device = 0x{device:04X}")
+        if fixup.vendor != 0xFFFF:
+            lines.append(f"vendor = 0x{fixup.vendor:04X}")
+        if fixup.device != 0xFFFF:
+            lines.append(f"device = 0x{fixup.device:04X}")
+        if fixup.klass is not None and fixup.klass != 0xFFFF:
+            lines.append(f"class = 0x{fixup.klass:06X}")
+        if fixup.class_mask is not None and fixup.class_mask != 0xFFFF:
+            lines.append(f"class_mask = 0x{fixup.class_mask:06X}")
         lines.append(f'flags = [{", ".join(f"\"{f}\"" for f in flags)}]')
         lines.append("")
     return "\n".join(lines)
@@ -226,18 +332,10 @@ def main():
         entries = extract_usb_quirks(source)
         print(format_usb_toml(entries))
     else:
-        entries = extract_pci_fixups(source)
-        flags_map = PCI_FLAG_MAP
-        mapped = []
-        for vendor, device, handler in entries:
-            flags = []
-            for flag_name, toml_name in flags_map.items():
-                if flag_name.lower() in handler.lower():
-                    flags.append(toml_name)
-            mapped.append((vendor, device, flags))
-        print("# WARNING: PCI handler-name → flag mapping is heuristic.")
-        print("# WARNING: Output requires manual review before committing.")
-        print("# USB table extraction is direct and does not need review.")
+        mapped = map_pci_fixups_to_flags(source)
+        print("# WARNING: PCI output only includes explicit, high-confidence handler body mappings.")
+        print("# WARNING: Unsupported Linux PCI quirk handlers are intentionally omitted.")
+        print("# WARNING: Review generated PCI entries before committing.")
         print(format_pci_toml(mapped))
 
 

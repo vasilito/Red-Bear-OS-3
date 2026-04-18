@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Launch the Phase 4 Wayland path in QEMU using the repo's Wayland profile.
+# Launch the Phase 4 Wayland validation path in QEMU using the repo's Wayland profile.
 # This script validates the current bounded software-path Wayland runtime slice.
+# It is a bounded validation harness, not the production desktop path.
 # It does NOT currently prove a hardware-accelerated desktop path in QEMU.
 
 set -euo pipefail
@@ -36,8 +37,8 @@ Examples:
   ./local/scripts/test-phase4-wayland-qemu.sh --check
   ./local/scripts/test-phase4-wayland-qemu.sh -m 4G
 
-Expected runtime path:
-  orbital -> orbital-wayland -> smallvil -> wayland-session
+Expected validation path:
+  display session -> validation launcher -> compositor -> wayland-session
 
 Important:
   the current harness uses '-vga std' and today still surfaces llvmpipe in-guest.
@@ -99,8 +100,9 @@ echo "Suggested in-guest checks:"
 echo "  redbear-info --json"
 echo "  netctl status"
 echo "  redbear-phase4-wayland-check"
-echo "  smallvil should be the primary compositor path"
+echo "  the validation compositor should own the bounded runtime path"
 echo "  qt6-wayland-smoke should leave a success marker via wayland-session"
+echo "  production desktop direction is redbear-kde -> kwin_wayland"
 echo
 
 if [[ "$check_mode" -eq 1 ]]; then
@@ -115,9 +117,8 @@ send "password\r"
 expect "Type 'help' for available commands."
 send "redbear-phase4-wayland-check\r"
 expect "Red Bear OS Phase 4 Wayland Runtime Check"
-expect "orbital-wayland"
+expect "redbear-validation-session"
 expect "wayland-session"
-expect "smallvil"
 expect "/home/root/.qt6-bootstrap-minimal.ok"
 expect "/home/root/.qt6-plugin-minimal.ok"
 expect "/home/root/.qt6-wayland-smoke-minimal.ok"

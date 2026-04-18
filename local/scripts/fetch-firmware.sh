@@ -1,26 +1,37 @@
 #!/usr/bin/env bash
-# Fetch AMD GPU firmware blobs from linux-firmware repository
-# These are required for amdgpu driver to function
+# Fetch bounded GPU firmware blobs from linux-firmware repository.
+# AMD remains the larger set; Intel support here is intentionally limited to
+# display-critical DMC blobs for the current bounded startup manifest.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FIRMWARE_DIR="$SCRIPT_DIR/../firmware/amdgpu"
 LINUX_FIRMWARE_REPO="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
 TEMP_DIR=$(mktemp -d)
+VENDOR="amd"
 SUBSET="all"
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--subset all|rdna]
+Usage: $(basename "$0") [--vendor amd|intel] [--subset all|rdna|dmc]
 
-Fetch AMD GPU firmware blobs from linux-firmware.
+Fetch bounded GPU firmware blobs from linux-firmware.
 
 Options:
-  --subset all      Fetch the full amdgpu firmware set (default)
-  --subset rdna     Fetch only RDNA2/RDNA3-oriented firmware blobs
+  --vendor amd      Fetch AMD GPU firmware (default)
+  --vendor intel    Fetch bounded Intel display-critical DMC firmware set
+  --subset all      Fetch the full AMD amdgpu firmware set (default for AMD)
+  --subset rdna     Fetch only RDNA2/RDNA3-oriented AMD firmware blobs
+  --subset dmc      Fetch bounded Intel DMC display firmware set (default for Intel)
   -h, --help        Show this help text
 EOF
+}
+
+set_firmware_dir() {
+    case "$VENDOR" in
+        amd) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/amdgpu" ;;
+        intel) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/i915" ;;
+    esac
 }
 
 cleanup() {
@@ -40,6 +51,15 @@ while [ "$#" -gt 0 ]; do
             SUBSET="$2"
             shift 2
             ;;
+        --vendor)
+            if [ "$#" -lt 2 ]; then
+                echo "ERROR: --vendor requires a value"
+                usage
+                exit 1
+            fi
+            VENDOR="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -52,17 +72,41 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-case "$SUBSET" in
-    all|rdna)
+case "$VENDOR" in
+    amd)
+        case "$SUBSET" in
+            all|rdna) ;;
+            *)
+                echo "ERROR: Unsupported AMD subset: $SUBSET"
+                usage
+                exit 1
+                ;;
+        esac
+        ;;
+    intel)
+        if [ "$SUBSET" = "all" ]; then
+            SUBSET="dmc"
+        fi
+        case "$SUBSET" in
+            dmc) ;;
+            *)
+                echo "ERROR: Unsupported Intel subset: $SUBSET"
+                usage
+                exit 1
+                ;;
+        esac
         ;;
     *)
-        echo "ERROR: Unsupported subset: $SUBSET"
+        echo "ERROR: Unsupported vendor: $VENDOR"
         usage
         exit 1
         ;;
 esac
 
-echo "=== AMD GPU Firmware Fetcher ==="
+set_firmware_dir
+
+echo "=== GPU Firmware Fetcher ==="
+echo "Vendor: $VENDOR"
 echo "Target: $FIRMWARE_DIR"
 echo "Subset: $SUBSET"
 
@@ -73,7 +117,7 @@ git clone --depth 1 "$LINUX_FIRMWARE_REPO" "$TEMP_DIR/linux-firmware"
 # Create target directory
 mkdir -p "$FIRMWARE_DIR"
 
-# Copy AMD GPU firmware
+copy_amd_firmware() {
 echo "Copying AMD GPU firmware blobs..."
 if [ -d "$TEMP_DIR/linux-firmware/amdgpu" ]; then
     shopt -s nullglob
@@ -145,10 +189,63 @@ else
     echo "ERROR: amdgpu firmware directory not found in linux-firmware"
     exit 1
 fi
+}
 
-# Also create a listing of which firmware blobs map to which ASICs
-echo "=== Creating firmware manifest ==="
-cat > "$FIRMWARE_DIR/MANIFEST.txt" << 'MANIFEST'
+copy_intel_dmc_firmware() {
+    echo "Copying bounded Intel DMC firmware blobs..."
+    if [ ! -d "$TEMP_DIR/linux-firmware/i915" ]; then
+        echo "ERROR: i915 firmware directory not found in linux-firmware"
+        exit 1
+    fi
+
+    local selected_blobs=()
+    local candidates=(
+        adlp_dmc.bin
+        adlp_dmc_ver2_16.bin
+        tgl_dmc.bin
+        tgl_dmc_ver2_12.bin
+        dg2_dmc.bin
+        dg2_dmc_ver2_06.bin
+        mtl_dmc.bin
+    )
+
+    for blob in "${candidates[@]}"; do
+        if [ -f "$TEMP_DIR/linux-firmware/i915/$blob" ]; then
+            selected_blobs+=("$TEMP_DIR/linux-firmware/i915/$blob")
+        fi
+    done
+
+    if [ "${#selected_blobs[@]}" -eq 0 ]; then
+        echo "ERROR: No Intel DMC firmware blobs were found"
+        exit 1
+    fi
+
+    rm -f "$FIRMWARE_DIR"/*.bin
+    cp -v "${selected_blobs[@]}" "$FIRMWARE_DIR/"
+
+    cat > "$FIRMWARE_DIR/MANIFEST.txt" <<'MANIFEST'
+# Intel GPU Firmware for Red Bear OS (bounded startup slice)
+# Source: linux-firmware (https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)
+# Scope: display-critical DMC blobs only
+#
+# This subset is intentionally bounded to startup/display proof for current Intel DRM work.
+# It does NOT include GuC/HuC/GSC runtime/render/media firmware.
+#
+# Current bounded candidates:
+#   - adlp_dmc.bin / adlp_dmc_ver2_16.bin
+#   - tgl_dmc.bin / tgl_dmc_ver2_12.bin
+#   - dg2_dmc.bin / dg2_dmc_ver2_06.bin
+#   - mtl_dmc.bin
+MANIFEST
+
+    echo "Copied ${#selected_blobs[@]} Intel DMC firmware blobs"
+}
+
+case "$VENDOR" in
+    amd)
+        copy_amd_firmware
+        echo "=== Creating firmware manifest ==="
+        cat > "$FIRMWARE_DIR/MANIFEST.txt" << 'MANIFEST'
 # AMD GPU Firmware for Red Bear OS
 # Source: linux-firmware (https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)
 # License: Various — see linux-firmware WHENCE file for details
@@ -166,8 +263,12 @@ cat > "$FIRMWARE_DIR/MANIFEST.txt" << 'MANIFEST'
 # Key files for RDNA3 (Navi 31/32/33, gfx11):
 #   psp_13_*_sos.bin, gc_11_0_*.bin, sdma_6_*.bin, dcn_3_1_*.bin
 MANIFEST
-
-echo "$FIRMWARE_DIR/MANIFEST.txt created"
+        echo "$FIRMWARE_DIR/MANIFEST.txt created"
+        ;;
+    intel)
+        copy_intel_dmc_firmware
+        ;;
+esac
 
 # Summary
 echo ""
@@ -176,5 +277,5 @@ ls -la "$FIRMWARE_DIR/" | head -20
 echo "..."
 echo "Total: $(ls "$FIRMWARE_DIR/"*.bin 2>/dev/null | wc -l) blobs"
 echo ""
-echo "WARNING: These are proprietary firmware blobs from AMD."
+echo "WARNING: These firmware blobs are third-party upstream firmware."
 echo "They are NOT open source. Verify your license compliance."

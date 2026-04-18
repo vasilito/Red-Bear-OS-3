@@ -2,14 +2,15 @@
 # build-redbear.sh — Build Red Bear OS from upstream base + Red Bear overlay
 #
 # Usage:
-#   ./local/scripts/build-redbear.sh                     # Default: redbear-desktop
-#   ./local/scripts/build-redbear.sh redbear-minimal     # Minimal validation baseline
+#   ./local/scripts/build-redbear.sh                                # Default: redbear-kde
+#   ./local/scripts/build-redbear.sh redbear-minimal                # Minimal validation baseline
 #   ./local/scripts/build-redbear.sh redbear-bluetooth-experimental # First bounded Bluetooth slice
-#   ./local/scripts/build-redbear.sh redbear-full        # Full Red Bear integration target
-#   ./local/scripts/build-redbear.sh redbear-wayland     # Wayland runtime validation profile
-#   ./local/scripts/build-redbear.sh redbear-kde         # KDE Plasma bring-up target
-#   ./local/scripts/build-redbear.sh redbear-live        # Live ISO variant
-#   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh     # Skip patch application
+#   ./local/scripts/build-redbear.sh redbear-full                   # Full Red Bear integration target
+#   ./local/scripts/build-redbear.sh redbear-wayland                # Bounded Wayland runtime validation profile
+#   ./local/scripts/build-redbear.sh redbear-kde                    # Tracked KWin Wayland desktop target
+#   ./local/scripts/build-redbear.sh redbear-live                   # Live ISO variant
+#   ./local/scripts/build-redbear.sh --upstream redbear-kde         # Allow Redox/upstream recipe refresh
+#   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh                # Skip patch application
 #
 # This script assumes the Red Bear overlay model:
 # - upstream-owned sources are refreshable working trees
@@ -20,9 +21,56 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-CONFIG="${1:-redbear-desktop}"
+CONFIG="redbear-kde"
 JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
+ALLOW_UPSTREAM=0
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS] [CONFIG]
+
+Build a tracked Red Bear OS profile.
+
+Options:
+  --upstream          Allow Redox/upstream recipe source refresh during build
+  -h, --help          Show this help
+
+Configs:
+  redbear-desktop, redbear-minimal, redbear-bluetooth-experimental,
+  redbear-full, redbear-wayland, redbear-kde, redbear-live
+EOF
+}
+
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --upstream)
+            ALLOW_UPSTREAM=1
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            ;;
+    esac
+    shift
+done
+
+if [ ${#POSITIONAL[@]} -gt 1 ]; then
+    echo "ERROR: Too many positional arguments" >&2
+    usage >&2
+    exit 1
+fi
+
+[ ${#POSITIONAL[@]} -eq 1 ] && CONFIG="${POSITIONAL[0]}"
 
 case "$CONFIG" in
     redbear-desktop|redbear-minimal|redbear-bluetooth-experimental|redbear-full|redbear-wayland|redbear-kde|redbear-live)
@@ -40,6 +88,7 @@ echo "========================================"
 echo "Config:        $CONFIG"
 echo "Jobs:          $JOBS"
 echo "Apply patches: $APPLY_PATCHES"
+echo "Upstream:      $ALLOW_UPSTREAM"
 echo "Root:          ${PROJECT_ROOT##*/}"
 echo "========================================"
 echo ""
@@ -112,7 +161,7 @@ if [ "$APPLY_PATCHES" = "1" ]; then
     apply_patch_dir "$PROJECT_ROOT/local/patches/bootloader" "$PROJECT_ROOT/recipes/core/bootloader/source"  "bootloader"
     apply_patch_dir "$PROJECT_ROOT/local/patches/installer"  "$PROJECT_ROOT/recipes/core/installer/source"   "installer"
 
-    # repo cook refetches nested sources before building; keep relibc clean after patch application
+    # repo cook can refetch nested sources when --upstream is enabled; keep relibc clean after patch application
     stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
     echo ""
 fi
@@ -140,7 +189,13 @@ fi
 # Step 3: Build
 echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
-CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
+    echo ">>> Upstream recipe refresh enabled"
+    REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+else
+    echo ">>> Upstream recipe refresh disabled (pass --upstream to enable)"
+    REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+fi
 
 # Step 4: Report
 ARCH="${ARCH:-$(uname -m)}"
@@ -160,8 +215,15 @@ if [ "$CONFIG" = "redbear-minimal" ] || [ "$CONFIG" = "redbear-desktop" ]; then
 fi
 if [ "$CONFIG" = "redbear-wayland" ]; then
     echo ""
-    echo "To validate the Phase 4 Wayland runtime path:"
+    echo "To validate the bounded Phase 4 Wayland runtime harness:"
     echo "  ./local/scripts/test-phase4-wayland-qemu.sh"
+    echo "  # in guest: redbear-drm-display-check --vendor amd|intel"
+fi
+if [ "$CONFIG" = "redbear-kde" ]; then
+    echo ""
+    echo "To validate the primary KWin Wayland desktop path:"
+    echo "  ./local/scripts/test-phase6-kde-qemu.sh --check"
+    echo "  # in guest: redbear-drm-display-check --vendor amd|intel"
 fi
 echo ""
 echo "To build live ISO:"

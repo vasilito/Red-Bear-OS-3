@@ -24,18 +24,23 @@ UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-master}"
 DRY_RUN=0
 NO_MERGE=0
 
+usage() {
+    echo "Usage: $0 [--dry-run] [--no-merge]"
+    echo "  --dry-run    Show what would happen without making changes"
+    echo "  --no-merge   Only fetch and check patch conflicts"
+}
+
 for arg in "$@"; do
     case "$arg" in
         --dry-run)   DRY_RUN=1 ;;
         --no-merge)  NO_MERGE=1 ;;
         --help|-h)
-            echo "Usage: $0 [--dry-run] [--no-merge]"
-            echo "  --dry-run    Show what would happen without making changes"
-            echo "  --no-merge   Only fetch and check patch conflicts"
+            usage
             exit 0
             ;;
         *)
             echo "Unknown argument: $arg"
+            usage >&2
             exit 1
             ;;
     esac

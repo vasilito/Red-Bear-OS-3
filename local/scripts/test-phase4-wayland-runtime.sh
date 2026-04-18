@@ -18,9 +18,8 @@ require_command() {
     fi
 }
 
-require_command orbital-wayland "orbital-wayland launcher is installed"
+require_command redbear-validation-session "validation launcher is installed"
 require_command wayland-session "wayland-session launcher is installed"
-require_command smallvil "smallvil compositor is installed"
 require_command qt6-wayland-smoke "qt6-wayland-smoke is installed"
 require_command qt6-bootstrap-check "qt6-bootstrap-check is installed"
 require_command qt6-plugin-check "qt6-plugin-check is installed"
@@ -54,7 +53,7 @@ fi
 echo
 
 echo "=== Phase 4 launch surface ==="
-echo "orbital-wayland, smallvil, and the Qt6 Phase 4 smoke helpers are present on the wayland profile."
+echo "The validation launcher and the Qt6 Phase 4 smoke helpers are present on the wayland profile."
 echo "Run this script inside the guest, or use redbear-phase4-wayland-check as the canonical validator."
 echo
 echo "=== Test Complete ==="

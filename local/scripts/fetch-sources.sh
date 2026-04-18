@@ -6,11 +6,12 @@
 # sources so they're available in recipes/<category>/<pkg>/source/.
 #
 # Usage:
-#   ./local/scripts/fetch-sources.sh                # All sources
-#   ./local/scripts/fetch-sources.sh core           # Core packages only
-#   ./local/scripts/fetch-sources.sh libs tools     # Multiple categories
+#   ./local/scripts/fetch-sources.sh --upstream     # All sources
+#   ./local/scripts/fetch-sources.sh --upstream core           # Core packages only
+#   ./local/scripts/fetch-sources.sh --upstream libs tools     # Multiple categories
 #   ./local/scripts/fetch-sources.sh --list         # Show available categories
 #   ./local/scripts/fetch-sources.sh --status       # Show fetch progress
+#   ./local/scripts/fetch-sources.sh --help         # Show help
 #
 # After fetching, sources live at:
 #   recipes/<category>/<pkg>/source/       (git repos, tar extractions)
@@ -22,6 +23,51 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_BIN="$PROJECT_ROOT/target/release/repo"
 
 cd "$PROJECT_ROOT"
+
+ALLOW_UPSTREAM=0
+MODE="fetch"
+CATEGORIES=()
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS] [CATEGORY ...]
+
+Fetch recipe sources for browsing and editing.
+
+Options:
+  --upstream          Allow Redox/upstream source fetch
+  --list              Show available categories
+  --status            Show fetch progress
+  -h, --help          Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --upstream)
+            ALLOW_UPSTREAM=1
+            ;;
+        --list)
+            MODE="list"
+            ;;
+        --status)
+            MODE="status"
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            CATEGORIES+=("$1")
+            ;;
+    esac
+    shift
+done
 
 if [ ! -f "$REPO_BIN" ]; then
     echo ">>> Building cookbook binary..."
@@ -52,14 +98,20 @@ show_status() {
     echo "Sources fetched: $fetched / $total ($pct%)"
 }
 
-if [ "${1:-}" = "--list" ]; then
+if [ "$MODE" = "list" ]; then
     list_categories
     exit 0
 fi
 
-if [ "${1:-}" = "--status" ]; then
+if [ "$MODE" = "status" ]; then
     show_status
     exit 0
+fi
+
+if [ "$ALLOW_UPSTREAM" -ne 1 ]; then
+    echo "ERROR: Redox/upstream source fetch is disabled by default." >&2
+    echo "Re-run with --upstream to fetch sources." >&2
+    exit 1
 fi
 
 echo "========================================"
@@ -110,14 +162,14 @@ fetch_category() {
     [ "$ok" -eq 0 ] && [ "$skip" -eq 0 ] && [ "$fail" -gt 0 ] && echo "  ❌ $cat: $fail failed"
 }
 
-if [ $# -eq 0 ]; then
+if [ ${#CATEGORIES[@]} -eq 0 ]; then
     echo ">>> Fetching ALL recipe sources..."
     echo ""
     for cat in $ALL_CATEGORIES; do
         fetch_category "$cat"
     done
 else
-    for cat in "$@"; do
+    for cat in "${CATEGORIES[@]}"; do
         if [ -d "recipes/$cat" ]; then
             echo ">>> Fetching category: $cat"
             fetch_category "$cat"
