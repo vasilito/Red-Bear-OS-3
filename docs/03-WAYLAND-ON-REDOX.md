@@ -11,12 +11,11 @@ porting notes.
 
 ## Current State
 
-- `config/wayland.toml` exists — now uses the Red Bear runtime-service fragments and launches the
-  `smallvil` path by default via `orbital-wayland`
+- `config/wayland.toml` exists — it remains the bounded validation path that launches the
+  `smallvil` harness via `orbital-wayland`, not the production desktop path
 - 21 Wayland recipes in `recipes/wip/wayland/` — most untested
 - `libwayland` 1.24.0 now rebuilds with a much smaller `redox.patch`; the P3 POSIX path (`signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, `MSG_NOSIGNAL`) is back on the native path, and the remaining patch is down to Redox-specific build quirks
-- `smallvil` (Smithay) is still the recommended first runtime target because it is the smallest
-  compositor path already present in-tree
+- `smallvil` (Smithay) remains the bounded validation compositor path, not the production desktop goal
 - `cosmic-comp` builds but still has no working keyboard input; the remaining issue is runtime/input integration, not simply the absence of a libinput recipe
 - `libdrm` builds with amdgpu and Intel enabled
 - Mesa builds with EGL+GBM+GLES2 (software via LLVMpipe; hardware acceleration still requires kernel DMA-BUF)
@@ -52,7 +51,8 @@ For the current Wayland runtime entrypoint in this repo, use:
 > (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), Wayland compositor work falls under Phase 2.
 > The scripts still work under their original names.
 
-That path is the current smallvil-first Wayland validation target.
+That path is the current bounded smallvil validation target. The production desktop path is
+`config/redbear-kde.toml` with `kwin_wayland`.
 
 Current runtime evidence for that target:
 
@@ -63,17 +63,18 @@ Current runtime evidence for that target:
 - the direct launcher `local/scripts/test-phase4-wayland-qemu.sh` now boots the built
   `redbear-wayland` disk image instead of re-entering the build pipeline
 
-For the first runtime-validation pass, keep the **runtime target** intentionally small: `smallvil`
- as the compositor and no heavier secondary Wayland stack as the primary goal. The current
- `redbear-wayland` profile still inherits the broader desktop package set from `desktop.toml`, but
- Phase 4 validation in this repo is specifically about the `orbital-wayland` → `smallvil` path,
- not about treating every inherited desktop package as part of the Wayland validation surface.
+For the runtime-validation pass, keep the **validation target** intentionally small: `smallvil`
+as the compositor harness and not as the production desktop goal. The current `redbear-wayland`
+profile still inherits the broader desktop package set from `desktop.toml`, but this repo's
+Wayland validation is specifically about the `orbital-wayland` → `smallvil` path. It is a bounded
+regression harness subordinate to the `redbear-kde` / `kwin_wayland` production path, not a peer
+desktop direction.
 
 ---
 
-## Step 1: Fix relibc POSIX Gaps (1-2 weeks)
+## Historical Step 1: Fix relibc POSIX Gaps (1-2 weeks)
 
-### What to implement
+### Historical implementation sketch
 
 Historically these were the 7 APIs that `libwayland/redox.patch` worked around. They now exist
 in-tree in relibc, and this repo pass restored the full build-side path for `signalfd`, `timerfd`,
@@ -215,7 +216,7 @@ After implementing all 7 APIs:
 
 ---
 
-## Step 2: evdev Input Daemon (4-6 weeks)
+## Historical Step 2: evdev Input Daemon (4-6 weeks)
 
 ### Architecture
 
@@ -332,7 +333,7 @@ mesonflags = [
 
 ---
 
-## Step 3: DRM/KMS Scheme (8-12 weeks)
+## Historical Step 3: DRM/KMS Scheme (8-12 weeks)
 
 ### Architecture
 
@@ -457,15 +458,18 @@ impl IntelDriver {
 
 ---
 
-## Step 4: Working Wayland Compositor (4-6 weeks after Steps 1-3)
+## Historical Step 4: Working Wayland Compositor (4-6 weeks after Steps 1-3)
 
-### Recommended: Smithay/smallvil first, then KWin
+### Historical staging note: smallvil before KWin
 
-**Why Smithay first:**
+This section is historical context only. It explains why `smallvil` was used earlier as a bounded
+validation compositor before the KWin-first production path became the repo's architecture.
+
+**Why smallvil was used first as a validation compositor:**
 - Pure Rust — no C++ toolchain issues
 - Already has a Redox branch (`https://github.com/jackpot51/smithay`, branch `redox`)
 - Smithay's input backend is pluggable — write a Redox-specific one
-- Gets us a working compositor months before KWin is ported
+- Provided an earlier bounded compositor proof before the KWin session path was viable
 
 **What to modify in Smithay:**
 
@@ -545,7 +549,7 @@ cargopackages = ["smallvil"]
 
 ---
 
-## Step 5: Enable cosmic-comp and Other Compositors
+## Historical Step 5: Enable cosmic-comp and Other Compositors
 
 Once Steps 1-4 are done:
 

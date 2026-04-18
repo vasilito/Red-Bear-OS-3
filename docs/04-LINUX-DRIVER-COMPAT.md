@@ -5,6 +5,9 @@
 > `local/recipes/system/firmware-loader/`, `local/recipes/gpu/redox-drm/`, and
 > `local/recipes/gpu/amdgpu/`. Treat the sections below as architecture rationale and porting notes,
 > not as an accurate statement that those components are still "not started".
+>
+> Treat the step-by-step recipe examples and timelines below as historical architecture notes, not
+> as the current execution plan or current package-status truth.
 
 ## Current State Snapshot
 
@@ -351,7 +354,7 @@ pub trait GpuDriver: Send + Sync {
 
 ## Concrete Porting Example: Intel i915 Driver
 
-### Step 1: Extract i915 from Linux kernel
+### Historical Step 1: Extract i915 from Linux kernel
 
 ```bash
 # Clone Linux kernel
@@ -363,7 +366,7 @@ tar cf intel-driver.tar linux/drivers/gpu/drm/i915/ \
     linux/arch/x86/include/
 ```
 
-### Step 2: Create recipe
+### Historical Step 2: Create recipe
 
 > **Historical recipe note:** the `recipes/wip/drivers/...` example below is part of the original
 > upstream-oriented porting path. Under the Red Bear overlay policy, upstream WIP driver recipes are
@@ -405,7 +408,7 @@ cp i915_redox.so ${COOKBOOK_STAGE}/usr/lib/redox/drivers/
 """
 ```
 
-### Step 3: Minimal patches needed
+### Historical Step 3: Minimal patches needed
 
 For i915 on Redox, these are the typical `#ifdef __redox__` changes:
 
@@ -446,7 +449,7 @@ void __iomem *regs = ioremap(pci_resource_start(pdev, 0), pci_resource_len(pdev,
 #endif
 ```
 
-### Step 4: Run as daemon
+### Historical Step 4: Run as daemon
 
 ```bash
 # In Redox init:
@@ -461,8 +464,9 @@ AMD's driver is larger and more complex than Intel's. The LinuxKPI approach is e
 
 ### Key challenges for amdgpu:
 
-1. **Firmware loading**: amdgpu needs proprietary firmware blobs. Redox has no firmware
-   loading infrastructure yet. Need to implement:
+1. **Firmware loading**: amdgpu needs proprietary firmware blobs. Historically Redox lacked the
+   needed firmware-loading path; the current repo now ships `firmware-loader`, and the remaining
+   work is validation of the GPU-facing runtime path rather than inventing the scheme from scratch:
    ```
    scheme:firmware/amdgpu/  — firmware blob storage
    request_firmware()       — compat function that reads from scheme
@@ -523,7 +527,7 @@ The daemon reads from Redox input schemes and exposes `/dev/input/eventX` nodes.
 
 ---
 
-## Implementation Priority and Timeline
+## Historical Implementation Priority and Timeline
 
 | Phase | Component | Effort | Delivers |
 |-------|-----------|--------|----------|
