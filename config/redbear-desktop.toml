@@ -1,8 +1,10 @@
 # Red Bear OS Desktop Configuration
-# Mainline Redox desktop + Red Bear branding + ext4 filesystem support
+# Supplementary integration profile beneath the tracked KWin target
 #
 # Build: make all CONFIG_NAME=redbear-desktop
 # Live:  make live CONFIG_NAME=redbear-desktop
+#
+# This profile remains available for non-KDE-specific integration work.
 
 include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
@@ -54,17 +56,16 @@ redbear-meta = {}
 # ── Desktop services (replace legacy desktop-minimal init scripts) ───────────
 
 [[files]]
-path = "/usr/lib/init.d/20_orbital.service"
+path = "/usr/lib/init.d/20_display.service"
 data = """
 [unit]
-description = "Orbital display server"
+description = "Display session service"
 requires_weak = [
-    "10_net.target",
 ]
 
 [service]
-cmd = "orbital"
-args = ["orblogin", "launcher"]
+cmd = "ion"
+args = ["-c", "true"]
 envs = { VT = "3" }
 type = "oneshot_async"
 """
@@ -75,7 +76,7 @@ data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -88,9 +89,9 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate Orbital VT"
+description = "Activate display VT"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -105,7 +106,7 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]

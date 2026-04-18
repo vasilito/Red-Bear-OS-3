@@ -9,10 +9,10 @@ filesystem_size = 650
 
 # Package settings
 [packages]
-cosmic-edit = {}
-cosmic-files = {}
-cosmic-icons = {}
-cosmic-term = {}
+cosmic-edit = "ignore"
+cosmic-files = "ignore"
+cosmic-icons = "ignore"
+cosmic-term = "ignore"
 dejavu = {}
 ext4d = {}
 freefont = {}

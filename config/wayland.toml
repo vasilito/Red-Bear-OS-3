@@ -1,4 +1,6 @@
-# Wayland configuration
+# Wayland validation-only configuration
+
+# This is the bounded compositor validation slice.
 
 include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
@@ -15,27 +17,93 @@ redbear-release = {}
 redbear-hwutils = {}
 redbear-info = {}
 redbear-netctl = {}
+dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
 firmware-loader = {}
 evdevd = {}
 udev-shim = {}
+seatd = {}
 mesa = {}
 "pop-icon-theme.cursors" = {}
-smallvil = {}
+kwin = {}
 xkeyboard-config = {}
 
-# Replace the legacy desktop-minimal init script with an explicit service unit.
 [[files]]
-path = "/usr/lib/init.d/20_orbital.service"
+path = "/usr/lib/init.d/12_dbus.service"
 data = """
 [unit]
-description = "Orbital display server (Wayland session)"
+description = "D-Bus system bus"
 requires_weak = [
-    "10_net.target",
+    "00_base.target",
 ]
 
 [service]
-cmd = "orbital"
-args = ["orbital-wayland"]
+cmd = "ion"
+args = [
+    "-c",
+    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/usr/lib/init.d/13_seatd.service"
+data = """
+[unit]
+description = "seatd seat management daemon"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+]
+
+[service]
+cmd = "seatd"
+args = ["-l", "info"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-sessiond",
+]
+type = "oneshot_async"
+"""
+
+# Replace the legacy desktop-minimal init script with an explicit service unit.
+[[files]]
+path = "/usr/lib/init.d/20_display.service"
+data = """
+[unit]
+description = "Display session service (Wayland validation)"
+requires_weak = [
+]
+
+[service]
+cmd = "/usr/bin/redbear-validation-session"
 envs = { BROWSER = "/bin/netsurf-fb", VT = "3" }
 type = "oneshot_async"
 """
@@ -46,7 +114,7 @@ data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -59,9 +127,9 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate Orbital VT"
+description = "Activate display VT"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -76,7 +144,7 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -86,15 +154,16 @@ type = "oneshot_async"
 """
 
 [[files]]
-path = "/usr/bin/orbital-wayland"
+path = "/usr/bin/redbear-validation-session"
 mode = 0o755
-data = """
-#!/usr/bin/env ion
+ data = """
+#!/usr/bin/env sh
 
-# Prepare environment
 export DISPLAY=""
-export COSMIC_BACKEND=winit
-export HOME=/root
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_SESSION_TYPE=wayland
+export LIBSEAT_BACKEND=seatd
+export SEATD_SOCK=/run/seatd.sock
 export QT_PLUGIN_PATH=/usr/plugins
 export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
 export QML2_IMPORT_PATH=/usr/qml
@@ -102,21 +171,34 @@ export RUST_BACKTRACE=full
 export RUST_LOG=debug
 export XCURSOR_THEME=Pop
 export XKB_CONFIG_ROOT=/usr/share/X11/xkb
-export XDG_RUNTIME_DIR=/tmp/run/user/0
 
-# Create XDG runtime directory
-#TODO: mkdir -p not working
-mkdir -p /tmp/run
-mkdir -p /tmp/run/user
-mkdir -p /tmp/run/user/0
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/run/user/$(id -u)"
+fi
 
-# Compile glib schemas when available
-if test -d /usr/share/glib-2.0/schemas
+mkdir -p "$XDG_RUNTIME_DIR"
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    eval "$(dbus-launch --sh-syntax)"
+fi
+
+dbus-update-activation-environment \
+    DBUS_SESSION_BUS_ADDRESS \
+    DBUS_SESSION_BUS_PID \
+    WAYLAND_DISPLAY \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR \
+    DISPLAY \
+    HOME \
+    USER
+
+if [ -d /usr/share/glib-2.0/schemas ]; then
     glib-compile-schemas /usr/share/glib-2.0/schemas/
-end
+fi
 
-# Default to the smaller Smithay path first.
-smallvil -c /usr/bin/wayland-session
+kwin_wayland --replace &
+sleep 2
+exec /usr/bin/wayland-session
 """
 
 [[files]]
@@ -127,26 +209,26 @@ data = """
 
 # env G_MAIN_POLL_DEBUG=1 G_MESSAGES_DEBUG=all LD_DEBUG=all WEBKIT_DEBUG=all MiniBrowser&
 printenv
-let session_started = "/home/root/.wayland-session.started"
+let session_started = "$HOME/.wayland-session.started"
 rm -f $session_started
 echo "started" > $session_started
 export QT_PLUGIN_PATH=/usr/plugins
 export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
 export QML2_IMPORT_PATH=/usr/qml
-let smoke_ok = "/home/root/.qt6-wayland-smoke.ok"
-let smoke_err = "/home/root/.qt6-wayland-smoke.err"
-let smoke_log = "/home/root/.qt6-wayland-smoke.log"
-let bootstrap_ok = "/home/root/.qt6-bootstrap-minimal.ok"
-let bootstrap_log = "/home/root/.qt6-bootstrap-minimal.log"
-let plugin_ok = "/home/root/.qt6-plugin-minimal.ok"
-let plugin_err = "/home/root/.qt6-plugin-minimal.err"
-let plugin_log = "/home/root/.qt6-plugin-minimal.log"
-let smoke_minimal_ok = "/home/root/.qt6-wayland-smoke-minimal.ok"
-let smoke_offscreen_ok = "/home/root/.qt6-wayland-smoke-offscreen.ok"
-let smoke_wayland_ok = "/home/root/.qt6-wayland-smoke-wayland.ok"
-let smoke_minimal_log = "/home/root/.qt6-wayland-smoke-minimal.log"
-let smoke_offscreen_log = "/home/root/.qt6-wayland-smoke-offscreen.log"
-let smoke_wayland_log = "/home/root/.qt6-wayland-smoke-wayland.log"
+let smoke_ok = "$HOME/.qt6-wayland-smoke.ok"
+let smoke_err = "$HOME/.qt6-wayland-smoke.err"
+let smoke_log = "$HOME/.qt6-wayland-smoke.log"
+let bootstrap_ok = "$HOME/.qt6-bootstrap-minimal.ok"
+let bootstrap_log = "$HOME/.qt6-bootstrap-minimal.log"
+let plugin_ok = "$HOME/.qt6-plugin-minimal.ok"
+let plugin_err = "$HOME/.qt6-plugin-minimal.err"
+let plugin_log = "$HOME/.qt6-plugin-minimal.log"
+let smoke_minimal_ok = "$HOME/.qt6-wayland-smoke-minimal.ok"
+let smoke_offscreen_ok = "$HOME/.qt6-wayland-smoke-offscreen.ok"
+let smoke_wayland_ok = "$HOME/.qt6-wayland-smoke-wayland.ok"
+let smoke_minimal_log = "$HOME/.qt6-wayland-smoke-minimal.log"
+let smoke_offscreen_log = "$HOME/.qt6-wayland-smoke-offscreen.log"
+let smoke_wayland_log = "$HOME/.qt6-wayland-smoke-wayland.log"
 rm -f $smoke_ok $smoke_err
 rm -f $smoke_log
 rm -f $bootstrap_ok $bootstrap_log

@@ -5,9 +5,8 @@
 # Phase 2 Wayland validation:    ./local/scripts/test-phase4-wayland-qemu.sh
 #
 # Validation-only profile:
-# - smallvil remains the bounded compositor/runtime harness
-# - this profile is not the primary desktop path
-# - the primary desktop path is redbear-kde -> kwin_wayland
+# - the packaged compositor/runtime harness remains bounded
+# - this profile remains the bounded validation slice beneath redbear-kde -> kwin_wayland
 
 include = ["wayland.toml"]
 

@@ -3,7 +3,7 @@
 # Build: make all CONFIG_NAME=redbear-full
 # Live:  make live CONFIG_NAME=redbear-full
 #
-# This is not the forward compositor/session target; it remains a broader integration slice.
+# This remains a broader integration slice for desktop/session plumbing.
 # GPU driver stack ships through redbear-meta for this profile.
 # redox-drm now carries the runtime/package dependency on the AMD backend library.
 # KDE Frameworks + KWin: depend on qtdeclarative/qtwayland. Re-enable when ported.
@@ -97,19 +97,18 @@ mode = 0o755
 
 # ── Desktop services (not provided by base package) ────────────────
 
-# Orbital display server + login + launcher
-# desktop-minimal.toml had "nowait VT=3 orbital orblogin launcher"
+# Display-session placeholder for the supplementary integration slice
 [[files]]
-path = "/usr/lib/init.d/20_orbital.service"
+path = "/usr/lib/init.d/20_display.service"
 data = """
 [unit]
-description = "Orbital display server"
+description = "Display session service"
 requires_weak = [
 ]
 
 [service]
-cmd = "orbital"
-args = ["orblogin", "launcher"]
+cmd = "ion"
+args = ["-c", "true"]
 envs = { VT = "3" }
 type = "oneshot_async"
 """
@@ -122,7 +121,7 @@ data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -135,9 +134,9 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate Orbital VT"
+description = "Activate display VT"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -152,7 +151,7 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -192,6 +191,7 @@ args = [
 ]
 type = "oneshot_async"
 """
+
 
 [[files]]
 path = "/usr/lib/init.d/13_redbear-sessiond.service"

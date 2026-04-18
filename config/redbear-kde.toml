@@ -3,9 +3,9 @@
 # Live:  make live CONFIG_NAME=redbear-kde
 #
 # Intended desktop direction: KWin Wayland session on Red Bear OS
+# Tracked default desktop target for Red Bear OS
 # Current state: KWin + KF6 + Qt6 + Mesa + D-Bus + seatd
-# Not yet the shipped default: runtime compositor/session proof is still required
-# X is compatibility-only and not a peer desktop architecture
+# Runtime compositor/session proof is still required for broader support claims
 # Future: add plasma-workspace, plasma-desktop when their deps are resolved
 
 include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
@@ -23,6 +23,16 @@ shell = "/usr/bin/ion"
 [packages]
 # Red Bear OS branding
 redbear-release = {}
+
+# Exclude inherited legacy desktop packages from the tracked KWin target
+orbdata = "ignore"
+orbital = "ignore"
+orbterm = "ignore"
+orbutils = "ignore"
+cosmic-edit = "ignore"
+cosmic-files = "ignore"
+cosmic-icons = "ignore"
+cosmic-term = "ignore"
 
 # ext4 filesystem support
 ext4d = {}
@@ -233,10 +243,10 @@ type = "oneshot_async"
 """
 
 [[files]]
-path = "/usr/lib/init.d/20_orbital.service"
+path = "/usr/lib/init.d/20_display.service"
 data = """
 [unit]
-description = "Orbital display server (KDE session)"
+description = "Display session service (KDE session)"
 requires_weak = [
     "12_dbus.service",
     "13_redbear-sessiond.service",
@@ -244,8 +254,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "orbital"
-args = ["orblogin", "orbital-kde"]
+cmd = "/usr/bin/redbear-kde-session"
 envs = { VT = "3" }
 type = "oneshot_async"
 """
@@ -256,7 +265,7 @@ data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -269,9 +278,9 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate Orbital VT"
+description = "Activate display VT"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -286,7 +295,7 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "20_orbital.service",
+    "20_display.service",
 ]
 
 [service]
@@ -297,7 +306,7 @@ type = "oneshot_async"
 
 # KDE session launcher
 [[files]]
-path = "/usr/bin/orbital-kde"
+path = "/usr/bin/redbear-kde-session"
 mode = 0o755
 data = """
 #!/usr/bin/sh

@@ -90,7 +90,6 @@ schemes = [
   "pty",
   "sudo",
   "audio",
-  "orbital",
 ]
 """
 
@@ -211,13 +210,13 @@ path = "/ui"
 data = "usr/share/ui"
 symlink = true
 
-## legacy orbital font directory
+## legacy display font directory
 [[files]]
 path = "/usr/share/ui/fonts"
 data = "/usr/share/fonts"
 symlink = true
 
-## legacy orbital icon directory
+## legacy display icon directory
 [[files]]
 path = "/usr/share/ui/icons"
 data = "/usr/share/icons"

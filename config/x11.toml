@@ -1,4 +1,8 @@
-# X11 configuration
+# X11 compatibility-only configuration
+
+# This profile is not a primary desktop path.
+# Red Bear OS treats KWin Wayland as the production compositor/session path.
+# X exists only for compatibility and legacy app/runtime surfaces.
 
 include = ["desktop.toml"]
 
@@ -158,4 +162,3 @@ gid = 100
 name = "messagebus"
 home = "/nonexistent"
 shell = "/usr/bin/false"
-

@@ -1,18 +1,15 @@
 # Red Bear OS Live Configuration
-# Live ISO variant — boots into Red Bear OS Desktop from USB/DVD
+# Live ISO variant — follows the tracked KDE desktop target
 #
 # Build: make live CONFIG_NAME=redbear-live
 
-include = ["redbear-desktop.toml"]
+include = ["redbear-kde.toml"]
 
 [general]
 # Keep the live installer image reasonably sized
 filesystem_size = 3072
 
 [packages]
-# Keep the live installer image compact for now.
-redbear-firmware = "ignore"
-
-# Keep these explicit for the live profile even though cub is inherited via redbear-desktop.
+# Keep these explicit for the live profile even though cub is inherited via redbear-kde.
 cub = {}
 redbear-meta = {}
