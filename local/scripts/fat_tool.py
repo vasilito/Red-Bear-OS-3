@@ -150,17 +150,32 @@ class Fat32:
         write_le32(self.fat, cluster * 4, value & 0x0FFFFFFF)
 
     def _alloc_cluster(self):
+        """Allocate a single free cluster. Caller must flush FAT."""
         fat_entries = len(self.fat) // 4
         limit = min(self.max_cluster + 1, fat_entries)
         for i in range(2, limit):
             if read_le32(self.fat, i * 4) == 0:
                 self._set_fat(i, END_OF_CHAIN)
-                self._flush_fat()
-                self.f.seek(self._cluster_offset(i))
-                self.f.write(b"\x00" * self.cluster_size)
-                self.f.flush()
                 return i
         raise RuntimeError("FAT32: no free clusters")
+
+    def _alloc_clusters(self, count):
+        """Batch-allocate `count` free clusters in a single FAT scan."""
+        fat_entries = len(self.fat) // 4
+        limit = min(self.max_cluster + 1, fat_entries)
+        clusters = []
+        for i in range(2, limit):
+            if read_le32(self.fat, i * 4) == 0:
+                self._set_fat(i, END_OF_CHAIN)
+                clusters.append(i)
+                if len(clusters) == count:
+                    break
+        if len(clusters) < count:
+            # Roll back partial allocations
+            for c in clusters:
+                self._set_fat(c, 0)
+            raise RuntimeError(f"FAT32: only {len(clusters)}/{count} free clusters available")
+        return clusters
 
     def _cluster_chain(self, start):
         if start < 2:
@@ -529,6 +544,7 @@ class Fat32:
                 continue
 
             new_cluster = self._alloc_cluster()
+            self._flush_fat()
             try:
                 self._initialize_directory(new_cluster, current_cluster)
                 self._add_dir_entry(current_cluster, part, new_cluster, True)
@@ -538,8 +554,7 @@ class Fat32:
             current_cluster = new_cluster
 
     def cp_in(self, host_path, fat_path):
-        with open(host_path, "rb") as host_file:
-            data = host_file.read()
+        file_size = os.path.getsize(host_path)
 
         parts = [part for part in fat_path.replace("\\", "/").split("/") if part]
         if not parts:
@@ -563,35 +578,36 @@ class Fat32:
             if existing["is_dir"]:
                 raise RuntimeError(f"cp-in: '{file_name}' is a directory")
 
-        cluster_count = (len(data) + self.cluster_size - 1) // self.cluster_size
+        cluster_count = (file_size + self.cluster_size - 1) // self.cluster_size
         clusters = []
         try:
-            for _ in range(cluster_count):
-                clusters.append(self._alloc_cluster())
+            if cluster_count > 0:
+                clusters = self._alloc_clusters(cluster_count)
 
-            if clusters:
                 for i in range(len(clusters) - 1):
                     self._set_fat(clusters[i], clusters[i + 1])
                 self._set_fat(clusters[-1], END_OF_CHAIN)
                 self._flush_fat()
 
-                for index, cluster in enumerate(clusters):
-                    chunk = data[index * self.cluster_size : (index + 1) * self.cluster_size]
-                    buffer = bytearray(self.cluster_size)
-                    buffer[: len(chunk)] = chunk
-                    self._write_cluster(cluster, buffer)
+                zero_buf = bytearray(self.cluster_size)
+                with open(host_path, "rb") as host_file:
+                    for index, cluster in enumerate(clusters):
+                        chunk = host_file.read(self.cluster_size)
+                        buf = zero_buf if len(chunk) == self.cluster_size else bytearray(self.cluster_size)
+                        buf[:len(chunk)] = chunk
+                        self._write_cluster(cluster, buf)
 
             first_cluster = clusters[0] if clusters else 0
             if existing is not None:
                 replacement = self._build_short_entry(
-                    existing["short_bytes"], first_cluster, False, len(data)
+                    existing["short_bytes"], first_cluster, False, file_size
                 )
                 self.f.seek(existing["entry_offset"])
                 self.f.write(replacement)
                 if existing["first_cluster"] >= 2:
                     self._free_cluster_chain(existing["first_cluster"])
             else:
-                self._add_dir_entry(parent_cluster, file_name, first_cluster, False, len(data))
+                self._add_dir_entry(parent_cluster, file_name, first_cluster, False, file_size)
             self.f.flush()
             os.fsync(self.f.fileno())
         except Exception:
