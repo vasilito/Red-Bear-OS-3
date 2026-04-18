@@ -86,7 +86,7 @@ with the subsystem plans listed above.
 
 | Phase | Status | Notes |
 |---|---|---|
-| P0 ACPI boot | ✅ Materially complete (boot bring-up) | In-tree and documented in `local/docs/ACPI-FIXES.md`; forward ownership/robustness work lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
+| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; forward ownership/robustness/validation work lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | P1 driver infra | ✅ Complete | Compile-oriented infrastructure present |
 | P2 DRM / display | ✅ Code complete | Hardware validation still pending |
 | P3 POSIX + input | 🚧 In progress | relibc exports now cover the rebuilt `signalfd`/`timerfd`/`eventfd`/`open_memstream` consumer path; runtime validation remains |
@@ -130,7 +130,7 @@ expand on top of them.
 | AMD GPU driver (amdgpu) | ✅ Compiles | LinuxKPI compat + AMD DC modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
 | Intel GPU driver | ✅ Compiles | Display pipe modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
 | ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
-| ACPI for AMD bare metal | ✅ Materially complete (boot bring-up) | x2APIC, MADT, FADT shutdown/reboot, power methods; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, and validation work |
+| ACPI for AMD bare metal | ✅ Materially complete (historical boot baseline) | x2APIC, MADT, FADT shutdown/reboot, power methods; not release-grade complete; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, sleep-state, and validation work |
 | Wired networking | 🚧 Improved | native net stack present, Redox-native `netctl` shipped, RTL8125 autoload wired through the existing Realtek path |
 | Custom branding | ✅ | Boot identity, hostname, os-release |
 | POSIX gaps (relibc) | 🚧 In progress | implementations exist in-tree; runtime validation against Wayland stack is still ongoing |
