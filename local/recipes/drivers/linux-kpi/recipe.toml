@@ -1,4 +1,4 @@
-#TODO: linux-kpi — build-ordering marker. Downstream driver builds compile the crate via Cargo path deps.
+# linux-kpi build-ordering marker. Downstream driver builds compile the crate via Cargo path deps.
 # The cookbook cargo template cannot install a library-only crate cleanly here, so keep this as a
 # custom no-op recipe until the cookbook grows first-class Rust library packaging.
 [source]
