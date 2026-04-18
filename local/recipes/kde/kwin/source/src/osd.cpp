@@ -12,6 +12,7 @@
 #include "workspace.h"
 
 #include <QQmlEngine>
+#include <QTimer>
 #endif
 #include <QThread>
 
@@ -50,6 +51,7 @@ void show(const QString &message, const QString &iconName, int timeout)
     return;
 #endif
 
+#if KWIN_BUILD_QTQUICK
     if (QThread::currentThread() != qGuiApp->thread()) {
         QTimer::singleShot(0, QCoreApplication::instance(), [message, iconName, timeout] {
             show(message, iconName, timeout);
@@ -62,6 +64,7 @@ void show(const QString &message, const QString &iconName, int timeout)
     notification->setMessage(message);
     notification->setTimeout(timeout);
     notification->setVisible(true);
+#endif
 }
 
 void show(const QString &message, int timeout)
@@ -86,8 +89,10 @@ void hide(HideFlags flags)
     return;
 #endif
 
+#if KWIN_BUILD_QTQUICK
     osd()->setSkipCloseAnimation(flags.testFlag(HideFlag::SkipCloseAnimation));
     osd()->setVisible(false);
+#endif
 }
 
 }

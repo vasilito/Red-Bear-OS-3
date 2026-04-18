@@ -16,8 +16,10 @@
 #include <kwin_export.h>
 #include <memory>
 
+#if KWIN_BUILD_QTQUICK
 class QQmlContext;
 class QQmlComponent;
+#endif
 
 namespace KWin
 {
@@ -139,8 +141,10 @@ public:
     void hide() override;
 
 private:
+#if KWIN_BUILD_QTQUICK
     std::unique_ptr<QQmlContext> m_qmlContext;
     std::unique_ptr<QQmlComponent> m_qmlComponent;
+#endif
     std::unique_ptr<QObject> m_mainItem;
 };
 }

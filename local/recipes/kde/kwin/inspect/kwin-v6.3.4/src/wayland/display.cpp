@@ -281,7 +281,7 @@ SecurityContext::~SecurityContext()
 
 void SecurityContext::onListenFdActivated(QSocketDescriptor socketDescriptor)
 {
-    const int clientFd = accept4(socketDescriptor, nullptr, nullptr, SOCK_CLOEXEC);
+    const int clientFd = accept(socketDescriptor, nullptr, nullptr);
     if (clientFd < 0) {
         qCWarning(KWIN_CORE) << "Failed to accept client from security listen FD:" << strerror(errno);
         return;

@@ -50,8 +50,8 @@ option(KWIN_BUILD_KCMS "Enable building of KWin configuration modules." ON)
 option(KWIN_BUILD_NOTIFICATIONS "Enable building of KWin with knotifications support" ON)
 option(KWIN_BUILD_SCREENLOCKER "Enable building of KWin lockscreen functionality" ON)
 option(KWIN_BUILD_TABBOX "Enable building of KWin Tabbox functionality" ON)
-option(KWIN_BUILD_X11 "Enable building X11 common code and Xwayland support" ON)
-option(KWIN_BUILD_X11_BACKEND "Enable building kwin_x11" ON)
+option(KWIN_BUILD_X11 "Enable building X11 common code and Xwayland support" OFF)
+option(KWIN_BUILD_X11_BACKEND "Enable building kwin_x11" OFF)
 option(KWIN_BUILD_GLOBALSHORTCUTS "Enable building of KWin with global shortcuts support" ON)
 option(KWIN_BUILD_RUNNERS "Enable building of KWin with krunner support" ON)
 option(KWIN_BUILD_EFFECTS "Enable building of KWin effect plugins" ON)
@@ -66,6 +66,7 @@ endif()
 find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS
     Concurrent
     Core
+    Qml
     WaylandClient
     Widgets
     Svg
@@ -98,6 +99,7 @@ find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
     ConfigWidgets
     CoreAddons
     Crash
+    Declarative
     GlobalAccel
     GuiAddons
     I18n
@@ -441,18 +443,12 @@ endif()
 cmake_dependent_option(KWIN_BUILD_ACTIVITIES "Enable building of KWin with kactivities support" ON "PlasmaActivities_FOUND" OFF)
 cmake_dependent_option(KWIN_BUILD_EIS "Enable building KWin with libeis support" ON "Libeis-1.0_FOUND" OFF)
 
-# --- Redox stub targets for missing deps ---
+# --- Redox fallback targets for deps still using reduced compatibility paths ---
 if(NOT TARGET epoxy::epoxy)
     add_library(epoxy::epoxy INTERFACE IMPORTED)
 endif()
-if(NOT TARGET UDev::UDev)
-    add_library(UDev::UDev INTERFACE IMPORTED)
-endif()
 if(NOT TARGET lcms2::lcms2)
     add_library(lcms2::lcms2 INTERFACE IMPORTED)
-endif()
-if(NOT TARGET PkgConfig::libdisplayinfo)
-    add_library(PkgConfig::libdisplayinfo INTERFACE IMPORTED)
 endif()
 if(NOT TARGET PkgConfig::Libxcvt)
     add_library(PkgConfig::Libxcvt INTERFACE IMPORTED)

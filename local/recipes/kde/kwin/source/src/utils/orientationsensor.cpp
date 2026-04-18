@@ -6,7 +6,28 @@
 */
 #include "orientationsensor.h"
 
+#include "qorientationreading_compat.h"
+
+#if __has_include(<QOrientationSensor>)
 #include <QOrientationSensor>
+#define KWIN_HAVE_QT_ORIENTATION_SENSOR 1
+#else
+#define KWIN_HAVE_QT_ORIENTATION_SENSOR 0
+class QOrientationSensor : public QObject
+{
+public:
+    using QObject::QObject;
+
+    QOrientationReading *reading() const
+    {
+        return nullptr;
+    }
+
+    void start()
+    {
+    }
+};
+#endif
 
 namespace KWin
 {
@@ -22,6 +43,7 @@ OrientationSensor::~OrientationSensor() = default;
 
 void OrientationSensor::setEnabled(bool enable)
 {
+#if KWIN_HAVE_QT_ORIENTATION_SENSOR
     if (enable) {
         connect(m_sensor.get(), &QOrientationSensor::readingChanged, this, &OrientationSensor::update, Qt::UniqueConnection);
         m_sensor->start();
@@ -29,6 +51,10 @@ void OrientationSensor::setEnabled(bool enable)
         disconnect(m_sensor.get(), &QOrientationSensor::readingChanged, this, &OrientationSensor::update);
         m_reading->setOrientation(QOrientationReading::Undefined);
     }
+#else
+    Q_UNUSED(enable)
+    m_reading->setOrientation(QOrientationReading::Undefined);
+#endif
 }
 
 QOrientationReading *OrientationSensor::reading() const
@@ -38,6 +64,7 @@ QOrientationReading *OrientationSensor::reading() const
 
 void OrientationSensor::update()
 {
+#if KWIN_HAVE_QT_ORIENTATION_SENSOR
     if (auto reading = m_sensor->reading()) {
         if (m_reading->orientation() != reading->orientation()) {
             m_reading->setOrientation(reading->orientation());
@@ -47,6 +74,7 @@ void OrientationSensor::update()
         m_reading->setOrientation(QOrientationReading::Orientation::Undefined);
         Q_EMIT orientationChanged();
     }
+#endif
 }
 
 }

@@ -9,16 +9,11 @@
 
 // own
 #include "dbusinterface.h"
-#include "compositingadaptor.h"
-#include "pluginsadaptor.h"
-#include "virtualdesktopmanageradaptor.h"
 
 // kwin
 #include "compositor.h"
 #include "core/output.h"
 #include "core/renderbackend.h"
-#include "debug_console.h"
-#include "kwinadaptor.h"
 #include "main.h"
 #include "placement.h"
 #include "pluginmanager.h"
@@ -31,6 +26,8 @@
 
 // Qt
 #include <QDBusConnection>
+#include <QDBusMetaType>
+#include <QDBusServiceWatcher>
 #include <QOpenGLContext>
 
 namespace KWin
@@ -40,10 +37,8 @@ DBusInterface::DBusInterface(QObject *parent)
     : QObject(parent)
     , m_serviceName(QStringLiteral("org.kde.KWin"))
 {
-    (void)new KWinAdaptor(this);
-
     QDBusConnection dbus = QDBusConnection::sessionBus();
-    dbus.registerObject(QStringLiteral("/KWin"), this);
+    dbus.registerObject(QStringLiteral("/KWin"), this, QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals | QDBusConnection::ExportScriptableProperties);
     dbus.registerService(m_serviceName);
     dbus.connect(QString(), QStringLiteral("/KWin"), QStringLiteral("org.kde.KWin"), QStringLiteral("reloadConfig"),
                  Workspace::self(), SLOT(slotReloadConfig()));
@@ -137,8 +132,7 @@ void DBusInterface::previousDesktop()
 
 void DBusInterface::showDebugConsole()
 {
-    DebugConsole *console = new DebugConsole;
-    console->show();
+    // Debug console is intentionally disabled in the reduced Wayland-only build.
 }
 
 void DBusInterface::replace()
@@ -262,7 +256,6 @@ CompositorDBusInterface::CompositorDBusInterface(Compositor *parent)
     , m_compositor(parent)
 {
     connect(m_compositor, &Compositor::compositingToggled, this, &CompositorDBusInterface::compositingToggled);
-    new CompositingAdaptor(this);
     QDBusConnection dbus = QDBusConnection::sessionBus();
     dbus.registerObject(QStringLiteral("/Compositor"), this);
     dbus.connect(QString(), QStringLiteral("/Compositor"), QStringLiteral("org.kde.kwin.Compositing"),
@@ -343,7 +336,6 @@ VirtualDesktopManagerDBusInterface::VirtualDesktopManagerDBusInterface(VirtualDe
     qDBusRegisterMetaType<KWin::DBusDesktopDataStruct>();
     qDBusRegisterMetaType<KWin::DBusDesktopDataVector>();
 
-    new VirtualDesktopManagerAdaptor(this);
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/VirtualDesktopManager"),
                                                  QStringLiteral("org.kde.KWin.VirtualDesktopManager"),
                                                  this);
@@ -491,8 +483,6 @@ PluginManagerDBusInterface::PluginManagerDBusInterface(PluginManager *manager)
     : QObject(manager)
     , m_manager(manager)
 {
-    new PluginsAdaptor(this);
-
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Plugins"),
                                                  QStringLiteral("org.kde.KWin.Plugins"),
                                                  this);

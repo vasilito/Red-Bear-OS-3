@@ -48,7 +48,13 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QDialogButtonBox>
+#include <QHBoxLayout>
+#include <QKeySequenceEdit>
+#include <QLabel>
 #include <QPushButton>
+#include <QToolButton>
+#include <QVBoxLayout>
 #include <QWindow>
 
 #include <KGlobalAccel>
@@ -764,16 +770,35 @@ void UserActionsMenu::slotWindowOperation(QAction *action)
 ShortcutDialog::ShortcutDialog(const QKeySequence &cut)
     : _shortcut(cut)
 {
-    m_ui.setupUi(this);
-    m_ui.keySequenceEdit->setKeySequence(cut);
-    m_ui.warning->hide();
+    auto *layout = new QVBoxLayout(this);
+
+    m_keySequenceEdit = new QKeySequenceEdit(this);
+    m_keySequenceEdit->setKeySequence(cut);
+    layout->addWidget(m_keySequenceEdit);
+
+    m_warning = new QLabel(this);
+    m_warning->hide();
+    layout->addWidget(m_warning);
+
+    auto *actionsLayout = new QHBoxLayout();
+    m_clearButton = new QToolButton(this);
+    m_clearButton->setText(i18nc("@action:button", "Clear"));
+    actionsLayout->addWidget(m_clearButton);
+    actionsLayout->addStretch(1);
+    layout->addLayout(actionsLayout);
+
+    m_buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    layout->addWidget(m_buttonBox);
+
+    connect(m_buttonBox, &QDialogButtonBox::accepted, this, &ShortcutDialog::accept);
+    connect(m_buttonBox, &QDialogButtonBox::rejected, this, &ShortcutDialog::reject);
 
     // Listen to changed shortcuts
-    connect(m_ui.keySequenceEdit, &QKeySequenceEdit::editingFinished, this, &ShortcutDialog::keySequenceChanged);
-    connect(m_ui.clearButton, &QToolButton::clicked, this, [this] {
+    connect(m_keySequenceEdit, &QKeySequenceEdit::editingFinished, this, &ShortcutDialog::keySequenceChanged);
+    connect(m_clearButton, &QToolButton::clicked, this, [this] {
         _shortcut = QKeySequence();
     });
-    m_ui.keySequenceEdit->setFocus();
+    m_keySequenceEdit->setFocus();
 
     setWindowFlags(Qt::Popup | Qt::X11BypassWindowManagerHint);
 }
@@ -788,7 +813,7 @@ void ShortcutDialog::accept()
         }
         if (seq[0] == QKeyCombination(Qt::Key_Space) || seq[0].keyboardModifiers() == Qt::NoModifier) {
             // clear
-            m_ui.keySequenceEdit->clear();
+            m_keySequenceEdit->clear();
             QDialog::accept();
             return;
         }
@@ -805,7 +830,7 @@ void ShortcutDialog::done(int r)
 void ShortcutDialog::keySequenceChanged()
 {
     activateWindow(); // where is the kbd focus lost? cause of popup state?
-    QKeySequence seq = m_ui.keySequenceEdit->keySequence();
+    QKeySequence seq = m_keySequenceEdit->keySequence();
     if (_shortcut == seq) {
         return; // don't try to update the same
     }
@@ -816,7 +841,7 @@ void ShortcutDialog::keySequenceChanged()
     }
     if (seq.count() > 1) {
         seq = QKeySequence(seq[0]);
-        m_ui.keySequenceEdit->setKeySequence(seq);
+        m_keySequenceEdit->setKeySequence(seq);
     }
 
     // Check if the key sequence is used currently
@@ -825,15 +850,15 @@ void ShortcutDialog::keySequenceChanged()
     QList<KGlobalShortcutInfo> conflicting = KGlobalAccel::globalShortcutsByKey(seq);
     if (!conflicting.isEmpty()) {
         const KGlobalShortcutInfo &conflict = conflicting.at(0);
-        m_ui.warning->setText(i18nc("'%1' is a keyboard shortcut like 'ctrl+w'",
+        m_warning->setText(i18nc("'%1' is a keyboard shortcut like 'ctrl+w'",
                                     "<b>%1</b> is already in use", sc));
-        m_ui.warning->setToolTip(i18nc("keyboard shortcut '%1' is used by action '%2' in application '%3'",
+        m_warning->setToolTip(i18nc("keyboard shortcut '%1' is used by action '%2' in application '%3'",
                                        "<b>%1</b> is used by %2 in %3", sc, conflict.friendlyName(), conflict.componentFriendlyName()));
-        m_ui.warning->show();
-        m_ui.keySequenceEdit->setKeySequence(shortcut());
+        m_warning->show();
+        m_keySequenceEdit->setKeySequence(shortcut());
     } else if (seq != _shortcut) {
-        m_ui.warning->hide();
-        if (QPushButton *ok = m_ui.buttonBox->button(QDialogButtonBox::Ok)) {
+        m_warning->hide();
+        if (QPushButton *ok = m_buttonBox->button(QDialogButtonBox::Ok)) {
             ok->setFocus();
         }
     }

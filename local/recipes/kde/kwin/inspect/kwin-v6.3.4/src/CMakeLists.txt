@@ -81,7 +81,6 @@ target_sources(kwin PRIVATE
     cursor.cpp
     cursorsource.cpp
     dbusinterface.cpp
-    debug_console.cpp
     decorations/decoratedwindow.cpp
     decorations/decorationbridge.cpp
     decorations/decorationpalette.cpp
@@ -234,6 +233,7 @@ target_link_libraries(kwin
     PRIVATE
         Qt::Concurrent
         Qt::GuiPrivate
+        Qt::Qml
         Qt::Svg
 
         KF6::ColorScheme
@@ -247,13 +247,18 @@ target_link_libraries(kwin
         KDecoration3::KDecoration
         KDecoration3::KDecoration3Private
 
-        $<$<TARGET_EXISTS:UDev::UDev>:UDev::UDev>
+        UDev::UDev
         XKB::XKB
         EGL::EGL
 
         Threads::Threads
         $<$<TARGET_EXISTS:lcms2::lcms2>:lcms2::lcms2>
-        $<$<TARGET_EXISTS:PkgConfig::libdisplayinfo>:PkgConfig::libdisplayinfo>
+        PkgConfig::libdisplayinfo
+)
+
+target_include_directories(kwin PRIVATE
+    ${CMAKE_PREFIX_PATH}/include/KF6/KDeclarative
+    $ENV{COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/gui
 )
 
 if (KWIN_BUILD_QTQUICK)
@@ -328,28 +333,16 @@ kconfig_add_kcfg_files(kwin
 )
 
 ki18n_wrap_ui(kwin
-    debug_console.ui
     shortcutdialog.ui
 )
 
 if(Qt6DBus_FOUND)
     set(kwin_dbus_SRCS)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS scripting/org.kde.kwin.Script.xml scripting/scripting.h KWin::AbstractScript)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.xml dbusinterface.h KWin::DBusInterface)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.kwin.Compositing.xml dbusinterface.h KWin::CompositorDBusInterface)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS ${kwin_effects_dbus_xml} effect/effecthandler.h KWin::EffectsHandler)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.VirtualDesktopManager.xml dbusinterface.h KWin::VirtualDesktopManagerDBusInterface)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.Session.xml sm.h KWin::SessionManager)
-    qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.Plugins.xml dbusinterface.h KWin::PluginManagerDBusInterface)
-    qt_add_dbus_interface(kwin_dbus_SRCS org.freedesktop.DBus.Properties.xml dbusproperties_interface)
 
     if (KWIN_BUILD_SCREENLOCKER)
         qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/kf6_org.freedesktop.ScreenSaver.xml screenlocker_interface)
         qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/org.kde.screensaver.xml kscreenlocker_interface)
     endif()
-
-    qt_add_dbus_interface(kwin_dbus_SRCS org.kde.kappmenu.xml appmenu_interface)
-
     target_sources(kwin PRIVATE ${kwin_dbus_SRCS})
 endif()
 
@@ -451,8 +444,6 @@ if (HAVE_LIBCAP)
 endif()
 
 target_link_libraries(kwin_wayland
-    KWinQpaPlugin
-    KF6WindowSystemKWinPlugin
     KF6IdleTimeKWinPlugin
 )
 
@@ -502,7 +493,6 @@ install(FILES
     cursor.h
     cursorsource.h
     dbusinterface.h
-    debug_console.h
     focuschain.h
     ftrace.h
     gestures.h

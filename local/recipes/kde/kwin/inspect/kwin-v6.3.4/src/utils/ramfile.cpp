@@ -78,14 +78,18 @@ RamFile::RamFile(const char *name, const void *inData, int size, RamFile::Flags 
     m_tmp->unmap(data);
 #endif
 
+#if defined(F_SEAL_SHRINK) && defined(F_SEAL_GROW) && defined(F_SEAL_SEAL) && defined(F_ADD_SEALS)
     int seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL;
     if (flags.testFlag(RamFile::Flag::SealWrite)) {
+#if defined(F_SEAL_WRITE)
         seals |= F_SEAL_WRITE;
+#endif
     }
     // This can fail for QTemporaryFile based on the underlying file system.
     if (fcntl(fd(), F_ADD_SEALS, seals) != 0) {
         qCDebug(KWIN_CORE).nospace() << name << ": Failed to seal RamFile: " << strerror(errno);
     }
+#endif
 
     guard.dismiss();
 }
@@ -137,12 +141,16 @@ RamFile::Flags RamFile::effectiveFlags() const
 {
     Flags flags = {};
 
+#if defined(F_GET_SEALS) && defined(F_SEAL_WRITE)
     const int seals = fcntl(fd(), F_GET_SEALS);
     if (seals > 0) {
         if (seals & F_SEAL_WRITE) {
             flags.setFlag(Flag::SealWrite);
         }
     }
+#else
+    flags = m_flags;
+#endif
 
     return flags;
 }

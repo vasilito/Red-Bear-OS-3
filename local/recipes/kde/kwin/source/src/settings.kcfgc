@@ -2,5 +2,5 @@ File=kwin.kcfg
 NameSpace=KWin
 ClassName=Settings
 # options.h is needed for FocusPolicy and PlacementPolicy
-IncludeFiles=\"options.h\"
+IncludeFiles="options.h"
 UseEnumTypes=true

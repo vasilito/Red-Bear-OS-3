@@ -24,7 +24,6 @@
 #if KWIN_BUILD_QTQUICK
 #include "effect/offscreenquickview.h"
 #endif
-#include "effectsadaptor.h"
 #include "input.h"
 #include "input_event.h"
 #include "inputmethod.h"
@@ -61,8 +60,10 @@
 #include <KDecoration3/Decoration>
 #include <KDecoration3/DecorationSettings>
 
+#include <QDBusConnection>
 #include <QFontMetrics>
 #include <QMatrix4x4>
+#include <QMetaProperty>
 #include <QPainter>
 #include <QPixmap>
 #include <QTimeLine>
@@ -139,9 +140,6 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
         effectsChanged();
     });
     m_effectLoader->setConfig(kwinApp()->config());
-    new EffectsAdaptor(this);
-    QDBusConnection dbus = QDBusConnection::sessionBus();
-    dbus.registerObject(QStringLiteral("/Effects"), this);
 
     connect(options, &Options::animationSpeedChanged, this, &EffectsHandler::reconfigureEffects);
 

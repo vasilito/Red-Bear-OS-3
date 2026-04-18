@@ -22,9 +22,11 @@
 #include <QDBusContext>
 #include <QDBusMessage>
 
-class QQmlComponent;
 class QQmlContext;
 class QQmlEngine;
+#if KWIN_BUILD_QTQUICK
+class QQmlComponent;
+#endif
 class QAction;
 class QMenu;
 class QRecursiveMutex;
@@ -249,6 +251,7 @@ private:
     QJSValueList m_userActionsMenuCallbacks;
 };
 
+#if KWIN_BUILD_QTQUICK
 class DeclarativeScript : public AbstractScript
 {
     Q_OBJECT
@@ -266,6 +269,7 @@ private:
     QQmlContext *m_context;
     QQmlComponent *m_component;
 };
+#endif
 
 class JSEngineGlobalMethodsWrapper : public QObject
 {
@@ -293,14 +297,14 @@ public:
         ScreenArea
     };
     Q_ENUM(ClientAreaOption)
-    explicit JSEngineGlobalMethodsWrapper(DeclarativeScript *parent);
+    explicit JSEngineGlobalMethodsWrapper(AbstractScript *parent);
     ~JSEngineGlobalMethodsWrapper() override;
 
 public Q_SLOTS:
     QVariant readConfig(const QString &key, QVariant defaultValue = QVariant());
 
 private:
-    DeclarativeScript *m_script;
+    AbstractScript *m_script;
 };
 
 /**
@@ -325,7 +329,9 @@ private:
 public:
     ~Scripting() override;
     Q_SCRIPTABLE Q_INVOKABLE int loadScript(const QString &filePath, const QString &pluginName = QString());
+#if KWIN_BUILD_QTQUICK
     Q_SCRIPTABLE Q_INVOKABLE int loadDeclarativeScript(const QString &filePath, const QString &pluginName = QString());
+#endif
     Q_SCRIPTABLE Q_INVOKABLE bool isScriptLoaded(const QString &pluginName) const;
     Q_SCRIPTABLE Q_INVOKABLE bool unloadScript(const QString &pluginName);
 
@@ -340,8 +346,10 @@ public:
 
     QQmlEngine *qmlEngine() const;
     QQmlEngine *qmlEngine();
+#if KWIN_BUILD_QTQUICK
     QQmlContext *declarativeScriptSharedContext() const;
     QQmlContext *declarativeScriptSharedContext();
+#endif
     QtScriptWorkspaceWrapper *workspaceWrapper() const;
 
     AbstractScript *findScript(const QString &pluginName) const;
@@ -375,6 +383,7 @@ inline QQmlEngine *Scripting::qmlEngine()
     return m_qmlEngine;
 }
 
+#if KWIN_BUILD_QTQUICK
 inline QQmlContext *Scripting::declarativeScriptSharedContext() const
 {
     return m_declarativeScriptSharedContext;
@@ -384,6 +393,7 @@ inline QQmlContext *Scripting::declarativeScriptSharedContext()
 {
     return m_declarativeScriptSharedContext;
 }
+#endif
 
 inline QtScriptWorkspaceWrapper *Scripting::workspaceWrapper() const
 {

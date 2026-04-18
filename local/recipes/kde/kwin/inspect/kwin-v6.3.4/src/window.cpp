@@ -38,6 +38,8 @@
 #include "wayland/plasmawindowmanagement.h"
 #include "wayland/surface.h"
 #include "wayland_server.h"
+
+#include <KLocalizedString>
 #include "workspace.h"
 
 #include <KDecoration3/DecoratedWindow>

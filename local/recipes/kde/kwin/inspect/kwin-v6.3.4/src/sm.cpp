@@ -31,7 +31,8 @@
 #include <KService>
 #endif
 
-#include "sessionadaptor.h"
+#include <QDBusConnection>
+#include <QDBusMessage>
 
 using namespace Qt::StringLiterals;
 
@@ -355,7 +356,6 @@ SessionInfo *SessionManager::takeSessionInfo(X11Window *c)
 SessionManager::SessionManager(QObject *parent)
     : QObject(parent)
 {
-    new SessionAdaptor(this);
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Session"), this);
 }
 

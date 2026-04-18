@@ -30,7 +30,9 @@
 #include <QScreen>
 #include <QTimer>
 
+#if KWIN_BUILD_X11
 #include <xcb/xcb_cursor.h>
+#endif
 
 namespace KWin
 {

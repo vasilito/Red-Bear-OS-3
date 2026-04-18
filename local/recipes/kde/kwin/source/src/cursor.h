@@ -15,7 +15,7 @@
 #include <QPoint>
 // KF
 #include <KSharedConfig>
-// xcb
+
 #include <xcb/xcb.h>
 
 class QTimer;

@@ -7,7 +7,6 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #include "xkb.h"
-#include "dbusproperties_interface.h"
 #include "inputmethod.h"
 #include "utils/c_ptr.h"
 #include "utils/common.h"
@@ -18,8 +17,9 @@
 #include <KConfigGroup>
 // Qt
 #include <QKeyEvent>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QTemporaryFile>
-#include <QtGui/private/qxkbcommon_p.h>
 // xkbcommon
 #include <xkbcommon/xkbcommon-compose.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -406,6 +406,80 @@ static const TransKey g_rgSymXToQT[] = {
     { XKB_KEY_XF86LaunchE,             Qt::Key_LaunchE },
     { XKB_KEY_XF86LaunchF,             Qt::Key_LaunchF },
 };
+
+static bool isLatin1Keysym(xkb_keysym_t sym)
+{
+    return sym >= 0x20 && sym <= 0xff;
+}
+
+static bool isKeypadKeysym(xkb_keysym_t sym)
+{
+    switch (sym) {
+    case XKB_KEY_KP_Space:
+    case XKB_KEY_KP_Tab:
+    case XKB_KEY_KP_Enter:
+    case XKB_KEY_KP_F1:
+    case XKB_KEY_KP_F2:
+    case XKB_KEY_KP_F3:
+    case XKB_KEY_KP_F4:
+    case XKB_KEY_KP_Home:
+    case XKB_KEY_KP_Left:
+    case XKB_KEY_KP_Up:
+    case XKB_KEY_KP_Right:
+    case XKB_KEY_KP_Down:
+    case XKB_KEY_KP_Prior:
+    case XKB_KEY_KP_Next:
+    case XKB_KEY_KP_End:
+    case XKB_KEY_KP_Begin:
+    case XKB_KEY_KP_Insert:
+    case XKB_KEY_KP_Delete:
+    case XKB_KEY_KP_Equal:
+    case XKB_KEY_KP_Multiply:
+    case XKB_KEY_KP_Add:
+    case XKB_KEY_KP_Separator:
+    case XKB_KEY_KP_Subtract:
+    case XKB_KEY_KP_Decimal:
+    case XKB_KEY_KP_Divide:
+    case XKB_KEY_KP_0:
+    case XKB_KEY_KP_1:
+    case XKB_KEY_KP_2:
+    case XKB_KEY_KP_3:
+    case XKB_KEY_KP_4:
+    case XKB_KEY_KP_5:
+    case XKB_KEY_KP_6:
+    case XKB_KEY_KP_7:
+    case XKB_KEY_KP_8:
+    case XKB_KEY_KP_9:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void convertCase(xkb_keysym_t sym, xkb_keysym_t *lower, xkb_keysym_t *upper)
+{
+    if (lower) {
+        *lower = xkb_keysym_to_lower(sym);
+    }
+    if (upper) {
+        *upper = xkb_keysym_to_upper(sym);
+    }
+}
+
+static int keysymToQtKeyLocal(xkb_keysym_t keysym)
+{
+    for (const TransKey &tk : g_rgSymXToQT) {
+        if (tk.keySymX == keysym) {
+            return tk.keySymQt;
+        }
+    }
+
+    if (isLatin1Keysym(keysym)) {
+        return int(keysym);
+    }
+
+    return Qt::Key_unknown;
+}
 // clang-format on
 
 static void xkbLogHandler(xkb_context *context, xkb_log_level priority, const char *format, va_list args)
@@ -614,8 +688,9 @@ xkb_keymap *Xkb::loadDefaultKeymap()
 
 xkb_keymap *Xkb::loadKeymapFromLocale1()
 {
-    OrgFreedesktopDBusPropertiesInterface locale1Properties(s_locale1Interface, "/org/freedesktop/locale1", QDBusConnection::systemBus(), this);
-    const QVariantMap properties = locale1Properties.GetAll(s_locale1Interface);
+    QDBusInterface locale1Properties(s_locale1Interface, "/org/freedesktop/locale1", s_locale1Interface, QDBusConnection::systemBus(), this);
+    QDBusReply<QVariantMap> reply = locale1Properties.call(QStringLiteral("GetAll"), QString::fromLatin1(s_locale1Interface));
+    const QVariantMap properties = reply.isValid() ? reply.value() : QVariantMap{};
 
     const QByteArray model = properties["X11Model"].toByteArray();
     const QByteArray layout = properties["X11Layout"].toByteArray();
@@ -965,7 +1040,9 @@ Qt::Key Xkb::toQtKey(xkb_keysym_t keySym,
                      Qt::KeyboardModifiers modifiers) const
 {
     // FIXME: passing superAsMeta doesn't have impact due to bug in the Qt function, so handle it below
-    Qt::Key qtKey = Qt::Key(QXkbCommon::keysymToQtKey(keySym, modifiers, m_state, scanCode + EVDEV_OFFSET));
+    Q_UNUSED(modifiers)
+    Q_UNUSED(scanCode)
+    Qt::Key qtKey = Qt::Key(keysymToQtKeyLocal(keySym));
 
     // FIXME: workarounds for symbols currently wrong/not mappable via keysymToQtKey()
     if (qtKey > 0xff && keySym <= 0xff) {
@@ -1255,9 +1332,9 @@ QList<xkb_keysym_t> Xkb::keysymsFromQtKey(int keyQt)
             syms.append(XKB_KEY_KP_0 + (symQt - Qt::Key_0));
             return syms;
         }
-    } else if (QXkbCommon::isLatin1(symQt)) {
+    } else if (isLatin1Keysym(symQt)) {
         xkb_keysym_t lower, upper;
-        QXkbCommon::xkbcommon_XConvertCase(symQt, &lower, &upper);
+        convertCase(symQt, &lower, &upper);
         if (keyQt & Qt::ShiftModifier) {
             syms.append(upper);
         } else {
@@ -1269,10 +1346,10 @@ QList<xkb_keysym_t> Xkb::keysymsFromQtKey(int keyQt)
     for (const TransKey &tk : g_rgSymXToQT) {
         if (tk.keySymQt == symQt) {
             // Use keysyms from the keypad if and only if KeypadModifier is set
-            if (hasKeypadMod && !QXkbCommon::isKeypad(tk.keySymX)) {
+            if (hasKeypadMod && !isKeypadKeysym(tk.keySymX)) {
                 continue;
             }
-            if (!hasKeypadMod && QXkbCommon::isKeypad(tk.keySymX)) {
+            if (!hasKeypadMod && isKeypadKeysym(tk.keySymX)) {
                 continue;
             }
             syms.append(tk.keySymX);

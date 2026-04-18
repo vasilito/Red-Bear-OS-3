@@ -143,8 +143,10 @@ OutlineVisual::~OutlineVisual()
 
 CompositedOutlineVisual::CompositedOutlineVisual(Outline *outline)
     : OutlineVisual(outline)
+#if KWIN_BUILD_QTQUICK
     , m_qmlContext()
     , m_qmlComponent()
+#endif
     , m_mainItem()
 {
 }

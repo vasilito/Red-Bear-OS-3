@@ -44,7 +44,6 @@
 #include <QMenu>
 
 #include <linux/input-event-codes.h>
-#include <private/qxkbcommon_p.h>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 

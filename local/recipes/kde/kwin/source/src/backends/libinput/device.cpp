@@ -18,6 +18,7 @@
 #include "pointer_input.h"
 
 #include <QCryptographicHash>
+#include <libudev.h>
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusMetaType>
@@ -330,10 +331,10 @@ Device::Device(libinput_device *device, QObject *parent)
     , m_switch(libinput_device_has_capability(m_device, LIBINPUT_DEVICE_CAP_SWITCH))
     , m_lidSwitch(m_switch ? libinput_device_switch_has_switch(m_device, LIBINPUT_SWITCH_LID) : false)
     , m_tabletSwitch(m_switch ? libinput_device_switch_has_switch(m_device, LIBINPUT_SWITCH_TABLET_MODE) : false)
-    , m_touchpad(m_pointer && udev_device_get_property_value(libinput_device_get_udev_device(m_device), "ID_INPUT_TOUCHPAD"))
+    , m_touchpad(false)
     , m_name(QString::fromLocal8Bit(libinput_device_get_name(m_device)))
     , m_sysName(QString::fromLocal8Bit(libinput_device_get_sysname(m_device)))
-    , m_sysPath(QString::fromLocal8Bit(udev_device_get_syspath(libinput_device_get_udev_device(m_device))))
+    , m_sysPath(QString())
     , m_outputName(QString::fromLocal8Bit(libinput_device_get_output_name(m_device)))
     , m_product(libinput_device_get_id_product(m_device))
     , m_vendor(libinput_device_get_id_vendor(m_device))

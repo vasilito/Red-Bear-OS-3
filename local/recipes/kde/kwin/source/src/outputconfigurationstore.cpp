@@ -16,12 +16,12 @@
 #include "input_event.h"
 #include "kscreenintegration.h"
 #include "workspace.h"
+#include "utils/qorientationreading_compat.h"
 
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QOrientationReading>
 #include <ranges>
 
 namespace KWin

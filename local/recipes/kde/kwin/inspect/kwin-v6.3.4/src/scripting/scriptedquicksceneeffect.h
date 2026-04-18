@@ -8,7 +8,7 @@
 
 #include "effect/quickeffect.h"
 
-#include <KConfigPropertyMap>
+#include <KDeclarative/KConfigPropertyMap>
 
 #include <QTimer>
 

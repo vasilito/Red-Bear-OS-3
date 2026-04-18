@@ -173,6 +173,10 @@ bool ScriptedEffectLoader::loadJavascriptEffect(const KPluginMetaData &effect)
 
 bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata)
 {
+#if !KWIN_BUILD_QTQUICK
+    Q_UNUSED(metadata)
+    return false;
+#else
     const QString name = metadata.pluginId();
     const QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
                                                       QLatin1String("kwin/effects/") + name + QLatin1String("/contents/ui/main.qml"));
@@ -207,6 +211,7 @@ bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata
     Q_EMIT effectLoaded(effect, name);
     m_loadedEffects << name;
     return true;
+#endif
 }
 
 void ScriptedEffectLoader::queryAndLoadAll()

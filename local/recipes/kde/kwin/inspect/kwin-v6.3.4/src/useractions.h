@@ -7,8 +7,6 @@
     SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
-#include "ui_shortcutdialog.h"
-
 #include "effect/globals.h"
 
 // Qt
@@ -17,7 +15,11 @@
 #include <QPointer>
 
 class QAction;
+class QLabel;
+class QDialogButtonBox;
+class QKeySequenceEdit;
 class QRect;
+class QToolButton;
 
 namespace KWin
 {
@@ -227,7 +229,10 @@ protected:
     void done(int r) override;
 
 private:
-    Ui::ShortcutDialog m_ui;
+    QKeySequenceEdit *m_keySequenceEdit = nullptr;
+    QLabel *m_warning = nullptr;
+    QToolButton *m_clearButton = nullptr;
+    QDialogButtonBox *m_buttonBox = nullptr;
     QKeySequence _shortcut;
 };
 
