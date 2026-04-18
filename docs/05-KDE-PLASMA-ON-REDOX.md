@@ -449,17 +449,17 @@ seatd = {}
 evdevd = {}
 drmd = {}
 
-# Override init to launch KDE session
+# Historical example: launch KDE session
 [[files]]
-path = "/usr/lib/init.d/20_orbital"
+path = "/usr/lib/init.d/20_display"
 data = """
 requires_weak 10_net
 notify audiod
-nowait VT=3 orbital orbital-kde
+nowait VT=3 redbear-kde-session
 """
 
 [[files]]
-path = "/usr/bin/orbital-kde"
+path = "/usr/bin/redbear-kde-session"
 mode = 0o755
 data = """
 #!/usr/bin/env bash
@@ -518,7 +518,7 @@ Once Qt + KDE Frameworks are ported, these apps should compile with minimal patc
 
 ### D-Bus (Already Ported)
 D-Bus is ported, and current KDE-facing runtime wiring belongs to the Red Bear desktop/KDE profiles.
-It should not be framed as an X11-only or X11-primary integration surface.
+It should not be framed as an alternate-windowing-primary integration surface.
 
 ### Audio: PulseAudio PipeWire Shim Needed
 KDE expects PulseAudio or PipeWire for audio. Redox has its own `scheme:audio`.
@@ -556,4 +556,4 @@ KDE uses NetworkManager for network configuration. Redox has `smolnetd`.
 **Critical insight**: The Qt Foundation phase is the highest-risk phase.
 If Qt compilation hits unexpected relibc gaps, the entire KDE timeline shifts.
 Mitigation: start Qt porting early, even before DRM/input is complete,
-using software rendering and Orbital backend as a test environment.
+using software rendering and a bounded test environment.

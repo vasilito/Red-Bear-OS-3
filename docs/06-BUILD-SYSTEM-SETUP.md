@@ -99,19 +99,17 @@ echo 'PODMAN_BUILD?=0' > .config
 ### Select Build Configuration
 
 Mainline configs still exist, but tracked Red Bear work should normally be built and validated
-through the first-class `redbear-*` profiles.
+through the tracked `redbear-*` profiles. For the desktop direction specifically, `redbear-kde`
+is the tracked default target.
 
 Available configs (in `config/`):
 
 | Config | Description |
 |---|---|
-| `minimal` | Bare minimum bootable system |
-| `server` | Server-oriented (no GUI) |
-| `desktop-minimal` | Orbital + basic GUI apps |
-| `desktop` | COSMIC apps + installer |
-| `wayland` | Wayland compositor (experimental) |
-| `x11` | X.org + MATE desktop |
-| `demo` | Demo apps |
+| `redbear-minimal` | Minimal tracked Red Bear image |
+| `redbear-full` | Broader tracked integration image |
+| `redbear-kde` | Tracked default KWin Wayland image |
+| `redbear-live` | Live image following the tracked desktop target |
 
 ## Building
 
@@ -121,7 +119,7 @@ Available configs (in `config/`):
 make all
 ```
 
-This produces `build/x86_64/desktop/harddrive.img`.
+This produces `build/x86_64/redbear-kde/harddrive.img`.
 
 ### Export External Toolchain
 
@@ -147,16 +145,13 @@ For the full layout and rationale, see `local/docs/EXTERNAL-TOOLCHAIN.md`.
 
 ```bash
 # Preferred Red Bear wrapper:
-./local/scripts/build-redbear.sh redbear-desktop
 ./local/scripts/build-redbear.sh redbear-minimal
-./local/scripts/build-redbear.sh redbear-wayland
 ./local/scripts/build-redbear.sh redbear-full
 ./local/scripts/build-redbear.sh redbear-kde
 ./local/scripts/build-redbear.sh redbear-live
 
 # Direct make is still valid when needed:
-make all CONFIG_NAME=redbear-desktop
-make all CONFIG_NAME=redbear-wayland
+make all CONFIG_NAME=redbear-kde
 ```
 
 For tracked Red Bear work, prefer the `redbear-*` profiles over older mainline profile names.
@@ -164,8 +159,8 @@ For tracked Red Bear work, prefer the `redbear-*` profiles over older mainline p
 ### Build a Live ISO
 
 ```bash
-make live
-# Produces: build/x86_64/desktop/redox-live.iso
+make live CONFIG_NAME=redbear-live
+# Produces: build/x86_64/redbear-live/redox-live.iso
 ```
 
 ### Rebuild After Changes
@@ -179,8 +174,11 @@ make rebuild    # Clean rebuild of filesystem image
 ### QEMU (Recommended)
 
 ```bash
-# Desktop with Orbital GUI:
+# Default tracked KWin Wayland desktop target:
 make qemu
+
+# Explicit KWin Wayland desktop target:
+make qemu CONFIG_NAME=redbear-kde
 
 # With more RAM:
 make qemu QEMUFLAGS="-m 4G"
@@ -202,7 +200,7 @@ make virtualbox
 
 ```bash
 # Write image to USB device (replace sdX with your device):
-sudo dd if=build/x86_64/desktop/harddrive.img of=/dev/sdX bs=4M status=progress
+sudo dd if=build/x86_64/redbear-kde/harddrive.img of=/dev/sdX bs=4M status=progress
 ```
 
 ## Building Specific Packages (Recipes)
@@ -212,7 +210,7 @@ sudo dd if=build/x86_64/desktop/harddrive.img of=/dev/sdX bs=4M status=progress
 ```bash
 # Using the repo tool:
 ./target/release/repo cook recipes/libs/mesa
-./target/release/repo cook recipes/gui/orbital
+./target/release/repo cook recipes/wip/kde/kwin
 ```
 
 Under the Red Bear overlay model, remember:
@@ -264,7 +262,7 @@ cp target/release/myapp ${COOKBOOK_STAGE}/usr/bin/
 | Variable | Default | Description |
 |---|---|---|
 | `ARCH` | Host arch | Target architecture (x86_64, aarch64, i586, riscv64gc) |
-| `CONFIG_NAME` | `desktop` | Build config name |
+| `CONFIG_NAME` | `redbear-kde` | Build config name |
 | `PODMAN_BUILD` | `1` | Use Podman container |
 | `PREFIX_BINARY` | `1` | Use prebuilt toolchain (faster) |
 | `REPO_BINARY` | `0` | Use prebuilt packages (faster, no compilation) |
@@ -326,7 +324,7 @@ make distclean
 redox-master/
 ├── build/
 │   └── x86_64/
-│       └── desktop/
+│       └── redbear-kde/
 │           ├── harddrive.img      # Bootable disk image
 │           ├── redox-live.iso     # Live CD ISO
 │           ├── filesystem/        # Mounted filesystem (during build)

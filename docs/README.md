@@ -18,8 +18,9 @@ current/canonical versus historical/reference split obvious.
 
 > **Red Bear note:** newer subsystem plans can also live under `local/docs/` when they are Red Bear-
 > specific rather than general Redox architecture material. In particular, see
-> `local/docs/WIFI-IMPLEMENTATION-PLAN.md` for the current Wi-Fi direction and
-> `local/docs/AMD-FIRST-INTEGRATION.md` for the AMD-focused hardware roadmap.
+> `local/docs/WIFI-IMPLEMENTATION-PLAN.md` for the current Wi-Fi direction,
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path,
+> and `local/docs/AMD-FIRST-INTEGRATION.md` for AMD-specific technical detail only.
 
 > **Repository model:** RedBearOS relates to Redox in the same way Ubuntu relates to Debian.
 > Upstream Redox remains the base platform; Red Bear carries packaging, patch, validation, and
@@ -37,7 +38,7 @@ current/canonical versus historical/reference split obvious.
 | Document set | Role |
 |---|---|
 | `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
-| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | canonical current Red Bear subsystem plans and status |
+| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | canonical current Red Bear subsystem plans and status |
 | `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
 | `docs/02-GAP-ANALYSIS.md`, `docs/03-WAYLAND-ON-REDOX.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
 
@@ -67,9 +68,12 @@ current local subsystem plan.
 - `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — guarantees and non-guarantees for the main Wi-Fi and Bluetooth validation helpers plus core repo scripts
 - `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
 - `../local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` — canonical operator path for the bounded Bluetooth Battery Level QEMU validation slice
+- `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
+- `../local/docs/ACPI-FIXES.md` — historical P0 ACPI bring-up ledger and status record
 - `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — current low-level controller and IRQ blocker plan
-- `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap; historical AMD-first sequencing, not current platform-priority policy
-- `../local/docs/PROJECT-DOCUMENTATION-ASSESSMENT.md` — current assessment of documentation quality, canon, and remaining cleanup priorities
+- `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
+- PCI vendor/device names in Red Bear runtime tools now come from the shipped `pciids` database; PCI quirk policy still lives in `../local/docs/QUIRKS-SYSTEM.md`
+- `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap and hardware detail only, not the canonical desktop plan
 - `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
 
 These local Red Bear plans should be treated as first-class subsystem references for USB, Wi-Fi,
@@ -82,7 +86,7 @@ at a higher level.
 - `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
 - `../local/docs/EXTERNAL-TOOLCHAIN.md` — how to export a relocatable external `x86_64-unknown-redox-gcc` toolchain from the built prefix
 
-## Current State Summary (as of 2026-04-15)
+## Current State Summary (as of 2026-04-18)
 
 This summary is only a quick orientation layer. For canonical current-state detail, prefer:
 
@@ -92,8 +96,8 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
-- **Display server**: Orbital (custom, scheme-based) — works
-- **Wayland**: libwayland + wayland-protocols built. Smallvil/cosmic-comp remain partial runtime experiments.
+- **Desktop target**: the tracked default build now resolves to `CONFIG_NAME?=redbear-kde`
+- **Wayland**: libwayland + wayland-protocols built. Runtime compositor proof remains incomplete.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
 - **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
@@ -103,7 +107,8 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
 - **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
 - **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload now has a packaged in-guest checker plus a host QEMU harness; QEMU validation is still in progress, so broad desktop Bluetooth parity is still incomplete
-- **KDE**: `redbear-kde.toml` exists and the recipe tree is populated, but the runtime stack is still incomplete.
+- **KDE direction**: `redbear-kde.toml` is the tracked KWin Wayland desktop direction, and the runtime stack is still incomplete.
+- **ACPI**: boot-baseline materially complete; implemented: typed startup errors in `acpid`, AML mutex real state, EC widened accesses via byte transactions, kstop-based shutdown eventing; **known gaps**: sleep state transitions and sleep eventing; DMAR present in `acpid` but not wired; bare-metal validation still outstanding. See `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 - **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
 - **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.
 - **Phase 5 naming note**: the bounded `redbear-phase5-network-check` / `test-phase5-network-qemu.sh` path proves desktop/network plumbing on `redbear-full` in QEMU; it does **not** mean the Wi-Fi implementation plan's later Phase W5 real-hardware reporting/recovery milestone is complete.
@@ -138,7 +143,6 @@ make qemu
 | Kernel | Microkernel | https://gitlab.redox-os.org/redox-os/kernel |
 | Base | Drivers + system components | https://gitlab.redox-os.org/redox-os/base |
 | relibc | C library (Rust) | https://gitlab.redox-os.org/redox-os/relibc |
-| Orbital | Display server + WM | https://gitlab.redox-os.org/redox-os/orbital |
 | RedoxFS | Default filesystem | https://gitlab.redox-os.org/redox-os/redoxfs |
 | libredox | System library | https://gitlab.redox-os.org/redox-os/libredox |
 | This repo | Build system | https://gitlab.redox-os.org/redox-os/redox |

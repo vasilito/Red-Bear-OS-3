@@ -90,7 +90,7 @@ That means:
 
 ## Product Surfaces
 
-The first-class Red Bear profiles are:
+The tracked Red Bear profiles are:
 
 - `redbear-minimal`
 - `redbear-desktop`
@@ -99,7 +99,7 @@ The first-class Red Bear profiles are:
 - `redbear-kde`
 - `redbear-live`
 
-Each profile is a product surface, not just a build convenience.
+Each profile is a tracked build surface, but only `redbear-kde` is the forward desktop target.
 
 ### `redbear-minimal`
 
@@ -115,24 +115,28 @@ Scope:
 
 ### `redbear-desktop`
 
-Main integration profile for base desktop/runtime work.
+Supplementary integration profile for shared runtime work beneath the tracked desktop target.
 
 Scope:
 
-- Orbital desktop path,
 - runtime services,
 - diagnostics,
-- base user-facing system bring-up.
+- shared bring-up support.
+
+Current role:
+
+- subordinate integration/support slice.
 
 ### `redbear-wayland`
 
-Dedicated Wayland runtime validation profile.
+Dedicated runtime validation profile.
 
 Scope:
 
 - narrow compositor/runtime path,
 - explicit validation target for Wayland stack correctness,
-- not a claim of full desktop completeness.
+- not a claim of full desktop completeness,
+- subordinate to the KDE session goal.
 
 ### `redbear-full`
 
@@ -147,14 +151,20 @@ Scope:
 
 ### `redbear-kde`
 
-Dedicated KDE/Plasma bring-up profile.
+Dedicated KWin Wayland target desktop profile.
 
 Scope:
 
 - KWin,
 - Plasma session surfaces,
 - session packaging and dependencies,
-- explicit documentation of limitations while still incomplete.
+- explicit documentation of limitations while still incomplete,
+- the tracked default compositor/session direction.
+
+### Desktop policy
+
+- The intended primary desktop direction is KWin Wayland.
+- Validation work is subordinate to the KWin Wayland desktop goal.
 
 ### `redbear-live`
 
@@ -267,7 +277,7 @@ Current state:
 
 Acceptance:
 
-- each first-class profile has a documented role,
+- each tracked profile has a documented role,
 - profile behavior is reproducible,
 - support labels are tied to profile-specific evidence.
 

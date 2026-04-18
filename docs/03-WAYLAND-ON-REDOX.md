@@ -11,12 +11,11 @@ porting notes.
 
 ## Current State
 
-- `config/wayland.toml` exists — it remains the bounded validation path that launches the
-  `smallvil` harness via `orbital-wayland`, not the production desktop path
+- `config/wayland.toml` exists — it remains the bounded validation path, not the production desktop path
 - 21 Wayland recipes in `recipes/wip/wayland/` — most untested
 - `libwayland` 1.24.0 now rebuilds with a much smaller `redox.patch`; the P3 POSIX path (`signalfd`, `timerfd`, `eventfd`, `open_memstream`, `MSG_CMSG_CLOEXEC`, `MSG_NOSIGNAL`) is back on the native path, and the remaining patch is down to Redox-specific build quirks
-- `smallvil` (Smithay) remains the bounded validation compositor path, not the production desktop goal
-- `cosmic-comp` builds but still has no working keyboard input; the remaining issue is runtime/input integration, not simply the absence of a libinput recipe
+- the bounded validation compositor path remains separate from the production desktop goal
+- the remaining compositor/runtime issue is still input integration, not simply the absence of a libinput recipe
 - `libdrm` builds with amdgpu and Intel enabled
 - Mesa builds with EGL+GBM+GLES2 (software via LLVMpipe; hardware acceleration still requires kernel DMA-BUF)
 - **evdevd** (`scheme:evdev`) provides Linux-compatible `/dev/input/eventX` interface
@@ -51,7 +50,7 @@ For the current Wayland runtime entrypoint in this repo, use:
 > (`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`), Wayland compositor work falls under Phase 2.
 > The scripts still work under their original names.
 
-That path is the current bounded smallvil validation target. The production desktop path is
+That path is the current bounded validation target. The production desktop path is
 `config/redbear-kde.toml` with `kwin_wayland`.
 
 Current runtime evidence for that target:
@@ -59,16 +58,15 @@ Current runtime evidence for that target:
 - `redbear-wayland` builds to a bootable image
 - the image boots to a real login prompt in QEMU/UEFI
 - `redbear-phase4-wayland-check` runs in-guest and confirms the Wayland launch surface is present
-- `smallvil` reaches xkbcommon initialization and selects the Redox EGL platform in the live guest
+- the compositor reaches xkbcommon initialization and selects the Redox EGL platform in the live guest
 - the direct launcher `local/scripts/test-phase4-wayland-qemu.sh` now boots the built
   `redbear-wayland` disk image instead of re-entering the build pipeline
 
-For the runtime-validation pass, keep the **validation target** intentionally small: `smallvil`
-as the compositor harness and not as the production desktop goal. The current `redbear-wayland`
+For the runtime-validation pass, keep the **validation target** intentionally small as a bounded
+compositor harness and not as the production desktop goal. The current `redbear-wayland`
 profile still inherits the broader desktop package set from `desktop.toml`, but this repo's
-Wayland validation is specifically about the `orbital-wayland` → `smallvil` path. It is a bounded
-regression harness subordinate to the `redbear-kde` / `kwin_wayland` production path, not a peer
-desktop direction.
+Wayland validation remains a bounded regression harness subordinate to the `redbear-kde` /
+`kwin_wayland` production path, not a peer desktop direction.
 
 ---
 
@@ -460,12 +458,12 @@ impl IntelDriver {
 
 ## Historical Step 4: Working Wayland Compositor (4-6 weeks after Steps 1-3)
 
-### Historical staging note: smallvil before KWin
+### Historical staging note: bounded compositor validation before KWin
 
-This section is historical context only. It explains why `smallvil` was used earlier as a bounded
+This section is historical context only. It explains why a smaller compositor was used earlier as a bounded
 validation compositor before the KWin-first production path became the repo's architecture.
 
-**Why smallvil was used first as a validation compositor:**
+**Why a smaller compositor was used first as a validation compositor:**
 - Pure Rust — no C++ toolchain issues
 - Already has a Redox branch (`https://github.com/jackpot51/smithay`, branch `redox`)
 - Smithay's input backend is pluggable — write a Redox-specific one
@@ -521,7 +519,7 @@ impl DrmBackend for RedoxDrmBackend {
 ### Recipe to add/modify
 
 ```toml
-# recipes/wip/wayland/smallvil/recipe.toml (modify existing)
+# recipes/wip/wayland/<validation-compositor>/recipe.toml (modify existing)
 [source]
 git = "https://github.com/jackpot51/smithay"
 branch = "redox"
@@ -537,26 +535,26 @@ dependencies = [
     "evdevd",      # for input
     "seatd",       # for session management
 ]
-cargopackages = ["smallvil"]
+cargopackages = ["<validation-compositor>"]
 ```
 
 ### Verification
 
-1. `smallvil` launches with DRM backend — takes over display
+1. the validation compositor launches with DRM backend — takes over display
 2. Keyboard and mouse work via evdevd
 3. `libcosmic-wayland_application` renders a window on the compositor
 4. Screenshot shows the window
 
 ---
 
-## Historical Step 5: Enable cosmic-comp and Other Compositors
+## Historical Step 5: Additional compositor experiments
 
 Once Steps 1-4 are done:
 
-1. **cosmic-comp**: Uncomment libinput dependency in recipe, rebuild
-2. **wlroots**: Build with libdrm + libinput + GBM
-3. **sway**: Should work once wlroots builds
-4. **KWin**: See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path; `05-KDE-PLASMA-ON-REDOX.md` for historical rationale
+1. Re-enable additional historical compositor experiments only if they serve bounded validation needs
+2. Keep DRM + libinput + GBM experimentation explicitly subordinate to the canonical KWin path
+3. Treat any extra compositor work as historical/reference exploration rather than a forward desktop path
+4. For the canonical desktop path, see `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`; for historical rationale, see `05-KDE-PLASMA-ON-REDOX.md`
 
 ---
 

@@ -19,7 +19,7 @@ Use the matrix below as the authoritative phase summary before reading the older
 
 | Layer / Phase | Current repo state | Evidence |
 |---|---|---|
-| P0 ACPI / bare-metal boot | Complete in-tree | `local/docs/ACPI-FIXES.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch` |
+| P0 ACPI / bare-metal boot | **Materially complete for boot baseline.** Implemented: kernel RSDP/RSDT/XSDT/MADT/FADT parsing, typed `StartupError` in `acpid`, AML mutex real state (`aml_physmem.rs`), EC widened accesses via byte transactions (`ec.rs`), kstop-based shutdown eventing (kernel registers `/scheme/kernel.acpi/kstop`, `acpid` subscribes, `redbear-sessiond` emits D-Bus `PrepareForShutdown`). Sleep state transitions (`\_Sx` beyond `\_S5`) and sleep eventing are **known gaps**. DMAR module present in `acpid` but not wired; effectively owned by `iommu` daemon. | `local/docs/ACPI-FIXES.md`, `local/docs/ACPI-IMPROVEMENT-PLAN.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch`, `recipes/core/base/source/drivers/acpid/src/main.rs`, `recipes/core/base/source/drivers/acpid/src/aml_physmem.rs`, `recipes/core/base/source/drivers/acpid/src/ec.rs`, `local/recipes/system/redbear-sessiond/source/src/acpi_watcher.rs` |
 | P1 driver infrastructure | Complete in-tree, compile-oriented | `local/recipes/drivers/redox-driver-sys/`, `local/recipes/drivers/linux-kpi/`, `local/recipes/system/firmware-loader/` |
 | P2 DRM / AMD+Intel display | Complete in-tree, hardware validation pending | `local/docs/P2-AMD-GPU-DISPLAY.md`, `local/recipes/gpu/redox-drm/`, `local/recipes/gpu/amdgpu/` |
 | P3 POSIX + input | Implemented in-tree; consumer-visible `signalfd`/`timerfd`/`eventfd`/`open_memstream` header-export path fixed in this repo pass; runtime validation still pending | `recipes/core/relibc/source/src/header/`, `recipes/core/relibc/source/include/sys/signalfd.h`, `local/patches/relibc/`, `local/recipes/system/evdevd/`, `local/recipes/system/udev-shim/` |
@@ -116,9 +116,8 @@ implemented phase with its own config/recipe/doc boundary.
 | Component | Status | Recipe | Blocker |
 |-----------|--------|--------|---------|
 | libwayland | Patched, downstream compatibility workarounds remain | `recipes/wip/wayland/libwayland/` | Reduce/remove `redox.patch` and verify runtime behavior |
-| cosmic-comp | No keyboard input | `recipes/wip/wayland/cosmic-comp/` | Layer 3 libinput |
-| smallvil (Smithay) | Basic, slow | `recipes/wip/wayland/smallvil/` | Layer 2+3 for DRM+input |
-| wlroots/sway/hyprland | Not tested | `recipes/wip/wayland/wlroots/` | Layer 2+3 |
+| bounded validation compositor | Incomplete session | `recipes/wip/wayland/*` historical references | Layer 2+3 for DRM+input validation |
+| additional historical compositor references | Not active | `recipes/wip/wayland/*` historical references | Not part of the forward desktop path |
 
 ### Layer 5: KDE Plasma
 
@@ -128,7 +127,7 @@ implemented phase with its own config/recipe/doc boundary.
 | KDE Frameworks | Partially ported in-tree | [05 Phase KDE-B](05-KDE-PLASMA-ON-REDOX.md) |
 | KWin | Recipe exists, still incomplete | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
 | Plasma Shell | Recipe exists, still incomplete | [05 Phase KDE-C](05-KDE-PLASMA-ON-REDOX.md) |
-| D-Bus | **Ported** | `config/x11.toml` has it working |
+| D-Bus | **Ported** | Runtime evidence now belongs to Red Bear desktop/KDE profiles rather than any alternate windowing path being a peer direction |
 
 ### Layer 6: Linux Driver Compatibility
 
@@ -163,11 +162,11 @@ implemented phase with its own config/recipe/doc boundary.
 - **Test**: `modetest -M intel` shows display modes
 - **Delivers**: KMS modesetting, hardware display control
 
-### Milestone M4: "Wayland compositor with input + display" (2-4 weeks after M2+M3)
-- Add Redox backends to Smithay (input + DRM + EGL)
-- Build `smallvil` with Redox backends
-- **Test**: Compositor takes over display, keyboard/mouse work
-- **Delivers**: First fully functional Wayland compositor on Redox
+### Milestone M4: "Wayland compositor validation with input + display" (2-4 weeks after M2+M3)
+- Add Redox backends to the bounded validation compositor stack (input + DRM + EGL)
+- Build the bounded validation compositor path with Redox backends
+- **Test**: Validation compositor takes over display, keyboard/mouse work
+- **Delivers**: Bounded Wayland compositor proof on Redox, not the final production desktop path
 
 ### Milestone M5: "Qt application runs" (6-8 weeks after M4)
 - Port `qtbase` with Wayland QPA

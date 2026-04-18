@@ -231,8 +231,9 @@ Configs are TOML files that include each other:
 wayland.toml → desktop.toml → desktop-minimal.toml → minimal.toml → base.toml
 ```
 
-Each config selects packages and overrides init scripts. For example, `wayland.toml`
-overrides the orbital init to launch `cosmic-comp` instead of `orblogin`.
+Each config selects packages and overrides init scripts. The tracked Red Bear desktop direction now
+centers on the KWin Wayland target, while bounded validation configs remain separate from that
+forward desktop path.
 
 ### Build Flow
 
@@ -249,25 +250,11 @@ make all
 
 ## 7. Existing Wayland/X11 Support
 
-### X11 (Working)
+### Compatibility and Validation Surfaces
 
-Config: `config/x11.toml`
-- X.org with dummy video driver inside Orbital
-- GTK3, MATE desktop, Mesa EGL
-- DRI3 enabled
-- Software rendering only
-
-### Wayland (Experimental, WIP)
-
-Config: `config/wayland.toml`
-- **21 Wayland recipes** in `recipes/wip/wayland/`
-- **cosmic-comp**: partially working, performance issues, no keyboard input
-- **smallvil** (Smithay): ported, basic compositor running
-- **wlroots**: not compiled or tested
-- **sway**: not compiled or tested
-- **hyprland**: not compiled or tested
-- **niri**: needs Smithay port
-- **xwayland**: partially patched, needs wayland-client fixes
+- legacy compatibility configs remain in-tree as references
+- the tracked Red Bear desktop direction is KWin Wayland
+- bounded validation configs remain separate from the forward desktop target
 
 ### Key Blockers for Wayland
 
@@ -275,4 +262,4 @@ Config: `config/wayland.toml`
 2. **No GPU acceleration** (only software rendering)
 3. **Input/runtime integration remains incomplete** (`evdevd`, `udev-shim`, and libinput exist, but compositor input is not fully validated)
 4. **DRM/KMS runtime validation remains incomplete** (`redox-drm` exists in-tree, but full Wayland/driver runtime integration is still open)
-5. **cosmic-comp**: keyboard/input integration and performance issues remain
+5. **runtime compositor/session proof** remains incomplete

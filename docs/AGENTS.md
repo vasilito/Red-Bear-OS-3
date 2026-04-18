@@ -13,17 +13,17 @@ For current Red Bear OS status, also read:
 - `docs/README.md` — canonical docs index + status matrix
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` — canonical public implementation plan
 - `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — current desktop stack build/runtime truth
+- `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path
 - `local/docs/QT6-PORT-STATUS.md` — current Qt/KF6 package-level status
-- `local/docs/AMD-FIRST-INTEGRATION.md` — deeper AMD/graphics technical roadmap
+- `local/docs/AMD-FIRST-INTEGRATION.md` — deeper AMD/graphics technical roadmap, useful detail but not the canonical desktop plan
 - `local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership status
 - `local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — current script guarantees and non-guarantees
-- `local/docs/PROJECT-DOCUMENTATION-ASSESSMENT.md` — current assessment of the documentation corpus
 
 ## STRUCTURE
 
 ```
 docs/
-├── 01-REDOX-ARCHITECTURE.md   # Architecture reference: microkernel, scheme system, driver model, Orbital
+├── 01-REDOX-ARCHITECTURE.md   # Architecture reference: microkernel, scheme system, driver model, display architecture
 ├── 02-GAP-ANALYSIS.md         # Historical gap matrix with corrected current-state notes
 ├── 03-WAYLAND-ON-REDOX.md     # Historical Wayland implementation path + deeper rationale
 ├── 04-LINUX-DRIVER-COMPAT.md  # Driver-compat architecture reference + historical porting path
