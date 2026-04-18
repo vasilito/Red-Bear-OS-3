@@ -63,23 +63,23 @@ experimental only.
 
 ### `redbear-desktop`
 
-Main integration profile for desktop-oriented Red Bear services without making KDE the default.
+Supplementary integration support profile for shared Red Bear runtime services beneath the tracked KWin target.
 
 ### `redbear-full`
 
-Expanded desktop/integration target that includes more runtime pieces and graphics-path bring-up.
+Expanded integration slice that includes more runtime pieces and graphics-path bring-up beneath the tracked KWin target.
 
 ### `redbear-wayland`
 
-Dedicated Wayland runtime validation profile layered above the current Red Bear service baseline.
+Dedicated Wayland runtime validation profile layered above the current Red Bear service baseline and subordinate to the tracked KWin direction.
 
 ### `redbear-kde`
 
-Dedicated KDE/Plasma bring-up profile.
+Dedicated KDE/Plasma bring-up profile and tracked forward desktop target.
 
 ### `redbear-live`
 
-Live and recovery variant layered on top of the Red Bear desktop path.
+Live and recovery variant layered on top of the tracked KWin desktop target.
 
 ## Change Checklist
 

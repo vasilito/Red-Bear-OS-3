@@ -18,11 +18,24 @@ Completed from this plan:
 - shipped DMI TOML overrides in the brokered `pcid-spawner` env-var path,
 - direct canonical `redox-driver-sys` quirk lookup from `pcid-spawner` instead of a separate in-tree PCI quirk engine,
 - real USB device quirk consumption in `xhcid`,
-- first real linux-kpi quirk consumption in the Red Bear amdgpu path.
+- first real linux-kpi quirk consumption in the Red Bear amdgpu path,
+- canonical GPU quirk policy moved to the Rust driver boundary in `redox-drm`, so Intel and AMD now consume one shared quirk source for init-time policy,
+- PCI quirk extraction upgraded from handler-name guessing to explicit handler-body evidence in `local/scripts/extract-linux-quirks.py`.
 
 Still open after this implementation wave:
 
-- no remaining implementation items in the current quirks scope.
+- document the provenance of existing AMD `need_firmware` entries in `quirks.d/10-gpu.toml`,
+- keep AMD device-specific GPU quirk growth review-gated on Linux-backed evidence,
+- keep Intel GPU quirk expansion deferred until Red Bear has a real Intel-side firmware/runtime
+  policy surface that can honestly consume additional flags.
+
+Current naming/source split:
+
+- PCI vendor/device **names** now come from the shipped `pciids` database (`/usr/share/misc/pci.ids`).
+- PCI/USB/storage **quirk flags** still come from Red Bear’s canonical quirk path: compiled tables,
+  shipped TOML files, and conservative Linux-source extraction where applicable.
+- The `extract-linux-quirks.py` script remains a quirk-mining tool, not the source of human-readable
+  PCI device names.
 
 The runtime-behavior milestone from this plan is now implemented. The remaining work is
 maintenance, validation depth, and future refinement rather than missing quirks behavior for the
@@ -49,7 +62,7 @@ It is based on the current in-tree state of:
 ### What is still weak
 
 - USB quirks now have a first real runtime consumer in `xhcid`, but broader USB-driver adoption is still missing.
-- The `linux-kpi` bridge now has a first real in-tree C consumer: amdgpu uses it for firmware gating and quirk-aware IRQ expectation logging. Broader C-driver adoption is still missing.
+- The `linux-kpi` bridge now has a first real in-tree C consumer: amdgpu uses it for quirk-aware IRQ expectation logging. Broader C-driver adoption is still missing.
 - `pcid-spawner` still synthesizes a partial `PciDeviceInfo` instead of reusing a richer canonical PCI object, because it operates as an upstream-owned broker with a narrow interface.
 
 ### What should not be “fixed” in the wrong layer
@@ -120,12 +133,32 @@ Scope:
 Goals:
 
 - avoid mapping Linux flags to incorrect Red Bear flags,
-- clearly mark heuristic extraction limits for PCI handler-name mode.
+- clearly mark the supported explicit PCI extraction patterns and the limits of unsupported handlers.
 
 QA:
 
 - run the script on a small synthetic USB/PXI input sample,
 - confirm output omits unsupported PCI flag mappings instead of inventing equivalents.
+
+Current state:
+
+- `local/scripts/extract-linux-quirks.py` no longer guesses PCI quirks from handler names.
+- PCI extraction now maps only explicit handler-body evidence for supported `PCI_DEV_FLAGS_*`
+  assignments plus `pci_d3cold_disable(...)`.
+- Running the upgraded extractor on Linux 7.0 `drivers/pci/quirks.c` currently yields only a
+  very small high-confidence PCI subset and no directly usable modern Intel/AMD DRM GPU entries.
+- This is intentional: false negatives are preferred over wrong GPU quirk claims.
+- The existing AMD `need_firmware` entries in `quirks.d/10-gpu.toml` are manually reviewed policy
+  entries, not extractor-produced Linux facts. Future extraction runs will not refresh those flags
+  automatically.
+- Intel firmware classes should be treated explicitly: DMC for display power management, GuC for
+  scheduling/power, HuC for media offload, and GSC for newer authentication flows.
+- Red Bear now has a bounded Intel DMC startup manifest/preload path for the first supported Intel
+  device families, but Intel `need_firmware` must still stay out of the canonical GPU quirk set
+  until the broader Intel runtime policy surface is real and validated.
+- AMD device-specific GPU quirk growth remains review-gated on explicit Linux-backed evidence.
+- Intel GPU quirk expansion is deferred until Red Bear has a real Intel-side firmware/runtime
+  policy surface that can honestly consume additional flags.
 
 ### Wave 2 — Unify PCI quirk semantics
 
@@ -229,8 +262,9 @@ Success criteria:
 Current state:
 
 - `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` now queries linux-kpi PCI quirks in the real Redox runtime path,
-- `PCI_QUIRK_NEED_FIRMWARE` turns missing DMCUB firmware into an init failure instead of a warning-only fallback,
-- logs now show the active quirk bitmask plus the implied IRQ fallback policy.
+- logs now show the active quirk bitmask plus the implied IRQ fallback policy,
+- firmware policy has been pulled back to the Rust-side driver boundary so the C backend does not
+  re-enforce `NEED_FIRMWARE` independently.
 
 QA:
 
@@ -252,6 +286,17 @@ Success criteria:
 QA:
 
 - driver code path shows firmware gating tied to quirks or explicit device rules.
+
+Current state:
+
+- `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs` now reads the canonical
+  `info.quirks()` policy during init, rejects `DISABLE_ACCEL`, and explicitly warns if
+  `NEED_FIRMWARE` appears on Intel instead of silently ignoring quirk policy.
+- `local/recipes/gpu/redox-drm/source/src/main.rs` now makes firmware preload expectations explicit
+  at the Rust-side driver boundary, reports whether preload is quirk-required, and summarizes
+  missing candidate blobs when preload cannot satisfy the current policy.
+- `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` still consumes linux-kpi quirks for
+  runtime expectations, but it no longer owns the final firmware gating decision.
 
 ### Wave 4 — DMI completion
 

@@ -29,11 +29,11 @@ USB plan uses:
 | `redbear-minimal` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled / input-runtime substrate wired / USB: daemons built via base but not validated or support-scoped for this profile |
 | `redbear-bluetooth-experimental` | First bounded Bluetooth validation profile | `redbear-bluetooth-experimental.toml`, `redbear-bluetooth-services.toml`, `redbear-minimal.toml` | builds / boots in QEMU / packaged Battery Level checker + QEMU harness present / QEMU validation still in progress / explicit-startup USB BLE-first only / not generic GATT / not USB-class-autospawn |
 | `redbear-wifi-experimental` | First bounded Intel Wi-Fi validation profile | `redbear-wifi-experimental.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental bounded Intel Wi-Fi slice / driver + control/profile/reporting stack present / packaged in-target validation and capture commands available / real hardware connectivity still unproven |
-| `redbear-desktop` | Main Red Bear desktop integration profile without KDE-specific session wiring | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / input-runtime substrate wired / runtime reporting installed / USB: xHCI host present + HID keyboard/mouse usable + mass storage autospawns in QEMU / QEMU-validated only / no real hardware USB claim |
-| `redbear-wayland` | v2.0 Phase 2 Wayland compositor validation profile | `wayland.toml` | builds / boots in QEMU / experimental software-path graphics-runtime slice / not QEMU hardware-acceleration proof |
+| `redbear-desktop` | Supplementary Red Bear integration support profile without KDE-specific session wiring | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / input-runtime substrate wired / runtime reporting installed / USB: xHCI host present + HID keyboard/mouse usable + mass storage autospawns in QEMU / QEMU-validated only / no real hardware USB claim |
+| `redbear-wayland` | v2.0 Phase 2 Wayland compositor validation profile | `wayland.toml` | builds / boots in QEMU / experimental software-path graphics-runtime slice / validation-only |
 | `redbear-full` | Broader desktop/network/session plumbing (spans v2.0 Phases 2–3) | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / boots in QEMU / D-Bus system bus wired / experimental runtime path |
-| `redbear-kde` | v2.0 Phases 3–4 KDE Plasma session-surface profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / experimental desktop path / D-Bus+seatd+sessiond+KWin session surface wired |
-| `redbear-live` | Live and recovery image layered on desktop | `redbear-desktop.toml` | builds |
+| `redbear-kde` | v2.0 Phases 3–4 KWin Wayland target desktop profile | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / tracked KWin desktop direction / D-Bus+seatd+sessiond+KWin session surface wired |
+| `redbear-live` | Live and recovery image layered on desktop | `redbear-kde.toml` | builds / follows the tracked KWin desktop target |
 
 ## Profile Notes
 
@@ -69,18 +69,20 @@ USB plan uses:
 
 ### `redbear-desktop`
 
-- Carries the standard Red Bear desktop-facing package additions.
-- Inherits desktop behavior but avoids the heavier KDE session-specific wiring.
+- Carries the standard Red Bear integration package additions.
+- Inherits shared behavior while avoiding the heavier KDE session-specific wiring.
 - Now includes the shared firmware/input runtime service fragment used by the wider desktop bring-up path.
-- Also includes `redbear-info`, making the desktop profile the main runtime-reporting integration environment.
+- Also includes `redbear-info`, making this profile a main runtime-reporting integration environment.
+- This remains available as a supplementary integration support profile.
 
 ### `redbear-wayland`
 
-- Wraps the repo's existing `wayland.toml` into a first-class Red Bear build target.
-- Serves as the v2.0 Phase 2 compositor validation surface for `orbital-wayland` and `smallvil`.
-- Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase4-wayland-check`, with `smallvil` reaching xkbcommon initialization and EGL platform selection on Redox.
+- Wraps the repo's existing `wayland.toml` into a tracked Red Bear validation target.
+- Serves as the v2.0 Phase 2 compositor validation surface.
+- Current verified path: QEMU/UEFI boot to login prompt plus guest-side `redbear-phase4-wayland-check`, with the compositor reaching xkbcommon initialization and EGL platform selection on Redox.
 - Current QEMU renderer evidence is still software-based (`llvmpipe` on the current `-vga std` harness), so this profile must not be described as a hardware-accelerated desktop proof yet.
-- Treat this profile as the bounded Wayland/Qt regression harness; the final hardware-desktop claim still belongs to the bare-metal accelerated graphics path.
+- Treat this profile as the bounded Wayland/Qt regression harness.
+- The intended desktop direction is `redbear-kde` with KWin Wayland.
 
 ### `redbear-full`
 
@@ -92,14 +94,16 @@ USB plan uses:
 
 ### `redbear-kde`
 
-- Dedicated profile for Plasma/KWin session bring-up.
+- Dedicated profile for the intended KWin Wayland desktop path.
 - Keep KDE-specific service wiring here instead of leaking it into the generic desktop profile.
 - Current role: carry the KWin session launch surface and its D-Bus/seatd dependencies in one image (v2.0 Phases 3–4).
+- This is the tracked compositor/session direction.
 
 ### `redbear-live`
 
 - Intended for install, demo, and recovery workflows.
 - Should inherit only stable desktop-profile assumptions unless explicitly documented.
+- It now inherits `redbear-kde` so the live image follows the tracked desktop direction.
 
 ## Bluetooth Note
 

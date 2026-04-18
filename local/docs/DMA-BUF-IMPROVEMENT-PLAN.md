@@ -1,7 +1,11 @@
 # Red Bear OS: DMA-BUF Improvement Plan
 
 **Date**: 2026-04-16
-**Status**: v1 COMPLETE (Steps 1-6a implemented, Oracle-verified through 8 rounds). Step 6b blocked on GPU command submission. Stale token cleanup verified across all GEM destruction paths.
+**Status**: historical DMA-BUF bring-up plan, partially superseded by the current DRM shared-core work. PRIME import/export and bounded private-CS groundwork are now implemented; real vendor render/fence completion is still blocked.
+
+> **Planning authority note (2026-04-18):** this file remains the detailed DMA-BUF/PRIME reference,
+> not the canonical GPU/DRM execution plan. Use `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md`
+> for current sequencing and acceptance criteria.
 **Scope**: Cross-process GPU buffer sharing for hardware-accelerated KDE Plasma on Wayland
 
 ## Bottom Line
@@ -52,8 +56,9 @@ Process B (compositor, e.g. KWin)
   8. Both processes see same physical pages                   ← ZERO-COPY
 ```
 
-Steps 1-2 are already working. Steps 3-6 require redox-drm changes. Steps 4-5 and 7-8 use
-existing kernel mechanisms.
+Steps 1-2 are already working. PRIME import/export is also now implemented in `redox-drm`, and
+the shared DRM core now includes a bounded private command-submission surface for contract
+hardening. Real vendor render/fence completion is still missing.
 
 ## Current State
 
@@ -78,27 +83,31 @@ existing kernel mechanisms.
 | PRIME_FD_TO_HANDLE | ✅ Implemented | Token lookup via prime_exports, adds to owned_gems |
 | libdrm PRIME/GEM dispatch | ✅ Implemented | __redox__ wrappers in drmPrimeHandleToFD/drmPrimeFDToHandle |
 | Mesa Redox winsys | 🚧 Scaffolding | Stubs compile but do not render — blocked on GPU CS |
-| GPU command submission | ❌ Not implemented | No CS ioctl, no ring buffer programming |
+| GPU command submission | ⚠️ Bounded shared surface only | Shared private-CS contract exists; no real vendor render ioctl/ring programming yet |
 | GPU fence/signaling | ❌ Not implemented | No GPU completion notification |
 
-### What Was Cleaned Up (Previous Session)
+### What Was Cleaned Up (Historical Session)
 
 The old fake PRIME implementation used synthetic fd numbers starting at 10,000 that were not real
 kernel file descriptors. Other processes could not resolve them. Oracle caught this across 4
-verification rounds. The cleanup:
+verification rounds. The cleanup and follow-up hardening:
 
 - Removed `exported_dmafds` tracking from Handle struct
-- Removed `imported_gems` from Handle
+- Removed the old fake PRIME synthetic-fd bookkeeping. Imported GEM tracking still exists in the current honest PRIME path.
 - Removed DMA-BUF methods from `GpuDriver` trait and AMD/Intel driver impls
 - Removed `DmabufManager` from `GemManager`
 - Removed `mod dmabuf` from `main.rs`
 - Removed PRIME wire structs (`DrmPrimeHandleToFdWire`, `DrmPrimeFdToHandleWire`)
-- PRIME handlers → EOPNOTSUPP (honest, not fake)
+- PRIME handlers are now implemented in the current scheme path with non-guessable export tokens; only unsupported fake sync/render paths return `EOPNOTSUPP`.
 - Removed all `#[allow(dead_code)]` from fake bookkeeping
 
 ## Phased Implementation
 
 ### v1: System RAM, Linear, Single GPU (Target: working PRIME)
+
+**Current note:** the PRIME/export-import milestones in this section are largely complete in the
+live `redox-drm` scheme. The remaining value of this document is the dependency narrative and the
+later DMA-BUF / winsys / fencing roadmap, not the claim that PRIME is still unimplemented.
 
 **Goal**: A compositor (KWin) can import a buffer rendered by a GPU client (Mesa) and display it.
 All buffers in system RAM, linear layout, single GPU.
@@ -125,7 +134,7 @@ The client then opens `/scheme/drm/card0/dmabuf/{token}` to get a real scheme fd
 handler validates the token against `prime_exports`, creates a `NodeKind::DmaBuf` scheme handle,
 and bumps the GEM export refcount. When that scheme fd is closed, the refcount is dropped.
 
-Key design: export tokens are opaque identifiers, not synthetic fd numbers or raw GEM handles.
+Key design: export tokens are opaque, non-guessable identifiers, not synthetic fd numbers or raw GEM handles.
 The `prime_exports` map resolves tokens to GEM handles. Tokens are cleaned up when the last
 export ref for a GEM handle is dropped.
 
@@ -315,7 +324,7 @@ struct DrmPrimeHandleToFdResponseWire {
 
 The scheme internally:
 1. Validates handle ownership
-2. Generates an opaque export token (monotonically increasing counter)
+2. Generates an opaque non-guessable export token
 3. Stores `prime_exports[token] = gem_handle`
 4. Returns the token as `fd`
 
@@ -416,8 +425,8 @@ in `maybe_close_gem()`, explicit cleanup in `GEM_CLOSE`/`DESTROY_DUMB`, liveness
 `PRIME_FD_TO_HANDLE` and `open("dmabuf/{token}")` that remove stale tokens on failure.
 Verified by Oracle across 8 rounds.
 
-**Protocol note**: PRIME uses opaque export tokens. PRIME_HANDLE_TO_FD returns a monotonically-
-increasing token stored in `prime_exports`. The client opens `/scheme/drm/card0/dmabuf/{token}`
+**Protocol note**: PRIME uses opaque export tokens. PRIME_HANDLE_TO_FD returns a non-guessable
+token stored in `prime_exports`. The client opens `/scheme/drm/card0/dmabuf/{token}`
 to get a real scheme fd. `redox_fpath()` on that fd reveals the token. PRIME_FD_TO_HANDLE
 accepts the export token and resolves it via `prime_exports`. Tokens are cleaned up when the
 last export ref is dropped.

@@ -14,10 +14,13 @@ It consolidates and replaces the planning role previously held by:
 - `docs/03-WAYLAND-ON-REDOX.md` (historical Wayland rationale)
 - `docs/05-KDE-PLASMA-ON-REDOX.md` (historical KDE rationale)
 - `local/docs/AMD-FIRST-INTEGRATION.md` (AMD-specific hardware detail)
-- `local/docs/PHASE-0-3-REASSESSMENT.md` (deprecated reconciliation doc)
 - Prior revisions of this document (v1, which used a different Phase 1–5 breakdown)
 
 Those documents remain useful for subsystem detail, porting history, and design rationale.
+The earlier reassessment bridge is now retired, and its reconciliation role is covered here together
+with `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` and `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`.
+The DRM-specific execution detail beneath this desktop path now lives in
+`local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md`.
 This document answers the higher-level question: **what must happen, in what order, before
 Red Bear OS can honestly claim a usable KDE Plasma desktop on Wayland — first in software,
 then with real hardware acceleration.**
@@ -31,6 +34,10 @@ Scope: console boot → first Wayland compositor proof → software-rendered Qt6
 hardware GPU validation → KWin session bring-up → KDE Plasma session bring-up.
 
 Out of scope: USB, Wi-Fi, Bluetooth (covered by their own subsystem plans).
+
+Tracked-default truth: this document is the canonical desktop-path plan, and the tracked default
+build now resolves to `CONFIG_NAME?=redbear-kde`. Runtime/session support claims still follow the
+evidence model below.
 
 ---
 
@@ -90,9 +97,9 @@ Rules:
 | kf6-kwayland | builds | | |
 | kf6-kcmutils | builds | Widget-only build (QML stripped) | |
 | `redbear-wayland` profile | builds, boots | Bounded Wayland runtime profile | |
-| `redbear-full` profile | builds, boots | Broader desktop plumbing profile | |
-| `redbear-kde` profile | builds | KDE session-surface profile | KWin only, not plasma-workspace/desktop yet |
-| smallvil compositor path | experimental | Reaches xkbcommon init + EGL platform selection in QEMU | No complete session |
+| `redbear-full` profile | builds, boots | Broader desktop plumbing profile | Session/network/runtime integration slice |
+| `redbear-kde` profile | builds | KDE session-surface profile | Tracked default KWin direction; KWin only, not plasma-workspace/desktop yet |
+| bounded compositor validation path | experimental | Reaches xkbcommon init + EGL platform selection in QEMU | No complete session |
 | qt6-wayland-smoke | builds, partial | Creates QWindow with colored background, runs 3 seconds | |
 | QEMU graphics | usable (bounded) | Renderer is llvmpipe | Not hardware acceleration |
 | D-Bus system bus (redbear-full) | usable (bounded) | Not full session integration | |
@@ -101,7 +108,13 @@ Rules:
 | plasma-workspace | experimental | Recipe exists, incomplete deps | |
 | plasma-desktop | experimental | Recipe exists, incomplete deps | |
 | QtNetwork | blocked | Intentionally disabled — relibc networking too narrow | |
-| Hardware GPU acceleration | blocked | PRIME/DMA-BUF scheme ioctls implemented, no GPU CS ioctl | |
+| Hardware GPU acceleration | blocked | PRIME/DMA-BUF scheme ioctls and a bounded private CS surface exist, but no real vendor GPU render CS/fence path | |
+
+The current bounded runtime entrypoint for display-path evidence is the in-guest
+`redbear-drm-display-check` tool, with shell wrappers in `local/scripts/test-drm-display-runtime.sh`,
+`local/scripts/test-amd-gpu.sh`, and `local/scripts/test-intel-gpu.sh`. It now covers direct
+connector/mode enumeration and bounded direct modeset proof, but successful runs from that surface are
+still display-only evidence, not render proof.
 | Working Wayland compositor session | blocked | Runtime not proven | |
 | KWin compositor runtime | blocked | Runtime not proven | |
 | KDE Plasma session | blocked | Runtime not proven | |
@@ -120,7 +133,7 @@ The repo has crossed major build-side gates:
 ### What is runtime-proven (limited scope)
 
 - AMD bare-metal boot with ACPI, SMP, x2APIC
-- `redbear-wayland` boots in QEMU, smallvil reaches early init
+- the bounded runtime validation surface boots in QEMU and reaches early initialization
 - QEMU graphics via llvmpipe (software)
 - D-Bus system bus wired in `redbear-full`
 - VirtIO networking in QEMU
@@ -163,9 +176,8 @@ hardware validation, and KWin/Plasma session assembly**. That is the real starti
 │       Qt6 Widgets, QtWayland, QtDBus, QML, KF6, KDE support libs            │
 ├──────────────────────────────────────────┬───────────────────────────────────┤
 │              Wayland compositor and protocols                                │
-│        smallvil first, then KWin, plus libwayland                            │
-│        NOTE: KWin replaces smallvil as the compositor in Phase 3,            │
-│        spanning both the compositor layer and the session layer.             │
+│      bounded validation compositor work, then KWin as the desktop path       │
+│        NOTE: KWin owns the compositor and session layers in Phase 3.         │
 ├──────────────────────────────────────────┬───────────────────────────────────┤
 │             Mesa, GBM, EGL, GLES2, libdrm                                   │
 │       software path first, hardware path after DMA-BUF                       │
@@ -189,7 +201,7 @@ hardware validation, and KWin/Plasma session assembly**. That is the real starti
 | Kernel + libc | strong build-side, runtime incomplete | relibc surfaces, driver substrate | Real Wayland/Qt event-loop pressure, GPU CS ioctl |
 | DRM/firmware/input | build + boot visible, not runtime-trusted | Scheme registration at boot | Real firmware loading, real input flow, real DRM/KMS queries |
 | Graphics userland | software builds, hardware blocked | Mesa EGL/GBM/GLES2, libdrm, Qt6 OpenGL | Hardware renderer path, GBM/EGL on hardware |
-| Wayland compositor | partial runtime, not complete | smallvil reaches early init in QEMU | Complete compositor session, input routing, Qt6 client display |
+| Wayland compositor | partial runtime, not complete | bounded compositor initialization reached in QEMU | Complete compositor session, input routing, Qt6 client display |
 | Qt6 + KF6 | build milestone, runtime thin | All packages build | Real Qt6 Wayland client behavior, QML without JIT |
 | KWin session | experimental, blocked | Recipes exist, some features re-enabled | Honest deps, KWin runtime, session services |
 | KDE Plasma | not yet proven | Recipe surfaces exist | plasma-workspace, plasma-desktop, shell, panel, apps |
@@ -198,7 +210,7 @@ hardware validation, and KWin/Plasma session assembly**. That is the real starti
 
 The shortest honest path is not "port more packages". It is:
 1. **Validate the substrate** (turn builds into runtime trust)
-2. **Finish one software compositor path** (smallvil)
+2. **Finish one software compositor validation path**
 3. **Finish one KWin session path** (on software renderer)
 4. **Finish one Plasma session path** (on software renderer)
 5. **Land real hardware acceleration** (in parallel with steps 3–4)
@@ -264,27 +276,27 @@ Track C (parallel): Hardware GPU Enablement
 
 **Duration:** 4–6 weeks
 **Goal:** Produce the first working Wayland compositor session using software rendering.
-**Profile target:** `redbear-wayland`
+**Profile target:** tracked validation profile
 **Renderer:** LLVMpipe (software) — acceptable for correctness proof.
 
-#### Why smallvil first
+#### Why a bounded validation compositor comes before full session bring-up
 
-Jumping straight to KWin combines too many unknowns: compositor runtime, input, QML,
-session services, dependency scaffolding. smallvil is smaller, easier to debug, already
-present. It isolates compositor + input + Qt client issues before session-shell complexity.
+Jumping straight to full session bring-up combines too many unknowns: compositor runtime, input,
+QML, session services, and dependency scaffolding. A bounded validation compositor isolates
+compositor + input + Qt client issues before session-shell complexity.
 
 #### Work items
 
 | # | Task | Acceptance criteria |
 |---|---|---|
-| 2.1 | Complete smallvil runtime path to usable session | smallvil launches, creates a Wayland surface, and does not crash for at least 60 seconds in QEMU; `WAYLAND_DISPLAY` is set and a client can connect |
+| 2.1 | Complete bounded runtime path to usable session | The compositor launches, creates a Wayland surface, and does not crash for at least 60 seconds in QEMU; `WAYLAND_DISPLAY` is set and a client can connect |
 | 2.2 | Wire evdevd input into compositor | Keyboard + mouse work through Redox input stack |
 | 2.3 | Wire Mesa software rendering through GBM + EGL | Software rendering works through Mesa/GBM/EGL |
 | 2.4 | Get Qt6 widget app to display through compositor | `qt6-wayland-smoke` shows a window inside compositor in QEMU |
 
 #### Exit criteria
 
-- [ ] smallvil launches into a working session in QEMU
+- [ ] the compositor launches into a working session in QEMU
 - [ ] Keyboard and mouse work through the current input stack
 - [ ] Mesa software rendering works through GBM and EGL
 - [ ] `qt6-wayland-smoke` shows a window inside the compositor in QEMU
@@ -305,14 +317,14 @@ present. It isolates compositor + input + Qt client issues before session-shell 
 
 #### Blocked dependency set that must be closed
 
-**Stub dependencies** (INTERFACE IMPORTED cmake targets without real implementations):
+**Honest reduced-build dependency state** in the current KWin path:
 
-| Stub | Must become | Path |
+| Dependency | Current state | Remaining limit |
 |---|---|---|
-| libepoxy-stub | Real libepoxy build | Port or find minimal GL dispatch alternative |
-| libudev-stub | Real libudev or enhanced udev-shim lib | Extend udev-shim to provide libudev API |
-| lcms2-stub | Real lcms2 build | Port lcms2 color management library |
-| libdisplay-info-stub | Real libdisplay-info build | Port or find alternative |
+| libepoxy | Real dependency | none in this slice |
+| lcms2 | Real dependency | none in this slice |
+| libudev | Honest scheme-backed provider | hotplug monitoring remains bounded |
+| libdisplay-info | Honest bounded provider | base-EDID only; CTA / DisplayID / HDR metadata still unsupported |
 
 **Stub-only/heavily shimmed packages:**
 
@@ -321,7 +333,7 @@ present. It isolates compositor + input + Qt client issues before session-shell 
 | kirigami | Stub-only for dep resolution | Real build needed for QML-dependent Plasma shell |
 | kf6-kio | Heavy shim build | Must become honest build for session claims |
 
-**KWin feature switches** (9 still disabled):
+**KWin feature switches** (11 still disabled in the current reduced path):
 
 | Switch | Why disabled | Re-enable condition |
 |---|---|---|
@@ -329,20 +341,21 @@ present. It isolates compositor + input + Qt client issues before session-shell 
 | KWIN_BUILD_KCMS=OFF | Requires QML | After BUILD_WITH_QML |
 | KWIN_BUILD_EFFECTS=OFF | Desktop effects | After basic compositor works |
 | KWIN_BUILD_TABBOX=OFF | Alt-tab switcher | After basic window management works |
+| KWIN_BUILD_GLOBALSHORTCUTS=OFF | Global shortcut integration | After the reduced KWin path is otherwise honest |
+| KWIN_BUILD_NOTIFICATIONS=OFF | Notification integration | After the reduced KWin path is otherwise honest |
 | KWIN_BUILD_SCREENLOCKING=OFF | Screen locking | Late session polish |
 | KWIN_BUILD_SCREENLOCKER=OFF | Screenlocker binary | Late session polish |
-| KWIN_BUILD_X11=OFF | X11 windowing | Intentional: Wayland-only |
+| legacy windowing backend disabled | legacy windowing backend | Intentional: Wayland-only |
 | KWIN_BUILD_RUNNING_IN_KDE=OFF | KDE runtime detection | After KWin runs as compositor |
 | KWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF | Document signing | Low priority |
 
-**5 switches already re-enabled** (deps verified built): DECORATIONS, GLOBALSHORTCUTS,
-RUNNERS, NOTIFICATIONS, USE_DBUS.
+**3 switches already re-enabled** in the current reduced path: DECORATIONS, RUNNERS, USE_DBUS.
 
 #### Work items
 
 | # | Task | Acceptance criteria |
 |---|---|---|
-| 3.1 | Resolve KWin stubbed blockers (libepoxy, libudev, lcms2, libdisplay-info) | KWin cmake configure succeeds without any `-stub` INTERFACE IMPORTED targets; `ldd` on the KWin binary shows real `.so` links for all four libraries |
+| 3.1 | Keep the KWin reduced path dependency-honest | KWin cmake configure succeeds without any fake `-stub` imported fallbacks; the built KWin binary links `libepoxy`, `libudev`, `lcms2`, and `libdisplay-info` as real shared-library dependencies |
 | 3.2 | Launch KWin as Wayland compositor | KWin process starts, registers `WAYLAND_DISPLAY`, and owns the display output for at least 60 seconds without crash |
 | 3.3 | Validate libinput backend behavior | Keyboard keypress and mouse motion events arrive at a KWin-managed window via libinput + evdevd chain |
 | 3.4 | Validate D-Bus session behavior | `dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.supportInformation` returns a non-empty string |
@@ -481,10 +494,10 @@ Phase 5 + Phase 3 + Phase 4
 Phase 1 converts lower-layer package progress into runtime trust. Without it, Phase 2+ failures
 will be misdiagnosed as compositor bugs when they're actually substrate bugs.
 
-### Why smallvil before KWin
+### Why bounded validation comes before KWin session proof
 
-Smallest environment to isolate compositor + input + Qt client issues. KWin adds session
-services, QML, dependency scaffolding, and desktop-shell behavior on top.
+This is the smallest environment to isolate compositor + input + Qt client issues. KWin adds
+session services, QML, dependency scaffolding, and desktop-shell behavior on top.
 
 ### Why hardware doesn't block session assembly
 
@@ -500,7 +513,7 @@ integration). Those can be solved on software renderer while hardware path matur
 | R1 | relibc runtime gaps worse than build evidence suggests | Medium | High | Validate with real consumers in Phase 1 |
 | R2 | GPU CS ioctl scope is uncertain | High | High | Isolate design + proof early in Phase 5 |
 | R3 | Real-hardware validation reveals fundamental driver issues | High | High | Validate AMD and Intel separately |
-| R4 | KWin needs significantly more patches than estimated | Medium | High | Finish smallvil proof first for cleaner lower-layer evidence |
+| R4 | KWin needs significantly more patches than estimated | Medium | High | Finish the bounded validation proof first for cleaner lower-layer evidence |
 | R5 | QML-heavy pieces behave badly with JIT disabled | Medium | Medium-High | Keep QML runtime proof explicit in Phases 3–4 |
 | R6 | Mesa hardware rendering needs Redox-specific winsys work | Medium | High | Separate display proof from renderer proof |
 | R7 | linux-kpi gaps only surface during real-hardware execution | High | Medium-High | Budget for hardware-driven compat fixes in Phase 5 |
@@ -585,7 +598,7 @@ continuity, not as future work.
 
 | Work | Status | When |
 |---|---|---|
-| AMD bare-metal boot (ACPI, SMP, x2APIC) | ✅ Complete | Prior to this plan |
+| AMD bare-metal boot (ACPI, SMP, x2APIC) | ✅ Boot-baseline complete | Prior to this plan; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for ongoing ownership and robustness work |
 | Driver infrastructure (redox-driver-sys, linux-kpi, firmware-loader) | ✅ Builds complete | Prior to this plan |
 | AMD GPU display (redox-drm, amdgpu C port) | ✅ Builds complete | Prior to this plan |
 | relibc POSIX unblockers (signalfd, timerfd, eventfd, etc.) | ✅ Builds complete | Prior to this plan |

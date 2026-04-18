@@ -358,7 +358,7 @@ the honest breakdown.
 - redox-drm: `NO_MSIX`, `NO_MSI`, `FORCE_LEGACY_IRQ`, `DISABLE_ACCEL` (interrupt setup + driver probe)
 - xhcid: `RESET_DELAY_MS`, `NO_MSI`, `NO_MSIX`, `FORCE_LEGACY_IRQ` (interrupt selection + port reset delay)
 - xhcid (USB device path): `NO_STRING_FETCH`, `BAD_DESCRIPTOR`, `RESET_DELAY`, `HUB_SLOW_RESET`, `NO_BOS`, `SHORT_SET_ADDR_TIMEOUT`, `FORCE_ONE_CONFIG`, `HONOR_BNUMINTERFACES`, `DELAY_CTRL_MSG`, `NO_SET_CONFIG`, `NO_SET_INTF`, `NEED_RESET`, `NO_SUSPEND` (enumeration/configuration/BOS/runtime recovery plus suspend gating)
-- amdgpu: `NEED_FIRMWARE` (hard firmware gate), with real quirk-aware logging for `NO_ASPM`, `NEED_IOMMU`, `NO_MSI`, `NO_MSIX`
+- amdgpu: startup firmware requirement enforced at the Rust DRM boundary, with real quirk-aware runtime logging for `NO_ASPM`, `NEED_IOMMU`, `NO_MSI`, `NO_MSIX`
 
 **Infrastructure (data flows, reporting, and partial integration):**
 - pcid-spawner: computes `PCI_QUIRK_FLAGS` by calling the canonical `redox-driver-sys` lookup on synthesized `PciDeviceInfo`, then passes the env var onward
@@ -375,7 +375,12 @@ the honest breakdown.
 **Defined but not yet consumed by any real driver path:**
 - `NO_PM`, `NO_D3COLD`, `DMA_32BIT_ONLY`, `BUS_MASTER_DELAY`, `NO_IOMMU`, etc.
 
-`firmware-loader` itself does not interpret `NEED_FIRMWARE`; that policy is now enforced in the amdgpu driver path instead.
+`firmware-loader` itself does not interpret `NEED_FIRMWARE`; that policy is now enforced at the Rust-side DRM startup boundary instead.
+
+Active Red Bear images that include `redbear-device-services` already ship the upstream
+`redbear-firmware` bundle into `/lib/firmware`. The bounded Intel DMC work therefore selects and
+requires the right startup blobs from that shipped firmware set, rather than depending on the user
+to fetch firmware at runtime.
 
 For early xhcid timing quirks, `[[usb_quirk]]` entries may also carry `port = "1.2.3"` selectors.
 Those selectors are used only for pre-descriptor timing flags (`RESET_DELAY`, `HUB_SLOW_RESET`,

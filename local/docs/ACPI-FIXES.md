@@ -6,14 +6,18 @@
 Status of ACPI fixes for AMD bare metal boot. Cross-referenced with
 `HARDWARE.md` crash reports and kernel/acpid source TODOs.
 
-P0 ACPI work is **complete**. Kernel patch is 574 lines, base/acpid patch is 558 lines.
+This file is the **historical P0 bring-up ledger**. The forward-looking ownership, robustness, and
+validation plan now lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
+
+P0 ACPI boot-baseline work is **materially complete**. Kernel patch is 574 lines, base/acpid patch
+is 558 lines.
 
 ## Crash Reports
 
 | Hardware | Symptom | Root Cause | Status |
 |----------|---------|------------|--------|
-| Framework Laptop 16 (AMD 7040) | Crash on boot | Unimplemented ACPI function (jackpot51/acpi#3) | ✅ Fixed (RSDP/SDT checksums, MADT NMI types, FADT parse) |
-| Lenovo ThinkCentre M83 | `Aml(NoCurrentOp)` panic at acpid acpi.rs:256 | AML interpreter encounters unsupported opcode | Under investigation (upstream AML issue) |
+| Framework Laptop 16 (AMD 7040) | Crash on boot | Unimplemented ACPI function (jackpot51/acpi#3) | ✅ Fixed (RSDP/SDT checksums, MADT NMI types, FADT parse, ACPI init typed errors) |
+| Lenovo ThinkCentre M83 | `Aml(NoCurrentOp)` panic at acpid acpi.rs:256 | AML interpreter encounters unsupported opcode | Under investigation (upstream AML issue; not resolved by P0 work) |
 | HP Compaq nc6120 | Crash after `kernel::acpi` prints APIC info | xAPIC APIC ID read returned raw value, caused page fault on Intel | ✅ Fixed (xAPIC `id()` now shifts `read(0x20) >> 24`) |
 
 ## Known Missing ACPI Table Parsers
@@ -42,11 +46,14 @@ access.
 | RSDT/XSDT | `acpi/rsdt.rs`, `acpi/xsdt.rs` | N/A | Root table pointer iteration + SDT checksum validation |
 | MADT (APIC) | `acpi/madt/` | N/A | xAPIC + x2APIC (type 0x9) + NMI (0x4, 0xA) + address override (0x5) |
 | HPET | `acpi/hpet.rs` | N/A | Assumes single HPET |
-| DMAR (Intel VT-d) | N/A | `acpi/dmar/` | Iterator bug fixed, re-enabled, safe on AMD (early return) |
+| DMAR (Intel VT-d) | N/A | `acpi/dmar/` (present, not wired) | DMAR table parsing present in `dmar/mod.rs` but not initialized at acpid startup; effectively owned by `iommu` daemon. Iterator bug fixed, re-enabled, safe on AMD (early return) |
 | FADT | N/A | `acpi.rs` | Full: PM1a/b CNT, reset register, `\_S5` sleep types, GenericAddress I/O |
 | Power Methods | N/A | `acpi.rs` | `\_PS0`/`\_PS3`/`\_PPC` AML evaluation for device power control |
 | SPCR | `acpi/spcr.rs` | N/A | ARM64 serial console |
 | GTDT | `acpi/gtdt.rs` | N/A | ARM64 timers |
+| Embedded Controller (EC) | N/A | `ec.rs` | Byte-wide and widened accesses (u16/u32/u64) via byte-transaction sequences; timeout on each byte |
+| AML Mutexes | N/A | `aml_physmem.rs` | Real tracked state with handle-based acquire/release; not a placeholder |
+| Shutdown via `kstop` | `scheme/acpi.rs` registers `/scheme/kernel.acpi/kstop` | `main.rs` opens kstop and subscribes via `RawEventQueue` | Kernel-to-userspace shutdown signal; `redbear-sessiond` listens on kstop for D-Bus `PrepareForShutdown` |
 
 ## ACPI MADT Entry Types
 
@@ -91,13 +98,14 @@ These are pre-existing upstream acpid issues. They are NOT part of the
 AMD-first P0/P1 scope. They exist in mainline Redox acpid and affect all
 platforms, not just AMD.
 
-| File | Line | TODO | Priority | Scope |
-|------|------|------|----------|-------|
-| `acpi.rs` | 266 | Use parsed tables for rest of acpid | Upstream | Mainline acpid improvement |
-| `acpi.rs` | 643 | Handle SLP_TYPb for sleep states | Upstream | Mainline power management |
-| `aml_physmem.rs` | 418,423,428 | Mutex create/acquire/release | Upstream | Mainline AML interpreter |
-| `ec.rs` | 193+ (8 occurrences) | Proper error types | Upstream | Mainline EC handler |
-| `dmar/mod.rs` | 7 | Move DMAR to separate driver | Upstream | Mainline driver refactor |
+| File | Line | TODO | Priority | Scope | Status |
+|------|------|------|----------|-------|--------|
+| `acpi.rs` | 266 | Use parsed tables for rest of acpid | Upstream | Mainline acpid improvement | Open |
+| `acpi.rs` | 643 | Handle SLP_TYPb for sleep states | Upstream | Mainline power management | Open (known gap) |
+| `aml_physmem.rs` | 418,423,428 | Mutex create/acquire/release | Upstream | Mainline AML interpreter | **Partially addressed** — real tracked state implemented, not placeholder |
+| `ec.rs` | 193+ (8 occurrences) | Proper error types | Upstream | Mainline EC handler | **Partially addressed** — widened accesses implemented via byte transactions |
+| `dmar/mod.rs` | 7 | Move DMAR to separate driver | Upstream | Mainline driver refactor | **Partially addressed** — DMAR module present but not wired into startup; effectively deferred to `iommu` daemon |
+| `main.rs` | — | Startup panic/expect handling | Local | Boot-path hardening | **Addressed** — typed `StartupError` enum with explicit error messages and clean exit paths |
 
 ## P0 Fixes Applied
 
@@ -129,10 +137,15 @@ platforms, not just AMD.
 |---|-----|-------------|
 | 1 | DMAR iterator fix | `type_bytes` renamed to `len_bytes` bug fix + `len < 4` guard |
 | 2 | DMAR init re-enabled | Safe on AMD (no DMAR table = early return, no crash) |
-| 3 | FADT shutdown | `acpi_shutdown()` using PM1a/PM1b CNT_BLK writes with `\_S5` sleep types |
-| 4 | FADT reboot | `acpi_reboot()` using ACPI reset register via GenericAddress |
-| 5 | Keyboard controller fallback | `Pio::<u8>::new(0x64).write(0xFE)` when reset_reg unavailable |
-| 6 | Power methods | `evaluate_acpi_method()`, `device_power_on()` (`\_PS0`), `device_power_off()` (`\_PS3`), `device_get_performance()` (`\_PPC`) |
-| 7 | GenericAddress rename | `GenericAddressStructure` renamed to `GenericAddress` with `is_empty()`, `write_u8()` |
-| 8 | Reboot wiring | `reboot_requested` flag in main.rs, scheme path detection |
-| 9 | ivrs/mcfg removed | Broken stub references eliminated (deferred to P2+, handled by pcid) |
+| 3 | DMAR not wired into acpid startup | DMAR module present in `dmar/mod.rs` but not imported or called from `main.rs`; effectively deferred to `iommu` daemon ownership |
+| 4 | FADT shutdown | `acpi_shutdown()` using PM1a/PM1b CNT_BLK writes with `\_S5` sleep types |
+| 5 | FADT reboot | `acpi_reboot()` using ACPI reset register via GenericAddress |
+| 6 | Keyboard controller fallback | `Pio::<u8>::new(0x64).write(0xFE)` when reset_reg unavailable |
+| 7 | Power methods | `evaluate_acpi_method()`, `device_power_on()` (`\_PS0`), `device_power_off()` (`\_PS3`), `device_get_performance()` (`\_PPC`) |
+| 8 | GenericAddress rename | `GenericAddressStructure` renamed to `GenericAddress` with `is_empty()`, `write_u8()` |
+| 9 | Reboot wiring | `reboot_requested` flag in main.rs, scheme path detection |
+| 10 | ivrs/mcfg removed | Broken stub references eliminated (deferred to P2+, handled by pcid) |
+| 11 | Typed startup errors | `StartupError` enum covers all startup failure paths; no `panic!` on firmware-origin paths; ACPI-absent causes clean `exit(0)` |
+| 12 | AML mutex real state | `AmlMutexState` with handle-based create/acquire/release; `FxHashMap<Handle, bool>` tracking; poisoned-state recovery |
+| 13 | EC widened accesses | `read_bytes`/`write_bytes` implement u16/u32/u64 via per-byte transactions; `ensure_access` bounds-checks against u8 addressable range |
+| 14 | kstop shutdown eventing | `main.rs` opens `/scheme/kernel.acpi/kstop` and subscribes via `RawEventQueue`; `redbear-sessiond` reads kstop and emits D-Bus `PrepareForShutdown` signal |

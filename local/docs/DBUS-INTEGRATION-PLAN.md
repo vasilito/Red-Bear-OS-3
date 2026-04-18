@@ -125,7 +125,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **QtDBus** | `recipes/wip/qt/qtbase/` | ✅ Enabled | `FEATURE_dbus=ON` for target build, Qt6DBus module present |
 | **kf6-kdbusaddons** | `local/recipes/kde/kf6-kdbusaddons/` | ✅ Builds | KF6 D-Bus convenience wrappers, provides qdbus tool integration |
 | **D-Bus system bus** | `config/redbear-full.toml`, `redbear-kde.toml` | ✅ Wired | `12_dbus.service` launches `dbus-daemon --system`, `messagebus` user (uid=100), `/var/lib/dbus` + `/run/dbus` directories |
-| **D-Bus session bus** | `config/redbear-kde.toml` | ✅ Scripted | `orbital-kde` launches `dbus-launch --sh-syntax` before KWin |
+| **D-Bus session bus** | `config/redbear-kde.toml` | ✅ Scripted | `redbear-kde-session` launches `dbus-launch --sh-syntax` before KWin |
 | **seatd** | `config/redbear-kde.toml` | ✅ Wired | `13_seatd.service`, `LIBSEAT_BACKEND=seatd`, `SEATD_SOCK=/run/seatd.sock` |
 | **kf6-kservice** | `local/recipes/kde/kf6-kservice/` | ✅ Builds | Depends on kf6-kdbusaddons |
 | **kf6-kglobalaccel** | `local/recipes/kde/kf6-kglobalaccel/` | ✅ Builds | Depends on kf6-kdbusaddons |
@@ -167,7 +167,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 ```
 KWin needs:
   dbus-daemon --system          ✅ exists, wired
-  dbus-daemon --session         ✅ exists, wired in orbital-kde
+  dbus-daemon --session         ✅ exists, wired in redbear-kde-session
   org.freedesktop.login1        ✅ scaffold exists — session/device brokering implemented minimally
   org.kde.KWin (self-register)  ✅ KWin does this itself (dbusinterface.cpp)
 ```
@@ -231,7 +231,7 @@ Complete Plasma needs (after re-enabling disabled components):
 │   plasmashell, kwin_wayland, kded6, kglobalaccel, plasma applets        │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                     Session Bus (per-user)                               │
-│   Started by: orbital-kde via dbus-launch or dbus-run-session           │
+│   Started by: redbear-kde-session via dbus-launch or dbus-run-session   │
 │   Policy: /etc/dbus-1/session.conf                                      │
 │   Services: /usr/share/dbus-1/session-services/                         │
 │   ┌──────────────────────────────────────────────────────────────────┐  │
@@ -258,7 +258,7 @@ Complete Plasma needs (after re-enabling disabled components):
 ├──────────────────────────────────────────────────────────────────────────┤
 │                     dbus-daemon 1.16.2                                   │
 │   C reference implementation, redox.patch for epoll + socketpair         │
-│   systemd disabled, x11_autolaunch disabled                              │
+│   systemd disabled, legacy GUI autolaunch disabled                       │
 │   Classic .service file activation                                       │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                     Redox Schemes (native IPC)                           │
@@ -281,7 +281,7 @@ Boot:
      (registers org.freedesktop.login1 on system bus)
   3. Redox init starts 13_seatd.service → seatd
 
-Session launch (orbital-kde):
+Session launch (redbear-kde-session):
   4. dbus-daemon --system already running
   5. eval $(dbus-launch --sh-syntax)  →  session bus started
   6. export DBUS_SESSION_BUS_ADDRESS, XDG_SESSION_ID, XDG_SEAT, XDG_RUNTIME_DIR
@@ -296,7 +296,7 @@ Session launch (orbital-kde):
 | System bus core (login1) | **Redox init** | Must be running before any desktop session |
 | System bus compat (UPower, NM) | **Redox init** or **D-Bus activation** | Can be started lazily, but init is simpler |
 | Session bus KDE services (kglobalaccel, kded6) | **D-Bus activation** (classic `.service` files) | KDE expects this, standard pattern |
-| Session bus KDE shell (KWin, plasmashell) | **Explicit launch** in `orbital-kde` | Must start in specific order with env vars |
+| Session bus KDE shell (KWin, plasmashell) | **Explicit launch** in `redbear-kde-session` | Must start in specific order with env vars |
 | Session bus compat (notifications, tray) | **D-Bus activation** | Standard freedesktop pattern |
 
 ---
@@ -538,7 +538,7 @@ APIs, which relibc provides.
 | 1.5 | Create D-Bus policy files for login1 | Policy allows session compositor to call login1 methods |
 | 1.6 | Create D-Bus activation `.service` file for login1 | `redbear-sessiond` can be activated or init-started |
 | 1.7 | Add `redbear-sessiond` to `redbear-kde.toml` init services | Service starts before KWin in boot sequence |
-| 1.8 | Wire `XDG_SESSION_ID`, `XDG_SEAT`, `XDG_RUNTIME_DIR` in `orbital-kde` | KWin sees a valid session environment |
+| 1.8 | Wire `XDG_SESSION_ID`, `XDG_SEAT`, `XDG_RUNTIME_DIR` in the KDE session launcher | KWin sees a valid session environment |
 | 1.9 | Validate: `dbus-send --system --dest=org.freedesktop.login1 --print-reply /org/freedesktop/login1 org.freedesktop.login1.Manager.ListSessions` | Returns non-empty session list |
 | 1.10 | Validate: `dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.supportInformation` | Returns non-empty KWin info string |
 
@@ -597,7 +597,7 @@ APIs, which relibc provides.
 - [ ] kf6-solid uses UPower backend for power queries
 - [ ] Sleep/shutdown signals flow through login1 D-Bus interface
 
-**Dependencies:** Phase DB-2 complete, ACPI integration working
+**Dependencies:** Phase DB-2 complete, ACPI boot-baseline integration working; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the remaining ownership, robustness, and validation work
 
 ### Phase DB-4: Policy and Access Control (2–3 weeks)
 
@@ -875,7 +875,7 @@ type = "oneshot_async"
 """
 ```
 
-**`orbital-kde` script updates:**
+**KDE session launcher updates:**
 
 ```bash
 # After dbus-launch, set session variables

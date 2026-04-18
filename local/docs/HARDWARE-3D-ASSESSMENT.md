@@ -1,7 +1,11 @@
 # Red Bear OS: Hardware-Accelerated 3D Assessment
 
-**Date**: 2026-04-16
+**Date**: 2026-04-18
 **Scope**: AMD + Intel GPU hardware OpenGL/Vulkan for KDE Plasma desktop
+
+> **Planning authority note (2026-04-18):** this file is the current render-gap assessment and
+> dependency reference. It is no longer the canonical GPU/DRM execution plan; use
+> `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` for sequencing and acceptance criteria.
 
 ## Bottom Line
 
@@ -22,7 +26,7 @@ Mesa (Gallium state tracker → hardware driver)        ← ONLY swrast (CPU), R
         ↓
 libdrm (userspace DRM wrapper)                         ← __redox__ PRIME dispatch ✅, opens /scheme/drm
         ↓
-DRM scheme ioctls (GEM, PRIME, render)                 ← GEM ✅, PRIME ✅ (DmaBuf nodes), render ❌
+DRM scheme ioctls (GEM, PRIME, render)                 ← GEM ✅, PRIME ✅ (DmaBuf nodes), bounded private CS surface ✅, real render path ❌
         ↓
 redox-drm (userspace DRM/KMS daemon)                   ← display ✅, buffer sharing ✅, render ❌
         ↓
@@ -45,9 +49,9 @@ GPU hardware (AMD RDNA / Intel Gen)
 | PRIME scheme ioctls | ✅ Implemented | ~120 | PRIME_HANDLE_TO_FD + PRIME_FD_TO_HANDLE via DmaBuf nodes + export refcounting |
 | libdrm PRIME dispatch | ✅ Implemented | ~30 | __redox__ wrappers: open dmabuf path + fpath-based GEM handle extraction |
 | Mesa Redox winsys | 🚧 Scaffolding | ~4 files | Directory structure + stubs in src/gallium/winsys/redox/drm/ |
-| Render command submission | ❌ Missing | 0 | No CS ioctl, no ring buffer programming |
+| Render command submission | ⚠️ Bounded shared surface only | small shared slice | private CS contract exists, but no vendor-usable render ioctl or ring programming |
 | GPU context management | ❌ Missing | 0 | No context create/destroy |
-| Fence/sync objects | ❌ Missing | 0 | No GPU fence signaling |
+| Fence/sync objects | ❌ Missing | 0 | No shared backend-complete GPU fence signaling |
 | AMD ring buffer | ⚠️ Partial | ~100 | Page flip only, no general command submission |
 
 ### 2. Mesa Build Configuration
@@ -60,7 +64,7 @@ GPU hardware (AMD RDNA / Intel Gen)
 | EGL | enabled | enabled (same) |
 | GBM | enabled | enabled (same) |
 | `gallium-winsys` | none (swrast doesn't need one) | New Redox winsys for radeonsi/iris |
-| `egl/platform_redox.c` | 540 lines, Orbital-backed | Needs DRM backend for HW buffers |
+| `egl/platform_redox.c` | 540 lines, legacy display-backed | Needs DRM backend for HW buffers |
 
 ### 3. Kernel Infrastructure
 
@@ -70,7 +74,7 @@ GPU hardware (AMD RDNA / Intel Gen)
 | Memory scheme (phys mmap) | ✅ | GPU register access works |
 | IRQ scheme (MSI-X) | ✅ | GPU interrupts can be delivered |
 | DMA-BUF fd passing | ✅ Scheme-level | FmapBorrowed + sendfd + DmaBuf nodes enable zero-copy cross-process sharing |
-| GPU fence/wait | ❌ | No GPU completion signaling |
+| GPU fence/wait | ❌ | No shared backend-complete GPU completion signaling |
 | IOMMU/GPU page tables for imports | ❌ | Imported buffers can't be mapped into GPU GTT |
 
 ## The Render Path Gap
@@ -82,15 +86,19 @@ Mesa Gallium (radeonsi)
   → libdrm open("drm:card0")
   → DRM_IOCTL_GEM_CREATE (allocate GPU buffer)          ← EXISTS
   → DRM_IOCTL_PRIME_HANDLE_TO_FD (export for sharing)   ← ✅ IMPLEMENTED (DmaBuf node + scheme fd)
-  → DRM_IOCTL_AMDGPU_CS (submit commands to GPU)        ← DOES NOT EXIST
+  → bounded private CS submit surface                    ← EXISTS, but not a real vendor render path
+  → DRM_IOCTL_AMDGPU_CS (submit commands to GPU)         ← DOES NOT EXIST
   → fence wait (GPU completion)                          ← DOES NOT EXIST
   → present via KMS (PAGE_FLIP)                          ← EXISTS
 ```
 
 Steps 1-2 now have full scheme ioctl support with cross-process buffer sharing via DmaBuf scheme
-nodes, sendfd, and FmapBorrowed. Steps 3-4 (command submission, fencing) remain the critical
-gaps. The buffer sharing foundation is in place — compositors and clients can share GPU buffers
-zero-copy. The missing piece is GPU command submission for actual rendering.
+nodes, sendfd, and FmapBorrowed. There is now also a bounded private CS contract used to harden
+shared DRM semantics, but steps 3-4 (real vendor command submission, fencing) remain the critical
+gaps. The shared-core path now also applies explicit allocation caps for GEM and dumb-buffer
+creation. The buffer sharing foundation is in place — compositors and clients can share GPU buffers
+zero-copy. PRIME export now uses opaque non-guessable tokens rather than synthetic fd numbers.
+The missing piece is still GPU command submission for actual rendering.
 
 ## What Was Implemented
 
@@ -138,7 +146,7 @@ zero-copy. The missing piece is GPU command submission for actual rendering.
    the buffer's physical pages must be mapped into the GPU's address space. Currently only
    internally-allocated GEM objects get GTT mappings.
 
-8. **Mesa EGL platform extension** — `platform_redox.c` currently uses Orbital for buffer
+8. **Mesa EGL platform extension** — `platform_redox.c` currently uses the legacy display backend for buffer
    management. It needs an alternative path that uses DRM GEM for hardware-accelerated
    surfaces.
 

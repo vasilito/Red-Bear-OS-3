@@ -435,10 +435,10 @@ tar xf build/linux-kernel-cache/linux-7.0.tar.xz -C build/linux-kernel-cache/
 quirk entries. Handles three source formats:
 - `drivers/usb/core/quirks.c` → `[[usb_quirk]]` TOML entries (146 entries from Linux 7.0)
 - `drivers/usb/storage/unusual_devs.h` → `[[usb_storage_quirk]]` TOML entries (214 entries from Linux 7.0)
-- `drivers/pci/quirks.c` → `[[pci_quirk]]` TOML entries (heuristic flag mapping, requires review)
+- `drivers/pci/quirks.c` → `[[pci_quirk]]` TOML entries (explicit high-confidence handler-body mappings only, requires review)
 
-USB quirk extraction is direct and does not require review. PCI quirk extraction is heuristic and
-requires manual review before committing.
+USB quirk extraction is direct and does not require review. PCI quirk extraction now emits only
+explicit high-confidence handler-body mappings and still requires manual review before committing.
 
 The extraction script needs extension to also handle `drivers/usb/storage/unusual_devs.h` for mass
 storage device entries (323 entries, different macro format `UNUSUAL_DEV`).

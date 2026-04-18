@@ -7,7 +7,7 @@ Fill one section per test run. Date is ISO 8601.
 
 ```bash
 # 1. Build the image
-./local/scripts/build-amd.sh
+./local/scripts/build-redbear.sh redbear-desktop
 
 # 2. Burn to USB (DANGEROUS — verify target device!)
 ./local/scripts/test-baremetal.sh --device /dev/sdX

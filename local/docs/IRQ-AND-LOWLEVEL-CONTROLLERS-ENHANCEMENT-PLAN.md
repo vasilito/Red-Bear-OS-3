@@ -15,6 +15,7 @@ It is grounded in the current repository state, especially:
 - `recipes/core/base/source/drivers/acpid/`
 - `local/docs/IOMMU-SPEC-REFERENCE.md`
 - `local/docs/ACPI-FIXES.md`
+- `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 - `docs/04-LINUX-DRIVER-COMPAT.md`
 
 The goal is not to restate that these pieces compile, but to separate:

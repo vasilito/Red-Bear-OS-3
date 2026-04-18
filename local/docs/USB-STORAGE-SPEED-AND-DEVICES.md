@@ -232,13 +232,13 @@ command = ["usbhidd", "$SCHEME", "$PORT", "$IF_NUM"]
 | Device Class | Daemon | Scheme Path | Integration |
 |---|---|---|---|
 | **Hub** (class 9) | `usbhubd` | Manages child ports via xhci scheme | Triggers nested device enumeration |
-| **HID** (class 3) | `usbhidd` | Writes to `/scheme/input/producer` via inputd | Orbital consumes `/scheme/input` |
+| **HID** (class 3) | `usbhidd` | Writes to `/scheme/input/producer` via inputd | Legacy display/input consumers read `/scheme/input` |
 | **Mass Storage** (class 8) | `usbscsid` | Registers `disk.usb-{scheme}+{port}-scsi` | Filesystems mount via scheme path |
 
 ### HID Integration Detail
 
 ```
-USB keyboard/mouse → xhcid → usbhidd → inputd (scheme:input) → Orbital (display server)
+USB keyboard/mouse → xhcid → usbhidd → inputd (scheme:input) → display/input consumer
                                                       ↑
                                            /scheme/input/producer  (drivers write here)
                                            /scheme/input/consumer  (display server reads here)

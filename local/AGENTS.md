@@ -13,8 +13,8 @@ Red Bear OS relates to Redox OS in the same way Ubuntu relates to Debian:
 
 Build flow:
 ```
-make all CONFIG_NAME=redbear-desktop
-  → mk/config.mk resolves to config/redbear-desktop.toml
+make all CONFIG_NAME=redbear-kde
+  → mk/config.mk resolves to config/redbear-kde.toml
   → Config includes desktop.toml (mainline) + Red Bear packages
   → repo cook builds all packages including our custom ones
   → mk/disk.mk creates harddrive.img with Red Bear branding
@@ -23,7 +23,7 @@ make all CONFIG_NAME=redbear-desktop
 Update flow:
 ```
 ./local/scripts/sync-upstream.sh          # Rebase onto upstream Redox + verify symlinks
-make all CONFIG_NAME=redbear-full          # Rebuild with latest
+make all CONFIG_NAME=redbear-kde           # Rebuild with latest
 ```
 
 ## TRACKING UPSTREAM (SYNC WITH REDOX OS)
@@ -163,9 +163,10 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── scripts/
 │   │   ├── sync-upstream.sh   ← Sync with upstream Redox OS
 │   │   ├── build-redbear.sh   ← Unified Red Bear OS build script
-│   │   ├── fetch-firmware.sh  ← Download AMD firmware
-│   │   ├── build-amd.sh       ← Legacy AMD-specific build (use build-redbear.sh)
-│   │   ├── test-amd-gpu.sh    ← AMD GPU test script
+│   │   ├── fetch-firmware.sh  ← Download bounded AMD or Intel firmware subsets from linux-firmware
+│   │   ├── test-drm-display-runtime.sh ← Shared bounded DRM/KMS display validation harness
+│   │   ├── test-amd-gpu.sh    ← AMD wrapper for the DRM display validation harness
+│   │   ├── test-intel-gpu.sh  ← Intel wrapper for the DRM display validation harness
 │   │   ├── test-baremetal.sh  ← Bare metal test script
 │   │   ├── build-redbear-wifictl-redox.sh ← Build redbear-wifictl for the Redox target with the repo toolchain
 │   │   ├── test-iwlwifi-driver-runtime.sh ← Bounded Intel driver lifecycle check inside a target runtime
@@ -187,8 +188,8 @@ redox-master/                  ← git pull updates mainline Redox
 ## HOW TO BUILD RED BEAR OS
 
 ```bash
-# Full desktop with GPU drivers + branding
-./local/scripts/build-redbear.sh redbear-desktop
+# Tracked KWin Wayland desktop target
+./local/scripts/build-redbear.sh redbear-kde
 
 # Minimal server variant
 ./local/scripts/build-redbear.sh redbear-minimal
@@ -207,7 +208,7 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
 
 # Legacy Phase 3 runtime-substrate validation (historical P0-P6 numbering; script still works)
-./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-desktop
+./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-kde
 
 # Low-level controller validation
 ./local/scripts/test-xhci-irq-qemu.sh --check
@@ -259,7 +260,7 @@ redox-master/                  ← git pull updates mainline Redox
 redbear-netctl --help
 
 # Or manually:
-make all CONFIG_NAME=redbear-desktop
+make all CONFIG_NAME=redbear-kde
 
 # Single custom recipe:
 ./target/release/repo cook local/recipes/branding/redbear-release
@@ -286,7 +287,7 @@ When mainline updates affect our work:
 | Kernel | ACPI, scheme, memory API changes | `recipes/core/kernel/source/src/` |
 | relibc | New POSIX functions added upstream | `recipes/core/relibc/source/src/header/` |
 | Base drivers | Driver API changes | `recipes/core/base/source/drivers/` |
-| libdrm | DRM API updates | `recipes/wip/x11/libdrm/` or `recipes/libs/` |
+| libdrm | DRM API updates | `recipes/libs/libdrm/` or the current in-tree libdrm location |
 | Mesa | OpenGL/Vulkan backend changes | `recipes/libs/mesa/` |
 | Build system | Makefile/config changes | `mk/`, `src/` |
 | rsext4 | ext4 crate API changes | `local/recipes/core/ext4d/source/` Cargo.toml |
@@ -298,10 +299,18 @@ When mainline updates affect our work:
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` is the canonical public execution plan.
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0) is the canonical desktop path plan from console to
   hardware-accelerated KDE Plasma on Wayland, using a three-track Phase 1–5 model.
+- `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` is the current DRM-focused execution plan beneath
+  the canonical desktop path. It keeps Intel and AMD at the same evidence bar while separating
+  display/KMS maturity from render/3D maturity.
+- Older GPU-specific docs such as `local/docs/AMD-FIRST-INTEGRATION.md`,
+  `local/docs/P2-AMD-GPU-DISPLAY.md`, `local/docs/HARDWARE-3D-ASSESSMENT.md`, and
+  `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md` remain useful reference material, but they are not the
+  planning authority when sequencing or acceptance criteria differ.
 - `local/docs/AMD-FIRST-INTEGRATION.md` remains the deeper AMD-specific technical roadmap, but AMD
   and Intel machines are now equal-priority Red Bear OS targets.
-- `local/docs/PHASE-0-3-REASSESSMENT.md` is deprecated — its reconciliation role is now covered by the
-  updated CONSOLE-TO-KDE-DESKTOP-PLAN.md and docs/07.
+- The earlier Phase 0–3 reassessment bridge has been retired. Its reconciliation role is now
+  covered by `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`,
+  `local/docs/DESKTOP-STACK-CURRENT-STATUS.md`, and `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`.
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md` is the current Wi-Fi architecture and rollout plan,
   including the bounded role of `linux-kpi` and the native wireless control-plane direction.
 - `local/docs/USB-IMPLEMENTATION-PLAN.md` and `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` should
@@ -470,9 +479,9 @@ local/Assets/
 |-------|--------|-----|
 | icon.png | Bootloader logo | Convert to BMP, embed via bootloader config |
 | icon.png | Desktop icon | Install to `/usr/share/icons/hicolor/` via redbear-release recipe |
-| icon.png | About dialog | COSMIC desktop reads from icon theme |
-| loading background.png | Boot splash | Convert to framebuffer-compatible format, display before orbital starts |
-| loading background.png | Login screen | Set as orblogin/orbital background |
+| icon.png | About dialog | Install through the active icon/theme surface |
+| loading background.png | Boot splash | Convert to framebuffer-compatible format, display during startup |
+| loading background.png | Login screen | Set as the display-session background |
 
 **Current status**: Assets are committed to git. Not yet integrated into the build — requires bootloader and display server integration (P2 hardware validation).
 
@@ -490,10 +499,11 @@ local/Assets/
 
 ```
 redbear-live.toml
-  └── redbear-desktop.toml
-        ├── redbear-legacy-base.toml   ← Neutralize broken base legacy init scripts
+  └── redbear-kde.toml
+        ├── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
+        ├── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
         ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-        ├── redbear-netctl.toml        ← Shared Red Bear network profile files + netctl boot service
+        ├── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
         ├── desktop.toml (mainline)
         │     ├── desktop-minimal.toml
         │     │     └── minimal.toml
@@ -513,7 +523,7 @@ redbear-live.toml
               in /etc/netctl and a boot-time `netctl --boot` service.
         NOTE: redbear-info is the canonical runtime integration report. Keep it updated when
               Red Bear adds new tools, schemes, services, or hardware integration paths.
-        NOTE: redbear-live inherits cub through redbear-desktop.toml.
+        NOTE: redbear-live inherits cub through redbear-kde.toml.
         NOTE: redbear-meta is explicitly included in redbear-full.toml. Keep any broader inclusion
               deliberate because its dependency surface is much heavier than the core utility layer.
 
@@ -526,7 +536,7 @@ redbear-full.toml
 
 redbear-wayland.toml
   └── wayland.toml (mainline-derived Wayland profile)
-  └── runtime surface: orbital-wayland → smallvil
+  └── bounded validation runtime surface
   └── validation entrypoints: test-phase4-wayland-qemu.sh + redbear-phase4-wayland-check
 
 redbear-kde.toml
@@ -549,9 +559,9 @@ redbear-minimal.toml
 Config comparison:
 | Config | GPU Stack | Desktop | Branding | ext4d | filesystem_size |
 |--------|-----------|---------|----------|-------|-----------------|
-| redbear-desktop | Full | COSMIC | Yes | ✅ (via desktop.toml) | 10240 MiB |
+| redbear-desktop | Full | Supplementary integration support | Yes | ✅ (via desktop.toml) | 10240 MiB |
 | redbear-minimal | None | None | Yes | ❌ | 512 MiB |
-| redbear-live | Full | COSMIC | Yes | ✅ (via desktop.toml) | 12288 MiB |
+| redbear-live | Full | KWin Wayland target | Yes | ✅ (via desktop.toml) | 12288 MiB |
 
 ## ANTI-PATTERNS (COMMIT POLICY)
 

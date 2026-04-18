@@ -1,6 +1,6 @@
 # Qt6 Port — Red Bear OS
 
-**Last updated:** 2026-04-16
+**Last updated:** 2026-04-18
 **Qt version:** 6.11.0
 **Target:** x86_64-unknown-redox (cross-compiled from Linux x86_64 host)
 
@@ -40,7 +40,7 @@
 | **libinput** | ✅ | 1.30.2 with comprehensive redox.patch |
 | **D-Bus** | ✅ | 1.16.2, libdbus-1.so |
 | **KF6 Frameworks** | ✅ 32/32 | All frameworks built |
-| **KWin** | 🔄 | Recipe ready, now using real `libxcvt`, but still blocked by remaining shimmed/stubbed deps and incomplete runtime path |
+| **KWin** | 🔄 | Reduced recipe path now uses real `libxcvt`, `libepoxy`, `lcms2`, and honest `libudev.so` / `libdisplay-info.so` provider linkage, but runtime/session proof is still incomplete |
 | **Hardware acceleration** | ❌ | PRIME/DMA-BUF scheme ioctls implemented; blocked on GPU command submission (CS ioctl) |
 
 ---
@@ -166,7 +166,7 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 | Feature | CMake Flag | Status | Notes |
 |---------|-----------|--------|-------|
-| XCB/Xlib | `-DFEATURE_xcb=OFF -DFEATURE_xlib=OFF` | ❌ Disabled | Not applicable — Redox uses Wayland, not X11 |
+| XCB/Xlib | `-DFEATURE_xcb=OFF -DFEATURE_xlib=OFF` | ❌ Disabled | Not applicable — Redox uses Wayland |
 | Vulkan | `-DFEATURE_vulkan=OFF` | ❌ Disabled | No Vulkan runtime on Redox |
 | OpenSSL | `-DFEATURE_openssl=OFF` | ❌ Disabled | OpenSSL3 port in WIP but not validated |
 | qmake | `-DFEATURE_qmake=OFF` | ❌ Disabled | Build tool, not needed with CMake |
@@ -362,7 +362,7 @@ Current truth for Phase 4:
 
 - the graphics stack now builds end to end: Mesa EGL+GBM+GLES2, libdrm amdgpu, Qt6 OpenGL/EGL,
   and qtwayland all stage successfully
-- the current `redbear-wayland` validation profile is still a bounded smallvil-first runtime path,
+- the current `redbear-wayland` validation profile is still a bounded runtime-validation path,
   not proof of a hardware-accelerated desktop session
 - the current QEMU validation harness is still software-rendered (`llvmpipe`) and should be treated
   as a bounded regression/test path, not as the final acceleration proof target
@@ -397,22 +397,21 @@ qt6-wayland-smoke improved to create a visible QWindow:
 - Runs for 3 seconds (previously 1 second, no window)
 - This turns the smoke test from a bootstrap check into a real Wayland surface proof target
 
-KWin recipe updated — features re-enabled where deps are satisfied:
+KWin recipe updated — features re-enabled where deps are satisfied in the current reduced path:
 - KWIN_BUILD_DECORATIONS=ON (kdecoration builds ✅)
-- KWIN_BUILD_GLOBALSHORTCUTS=ON (kglobalaccel builds ✅)
 - KWIN_BUILD_RUNNERS=ON (kf6-kio builds ✅)
-- KWIN_BUILD_NOTIFICATIONS=ON (knotifications builds ✅)
 - USE_DBUS=ON (D-Bus 1.16.2 builds ✅)
-- Still disabled (9): KCMS, screen locking, tabbox, effects, X11, QML, running-in-kde,
-  signing docs, screenlocker
-- Stub deps remaining: libepoxy-stub, libudev-stub, lcms2-stub, libdisplay-info-stub
+- Still disabled (11): global shortcuts, notifications, KCMS, screen locking, tabbox,
+  effects, legacy windowing backend, QML, running-in-kde, signing docs, screenlocker
+- Honest reduced-path providers now integrated into the current recipe: libepoxy, lcms2, libudev, libdisplay-info
+- Remaining limitation in that dependency slice: `libudev` hotplug monitoring is bounded, and `libdisplay-info` is currently base-EDID only (CTA / DisplayID / HDR metadata still unsupported)
 
 New dependency library:
 - libqrencode 4.1.1 ✅ BUILT (QR code encoder, dependency of kf6-prison)
 - kf6-kwayland ✅
 - seatd builds separately (runtime dependency, not needed for compilation)
 
-### Phase 6 — KWin (🔄 BUILDING)
+### Phase 6 — KWin (✅ reduced build verifies, 🚧 runtime incomplete)
 
 ## Dependency Graph
 
@@ -443,16 +442,16 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
    PRIME/DMA-BUF cross-process buffer sharing is implemented at the scheme level.
 
 4. **relibc / graphics surface still incomplete for runtime** — the build-side `open_memstream` and Wayland-facing header export path now work,
-   but DMA-BUF ioctls, sync objects, and broader graphics runtime validation are still unavailable.
+   and DMA-BUF ioctls plus a bounded private CS surface now exist, but real sync objects/shared fence semantics and broader graphics runtime validation are still unavailable.
 
 5. **KDE Plasma does NOT compile or run end-to-end** — KWin, plasma-workspace, plasma-desktop recipes exist,
-   but are still blocked on shimmed/stubbed dependencies, runtime integration, and compositor validation.
+   and KWin’s reduced build now verifies with honest `libudev.so` / `libdisplay-info.so` linkage, but runtime integration, compositor validation, and broader Plasma session proof are still missing.
 
 ## Honest Status Assessment
 
 The Qt6/KF6 build stack is substantially further along than the earlier "~50%" estimate implied:
 - Qt6, QtWayland, Mesa EGL+GBM, Qt6 OpenGL, libdrm amdgpu, and all 32 KF6 frameworks now build
-- the remaining blockers are concentrated in KWin/Plasma runtime integration and in the still-shimmed or stub-only packages such as Kirigami, libepoxy, libudev, lcms2, and libdisplay-info
+- the remaining blockers are concentrated in KWin/Plasma runtime integration and in the still-shimmed or stub-only packages such as Kirigami, plus the bounded-not-full provider behavior of `libudev` and `libdisplay-info` in the current reduced KWin path
 - hardware acceleration still requires GPU command submission and real hardware validation (PRIME/DMA-BUF buffer sharing is implemented)
 - a successful build stack is not yet the same thing as a working KDE Plasma session
 

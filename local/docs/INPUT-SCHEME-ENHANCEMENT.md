@@ -216,7 +216,7 @@ Input written to `/scheme/input/producer` follows the current legacy route:
 Input written to `/scheme/input/producer/{name}` must be fanned out to:
 
 1. the matching `DeviceConsumer` handles where `device_name == name`
-2. the existing legacy consumer path used by Orbital and other old clients
+2. the existing legacy consumer path used by older display/input clients
 
 That means named producers are **supersets** of legacy routing, not replacements.
 
@@ -535,7 +535,7 @@ Another developer implementing this design should be able to proceed in this ord
 
 After this enhancement:
 
-- Orbital and any other legacy consumer continue to work as-is.
+- Legacy consumers continue to work as-is.
 - `ps2d` and future drivers can publish stable device names.
 - `evdevd` and similar services can subscribe to exactly one device stream.
 - userspace can enumerate live input devices and react to hotplug events.
