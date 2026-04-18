@@ -98,9 +98,10 @@ enumerated, ports have devices attached, and device descriptors are readable.
 
 | Script | What it tests |
 |--------|---------------|
-| `test-usb-qemu.sh --check` | Full USB stack (xHCI + HID + SCSI + BOS + no crashes) |
-| `test-usb-storage-qemu.sh` | USB mass storage autospawn + crash pattern check |
+| `test-usb-qemu.sh --check` | Full USB stack (xHCI + HID + SCSI + bounded sector-0 readback + BOS + no crashes) |
+| `test-usb-storage-qemu.sh` | USB mass storage autospawn + bounded sector-0 readback + crash pattern check |
 | `test-xhci-irq-qemu.sh --check` | xHCI interrupt delivery mode (MSI/MSI-X/INTx) |
+| `test-usb-maturity-qemu.sh` | Sequential wrapper for the bounded USB maturity checks |
 
 In-guest quick checks:
 - `lsusb` — walks `/scheme/usb.*`, reads descriptors, shows vendor:product + quirks

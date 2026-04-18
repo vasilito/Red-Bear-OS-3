@@ -168,8 +168,8 @@ Key files and their sizes:
 
 | Script | What it tests | Limitations |
 |---|---|---|
-| `test-usb-qemu.sh --check` | Full stack: xHCI interrupt mode, HID spawn, SCSI spawn, BOS processing, crash errors (6 checks) | QEMU-only; log-grep based; no runtime I/O |
-| `test-usb-storage-qemu.sh` | USB mass storage autospawn + crash patterns | No actual read/write; no multi-LUN; no UAS |
+| `test-usb-qemu.sh --check` | Full stack: xHCI interrupt mode, HID spawn, SCSI spawn, bounded sector-0 readback, BOS processing, crash errors | QEMU-only; log-grep based; no guest-side write proof |
+| `test-usb-storage-qemu.sh` | USB mass storage autospawn + sector-0 readback + crash patterns | No guest-side write proof yet; no multi-LUN; no UAS |
 | `test-xhci-irq-qemu.sh --check` | xHCI interrupt delivery mode (MSI/MSI-X/INTx) | No devices attached during check; single log grep |
 
 ### In-guest tooling
@@ -631,7 +631,7 @@ The remaining gaps fall into three categories:
 **Hardware-dependent or design decisions:**
 - Real hardware validation: no controller tested outside QEMU
 - Hot-plug stress testing
-- Storage I/O validation (read/write to block device)
+- Storage write validation (bounded sector-0 readback proof now exists in QEMU via `test-usb-storage-qemu.sh`, but guest-side write verification to the USB-backed block device is still open)
 - usbhubd 1-second polling fallback (only exercisable with real hub hardware)
 - Modern USB scope decision: device mode / USB-C / PD
 
