@@ -76,7 +76,7 @@ Current manual verification in this repo pass:
 
 - `cargo check --target x86_64-unknown-linux-gnu` passes for relibc
 - host-side focused IPC tests execute successfully for `open_memstream` and `semget`
-- host-side focused `timerfd` and `signalfd` tests report bounded unavailability rather than hanging
+- targeted Redox runtime execution now validates the `timerfd` and `signalfd` tests directly through the repaired `write-exec` path instead of relying on bounded host-side fallback behavior
 - `CI=1 ./target/release/repo cook relibc` completes successfully after clearing a stale stage-dir collision
 - `CI=1 ./target/release/repo cook qtbase` now succeeds after exporting `eventfd_t` and restoring a bounded `waitid()` path
 - a fresh `repo unfetch relibc` → `repo fetch relibc` cycle plus reapplication of
@@ -135,10 +135,10 @@ kernel IPC model under the hood, but it still exposes familiar libc entry points
 schemes.
 
 The second strong point is that the IPC work is not just source-visible anymore. The focused relibc
-tests already cover `sem_open`, `shmget`, `open_memstream`, `semget`, `eventfd`, and the bounded
-host-side `timerfd` / `signalfd` cases. The broader relibc plan also records successful downstream
-builds for `libwayland`, `qtbase`, and `openssh`, which means real consumers are already benefiting
-from this work, but those consumers do **not** all prove IPC depth equally.
+tests already cover `sem_open`, `shmget`, `open_memstream`, `semget`, `eventfd`, and the targeted
+Redox-runtime `timerfd` / `signalfd` cases. The broader relibc plan also records successful
+downstream builds for `libwayland`, `qtbase`, and `openssh`, which means real consumers are already
+benefiting from this work, but those consumers do **not** all prove IPC depth equally.
 
 ### 2. Weak spots
 
@@ -161,13 +161,24 @@ Named POSIX semaphores are also present but still bounded. `sem_open()` is imple
 `shm_open()`, which is a practical Redox-native strategy, but the current code comments already mark
 it as a bounded Redox path rather than a full Linux/glibc-equivalent semantic model.
 
-The descriptor-event primitives are in a similar state. `eventfd` is in comparatively good shape,
-including a host fallback for Linux test execution. `signalfd` and `timerfd` are weaker. The host
-tests for both currently report bounded unavailability instead of successful execution, which is
-better than a hang or crash but still leaves them short of runtime trust. `timerfd` in particular
-supports only `TFD_CLOEXEC`, `TFD_NONBLOCK`, and `TFD_TIMER_ABSTIME`; Linux-style
-`TFD_TIMER_CANCEL_ON_SET` semantics are still absent, and downstream KWin code explicitly wants
-that flag.
+The descriptor-event primitives are in a materially better state than before. `eventfd` now has a
+real counter-style runtime path instead of only a source-visible wrapper, and the targeted Redox
+runtime test harness now executes strict `eventfd`, `signalfd`, and `timerfd` test binaries
+successfully through the repaired `write-exec` runner path. The older "unavailable is success"
+fallbacks were removed from those focused tests, so these are now actual runtime checks rather than
+mere launch proofs.
+
+The preserved overlay story for those paths is now simpler than it was during the original bounded
+bring-up. The current relibc tree already contains the fd-event implementations and focused tests
+upstream, so the active Red Bear recipe replay no longer needs the old standalone
+`P3-eventfd.patch`, `P3-signalfd.patch`, `P3-signalfd-header.patch`, `P3-timerfd.patch`, and
+`P3-fd-event-tests.patch` carriers. In the current repo, `redox.patch` remains the active shared
+Red Bear relibc delta, while the historical P3 files are legacy references rather than recipe inputs.
+
+The remaining caution is semantic breadth, not whether the paths execute at all. `timerfd` is now
+runtime-validated for the bounded relibc test harness, but downstream consumers such as KWin still
+pressure Linux-oriented details like `TFD_TIMER_CANCEL_ON_SET`, so broad desktop/runtime trust
+should still be described as narrower than full Linux equivalence.
 
 ### 3. Missing areas
 
@@ -259,8 +270,9 @@ Current test story:
 
 - host-side focused execution exists for `sem_open`, `shmget`, `open_memstream`, `semget`, and
   `eventfd`
-- `signalfd` and `timerfd` are in the test harness, but host execution currently reports bounded
-  unavailability
+- targeted Redox runtime execution now exists for `signalfd`, `timerfd`, and `eventfd` via
+  `relibc-tests-bins` and the repaired `cookbook_redoxer write-exec` path, with strict pass/fail
+  semantics rather than availability fallbacks
 - downstream build evidence exists for `libwayland`, `qtbase`, and `openssh`
 
 What is still missing is stronger Redox-target or consumer-runtime proof for Qt/KDE and Wayland
@@ -270,18 +282,21 @@ live session.
 The strongest safe claim today is therefore:
 
 - **source-visible** across the major IPC surfaces,
-- **test-visible** for focused host-side cases,
+- **test-visible** for focused host-side and Redox-target fd-event cases,
 - **build-visible downstream** for meaningful consumers,
-- but **not yet broadly runtime-trusted on Redox**.
+- with **bounded runtime trust on Redox for the relibc fd-event harness**,
+- but **not yet broad proof of full Linux-equivalent semantics for every desktop consumer path**.
 
 ### Blocker 3 — Descriptor-event semantics are still narrower than Linux-oriented callers expect
 
-KWin’s timer code wants `TFD_TIMER_CANCEL_ON_SET`. The current relibc timerfd layer does not support
-that flag. This is a concrete example of a downstream expectation gap that is not solved by simply
-having `timerfd_create()` present.
+KWin’s timer code wants `TFD_TIMER_CANCEL_ON_SET`. The current bounded relibc timerfd layer does
+not claim that full Linux cancel-on-clock-change semantic. The preserved test/runtime slice proves
+one-shot behavior and successful `TFD_TIMER_ABSTIME` / bounded flag-surface handling, while broader
+Linux-equivalent cancel-on-clock-change semantics remain an explicit downstream expectation gap.
 
-Likewise, `signalfd` support is visible and exported, but its current confidence story is still too
-thin for broad claims about desktop/runtime readiness.
+Likewise, `signalfd` support is no longer merely visible/exported; it now passes the targeted
+Redox-runtime relibc test path. The remaining question is broader consumer semantics and long-tail
+desktop/runtime confidence, not basic availability.
 
 ### Blocker 4 — Message queues remain a completely open IPC front
 

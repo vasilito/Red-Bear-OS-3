@@ -8,7 +8,7 @@ gaps**, and **overall quality**, then defines a practical plan for improving it.
 The goal is not to treat relibc as a generic libc project. The goal is to describe:
 
 - what is already strong,
-- what exists only through local patch carriers,
+- what still depends on active local overlay state rather than upstream relibc itself,
 - what is still incomplete or weak,
 - what downstream subsystems still depend on relibc improvement,
 - and what order of work best improves real system capability.
@@ -21,7 +21,7 @@ pre-correction roadmap assumptions.
 This plan uses four evidence buckets and does **not** treat them as equivalent:
 
 - **source-visible** — behavior visible directly in the current relibc source tree
-- **patch-carried** — behavior carried in `local/patches/relibc/P3-*.patch`
+- **patch-carried** — behavior carried in the active `local/patches/relibc/*.patch` recipe inputs rather than upstream relibc itself
 - **build-visible downstream** — downstream packages now compile because the libc surface exists
 - **runtime-validated** — behavior has been exercised successfully in real downstream/runtime paths
 
@@ -34,17 +34,24 @@ For relibc, the ownership boundary must stay explicit:
 
 - `recipes/core/relibc/source/` is the live upstream-owned working tree used for actual build and
   validation
-- `local/patches/relibc/P3-*.patch` is the Red Bear-owned durable carrier for relibc changes
+- the active Red Bear-owned durable relibc compatibility carrier is the recipe-replayed
+  `local/patches/relibc/*.patch` set; in the current tree that active replay has narrowed to
+  `local/patches/relibc/redox.patch`
+- older `local/patches/relibc/P3-*.patch` files are historical bring-up references unless a current
+  recipe still replays them
 - `local/docs/...` is the durable explanation of what those changes mean and how to reapply them
 
-That means a relibc change is not truly preserved until it exists in **both** places:
+That means a relibc change is not truly preserved until its ownership is explicit in the right
+place:
 
-1. the live relibc source tree, so the current build can prove it
-2. the `local/patches/relibc/` carrier set, so the same result can be recreated after an upstream refresh
+1. if upstream now owns the behavior, the live relibc source tree is the canonical implementation
+2. if Red Bear still owns a unique delta, it must also exist in the active
+   `local/patches/relibc/` recipe input set so the same result can be recreated after an upstream
+   refresh
 
 The repo standard for success is not merely “the current source tree builds.” The standard is:
 
-> we can fetch fresh upstream relibc sources, reapply the Red Bear relibc patch carriers, and still
+> we can fetch fresh upstream relibc sources, reapply the active Red Bear relibc patch carriers, and still
 > rebuild the same working result.
 
 Any relibc work that exists only under `recipes/core/relibc/source/` should therefore be treated as
@@ -62,7 +69,7 @@ The goal is durable compatibility, not a permanent relibc fork.
 
 > **Implementation note (current Red Bear tree):** this repo pass moved several relibc items from
 > patch-carried-only or downstream-workaround status into source-visible libc behavior. The current
-> tree now contains source-visible `signalfd`, `timerfd`, `eventfd`, `open_memstream`,
+> tree now contains source-visible and strict Redox-target runtime-tested `signalfd`, `timerfd`, `eventfd`, `open_memstream`,
 > `F_DUPFD_CLOEXEC`, `MSG_NOSIGNAL`, a bounded `waitid()` path, bounded `RLIMIT_NOFILE` /
 > `RLIMIT_MEMLOCK` behavior, a bounded `eth0`-backed `net/if.h` / `ifaddrs.h` view, a source-visible
 > `resolv.h` plus bounded `res_query()` / `res_search()` compatibility paths with receive/send
@@ -96,11 +103,13 @@ The goal is durable compatibility, not a permanent relibc fork.
 > succeed in the current tree.
 >
 > **Additional focused coverage (current Red Bear tree):** integrated relibc tests were also added
-> for `open_memstream`, SysV semaphores via `semget`/`semop`/`semctl`, `timerfd`, and `signalfd`.
-> On the host-side relibc sysroot, `open_memstream` and `semget` execute successfully, while the
-> `timerfd` and `signalfd` tests currently report bounded unavailability in that host environment
-> rather than hanging or crashing. That still falls short of Redox runtime proof for those two
-> non-POSIX APIs, but it moves them from source-visible-only status into the explicit test harness.
+> for `open_memstream`, SysV semaphores via `semget`/`semop`/`semctl`, `timerfd`, `signalfd`, and
+> `eventfd`. On the host-side relibc sysroot, `open_memstream`, `semget`, and the bounded SysV shm
+> path execute successfully. On the Redox-target runtime path, the repaired `cookbook_redoxer`
+> `write-exec` flow now executes the targeted `eventfd`, `signalfd`, and `timerfd` binaries
+> successfully against the staged relibc test tree, and those tests now fail hard if the APIs are
+> unavailable. That moves the fd-event APIs from source-visible/build-visible status into explicit
+> runtime-tested status for the bounded relibc harness.
 >
 > **Fresh-upstream reapply proof (current Red Bear tree):** a fresh `repo unfetch relibc` →
 > `repo fetch relibc` cycle was used to reconstruct the relibc source tree from upstream-owned
@@ -146,13 +155,13 @@ The current repo also shows relibc is still weak in:
 | Area | State | Notes |
 |---|---|---|
 | Core POSIX/header breadth | **strong / partial** | Large header surface exists, but many TODO headers and feature gaps remain |
-| Wayland-facing P3 APIs | **implemented / source-visible / runtime-unproven** | `signalfd`, `timerfd`, `eventfd`, `open_memstream`, socket flags, and `F_DUPFD_CLOEXEC` now exist in the relibc source tree; runtime proof still trails build integration |
+| Wayland-facing P3 APIs | **implemented / runtime-tested / bounded** | `signalfd`, `timerfd`, `eventfd`, `open_memstream`, socket flags, and `F_DUPFD_CLOEXEC` now exist in the relibc source tree; strict targeted relibc runtime tests now execute on Redox, but broader consumer semantics still need careful documentation |
 | Networking/libc socket surface | **usable / partial** | AF_INET/AF_UNIX paths exist, but interface/reporting/resolver behavior remains narrow |
 | Qt/KDE downstream unblockers | **build-side improved / multiple gates crossed** | `QProcess`, `QSharedMemory`, and `QSystemSemaphore` now configure, build, and stage on in-tree qtbase; broader runtime validation is still needed |
 | Shared memory / semaphore completeness | **partial** | `shm_open` exists through the Redox shm path, but SysV IPC/shared-memory and named semaphore completeness remain open |
 | Process/runtime completeness | **partial** | Some process-facing functionality still uses stubs or downstream workarounds |
 | Dedicated test surface | **present / Redox-specific coverage still thin** | relibc has a substantial `source/tests/` tree, but the Red Bear-visible Redox/P3/runtime validation story is still weaker than the generic libc test surface |
-| Runtime validation against real consumers | **insufficient** | Still weaker than build-side evidence |
+| Runtime validation against real consumers | **improved / still bounded** | relibc fd-event runtime tests now execute on Redox; broader desktop consumer semantics still need continued confirmation |
 
 ## Strong Points
 
@@ -168,20 +177,33 @@ greenfield libc effort.
 ### 2. The historical P3 Wayland-facing API bridge is now source-visible
 
 The local relibc patch carriers documented the APIs that historically blocked Wayland and downstream
-consumers. In the current preserved tree, the overlapping Wayland/Qt-facing registration and API work
-for `signalfd`, `timerfd`, `eventfd`, `waitid`, `open_memstream`, socket flags, bounded
-`ifaddrs`/`net_if`, and the bounded resolver headers now lives in the tracked
-`local/patches/relibc/redox.patch` carrier so the recipe does not depend on a fragile stack of
-overlapping standalone patch files.
+consumers. In the current preserved tree, those fd-event and adjacent IPC surfaces are now present
+in the active upstream relibc source itself, and the relibc-facing recipes no longer replay the old
+standalone P3 carrier set for `eventfd`, `signalfd`, `timerfd`, `waitid`, SysV IPC, or their focused
+test files. The active Red Bear relibc recipe replay has narrowed back to the shared
+`local/patches/relibc/redox.patch` compatibility delta, while the historical P3 patch files remain
+useful as prior bring-up evidence rather than current recipe inputs.
 
-The remaining Red Bear-owned relibc carriers currently add or complete:
+### 3. Focused fd-event proof record
 
-- `signalfd` / `signalfd4`
-- `timerfd_create` / `timerfd_settime` / `timerfd_gettime`
-- `eventfd` / `eventfd_read` / `eventfd_write`
-- bounded `waitid()`
-- bounded `sys/ipc.h`, `sys/sem.h`, and `sys/shm.h` compatibility layers
-- focused relibc IPC tests needed to keep those overlays validated after upstream refresh
+The bounded fd-event runtime proof now has a small tracked record here so it does not depend only on
+session history.
+
+Preserved command shape:
+
+- rebuild relibc from tracked carriers: `repo unfetch relibc && repo fetch relibc && repo cook relibc`
+- rebuild targeted test package: `TESTBIN=sys_eventfd/eventfd CI=1 ./target/release/repo cook relibc-tests-bins`
+- execute inside staged Redox target via `cookbook_redbear_redoxer write-exec`
+
+Recorded bounded runtime markers from the current pass:
+
+- `eventfd_runtime_finalfinal_ok`
+- `signalfd_runtime_finalfinal_ok`
+- `timerfd_runtime_finalfinal_ok`
+- `eventfd_runtime_kernelreplay_ok`
+
+These markers should be read as proof of the bounded relibc fd-event harness only. They do not by
+themselves claim full Linux-equivalent semantics for every downstream desktop consumer.
 
 The upstream-first policy still applies here, but the durable patch-carrier set should be trimmed
 only when a fresh upstream refetch plus reapply plus downstream rebuild actually proves the upstream
@@ -199,8 +221,8 @@ not yet solve, but they should be retired as soon as upstream makes them redunda
 
 The current docs consistently show that relibc has already enabled substantial downstream progress:
 
-- `docs/02-GAP-ANALYSIS.md` now marks the P3 bridge as implemented in-tree, with runtime validation still pending
-- `docs/03-WAYLAND-ON-REDOX.md` says the build-side relibc/libwayland bridge is restored and that the remaining blocker is runtime validation, not basic POSIX availability
+- `docs/02-GAP-ANALYSIS.md` now marks the P3 bridge as implemented in-tree with strict Redox-target runtime proof for the fd-event slice
+- `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` says the build-side relibc/libwayland bridge is restored and that the remaining blocker is runtime validation, not basic POSIX availability
 - `local/docs/QT6-PORT-STATUS.md` treats many earlier relibc blockers as moved from “missing” to “present but still needs downstream validation”
 
 This is a major quality signal: relibc is already strong enough to unlock real build-side subsystem work.
@@ -378,8 +400,8 @@ The old “basic POSIX APIs are missing” story is no longer the main one.
 
 Current state:
 
-- `signalfd`, `timerfd`, `eventfd`, `open_memstream`, and key socket flags are now source-visible in relibc and still tracked by patch carriers for sync/upstream purposes
-- the current bounded `waitid()` path is also preserved as a relibc patch carrier so it can be reapplied after upstream refresh
+- `signalfd`, `timerfd`, `eventfd`, `open_memstream`, bounded `waitid()`, key socket flags, and the adjacent SysV IPC surfaces are now source-visible in the active relibc tree without needing the old standalone P3 replay set
+- the active Red Bear relibc replay has narrowed to the shared `redox.patch` compatibility delta while those older P3 files remain historical references
 - `libwayland` now rebuilds with a much smaller Redox patch
 
 Remaining blocker:
@@ -390,8 +412,10 @@ So the current relibc task for Wayland is primarily **runtime proof and patch re
 adding obvious libc symbols.
 
 Current Red Bear evidence is stronger than before: `libwayland` now cooks successfully against the
-updated relibc tree, which means the generated `sys/signalfd.h`, `sys/timerfd.h`, `sys/eventfd.h`,
-and `stdio.h`/`sys/socket.h` surfaces are now sufficient for at least one major downstream consumer.
+rebuilt relibc image produced from the current upstream-backed relibc tree plus the active shared
+Red Bear compatibility delta, which means the `signalfd`, `timerfd`, `eventfd`, `stdio.h`, and
+`sys/socket.h` surfaces are sufficient for at least one major downstream consumer in the current
+rebuild model.
 
 ### Qt / KDE
 
