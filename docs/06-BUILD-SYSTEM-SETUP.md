@@ -99,17 +99,17 @@ echo 'PODMAN_BUILD?=0' > .config
 ### Select Build Configuration
 
 Mainline configs still exist, but tracked Red Bear work should normally be built and validated
-through the tracked `redbear-*` profiles. For the desktop direction specifically, `redbear-kde`
-is the tracked default target.
+through the four supported `redbear-*` compile targets. For desktop work specifically,
+`redbear-full` is the tracked desktop-capable target.
 
 Available configs (in `config/`):
 
 | Config | Description |
 |---|---|
-| `redbear-minimal` | Minimal tracked Red Bear image |
-| `redbear-full` | Broader tracked integration image |
-| `redbear-kde` | Tracked default KWin Wayland image |
-| `redbear-live` | Live image following the tracked desktop target |
+| `redbear-mini` | Minimal tracked Red Bear image |
+| `redbear-live-mini` | Live/recovery variant of the minimal target |
+| `redbear-full` | Desktop-capable tracked Red Bear image |
+| `redbear-live-full` | Live/recovery variant of the desktop-capable target |
 
 ## Building
 
@@ -119,7 +119,7 @@ Available configs (in `config/`):
 make all
 ```
 
-This produces `build/x86_64/redbear-kde/harddrive.img`.
+This produces the image for the selected target, such as `build/x86_64/redbear-full/harddrive.img`.
 
 ### Export External Toolchain
 
@@ -145,22 +145,22 @@ For the full layout and rationale, see `local/docs/EXTERNAL-TOOLCHAIN.md`.
 
 ```bash
 # Preferred Red Bear wrapper:
-./local/scripts/build-redbear.sh redbear-minimal
+./local/scripts/build-redbear.sh redbear-mini
+./local/scripts/build-redbear.sh redbear-live-mini
 ./local/scripts/build-redbear.sh redbear-full
-./local/scripts/build-redbear.sh redbear-kde
-./local/scripts/build-redbear.sh redbear-live
+./local/scripts/build-redbear.sh redbear-live-full
 
 # Direct make is still valid when needed:
-make all CONFIG_NAME=redbear-kde
+make all CONFIG_NAME=redbear-full
 ```
 
-For tracked Red Bear work, prefer the `redbear-*` profiles over older mainline profile names.
+For tracked Red Bear work, prefer these four compile targets over older historical names.
 
 ### Build a Live ISO
 
 ```bash
-make live CONFIG_NAME=redbear-live
-# Produces: build/x86_64/redbear-live/redox-live.iso
+make live CONFIG_NAME=redbear-live-full
+# Produces: build/x86_64/redbear-live-full/redox-live.iso
 ```
 
 ### Rebuild After Changes
@@ -174,11 +174,11 @@ make rebuild    # Clean rebuild of filesystem image
 ### QEMU (Recommended)
 
 ```bash
-# Default tracked KWin Wayland desktop target:
+# Default desktop-capable tracked target:
 make qemu
 
-# Explicit KWin Wayland desktop target:
-make qemu CONFIG_NAME=redbear-kde
+# Explicit desktop-capable tracked target:
+make qemu CONFIG_NAME=redbear-full
 
 # With more RAM:
 make qemu QEMUFLAGS="-m 4G"

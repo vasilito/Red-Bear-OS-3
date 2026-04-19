@@ -90,18 +90,19 @@ That means:
 
 ## Product Surfaces
 
-The tracked Red Bear profiles are:
+The tracked Red Bear compile targets are:
 
-- `redbear-minimal`
-- `redbear-desktop`
-- `redbear-wayland`
+- `redbear-mini`
+- `redbear-live-mini`
 - `redbear-full`
-- `redbear-kde`
-- `redbear-live`
+- `redbear-live-full`
 
-Each profile is a tracked build surface, but only `redbear-kde` is the forward desktop target.
+These are the only supported compile targets. Older names such as `redbear-minimal`,
+`redbear-desktop`, `redbear-wayland`, `redbear-kde`, and `redbear-live` may still appear in
+historical notes or legacy implementation details, but they are not the current compile-target
+surface.
 
-### `redbear-minimal`
+### `redbear-mini`
 
 Primary reproducible baseline.
 
@@ -113,69 +114,42 @@ Scope:
 - diagnostics,
 - minimal service baseline.
 
-### `redbear-desktop`
-
-Supplementary integration profile for shared runtime work beneath the tracked desktop target.
-
-Scope:
-
-- runtime services,
-- diagnostics,
-- shared bring-up support.
-
-Current role:
-
-- subordinate integration/support slice.
-
-### `redbear-wayland`
-
-Dedicated runtime validation profile.
-
-Scope:
-
-- narrow compositor/runtime path,
-- explicit validation target for Wayland stack correctness,
-- not a claim of full desktop completeness,
-- subordinate to the KDE session goal.
-
 ### `redbear-full`
 
-Broader graphics/network/session plumbing profile.
+Broader desktop/network/session plumbing profile.
 
 Scope:
 
-- desktop/runtime plumbing beyond the narrow Wayland validation slice,
+- desktop/runtime plumbing,
 - D-Bus presence,
 - Qt base integration,
-- broader integration surface before KDE session focus.
+- the active desktop-capable target surface.
 
-### `redbear-kde`
+### `redbear-live-mini`
 
-Dedicated KWin Wayland target desktop profile.
+Live/demo/recovery form of the mini baseline.
 
 Scope:
 
-- KWin,
-- Plasma session surfaces,
-- session packaging and dependencies,
-- explicit documentation of limitations while still incomplete,
-- the tracked default compositor/session direction.
+- diagnostics,
+- recovery workflows,
+- installability for the non-graphics target.
 
-### Desktop policy
+### `redbear-live-full`
 
-- The intended primary desktop direction is KWin Wayland.
-- Validation work is subordinate to the KWin Wayland desktop goal.
-
-### `redbear-live`
-
-Live/demo/recovery profile.
+Live/demo/recovery form of the full desktop target.
 
 Scope:
 
 - diagnostics,
 - recovery workflows,
 - installability,
-- demonstrable system identity.
+- live desktop-capable system identity.
+
+### Desktop policy
+
+- Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
+- Validation work that does not require graphics should prefer `redbear-mini` or `redbear-live-mini`.
 
 ## Current State Baseline
 
@@ -401,9 +375,9 @@ Current state:
 Canonical references:
 
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path from console to hardware-accelerated KDE Plasma on Wayland
+- `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
 - `local/docs/QT6-PORT-STATUS.md`
 - `local/docs/DESKTOP-STACK-CURRENT-STATUS.md`
-- `docs/03-WAYLAND-ON-REDOX.md` — historical Wayland implementation rationale
 - `docs/05-KDE-PLASMA-ON-REDOX.md` — historical KDE implementation rationale
 
 Acceptance:
@@ -434,6 +408,7 @@ Acceptance:
 The current subsystem plans to treat as first-class are:
 
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path plan
+- `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - `local/docs/USB-IMPLEMENTATION-PLAN.md`
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`

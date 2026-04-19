@@ -40,7 +40,7 @@ current/canonical versus historical/reference split obvious.
 | `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
 | `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | canonical current Red Bear subsystem plans and status |
 | `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
-| `docs/02-GAP-ANALYSIS.md`, `docs/03-WAYLAND-ON-REDOX.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
+| `docs/02-GAP-ANALYSIS.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
 
 When a current-state local document conflicts with an older historical public roadmap, prefer the
 current local subsystem plan.
@@ -51,7 +51,6 @@ current local subsystem plan.
 |---|----------|-------------|
 | 01 | [Architecture Overview](01-REDOX-ARCHITECTURE.md) | Architecture reference for Redox internals: microkernel, scheme system, driver model, display stack |
 | 02 | [Gap Analysis & Roadmap](02-GAP-ANALYSIS.md) | Historical gap matrix plus corrected current phase summary |
-| 03 | [Wayland on Redox](03-WAYLAND-ON-REDOX.md) | Historical Wayland implementation path plus deeper Wayland-specific rationale |
 | 04 | [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md) | Historical/current hybrid design reference for the LinuxKPI-style driver compatibility model |
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Historical KDE implementation path plus deeper KDE-specific rationale |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
@@ -72,6 +71,7 @@ current local subsystem plan.
 - `../local/docs/ACPI-FIXES.md` — historical P0 ACPI bring-up ledger and status record
 - `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — current low-level controller and IRQ blocker plan
 - `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
+- `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
 - PCI vendor/device names in Red Bear runtime tools now come from the shipped `pciids` database; PCI quirk policy still lives in `../local/docs/QUIRKS-SYSTEM.md`
 - `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap and hardware detail only, not the canonical desktop plan
 - `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
@@ -96,18 +96,18 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
-- **Desktop target**: the tracked default build now resolves to `CONFIG_NAME?=redbear-kde`
+- **Compile targets**: the supported compile targets are `redbear-mini`, `redbear-live-mini`, `redbear-full`, and `redbear-live-full`
 - **Wayland**: libwayland + wayland-protocols built. Runtime compositor proof remains incomplete.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
 - **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
 - **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
-- **GPU drivers**: redox-drm scheme daemon and AMD+Intel compile-oriented paths exist; hardware validation is still pending.
+- **GPU drivers**: redox-drm scheme daemon exists; Intel build-oriented path exists; AMD currently has a bounded retained compile path (`redox-drm` + Red Bear glue) while the imported Linux AMD DC/TTM/core trees remain under compile triage. Hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
 - **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
 - **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
 - **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload now has a packaged in-guest checker plus a host QEMU harness; QEMU validation is still in progress, so broad desktop Bluetooth parity is still incomplete
-- **KDE direction**: `redbear-kde.toml` is the tracked KWin Wayland desktop direction, and the runtime stack is still incomplete.
+- **Desktop direction**: `redbear-full` / `redbear-live-full` carry the desktop-capable target surface, and the runtime stack is still incomplete.
 - **ACPI**: materially complete for the historical boot baseline, not release-grade complete; implemented: typed startup errors in `acpid`, AML mutex real state, EC widened accesses via byte transactions, kstop-based shutdown eventing; **known gaps**: sleep state transitions and sleep eventing; DMAR remains present in `acpid` but not wired, with ownership still transitional/orphaned rather than cleanly transferred; bare-metal validation remains bounded and still outstanding. See `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 - **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
 - **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.
