@@ -1,6 +1,6 @@
 # Red Bear OS shared device-service wiring
 #
-# Shared by profiles that ship the firmware/input/Wi-Fi/FAT control compatibility stack.
+# Shared by profiles that ship the firmware/input/Wi-Fi control compatibility stack.
 
 [packages]
 redbear-quirks = {}
@@ -12,6 +12,11 @@ path = "/lib/firmware"
 data = ""
 directory = true
 mode = 0o755
+
+[[files]]
+path = "/usr/bin/usbctl"
+data = "/usr/lib/drivers/usbctl"
+symlink = true
 
 [[files]]
 path = "/lib/pcid.d/intel_gpu.toml"
@@ -105,20 +110,5 @@ requires_weak = [
 
 [service]
 cmd = "evdevd"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/15_fatd.service"
-data = """
-[unit]
-description = "FAT filesystem scheme daemon"
-requires_weak = [
-    "00_pcid-spawner.service",
-]
-
-[service]
-cmd = "fatd"
-args = ["disk/live-nvme", "fat-live"]
 type = "oneshot_async"
 """
