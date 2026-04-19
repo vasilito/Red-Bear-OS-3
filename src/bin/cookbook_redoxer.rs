@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
@@ -7,10 +8,15 @@ fn main() {
         args.insert(2, "--".to_string());
         if args[1] == "write-exec" {
             if let Ok(stage_dir) = std::env::var("COOKBOOK_STAGE") {
-                args.insert(2, format!("{}/root", stage_dir));
-                args.insert(2, "--folder".to_string());
+                let folder = format!("{stage_dir}/root");
+
                 args.insert(2, stage_dir);
                 args.insert(2, "--root".to_string());
+
+                if Path::new(&folder).exists() {
+                    args.insert(2, folder);
+                    args.insert(2, "--folder".to_string());
+                }
             }
         }
     }
