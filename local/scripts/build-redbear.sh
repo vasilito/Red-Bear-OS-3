@@ -2,14 +2,12 @@
 # build-redbear.sh — Build Red Bear OS from upstream base + Red Bear overlay
 #
 # Usage:
-#   ./local/scripts/build-redbear.sh                                # Default: redbear-kde
-#   ./local/scripts/build-redbear.sh redbear-minimal                # Minimal validation baseline
-#   ./local/scripts/build-redbear.sh redbear-bluetooth-experimental # First bounded Bluetooth slice
-#   ./local/scripts/build-redbear.sh redbear-full                   # Full Red Bear integration target
-#   ./local/scripts/build-redbear.sh redbear-wayland                # Bounded Wayland runtime validation profile
-#   ./local/scripts/build-redbear.sh redbear-kde                    # Tracked KWin Wayland desktop target
-#   ./local/scripts/build-redbear.sh redbear-live                   # Live ISO variant
-#   ./local/scripts/build-redbear.sh --upstream redbear-kde         # Allow Redox/upstream recipe refresh
+#   ./local/scripts/build-redbear.sh                                # Default: redbear-full
+#   ./local/scripts/build-redbear.sh redbear-mini                   # Minimal validation baseline
+#   ./local/scripts/build-redbear.sh redbear-full                   # Full Red Bear desktop/session target
+#   ./local/scripts/build-redbear.sh redbear-live-mini              # Live ISO for minimal target
+#   ./local/scripts/build-redbear.sh redbear-live-full              # Live ISO for full target
+#   ./local/scripts/build-redbear.sh --upstream redbear-full        # Allow Redox/upstream recipe refresh
 #   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh                # Skip patch application
 #
 # This script assumes the Red Bear overlay model:
@@ -21,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-CONFIG="redbear-kde"
+CONFIG="redbear-full"
 JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
 ALLOW_UPSTREAM=0
@@ -37,8 +35,7 @@ Options:
   -h, --help          Show this help
 
 Configs:
-  redbear-desktop, redbear-minimal, redbear-bluetooth-experimental,
-  redbear-full, redbear-wayland, redbear-kde, redbear-live
+  redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
 EOF
 }
 
@@ -73,11 +70,17 @@ fi
 [ ${#POSITIONAL[@]} -eq 1 ] && CONFIG="${POSITIONAL[0]}"
 
 case "$CONFIG" in
-    redbear-desktop|redbear-minimal|redbear-bluetooth-experimental|redbear-full|redbear-wayland|redbear-kde|redbear-live)
+    redbear-mini)
+        CONFIG="redbear-minimal"
+        ;;
+    redbear-live-mini)
+        CONFIG="redbear-live-minimal"
+        ;;
+    redbear-minimal|redbear-full|redbear-live-minimal|redbear-live-full)
         ;;
     *)
         echo "ERROR: Unknown config '$CONFIG'"
-        echo "Supported: redbear-desktop, redbear-minimal, redbear-bluetooth-experimental, redbear-full, redbear-wayland, redbear-kde, redbear-live"
+        echo "Supported: redbear-mini, redbear-live-mini, redbear-full, redbear-live-full"
         exit 1
         ;;
 esac
@@ -108,6 +111,31 @@ stash_nested_repo_if_dirty() {
 }
 
 stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
+
+ensure_relibc_desktop_surface() {
+    local relibc_target="$PROJECT_ROOT/recipes/core/relibc/target/x86_64-unknown-redox"
+    local relibc_stage_include="$relibc_target/stage/usr/include"
+    local relibc_stage_lib="$relibc_target/stage/usr/lib/libc.so"
+
+    if [ ! -f "$relibc_stage_include/sys/signalfd.h" ] || \
+       [ ! -f "$relibc_stage_include/sys/timerfd.h" ] || \
+       [ ! -f "$relibc_stage_include/sys/eventfd.h" ] || \
+       [ ! -f "$relibc_stage_lib" ] || \
+       ! readelf -Ws "$relibc_stage_lib" | grep -q '_Z7strtoldPKcPPc'; then
+        echo ">>> Refreshing relibc staged surface for full desktop target..."
+        rm -rf \
+            "$relibc_target/build" \
+            "$relibc_target/stage" \
+            "$relibc_target/stage.tmp" \
+            "$relibc_target/sysroot"
+        rm -f \
+            "$relibc_target/auto_deps.toml" \
+            "$relibc_target/stage.pkgar" \
+            "$relibc_target/stage.toml"
+        REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 ./target/release/repo cook relibc
+        echo ""
+    fi
+}
 
 # Step 0: Apply local patches
 if [ "$APPLY_PATCHES" = "1" ]; then
@@ -170,6 +198,10 @@ fi
 if [ ! -f "target/release/repo" ]; then
     echo ">>> Building cookbook binary..."
     cargo build --release
+fi
+
+if [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-live-full" ]; then
+    ensure_relibc_desktop_surface
 fi
 
 # Step 2: Check firmware

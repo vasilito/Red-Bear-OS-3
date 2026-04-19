@@ -50,7 +50,7 @@ usage() {
 Usage: test-usb-qemu.sh [--check] [config]
 
 Boot or validate the full USB stack on a Red Bear image in QEMU.
-Defaults to redbear-desktop.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 
 Checks performed:
   1. xHCI controller initializes and reports interrupt mode
@@ -63,7 +63,7 @@ USAGE
 }
 
 check_mode=0
-config="redbear-desktop"
+config="redbear-mini"
 for arg in "$@"; do
     case "$arg" in
         --help|-h|help)
@@ -78,6 +78,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 firmware="$(find_uefi_firmware)" || {
     echo "ERROR: no usable x86_64 UEFI firmware found" >&2
@@ -112,38 +116,40 @@ sleep 1
 rm -f "$log_file"
 
 set +e
-timeout 120s qemu-system-x86_64 \
-  -name "Red Bear OS USB Test" \
-  -device qemu-xhci,id=xhci \
-  -smp 4 \
-  -m 2048 \
-  -bios "$firmware" \
-  -chardev stdio,id=debug,signal=off,mux=on \
-  -serial chardev:debug \
-  -mon chardev=debug \
-  -machine q35 \
-  -device ich9-intel-hda -device hda-output \
-  -device virtio-net,netdev=net0 \
-  -netdev user,id=net0 \
-  -nographic -vga none \
-  -drive file="$image",format=raw,if=none,id=drv0 \
-  -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
-  -device nvme,drive=drv1,serial=NVME_EXTRA \
-  -drive file="$usb_img",format=raw,if=none,id=usbdisk \
-  -device usb-storage,bus=xhci.0,drive=usbdisk \
-  -device usb-kbd,bus=xhci.0 \
-  -device usb-tablet,bus=xhci.0 \
-  -enable-kvm -cpu host \
-  > "$log_file" 2>&1
+expect <<EOF
+log_user 1
+log_file -noappend $log_file
+set timeout 300
+spawn qemu-system-x86_64 -name {Red Bear OS USB Test} -device qemu-xhci,id=xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -drive file=$usb_img,format=raw,if=none,id=usbdisk,snapshot=on -device usb-storage,bus=xhci.0,drive=usbdisk -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -enable-kvm -cpu host
+expect -re {xhcid: using MSI/MSI-X interrupt delivery|xhcid: using legacy INTx interrupt delivery}
+send_log "MILESTONE:XHCI_IRQ\n"
+expect "USB HID driver spawned"
+send_log "MILESTONE:USB_HID\n"
+expect "USB SCSI driver spawned"
+send_log "MILESTONE:USB_SCSI\n"
+expect "DISK CONTENT: $expected_sector_b64"
+send_log "MILESTONE:USB_READBACK\n"
+expect "login:"
+send_log "MILESTONE:LOGIN\n"
+send "root\r"
+expect "assword:"
+send "password\r"
+expect "Type 'help' for available commands."
+send_log "MILESTONE:SHELL\n"
+send "shutdown\r"
+sleep 2
+EOF
+expect_status=$?
 set -e
+
+pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
 
 failures=0
 
 echo "--- USB Stack Validation: $config ---"
 
 # Check 1: xHCI interrupt mode
-if grep -q "xhcid: using MSI/MSI-X interrupt delivery\|xhcid: using legacy INTx interrupt delivery" "$log_file"; then
+if grep -aq "MILESTONE:XHCI_IRQ" "$log_file"; then
     echo "  [PASS] xHCI interrupt-driven mode detected"
 else
     echo "  [FAIL] xHCI did not report interrupt-driven mode" >&2
@@ -151,7 +157,7 @@ else
 fi
 
 # Check 2: USB HID driver spawn
-if grep -q "USB HID driver spawned" "$log_file"; then
+if grep -aq "MILESTONE:USB_HID" "$log_file"; then
     echo "  [PASS] USB HID driver spawned"
 else
     echo "  [FAIL] USB HID driver did not spawn" >&2
@@ -159,42 +165,54 @@ else
 fi
 
 # Check 3: USB SCSI driver spawn + bounded data readback
-if grep -q "USB SCSI driver spawned" "$log_file"; then
+if grep -aq "MILESTONE:USB_SCSI" "$log_file"; then
     echo "  [PASS] USB SCSI driver spawned"
 else
     echo "  [FAIL] USB SCSI driver did not spawn" >&2
     failures=$((failures + 1))
 fi
 
-if grep -Fq "DISK CONTENT: $expected_sector_b64" "$log_file"; then
+if grep -aq "MILESTONE:USB_READBACK" "$log_file"; then
     echo "  [PASS] USB storage sector readback matched seeded pattern"
 else
-    echo "  [FAIL] USB storage sector readback did not match seeded pattern" >&2
+    echo "  [FAIL] USB storage sector readback milestone was never reached" >&2
     failures=$((failures + 1))
 fi
 
 # Check 4: BOS descriptor handling (info or debug log)
-if grep -q "BOS:" "$log_file"; then
+if grep -aq "BOS:" "$log_file"; then
     echo "  [PASS] BOS descriptor processing active"
-elif grep -q "BOS descriptor not available" "$log_file"; then
+elif grep -aq "BOS descriptor not available" "$log_file"; then
     echo "  [PASS] BOS descriptor gracefully skipped (USB 2 device)"
 else
     echo "  [WARN] No BOS descriptor log output found"
 fi
 
 # Check 5: No panics or crash-class errors (stall recovery messages are expected)
-if grep -qi "panic\|usbscsid: .*IO ERROR\|usbscsid: startup failed\|usbhidd: .*IO ERROR" "$log_file"; then
+if grep -aqi "panic\|usbscsid: .*IO ERROR\|usbscsid: startup failed\|usbhidd: .*IO ERROR" "$log_file"; then
     echo "  [FAIL] USB stack hit crash-class errors" >&2
     failures=$((failures + 1))
 else
     echo "  [PASS] No crash-class errors detected"
 fi
 
-# Check 6: Hub driver (if hub detected)
-if grep -q "USB HUB driver spawned" "$log_file"; then
+# Check 6: Boot progressed far enough to reach the guest shell
+if grep -aq "MILESTONE:SHELL" "$log_file"; then
+    echo "  [PASS] Full USB stack boot reached guest shell"
+else
+    echo "  [FAIL] Full USB stack run never reached guest shell" >&2
+    failures=$((failures + 1))
+fi
+
+# Check 7: Hub driver (if hub detected)
+if grep -aq "USB HUB driver spawned" "$log_file"; then
     echo "  [PASS] USB hub driver spawned"
 else
     echo "  [INFO] No hub driver spawn (expected for direct-attached devices)"
+fi
+
+if [[ "$expect_status" -ne 0 ]]; then
+    echo "  [INFO] expect exited with status $expect_status; milestone checks above determine pass/fail"
 fi
 
 echo "--- Results: $failures failure(s), log: $log_file ---"

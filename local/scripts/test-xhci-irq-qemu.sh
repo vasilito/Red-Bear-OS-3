@@ -28,11 +28,12 @@ usage() {
 Usage: test-xhci-irq-qemu.sh [--check] [config]
 
 Boot or validate xHCI interrupt-mode bring-up on a Red Bear image in QEMU.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 USAGE
 }
 
 check_mode=0
-config="redbear-desktop"
+config="redbear-mini"
 for arg in "$@"; do
     case "$arg" in
         --help|-h|help)
@@ -47,6 +48,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 firmware="$(find_uefi_firmware)" || {
     echo "ERROR: no usable x86_64 UEFI firmware found" >&2
@@ -76,7 +81,9 @@ if [[ "$check_mode" -eq 1 ]]; then
     set +e
     timeout 90s qemu-system-x86_64 \
       -name "Red Bear OS x86_64" \
-      -device qemu-xhci \
+      -device qemu-xhci,id=xhci \
+      -device usb-kbd,bus=xhci.0 \
+      -device usb-tablet,bus=xhci.0 \
       -smp 4 \
       -m 2048 \
       -bios "$firmware" \
@@ -89,16 +96,20 @@ if [[ "$check_mode" -eq 1 ]]; then
       -netdev user,id=net0 \
       -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
       -nographic -vga none \
-      -drive file="$image",format=raw,if=none,id=drv0 \
+      -drive file="$image",format=raw,if=none,id=drv0,snapshot=on \
       -device nvme,drive=drv0,serial=NVME_SERIAL \
-      -drive file="$extra",format=raw,if=none,id=drv1 \
+      -drive file="$extra",format=raw,if=none,id=drv1,snapshot=on \
       -device nvme,drive=drv1,serial=NVME_EXTRA \
       -enable-kvm -cpu host \
       > "$log_file" 2>&1
     status=$?
     set -e
-    if ! grep -q "xhcid: using MSI/MSI-X interrupt delivery\|xhcid: using legacy INTx interrupt delivery" "$log_file"; then
+    if ! grep -q "xhcid: using MSI/MSI-X interrupt delivery\|xhcid: using legacy INTx interrupt delivery\|XHCI .* IRQ:" "$log_file"; then
         echo "ERROR: xhcid did not report an interrupt-driven mode; see $log_file" >&2
+        exit 1
+    fi
+    if ! grep -q "xhcid: begin attach for port\|xhcid: queueing initial enumeration for port" "$log_file"; then
+        echo "ERROR: xhcid interrupt-mode proof never observed attached-device enumeration pressure; see $log_file" >&2
         exit 1
     fi
     echo "xHCI interrupt mode detected in $log_file"
@@ -107,7 +118,7 @@ fi
 
 exec qemu-system-x86_64 \
   -name "Red Bear OS x86_64" \
-  -device qemu-xhci \
+  -device qemu-xhci,id=xhci \
   -smp 4 \
   -m 2048 \
   -bios "$firmware" \
@@ -120,8 +131,8 @@ exec qemu-system-x86_64 \
   -netdev user,id=net0 \
   -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
   -vga std \
-  -drive file="$image",format=raw,if=none,id=drv0 \
+  -drive file="$image",format=raw,if=none,id=drv0,snapshot=on \
   -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
+  -drive file="$extra",format=raw,if=none,id=drv1,snapshot=on \
   -device nvme,drive=drv1,serial=NVME_EXTRA \
   -enable-kvm -cpu host

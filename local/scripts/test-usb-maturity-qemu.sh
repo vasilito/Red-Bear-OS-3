@@ -10,10 +10,11 @@ usage() {
 Usage: test-usb-maturity-qemu.sh [config]
 
 Run the bounded USB maturity proof helpers in sequence.
-Defaults to redbear-desktop.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 
 Checks run:
   - xHCI interrupt mode
+  - xHCI device lifecycle hotplug proof
   - full USB stack proof
   - USB storage bounded readback proof
 USAGE
@@ -28,10 +29,17 @@ for arg in "$@"; do
     esac
 done
 
-config="${1:-redbear-desktop}"
+config="${1:-redbear-mini}"
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 echo ">>> Running xHCI interrupt proof"
 bash "$SCRIPT_DIR/test-xhci-irq-qemu.sh" --check "$config"
+
+echo ">>> Running xHCI device lifecycle proof"
+bash "$SCRIPT_DIR/test-xhci-device-lifecycle-qemu.sh" --check "$config"
 
 echo ">>> Running full USB stack proof"
 bash "$SCRIPT_DIR/test-usb-qemu.sh" --check "$config"
