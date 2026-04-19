@@ -3,10 +3,28 @@ same_as = "../../core/relibc"
 
 [build]
 template = "custom"
+dependencies = ["relibc"]
 script = """
-rsync -av --delete "${COOKBOOK_SOURCE}/" ./
+git -C "${COOKBOOK_SOURCE}" archive --format=tar HEAD | tar -xf -
+rsync -av "${COOKBOOK_SOURCE}/openlibm/" ./openlibm/
 
-make install-tests DESTDIR="${COOKBOOK_STAGE}/home/user" NATIVE_LIBC=1 IS_REDOX=1
+patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/redox.patch"
+
+make headers TARGET="${TARGET}"
+
+RELIBC_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage"
+if [ ! -d "${RELIBC_STAGE}/usr" ]; then
+    RELIBC_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp"
+fi
+
+mkdir -p "${COOKBOOK_SYSROOT}"
+rsync -av "${RELIBC_STAGE}/usr/" "${COOKBOOK_SYSROOT}/"
+rsync -av "./target/${TARGET}/include/" "${COOKBOOK_SYSROOT}/include/"
+
+mkdir -p ./sysroot
+ln -sfn "${COOKBOOK_SYSROOT}" "./sysroot/${TARGET}"
+
+make -j1 install-tests DESTDIR="${COOKBOOK_STAGE}/home/user" NATIVE_LIBC=0 IS_REDOX=1 SYSROOT="${COOKBOOK_SYSROOT}" SYSROOT_TARGET="${COOKBOOK_SYSROOT}"
 
 if [ -n "$TESTBIN" ]; then
 "${COOKBOOK_REDOXER}" write-exec sh -c "cd /home/user/relibc-tests; make run-once TESTBIN=bins_dynamic/$TESTBIN"
