@@ -47,7 +47,7 @@ run_guest_checks() {
     require_command() {
         local cmd="$1"
         local message="$2"
-        if command -v "$cmd" >/dev/null 2>&1; then
+        if which "$cmd" >/dev/null 2>&1; then
             echo "  PASS  $message"
         else
             echo "  FAIL  $message"
@@ -96,7 +96,7 @@ run_guest_checks() {
 
     echo "--- DRM/KMS ---"
     local drm_found=false
-    if [ -e /usr/bin/redox-drm ] || command -v redox-drm >/dev/null 2>&1; then
+    if [ -e /usr/bin/redox-drm ] || which redox-drm >/dev/null 2>&1; then
         drm_found=true
     fi
     if $drm_found; then
@@ -111,13 +111,13 @@ run_guest_checks() {
         echo "  FAIL  /scheme/drm does not exist"
         failures=$((failures + 1))
     fi
-    if command -v redbear-drm-display-check >/dev/null 2>&1; then
+    if which redbear-drm-display-check >/dev/null 2>&1; then
         echo "  NOTE  redbear-drm-display-check available (run manually for bounded display validation)"
     fi
     echo
 
     echo "--- health check summary ---"
-    if command -v redbear-info >/dev/null 2>&1; then
+    if which redbear-info >/dev/null 2>&1; then
         local report
         report="$(redbear-info --json 2>/dev/null || true)"
         if [ -n "$report" ]; then
@@ -224,7 +224,7 @@ expect {
     "__WAYLAND_LIB_OK__" { }
     "__WAYLAND_LIB_FAIL__" { puts "FAIL: libwayland-client missing"; exit 1 }
 }
-send "command -v evdevd && echo __EVDVD_OK__ || echo __EVDVD_FAIL__\r"
+    send "which evdevd >/scheme/null && echo __EVDVD_OK__ || echo __EVDVD_FAIL__\r"
 expect {
     "__EVDVD_OK__" { }
     "__EVDVD_FAIL__" { puts "FAIL: evdevd missing"; exit 1 }
@@ -234,7 +234,7 @@ expect {
     "__EVDEV_SCH_OK__" { }
     "__EVDEV_SCH_FAIL__" { puts "FAIL: /scheme/evdev missing"; exit 1 }
 }
-send "command -v udev-shim && echo __UDEV_OK__ || echo __UDEV_FAIL__\r"
+    send "which udev-shim >/scheme/null && echo __UDEV_OK__ || echo __UDEV_FAIL__\r"
 expect {
     "__UDEV_OK__" { }
     "__UDEV_FAIL__" { puts "FAIL: udev-shim missing"; exit 1 }
@@ -254,7 +254,7 @@ expect {
     "__FW_DIR_OK__" { }
     "__FW_DIR_FAIL__" { puts "FAIL: /lib/firmware missing"; exit 1 }
 }
-send "command -v redox-drm && echo __DRM_OK__ || echo __DRM_FAIL__\r"
+    send "test -e /usr/bin/redox-drm && echo __DRM_OK__ || echo __DRM_FAIL__\r"
 expect {
     "__DRM_OK__" { }
     "__DRM_FAIL__" { puts "FAIL: redox-drm missing"; exit 1 }
@@ -279,7 +279,7 @@ usage() {
     cat <<'USAGE'
 Usage:
   ./local/scripts/test-phase1-desktop-substrate.sh --guest
-  ./local/scripts/test-phase1-desktop-substrate.sh --qemu [redbear-wayland]
+  ./local/scripts/test-phase1-desktop-substrate.sh --qemu [redbear-full]
 USAGE
 }
 
@@ -288,7 +288,7 @@ case "${1:-}" in
         run_guest_checks
         ;;
     --qemu)
-        run_qemu_checks "${2:-redbear-wayland}"
+        run_qemu_checks "${2:-redbear-full}"
         ;;
     *)
         usage

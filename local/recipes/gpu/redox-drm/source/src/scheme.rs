@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -286,6 +286,7 @@ enum NodeKind {
 struct Handle {
     node: NodeKind,
     response: Vec<u8>,
+    event_queue: VecDeque<Vec<u8>>,
     mapped_gem: Option<GemHandle>,
     mapped_gem_refs: usize,
     owned_fbs: Vec<u32>,
@@ -548,6 +549,7 @@ impl DrmScheme {
             Handle {
                 node,
                 response: Vec::new(),
+                event_queue: VecDeque::new(),
                 mapped_gem: None,
                 mapped_gem_refs: 0,
                 owned_fbs: Vec::new(),
@@ -636,8 +638,34 @@ impl DrmScheme {
 
     pub fn handle_driver_event(&mut self, event: DriverEvent) {
         match event {
-            DriverEvent::Vblank { crtc_id, count } => self.retire_vblank(crtc_id, count),
-            DriverEvent::Hotplug { .. } => {}
+            DriverEvent::Vblank { crtc_id, count } => {
+                self.retire_vblank(crtc_id, count);
+                self.queue_card_event(format!("vblank:{crtc_id}:{count}\n").into_bytes());
+            }
+            DriverEvent::Hotplug { connector_id } => self.queue_hotplug_event(connector_id),
+        }
+    }
+
+    fn queue_card_event(&mut self, payload: Vec<u8>) {
+        for handle in self.handles.values_mut() {
+            if let NodeKind::Card = handle.node {
+                handle.event_queue.push_back(payload.clone());
+            }
+        }
+    }
+
+    fn queue_hotplug_event(&mut self, connector_id: u32) {
+        let payload = format!("hotplug:{}\n", connector_id).into_bytes();
+        for handle in self.handles.values_mut() {
+            match handle.node {
+                NodeKind::Card => {
+                    handle.event_queue.push_back(payload.clone());
+                }
+                NodeKind::Connector(id) if id == connector_id => {
+                    handle.event_queue.push_back(payload.clone());
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1394,9 +1422,19 @@ impl SchemeBlockMut for DrmScheme {
 
     fn read(&mut self, id: usize, buf: &mut [u8]) -> Result<Option<usize>> {
         let handle = self.handles.get_mut(&id).ok_or_else(|| Error::new(EBADF))?;
-        let len = handle.response.len().min(buf.len());
-        buf[..len].copy_from_slice(&handle.response[..len]);
-        Ok(Some(len))
+        if !handle.response.is_empty() {
+            let len = handle.response.len().min(buf.len());
+            buf[..len].copy_from_slice(&handle.response[..len]);
+            return Ok(Some(len));
+        }
+
+        if let Some(event) = handle.event_queue.pop_front() {
+            let len = event.len().min(buf.len());
+            buf[..len].copy_from_slice(&event[..len]);
+            return Ok(Some(len));
+        }
+
+        Ok(Some(0))
     }
 
     fn write(&mut self, id: usize, buf: &[u8]) -> Result<Option<usize>> {
@@ -1428,7 +1466,11 @@ impl SchemeBlockMut for DrmScheme {
     fn fstat(&mut self, id: usize, stat: &mut Stat) -> Result<Option<usize>> {
         let handle = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
         stat.st_mode = MODE_FILE | 0o666;
-        stat.st_size = handle.response.len() as u64;
+        stat.st_size = if !handle.response.is_empty() {
+            handle.response.len() as u64
+        } else {
+            handle.event_queue.front().map(|payload| payload.len()).unwrap_or(0) as u64
+        };
         stat.st_blksize = 4096;
         Ok(Some(0))
     }
@@ -1441,9 +1483,14 @@ impl SchemeBlockMut for DrmScheme {
         Err(Error::new(EOPNOTSUPP))
     }
 
-    fn fevent(&mut self, id: usize, _flags: EventFlags) -> Result<Option<EventFlags>> {
-        let _ = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
-        Ok(Some(EventFlags::empty()))
+    fn fevent(&mut self, id: usize, flags: EventFlags) -> Result<Option<EventFlags>> {
+        let handle = self.handles.get(&id).ok_or_else(|| Error::new(EBADF))?;
+        let readiness = if handle.event_queue.is_empty() {
+            EventFlags::empty()
+        } else {
+            flags & EventFlags::EVENT_READ
+        };
+        Ok(Some(readiness))
     }
 
     fn close(&mut self, id: usize) -> Result<Option<usize>> {
@@ -1785,6 +1832,13 @@ mod tests {
         scheme.open("card0", 0, 0, 0).unwrap().unwrap()
     }
 
+    fn open_connector(scheme: &mut DrmScheme, connector_id: u32) -> usize {
+        scheme
+            .open(&format!("card0Connector/{connector_id}"), 0, 0, 0)
+            .unwrap()
+            .unwrap()
+    }
+
     fn write_ioctl<T>(scheme: &mut DrmScheme, id: usize, request: usize, payload: &T) -> Result<usize> {
         let mut buf = request.to_le_bytes().to_vec();
         buf.extend_from_slice(&bytes_of(payload));
@@ -1998,6 +2052,7 @@ mod tests {
     #[test]
     fn non_vblank_driver_event_does_not_retire_pending_page_flip() {
         let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
 
         scheme.fb_registry.insert(
             9,
@@ -2015,6 +2070,73 @@ mod tests {
 
         assert_eq!(scheme.pending_flip_fb.get(&1), Some(&(2, 9)));
         assert!(scheme.fb_registry.contains_key(&9));
+        assert_eq!(
+            scheme.fevent(card, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::EVENT_READ)
+        );
+    }
+
+    #[test]
+    fn hotplug_event_is_readable_from_card_handle() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        scheme.handle_driver_event(DriverEvent::Hotplug { connector_id: 7 });
+
+        assert_eq!(
+            scheme.fevent(card, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::EVENT_READ)
+        );
+
+        let mut buf = [0u8; 32];
+        let len = scheme.read(card, &mut buf).unwrap().unwrap();
+        assert_eq!(&buf[..len], b"hotplug:7\n");
+        assert_eq!(
+            scheme.fevent(card, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::empty())
+        );
+    }
+
+    #[test]
+    fn hotplug_event_targets_matching_connector_handle_only() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let connector_a = open_connector(&mut scheme, 1);
+        let connector_b = open_connector(&mut scheme, 2);
+
+        scheme.handle_driver_event(DriverEvent::Hotplug { connector_id: 2 });
+
+        assert_eq!(
+            scheme.fevent(connector_a, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::empty())
+        );
+        assert_eq!(
+            scheme.fevent(connector_b, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::EVENT_READ)
+        );
+    }
+
+    #[test]
+    fn vblank_event_is_readable_from_card_handle() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        scheme.handle_driver_event(DriverEvent::Vblank {
+            crtc_id: 4,
+            count: 12,
+        });
+
+        assert_eq!(
+            scheme.fevent(card, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::EVENT_READ)
+        );
+
+        let mut buf = [0u8; 32];
+        let len = scheme.read(card, &mut buf).unwrap().unwrap();
+        assert_eq!(&buf[..len], b"vblank:4:12\n");
+        assert_eq!(
+            scheme.fevent(card, EventFlags::EVENT_READ).unwrap(),
+            Some(EventFlags::empty())
+        );
     }
 
     #[test]

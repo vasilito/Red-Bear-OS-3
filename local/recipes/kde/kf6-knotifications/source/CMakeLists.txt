@@ -78,52 +78,52 @@ endif()
 
 find_package(KF6Config ${KF_DEP_VERSION} REQUIRED)
 
-##################if (NOT APPLE AND NOT ANDROID AND NOT WIN32 AND NOT HAIKU OR (WIN32 AND NOT WITH_SNORETOAST))
-##################    find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED DBus)
-##################    find_package(Canberra REQUIRED)
-##################    set_package_properties(Canberra PROPERTIES
-##################        PURPOSE "Needed to build audio notification support")
-##################    if (TARGET Canberra::Canberra)
-##################        add_definitions(-DHAVE_CANBERRA)
-##################    endif()
-##################endif()
-#################
-################## For the Python bindings
-#################find_package(Python3 3.10 COMPONENTS Interpreter Development)
-#################find_package(Shiboken6)
-#################find_package(PySide6)
-#################
-################## Python Bindings
-#################cmake_dependent_option(BUILD_PYTHON_BINDINGS "Generate Python Bindings" ON "TARGET Shiboken6::libshiboken AND TARGET PySide6::pyside6" OFF)
-#################add_feature_info(PYTHON_BINDINGS ${BUILD_PYTHON_BINDINGS} "Python bindings")
-#################
-################## FreeBSD CI is missing required packages
-#################if (CMAKE_SYSTEM_NAME MATCHES FreeBSD)
-#################    set(BUILD_PYTHON_BINDINGS OFF)
-#################endif()
-################
-################remove_definitions(-DQT_NO_CAST_FROM_BYTEARRAY)
-################
-#################ecm_install_po_files_as_qm(poqm)
-################
-################ecm_set_disabled_deprecation_versions(
-################    QT 6.8
-################    KF 6.8
-################)
-################
-################add_subdirectory(src)
-################if (BUILD_TESTING)
-################    add_subdirectory(tests)
-################    add_subdirectory(autotests)
-################    add_subdirectory(examples)
-################endif()
-###############
-###############if (BUILD_PYTHON_BINDINGS)
-###############    include(ECMGeneratePythonBindings)
-###############    add_subdirectory(python)
-###############endif()
-##############
-## create a Config.cmake and a ConfigVersion.cmake file and install them
+###################################if (NOT APPLE AND NOT ANDROID AND NOT WIN32 AND NOT HAIKU OR (WIN32 AND NOT WITH_SNORETOAST))
+###################################    find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED DBus)
+###################################    find_package(Canberra REQUIRED)
+###################################    set_package_properties(Canberra PROPERTIES
+###################################        PURPOSE "Needed to build audio notification support")
+###################################    if (TARGET Canberra::Canberra)
+###################################        add_definitions(-DHAVE_CANBERRA)
+###################################    endif()
+###################################endif()
+##################################
+################################### For the Python bindings
+##################################find_package(Python3 3.10 COMPONENTS Interpreter Development)
+##################################find_package(Shiboken6)
+##################################find_package(PySide6)
+##################################
+################################### Python Bindings
+##################################cmake_dependent_option(BUILD_PYTHON_BINDINGS "Generate Python Bindings" ON "TARGET Shiboken6::libshiboken AND TARGET PySide6::pyside6" OFF)
+##################################add_feature_info(PYTHON_BINDINGS ${BUILD_PYTHON_BINDINGS} "Python bindings")
+##################################
+################################### FreeBSD CI is missing required packages
+##################################if (CMAKE_SYSTEM_NAME MATCHES FreeBSD)
+##################################    set(BUILD_PYTHON_BINDINGS OFF)
+##################################endif()
+#################################
+#################################remove_definitions(-DQT_NO_CAST_FROM_BYTEARRAY)
+#################################
+##################################ecm_install_po_files_as_qm(poqm)
+#################################
+#################################ecm_set_disabled_deprecation_versions(
+#################################    QT 6.8
+#################################    KF 6.8
+#################################)
+#################################
+add_subdirectory(src)
+#################################if (BUILD_TESTING)
+#################################    add_subdirectory(tests)
+#################################    add_subdirectory(autotests)
+#################################    add_subdirectory(examples)
+#################################endif()
+################################
+################################if (BUILD_PYTHON_BINDINGS)
+################################    include(ECMGeneratePythonBindings)
+################################    add_subdirectory(python)
+################################endif()
+###############################
+################### create a Config.cmake and a ConfigVersion.cmake file and install them
 set(CMAKECONFIG_INSTALL_DIR "${KDE_INSTALL_CMAKEPACKAGEDIR}/KF6Notifications")
 
 if (BUILD_QCH)

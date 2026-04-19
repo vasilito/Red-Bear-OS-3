@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{env, path::{Path, PathBuf}};
 use std::process::{self, Command};
 
 use redbear_hwutils::parse_args;
@@ -51,6 +51,25 @@ fn require_wayland_smoke_marker() -> Result<(), String> {
     Err("qt6-wayland-smoke did not leave a success marker".to_string())
 }
 
+fn require_wayland_socket() -> Result<(), String> {
+    let runtime_dir = env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "/tmp/run/user/0".to_string());
+    let display = env::var("WAYLAND_DISPLAY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "wayland-0".to_string());
+    let socket = PathBuf::from(runtime_dir).join(display);
+
+    if socket.exists() {
+        println!("{}", socket.display());
+        Ok(())
+    } else {
+        Err(format!("missing Wayland socket {}", socket.display()))
+    }
+}
+
 fn run() -> Result<(), String> {
     parse_args(PROGRAM, USAGE, std::env::args()).map_err(|err| {
         if err.is_empty() {
@@ -66,6 +85,7 @@ fn run() -> Result<(), String> {
     require_path("/usr/bin/qt6-plugin-check")?;
     require_path("/usr/bin/qt6-wayland-smoke")?;
     require_path("/home/root/.wayland-session.started")?;
+    require_wayland_socket()?;
     require_wayland_smoke_marker()?;
 
     let status = Command::new("redbear-info")

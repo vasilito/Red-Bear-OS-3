@@ -62,7 +62,7 @@ endif()
 
 if (HAVE_DBUS)
   set(notifications_xml org.freedesktop.Notifications.xml)
-  qt_add_dbus_interface(knotifications_dbus_SRCS ${notifications_xml} notifications_interface)
+  set(knotifications_dbus_SRCS notifications_interface.cpp)
   target_sources(KF6Notifications PRIVATE ${knotifications_dbus_SRCS})
 endif()
 

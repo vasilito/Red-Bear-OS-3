@@ -1,0 +1,12 @@
+# Red Bear OS Live Minimal Configuration
+# Live ISO variant for the minimal console/server target.
+#
+# Build: make live CONFIG_NAME=redbear-live-minimal
+
+include = ["redbear-minimal.toml"]
+
+[general]
+filesystem_size = 3072
+
+[packages]
+cub = {}

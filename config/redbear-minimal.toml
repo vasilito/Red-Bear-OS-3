@@ -54,6 +54,10 @@ path = "/usr/lib/init.d/30_console"
 data = ""
 
 [[files]]
+path = "/usr/lib/init.d/15_fatd.service"
+data = ""
+
+[[files]]
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]

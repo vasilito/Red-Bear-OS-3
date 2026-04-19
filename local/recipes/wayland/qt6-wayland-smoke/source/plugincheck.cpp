@@ -1,5 +1,6 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFile>
 #include <QPluginLoader>
 
 #include <cstdio>
@@ -25,6 +26,20 @@ int main(int argc, char **argv) {
     const QString plugin = argc > 1
             ? QString::fromLocal8Bit(argv[1])
             : QStringLiteral("/usr/plugins/platforms/libqminimal.so");
+
+    QFile rawFile(plugin);
+    if (rawFile.open(QIODevice::ReadOnly)) {
+        const QByteArray header = rawFile.read(64);
+        qInfo() << "qt6-plugin-check raw-header" << header.toHex(' ');
+        if (header.size() >= 56) {
+            const quint8 low = static_cast<quint8>(header[54]);
+            const quint8 high = static_cast<quint8>(header[55]);
+            const quint16 phentsize = quint16(low) | (quint16(high) << 8);
+            qInfo() << "qt6-plugin-check raw-e_phentsize" << phentsize;
+        }
+    } else {
+        qWarning() << "qt6-plugin-check failed to open raw file" << rawFile.errorString();
+    }
 
     QPluginLoader loader(plugin);
     mark("before-metadata");

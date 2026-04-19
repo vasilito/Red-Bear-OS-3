@@ -1,6 +1,8 @@
 mod acpi_watcher;
+mod control;
 mod device_map;
 mod manager;
+mod runtime_state;
 mod seat;
 mod session;
 
@@ -15,6 +17,7 @@ use device_map::DeviceMap;
 use manager::LoginManager;
 use seat::LoginSeat;
 use session::LoginSession;
+use runtime_state::shared_runtime;
 use tokio::runtime::Builder as RuntimeBuilder;
 use zbus::{
     Address,
@@ -26,7 +29,7 @@ const BUS_NAME: &str = "org.freedesktop.login1";
 const MANAGER_PATH: &str = "/org/freedesktop/login1";
 const SESSION_PATH: &str = "/org/freedesktop/login1/session/c1";
 const SEAT_PATH: &str = "/org/freedesktop/login1/seat/seat0";
-const USER_PATH: &str = "/org/freedesktop/login1/user/0";
+const USER_PATH: &str = "/org/freedesktop/login1/user/current";
 
 enum Command {
     Run,
@@ -113,10 +116,11 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         let session_path = parse_object_path(SESSION_PATH)?;
         let seat_path = parse_object_path(SEAT_PATH)?;
         let user_path = parse_object_path(USER_PATH)?;
+        let runtime = shared_runtime();
 
-        let session = LoginSession::new(seat_path.clone(), user_path, DeviceMap::new());
-        let seat = LoginSeat::new(session_path.clone());
-        let manager = LoginManager::new(session_path, seat_path);
+        let session = LoginSession::new(seat_path.clone(), user_path, DeviceMap::new(), runtime.clone());
+        let seat = LoginSeat::new(session_path.clone(), runtime.clone());
+        let manager = LoginManager::new(session_path, seat_path, runtime.clone());
 
         match system_connection_builder()?
             .name(BUS_NAME)?
@@ -128,6 +132,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         {
             Ok(connection) => {
                 eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
+                control::start_control_socket(runtime.clone());
                 tokio::spawn(acpi_watcher::watch_and_emit(connection.clone()));
                 wait_for_shutdown().await?;
                 drop(connection);

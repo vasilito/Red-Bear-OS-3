@@ -12,6 +12,43 @@ This document answers a specific Red Bear question:
 
 This plan is intentionally **Red Bear-native**. It does **not** propose importing Linux subsystem architecture into Red Bear.
 
+## Current implementation status snapshot (2026-04-18)
+
+The software-only, bounded slices from this plan that are now implemented in code are:
+
+- **Phase A — PCI / IRQ substrate**
+- shared PCI config-space parsing now preserves capability chains in `redox-driver-sys`
+- shared quirk-aware interrupt support summary exists (`none` / `legacy` / `msi` / `msix`)
+- `pcid` now consumes the shared PCI parser in its header path for interrupt-support reporting,
+  which starts the planned downstream convergence onto the shared substrate instead of keeping all
+  capability interpretation local.
+- **Phase B — ACPI / IOMMU groundwork**
+  - `acpid` now has an explicit userspace sleep-target model for `S1` / `S3` / `S4` / `S5`
+  - `_S5` shutdown routes through that model, while non-`S5` targets remain groundwork-only
+  - `iommu` now detects kernel ACPI `DMAR` presence, establishing the Intel VT-d ownership seam
+- **Phase C — PS/2 / USB / storage**
+  - `ps2d` now flushes stale controller output during probe and around core init/self-test
+  - `xhcid` now tracks active alternate settings and resolves endpoint descriptors through that map
+  - `usbscsid` now has a bounded `SYNCHRONIZE CACHE(10/16)` heuristic behind `needs_sync_cache`
+- **Phase D — Wi-Fi / DRM shared-core**
+  - `redbear-wifictl` transport probing now uses the shared PCI parser and interrupt-support summary
+  - `redox-drm` now exposes queued shared hotplug/vblank events through a real scheme `EVENT_READ` surface
+
+The work that still remains is the larger **vendor/backend maturation and hardware-validation** side:
+
+- full ACPI sleep/resume implementation beyond groundwork
+- full Intel VT-d runtime support beyond DMAR ownership discovery
+- deeper PCI / `pcid` convergence on shared helpers
+- broader PS/2 resume/wake policy
+- broader USB architecture/runtime maturation beyond the bounded helper slices already implemented
+- deeper Wi-Fi transport/helper extraction beyond probing
+- Intel and AMD DRM backend maturation and real hardware validation
+
+This document should therefore be read as:
+
+- **implemented now** for the bounded shared-core and software-only slices listed above
+- **still in progress** for backend maturation and hardware-backed acceptance phases
+
 ## Hard rules
 
 1. **Linux suspend/resume is reference-only.** Red Bear should study Linux ordering and edge cases, but implement its own suspend/resume support in the Red Bear architecture.
@@ -285,6 +322,15 @@ Keep only:
 - unit tests for malformed capability chains and BAR layout
 - interrupt mode logged deterministically
 
+**Current implementation progress (2026-04-18)**
+- `redox-driver-sys` fast PCI enumeration now parses capability chains from config bytes in the
+  read-only path, so enumerated `PciDeviceInfo` records no longer default to empty capability
+  lists.
+- `PciDeviceInfo` now exposes a quirk-aware interrupt support summary (`none`, `legacy`, `msi`,
+  `msix`) that can serve as the common policy input for future `pcid`/driver convergence.
+- Host-runnable unit coverage exists for capability-chain parsing, malformed next-pointer handling,
+  and interrupt-support selection behavior.
+
 ### Phase B — ACPI / suspend / IOMMU
 
 **Primary targets**
@@ -304,6 +350,19 @@ Keep only:
 - explicit sleep phase machine exists
 - IOMMU ownership clarified and moved out of `acpid`
 
+**Current implementation progress (2026-04-18)**
+- `acpid` now has an explicit `SleepTarget` / `SleepPhase` model in userspace, covering `S1`, `S3`,
+  `S4`, and `S5` as named Red Bear sleep targets.
+- The real shutdown path now routes through that target model, while non-`S5` targets are
+  recognized but reported as groundwork-only rather than silently ignored.
+- Unit coverage exists for sleep-target parsing, AML sleep-object naming, and the current
+  Red Bear-native rule that only `S5` is treated as an implemented soft-off path today.
+- This is still groundwork only: there is no claim of full suspend/resume or sleep eventing yet,
+  and Linux suspend sequencing remains reference material rather than imported structure.
+- The `iommu` daemon now also detects the presence of a kernel ACPI `DMAR` table and reports that
+  Intel VT-d runtime ownership should converge there instead of remaining conceptually attached to
+  the old transitional `acpid` DMAR code.
+
 ### Phase C — PS/2 / USB / storage
 
 **Primary targets**
@@ -321,6 +380,33 @@ Keep only:
 - xHCI and USB maturity proofs remain green
 - no Linux USB/input-core structure imported
 
+**Current implementation progress (2026-04-18)**
+- `xhcid` now tracks active alternate settings per interface and resolves endpoint descriptors using
+  that active-alternate map instead of flattening all interface descriptors in a configuration.
+- Direct unit coverage exists for default-alternate endpoint selection and alternate-setting-aware
+  endpoint remapping, closing the most explicit in-tree USB interface-selection TODO without
+  importing Linux USB-core structure.
+- `xhcid` now also preserves previously selected alternates on the same configuration and applies a
+  requested interface/alternate override before endpoint planning, so alternate-setting
+  reconfiguration no longer silently falls back to all-zero defaults.
+- `xhcid` endpoint-direction lookup now also follows the active interface/alternate selection state
+  instead of reading from the first configuration/interface pair unconditionally.
+- `xhcid` driver spawning now also follows the selected configuration and active alternate map
+  instead of hardcoding the first configuration and ignoring non-zero alternates.
+- `xhcid` now also has a preserve-and-grow event-ring path in the IRQ reactor, so `EventRingFull`
+  recovery no longer drops unread event TRBs while resizing the primary event ring.
+- `usbhubd` and `xhcid` now propagate USB 2 hub TT Think Time from the parent hub descriptor into
+  the xHCI Slot Context TT information bits using a bounded Linux-compatible encoding path.
+- `xhcid` endpoint-context calculations are now protocol-speed-aware for SuperSpeedPlus, so
+  interval and ESIT-payload selection distinguish SSP paths from generic SuperSpeed using the
+  resolved port protocol speed rather than only endpoint companion presence.
+- `usbscsid` now has a bounded native `SYNCHRONIZE CACHE(10/16)` heuristic gated by the existing
+  `needs_sync_cache` storage quirk, directly reflecting the planned Linux `sd.c` donor usage without
+  importing Linux SCSI midlayer structure.
+- `ps2d` now performs an explicit controller-output flush during probe and at the key controller
+  reinitialization boundaries in `Ps2::init()`, matching the Linux `i8042_flush()` discipline in a
+  bounded Red Bear-native way without importing Linux input-core structure.
+
 ### Phase D — Wi-Fi and GPU/DRM
 
 **Primary targets**
@@ -336,6 +422,16 @@ Keep only:
 - control plane remains native
 - DRM display-vs-render boundary remains explicit
 - no claim of full AMDGPU rewrite or Linux wireless-architecture import
+
+**Current implementation progress (2026-04-18)**
+- `redbear-wifictl` transport probing now uses the shared `redox-driver-sys` PCI parser and the
+  shared quirk-aware interrupt-support summary instead of relying only on local raw-config logic.
+- This is a bounded helper extraction only: the native Wi-Fi control plane remains authoritative,
+  and there is still no import of Linux wireless subsystem structure.
+- `redox-drm` now turns shared hotplug and vblank events into a queued scheme-visible
+  `EVENT_READ` surface for `card0`, with hotplug also reaching the matching connector handle.
+  That makes shared DRM event delivery observable without conflating it with render-fence
+  semantics.
 
 ## 4. Subsystem-specific code guidelines
 

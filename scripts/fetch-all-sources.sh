@@ -32,7 +32,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 REPO_BIN="./target/release/repo"
-CONFIG_NAME="${1:-redbear-kde}"
+CONFIG_NAME="${1:-redbear-full}"
 ACTION="fetch"
 
 # ── Colors (disabled when not a terminal) ───────────────────────────
@@ -58,8 +58,8 @@ usage() {
     echo "  --force          Force re-download even if checksums match"
     echo "  --help           Show this help"
     echo ""
-    echo "Configs: redbear-kde, redbear-live, redbear-full, redbear-minimal, redbear-wayland"
-    echo "Default config: redbear-kde"
+    echo "Configs: redbear-full, redbear-minimal, redbear-live-full, redbear-live-minimal"
+    echo "Default config: redbear-full"
 }
 
 ALL_CONFIGS=0

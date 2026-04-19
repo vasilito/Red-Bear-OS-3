@@ -133,9 +133,9 @@ if [ -f "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/inc
         "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/include/stdlib.h"
     cp -f "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include/stdlib.h" \
         "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/stdlib.h" 2>/dev/null || true
-    sed -i '/^long double strtold(const char \\*nptr, char \\*\\*endptr);$/d' \
+    sed -i '/strtold[[:space:]]*(/d' \
         "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/include/stdlib.h" 2>/dev/null || true
-    sed -i '/^long double strtold(const char \\*nptr, char \\*\\*endptr);$/d' \
+    sed -i '/strtold[[:space:]]*(/d' \
         "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/stdlib.h" 2>/dev/null || true
 fi
 
@@ -159,7 +159,7 @@ fi
 
 mkdir -p "${COOKBOOK_SYSROOT}/include/QtGui/private" "${COOKBOOK_SYSROOT}/include/QtCore/private"
 mkdir -p "${COOKBOOK_SYSROOT}/usr/include/QtGui/private" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private"
-for hdr in "${COOKBOOK_ROOT}"/recipes/wip/qt/qtbase/source/src/corelib/global/*_p.h; do
+find "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/corelib" -name '*_p.h' | while read -r hdr; do
     [ -f "$hdr" ] || continue
     base=$(basename "$hdr")
     ln -sf "$hdr" "${COOKBOOK_SYSROOT}/include/QtCore/private/$base"
@@ -170,7 +170,17 @@ if [ -f "${qt_qconfig_priv}" ]; then
     ln -sf "${qt_qconfig_priv}" "${COOKBOOK_SYSROOT}/include/QtCore/private/qconfig_p.h"
     ln -sf "${qt_qconfig_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private/qconfig_p.h"
 fi
-for hdr in "${COOKBOOK_ROOT}"/recipes/wip/qt/qtbase/source/src/gui/kernel/*_p.h "${COOKBOOK_ROOT}"/recipes/wip/qt/qtbase/source/src/gui/platform/unix/*_p.h; do
+qt_qtcore_config_priv="${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/QtCore/6.11.0/QtCore/private/qtcore-config_p.h"
+if [ -f "${qt_qtcore_config_priv}" ]; then
+    ln -sf "${qt_qtcore_config_priv}" "${COOKBOOK_SYSROOT}/include/QtCore/private/qtcore-config_p.h"
+    ln -sf "${qt_qtcore_config_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private/qtcore-config_p.h"
+fi
+qt_qtgui_config_priv="${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/QtGui/6.11.0/QtGui/private/qtgui-config_p.h"
+if [ -f "${qt_qtgui_config_priv}" ]; then
+    ln -sf "${qt_qtgui_config_priv}" "${COOKBOOK_SYSROOT}/include/QtGui/private/qtgui-config_p.h"
+    ln -sf "${qt_qtgui_config_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtGui/private/qtgui-config_p.h"
+fi
+find "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/gui" -name '*_p.h' | while read -r hdr; do
     [ -f "$hdr" ] || continue
     base=$(basename "$hdr")
     ln -sf "$hdr" "${COOKBOOK_SYSROOT}/include/QtGui/private/$base"
@@ -394,5 +404,16 @@ PY
 cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
 cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
 
-find "${COOKBOOK_STAGE}" -name '*.so*' -exec patchelf --remove-rpath {} ";" 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/lib" -name '*.so*' -exec patchelf --remove-rpath {} ";" 2>/dev/null || true
+find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --set-rpath '$ORIGIN/../../lib' {} + 2>/dev/null || true
+for bin in "${COOKBOOK_STAGE}/usr/bin/kwin_wayland" "${COOKBOOK_STAGE}/usr/bin/kwin_wayland_wrapper"; do
+    [ -f "${bin}" ] || continue
+    patchelf --set-rpath '$ORIGIN/../lib' "${bin}" 2>/dev/null || true
+done
 """
+
+[package]
+dependencies = [
+    "fontconfig",
+    "freetype2",
+]

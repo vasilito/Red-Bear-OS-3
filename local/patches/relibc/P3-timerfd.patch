@@ -1,3 +1,14 @@
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs	2026-04-15 09:58:03.811510680 +0100
++++ b/src/header/mod.rs	2026-04-15 09:59:40.902089070 +0100
+@@ -103,6 +103,7 @@
+ pub mod sys_stat;
+ pub mod sys_statvfs;
+ pub mod sys_time;
++pub mod sys_timerfd;
+ #[deprecated]
+ pub mod sys_timeb;
+ //pub mod sys_times;
 diff -ruN a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
 --- a/src/header/sys_timerfd/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_timerfd/cbindgen.toml	2026-04-15 09:59:40.902120449 +0100
@@ -17,7 +28,7 @@ diff -ruN a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindg
 diff -ruN a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
 --- a/src/header/sys_timerfd/mod.rs	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_timerfd/mod.rs	2026-04-15 09:59:40.902160103 +0100
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,91 @@
 +//! `sys/timerfd.h` implementation.
 +//!
 +//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/timerfd_create.2.html>.
@@ -84,11 +95,8 @@ diff -ruN a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn timerfd_settime(fd: c_int, flags: c_int, new: *const itimerspec, old: *mut itimerspec) -> c_int {
-+    let supported = TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET;
++    let supported = TFD_TIMER_ABSTIME;
 +    if flags & !supported != 0 {
-+        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
-+    }
-+    if flags & TFD_TIMER_CANCEL_ON_SET != 0 && flags & TFD_TIMER_ABSTIME == 0 {
 +        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
 +    }
 +    if new.is_null() {

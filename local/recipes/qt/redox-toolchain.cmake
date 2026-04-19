@@ -101,6 +101,23 @@ set(CMAKE_PREFIX_PATH "${COOKBOOK_SYSROOT}")
 set(CMAKE_LIBRARY_PATH "${COOKBOOK_SYSROOT}/lib")
 set(CMAKE_INCLUDE_PATH "${COOKBOOK_SYSROOT}/include")
 
+if(DEFINED ENV{COOKBOOK_SYSROOT} AND EXISTS "$ENV{COOKBOOK_SYSROOT}/lib")
+    set(_redbear_sysroot_link_flags "-L$ENV{COOKBOOK_SYSROOT}/lib -Wl,-rpath-link,$ENV{COOKBOOK_SYSROOT}/lib")
+    set(CMAKE_EXE_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS_INIT} ${_redbear_sysroot_link_flags}")
+    set(CMAKE_SHARED_LINKER_FLAGS_INIT "${CMAKE_SHARED_LINKER_FLAGS_INIT} ${_redbear_sysroot_link_flags}")
+    set(CMAKE_MODULE_LINKER_FLAGS_INIT "${CMAKE_MODULE_LINKER_FLAGS_INIT} ${_redbear_sysroot_link_flags}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_redbear_sysroot_link_flags}" CACHE STRING "" FORCE)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${_redbear_sysroot_link_flags}" CACHE STRING "" FORCE)
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${_redbear_sysroot_link_flags}" CACHE STRING "" FORCE)
+endif()
+
+if(DEFINED ENV{COOKBOOK_SYSROOT} AND EXISTS "$ENV{COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-as-needed -L$ENV{COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat" CACHE STRING "" FORCE)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-as-needed -L$ENV{COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat" CACHE STRING "" FORCE)
+    set(CMAKE_C_STANDARD_LIBRARIES_INIT "${CMAKE_C_STANDARD_LIBRARIES_INIT} -Wl,--no-as-needed -L$ENV{COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat")
+    set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "${CMAKE_CXX_STANDARD_LIBRARIES_INIT} -Wl,--no-as-needed -L$ENV{COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat")
+endif()
+
 # Install prefix — matches the cookbook convention (see cookbook_cmake in script.rs)
 set(CMAKE_INSTALL_PREFIX "/usr")
 

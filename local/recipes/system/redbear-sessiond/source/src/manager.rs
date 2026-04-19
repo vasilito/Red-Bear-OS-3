@@ -5,20 +5,20 @@ use zbus::{
     zvariant::OwnedObjectPath,
 };
 
+use crate::runtime_state::SharedRuntime;
+
 #[derive(Clone, Debug)]
 pub struct LoginManager {
-    session_id: String,
+    runtime: SharedRuntime,
     session_path: OwnedObjectPath,
-    seat_id: String,
     seat_path: OwnedObjectPath,
 }
 
 impl LoginManager {
-    pub fn new(session_path: OwnedObjectPath, seat_path: OwnedObjectPath) -> Self {
+    pub fn new(session_path: OwnedObjectPath, seat_path: OwnedObjectPath, runtime: SharedRuntime) -> Self {
         Self {
-            session_id: String::from("c1"),
+            runtime,
             session_path,
-            seat_id: String::from("seat0"),
             seat_path,
         }
     }
@@ -27,7 +27,11 @@ impl LoginManager {
 #[interface(name = "org.freedesktop.login1.Manager")]
 impl LoginManager {
     fn get_session(&self, id: &str) -> fdo::Result<OwnedObjectPath> {
-        if id == self.session_id {
+        let runtime = self
+            .runtime
+            .read()
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))?;
+        if id == runtime.session_id {
             return Ok(self.session_path.clone());
         }
 
@@ -35,17 +39,25 @@ impl LoginManager {
     }
 
     fn list_sessions(&self) -> fdo::Result<Vec<(String, u32, String, String, OwnedObjectPath)>> {
+        let runtime = self
+            .runtime
+            .read()
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))?;
         Ok(vec![(
-            self.session_id.clone(),
-            0,
-            String::from("root"),
-            self.seat_id.clone(),
+            runtime.session_id.clone(),
+            runtime.uid,
+            runtime.username.clone(),
+            runtime.seat_id.clone(),
             self.session_path.clone(),
         )])
     }
 
     fn get_seat(&self, id: &str) -> fdo::Result<OwnedObjectPath> {
-        if id == self.seat_id {
+        let runtime = self
+            .runtime
+            .read()
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))?;
+        if id == runtime.seat_id {
             return Ok(self.seat_path.clone());
         }
 

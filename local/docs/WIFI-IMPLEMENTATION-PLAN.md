@@ -278,6 +278,14 @@ The best Red Bear Wi-Fi path is **native-first**:
 - Narrow `linux-kpi` glue only where useful (93 tests, 17 modules)
 - Native `smolnetd` / `netcfg` / `dhcpd` reused after association
 
+Current bounded extraction progress:
+
+- `redbear-wifictl` transport probing now consumes the shared `redox-driver-sys` PCI parser
+  instead of relying only on ad hoc raw-config interpretation.
+- Transport status now reports quirk-aware interrupt support (`none` / `legacy` / `msi` / `msix`)
+  from the shared substrate, which is the intended convergence direction for future GPU/Wi-Fi-only
+  donor usage under `linux-kpi`.
+
 The codebase has 119 tests passing (93 linux-kpi + 8 redbear-iwlwifi + 18 redbear-wifictl), no production `unwrap()` in the Wi-Fi daemon request loop (startup uses `expect()`), atomic command
 handling, proper timer cancellation, honest timeout reporting, and real 802.11 frame parsing.
 The structural skeleton is solid. The next required step is **real hardware validation** with an

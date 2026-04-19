@@ -1,19 +1,18 @@
 # Red Bear OS Full Configuration
-# Broader desktop/session plumbing profile beneath the KDE direction
+# Primary desktop/session target: Wayland + KWin/KDE session surface on Red Bear OS.
 # Build: make all CONFIG_NAME=redbear-full
-# Live:  make live CONFIG_NAME=redbear-full
+# Live:  make live CONFIG_NAME=redbear-live-full
 #
-# This remains a broader integration slice for desktop/session plumbing.
+# This is the only active full desktop target. Wayland and KDE package/runtime surfaces are folded
+# here instead of being split across redbear-wayland and redbear-kde.
 # GPU driver stack ships through redbear-meta for this profile.
 # redox-drm now carries the runtime/package dependency on the AMD backend library.
-# KDE Frameworks + KWin: depend on qtdeclarative/qtwayland. Re-enable when ported.
-# libinput/libevdev: WIP meson builds, not yet validated. Re-enable when tested.
-# seatd: now builds; DRM lease/runtime validation is still open before enabling broadly.
+# Runtime/session claims still remain evidence-qualified until compositor/session proof is strong.
 
-include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
+include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml", "redbear-greeter-services.toml"]
 
 [general]
-filesystem_size = 2048
+filesystem_size = 4096
 efi_partition_size = 16
 
 [users.messagebus]
@@ -26,6 +25,16 @@ shell = "/usr/bin/ion"
 [packages]
 # Red Bear OS branding (os-release, hostname, motd)
 redbear-release = {}
+
+# Exclude inherited legacy desktop packages from the tracked KWin/Wayland target
+orbdata = "ignore"
+orbital = "ignore"
+orbterm = "ignore"
+orbutils = "ignore"
+cosmic-edit = "ignore"
+cosmic-files = "ignore"
+cosmic-icons = "ignore"
+cosmic-term = "ignore"
 
 # Native Redox PCI/USB listing tools (lspci, lsusb)
 redbear-hwutils = {}
@@ -78,12 +87,55 @@ htop = {}
 
 # Wayland protocol
 libwayland = {}
+wayland-protocols = {}
 
 # Keyboard support
 libxkbcommon = {}
+libevdev = {}
+libinput = {}
 
-# Qt6 base (Core+Concurrent+Xml+Gui+Widgets, software rendering)
+# Seat management
+seatd = {}
+
+# Qt6 stack
 qtbase = {}
+qtdeclarative = {}
+qtsvg = {}
+qtwayland = {}
+qt6-wayland-smoke = {}
+
+# KF6 Frameworks — Tier 1
+kf6-extra-cmake-modules = {}
+kf6-kcoreaddons = {}
+kf6-kconfig = {}
+kf6-ki18n = {}
+kf6-kcolorscheme = {}
+kf6-kauth = {}
+
+# KF6 Frameworks — KWin session-surface chain
+kf6-kwindowsystem = {}
+kf6-knotifications = {}
+kf6-kconfigwidgets = {}
+kf6-kcrash = {}
+kf6-kdbusaddons = {}
+kf6-kglobalaccel = {}
+kf6-kservice = {}
+kf6-kpackage = {}
+kf6-kiconthemes = {}
+kirigami = {}
+kf6-kio = {}
+kf6-kdeclarative = {}
+kf6-kcmutils = {}
+kf6-kwayland = {}
+kdecoration = {}
+
+# KWin Wayland compositor
+kwin = {}
+
+# Graphics
+redox-drm = {}
+mesa = {}
+libdrm = {}
 
 # Core Red Bear umbrella package
 redbear-meta = {}
@@ -95,70 +147,9 @@ data = ""
 directory = true
 mode = 0o755
 
-# ── Desktop services (not provided by base package) ────────────────
-
-# Display-session placeholder for the supplementary integration slice
-[[files]]
-path = "/usr/lib/init.d/20_display.service"
-data = """
-[unit]
-description = "Display session service"
-requires_weak = [
-]
-
-[service]
-cmd = "ion"
-args = ["-c", "true"]
-envs = { VT = "3" }
-type = "oneshot_async"
-"""
-
-# desktop-minimal.toml: "inputd -A 2", "nowait getty 2", "nowait getty /scheme/debug/no-preserve -J"
-# Neutralize and replace with proper service files
-[[files]]
-path = "/usr/lib/init.d/30_console.service"
-data = """
-[unit]
-description = "Console terminals"
-requires_weak = [
-    "20_display.service",
-]
-
-[service]
-cmd = "getty"
-args = ["2"]
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/29_activate_console.service"
-data = """
-[unit]
-description = "Activate display VT"
-requires_weak = [
-    "20_display.service",
-]
-
-[service]
-cmd = "inputd"
-args = ["-A", "3"]
-type = "oneshot"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/31_debug_console.service"
-data = """
-[unit]
-description = "Debug console"
-requires_weak = [
-    "20_display.service",
-]
-
-[service]
-cmd = "getty"
-args = ["/scheme/debug/no-preserve", "-J"]
-type = "oneshot_async"
-"""
+# Greeter/login service wiring now lives in config/redbear-greeter-services.toml, which is
+# included above so the full desktop target has a single source of truth for display/fallback
+# session services.
 
 [[files]]
 path = "/usr/lib/init.d/13_iommu.service"
@@ -208,6 +199,22 @@ args = [
     "-c",
     "redbear-sessiond",
 ]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_seatd.service"
+data = """
+[unit]
+description = "seatd seat management daemon"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+]
+
+[service]
+cmd = "seatd"
+args = ["-l", "info"]
 type = "oneshot_async"
 """
 
@@ -276,3 +283,212 @@ path = "/run/dbus"
 data = ""
 directory = true
 mode = 0o755
+
+[[files]]
+path = "/usr/bin/redbear-validation-session"
+mode = 0o755
+data = """
+#!/usr/bin/env sh
+
+export DISPLAY=""
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_SESSION_TYPE=wayland
+export LIBSEAT_BACKEND=seatd
+export SEATD_SOCK=/run/seatd.sock
+export QT_PLUGIN_PATH=/usr/plugins
+export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
+export QML2_IMPORT_PATH=/usr/qml
+export RUST_BACKTRACE=full
+export RUST_LOG=debug
+export XCURSOR_THEME=Pop
+export XKB_CONFIG_ROOT=/usr/share/X11/xkb
+
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/run/user/$(id -u)"
+fi
+
+mkdir -p "$XDG_RUNTIME_DIR"
+
+wait_for_wayland_socket() {
+    socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    attempts=0
+    while [ "$attempts" -lt 30 ]; do
+        if [ -e "$socket_path" ]; then
+            return 0
+        fi
+        if ! kill -0 "$kwin_pid" 2>/scheme/null; then
+            return 1
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    return 1
+}
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    eval "$(dbus-launch --sh-syntax)"
+fi
+
+let validation_request = "/run/redbear-kde-session.validation-request"
+let validation_success = "/run/redbear-kde-session.validation-success"
+
+if test -f $validation_request
+    echo "user=$USER" > $validation_success
+    echo "runtime=$XDG_RUNTIME_DIR" >> $validation_success
+    echo "wayland=$WAYLAND_DISPLAY" >> $validation_success
+    rm -f $validation_request
+    exit 0
+end
+
+dbus-update-activation-environment \
+    DBUS_SESSION_BUS_ADDRESS \
+    DBUS_SESSION_BUS_PID \
+    WAYLAND_DISPLAY \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR \
+    DISPLAY \
+    HOME \
+    USER
+
+if [ -d /usr/share/glib-2.0/schemas ]; then
+    glib-compile-schemas /usr/share/glib-2.0/schemas/
+fi
+
+kwin_wayland --replace &
+kwin_pid=$!
+
+if ! wait_for_wayland_socket; then
+    echo "kwin_wayland failed to expose $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" >&2
+    exit 1
+fi
+
+exec /usr/bin/wayland-session
+"""
+
+[[files]]
+path = "/usr/bin/wayland-session"
+mode = 0o755
+data = """
+#!/usr/bin/env ion
+
+printenv
+let session_started = "$HOME/.wayland-session.started"
+rm -f $session_started
+echo "started" > $session_started
+export QT_PLUGIN_PATH=/usr/plugins
+export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms
+export QML2_IMPORT_PATH=/usr/qml
+let smoke_ok = "$HOME/.qt6-wayland-smoke.ok"
+let smoke_err = "$HOME/.qt6-wayland-smoke.err"
+let smoke_log = "$HOME/.qt6-wayland-smoke.log"
+let bootstrap_ok = "$HOME/.qt6-bootstrap-minimal.ok"
+let bootstrap_log = "$HOME/.qt6-bootstrap-minimal.log"
+let plugin_ok = "$HOME/.qt6-plugin-minimal.ok"
+let plugin_err = "$HOME/.qt6-plugin-minimal.err"
+let plugin_log = "$HOME/.qt6-plugin-minimal.log"
+let smoke_minimal_ok = "$HOME/.qt6-wayland-smoke-minimal.ok"
+let smoke_offscreen_ok = "$HOME/.qt6-wayland-smoke-offscreen.ok"
+let smoke_wayland_ok = "$HOME/.qt6-wayland-smoke-wayland.ok"
+let smoke_minimal_log = "$HOME/.qt6-wayland-smoke-minimal.log"
+let smoke_offscreen_log = "$HOME/.qt6-wayland-smoke-offscreen.log"
+let smoke_wayland_log = "$HOME/.qt6-wayland-smoke-wayland.log"
+rm -f $smoke_ok $smoke_err
+rm -f $smoke_log
+rm -f $bootstrap_ok $bootstrap_log
+rm -f $plugin_ok $plugin_err $plugin_log
+rm -f $smoke_minimal_ok $smoke_offscreen_ok $smoke_wayland_ok
+rm -f $smoke_minimal_log $smoke_offscreen_log $smoke_wayland_log
+if which qt6-wayland-smoke >/scheme/null
+    if env LD_DEBUG=all QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=minimal qt6-bootstrap-check > $bootstrap_log ^> $bootstrap_log
+        touch $bootstrap_ok
+    else
+        if test -f $bootstrap_log
+            cat $bootstrap_log
+        end
+        echo "qt6-bootstrap-check minimal failed; see $bootstrap_log" > $smoke_err
+    end
+
+    if env LD_DEBUG=all QT_DEBUG_PLUGINS=1 QT_PLUGIN_PATH=/usr/plugins QT_QPA_PLATFORM_PLUGIN_PATH=/usr/plugins/platforms qt6-plugin-check /usr/plugins/platforms/libqminimal.so > $plugin_log ^> $plugin_log
+        touch $plugin_ok
+    else
+        if test -f $plugin_log
+            cat $plugin_log
+        end
+        echo "qt6-plugin-check failed; see $plugin_log" > $plugin_err
+        echo "qt6-plugin-check failed; see $plugin_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=minimal qt6-wayland-smoke > $smoke_minimal_log ^> $smoke_minimal_log
+        touch $smoke_minimal_ok
+    else
+        echo "qt6-wayland-smoke minimal failed; see $smoke_minimal_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=offscreen qt6-wayland-smoke > $smoke_offscreen_log ^> $smoke_offscreen_log
+        touch $smoke_offscreen_ok
+    else
+        echo "qt6-wayland-smoke offscreen failed; see $smoke_offscreen_log" > $smoke_err
+    end
+
+    if env QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=wayland qt6-wayland-smoke > $smoke_wayland_log ^> $smoke_wayland_log
+        touch $smoke_wayland_ok
+        touch $smoke_ok
+    else
+        echo "qt6-wayland-smoke wayland failed; see $smoke_wayland_log" > $smoke_err
+    end
+end
+"""
+
+[[files]]
+path = "/usr/bin/redbear-kde-session"
+mode = 0o755
+data = """
+#!/usr/bin/sh
+
+export DISPLAY=""
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_SESSION_TYPE=wayland
+export KDE_FULL_SESSION=true
+export XDG_CURRENT_DESKTOP=KDE
+export LIBSEAT_BACKEND=seatd
+export SEATD_SOCK=/run/seatd.sock
+
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/run/user/$(id -u)"
+fi
+
+mkdir -p "$XDG_RUNTIME_DIR"
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    eval "$(dbus-launch --sh-syntax)"
+fi
+
+validation_request="/run/redbear-kde-session.validation-request"
+validation_success="/run/redbear-kde-session.validation-success"
+
+if [ -f "$validation_request" ]; then
+    {
+        echo "user=$USER"
+        echo "runtime=$XDG_RUNTIME_DIR"
+        echo "wayland=$WAYLAND_DISPLAY"
+    } > "$validation_success"
+    rm -f "$validation_request"
+    exit 0
+fi
+
+dbus-update-activation-environment \
+    DBUS_SESSION_BUS_ADDRESS \
+    DBUS_SESSION_BUS_PID \
+    WAYLAND_DISPLAY \
+    XDG_SESSION_ID \
+    XDG_SEAT \
+    XDG_SESSION_TYPE \
+    XDG_RUNTIME_DIR \
+    XDG_CURRENT_DESKTOP \
+    KDE_FULL_SESSION \
+    DISPLAY \
+    HOME \
+    USER
+
+exec kwin_wayland --replace
+"""

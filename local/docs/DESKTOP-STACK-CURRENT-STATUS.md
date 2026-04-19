@@ -1,6 +1,6 @@
 # Red Bear OS Desktop Stack — Current Status
 
-**Last updated:** 2026-04-18
+**Last updated:** 2026-04-19
 **Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
 
 ## Purpose
@@ -15,7 +15,7 @@ Its job is to answer:
 - and what still blocks a trustworthy Wayland/KDE session claim.
 
 For the execution plan (phases, timelines, acceptance criteria), see the canonical plan above.
-For historical design rationale, see `docs/03-WAYLAND-ON-REDOX.md` and `docs/05-KDE-PLASMA-ON-REDOX.md`.
+For subsystem planning detail, see `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md`; for historical KDE rationale, see `docs/05-KDE-PLASMA-ON-REDOX.md`.
 
 ## Where We Are in the Plan
 
@@ -25,15 +25,18 @@ The canonical desktop plan uses a three-track model:
 - **Track B (Phase 3–4):** KWin Session → KDE Plasma — **blocked on Track A**
 - **Track C (Phase 5):** Hardware GPU — **can start after Phase 1**
 
-**Current position:** Build-side gates are crossed. Phase 1 (Runtime Substrate Validation) is the
-next work target. The repo has not yet started systematic runtime validation.
+**Current position:** Build-side gates are crossed. Phase 1 (Runtime Substrate Validation) is still
+the next broad desktop target, but the repo now also carries an experimental Red Bear-native
+greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
-## Tracked Default and Evidence Boundary
+## Active Target Surface and Evidence Boundary
 
-- The tracked default build now resolves to `CONFIG_NAME?=redbear-kde`.
-- the bounded Phase 2 validation profile remains available.
-- `redbear-kde` is the tracked KWin Wayland desktop direction, but runtime-proven compositor/
-  session claims still remain incomplete.
+- The supported compile targets are `redbear-mini`, `redbear-live-mini`, `redbear-full`, and `redbear-live-full`.
+- Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
+- Older names such as `redbear-kde`, `redbear-wayland`, and `redbear-minimal*` still appear in
+  historical or staging material, but they are not the supported compile-target surface.
+- The greeter/login path is currently an **experimental build/integration surface** on `redbear-full`;
+  it is not yet a runtime-validated end-to-end desktop-login claim.
 
 ## Status Matrix
 
@@ -48,8 +51,15 @@ next work target. The repo has not yet started systematic runtime validation.
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
 | Input stack | **builds, enumerates** | evdevd, libevdev, libinput, seatd present; evdevd registers scheme at boot |
-| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full` and `redbear-kde`; D-Bus plan + sessiond complete (DB-1), Qt 6.11 D-Bus coverage documented (Section 14), DB-2/3/4 service daemons implemented as stubs (notifications, upower, udisks, polkit) |
-| redbear-sessiond | ✅ Scaffold | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), config wired in redbear-kde.toml, acpi_watcher with edge detection |
+| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full`; D-Bus plan + sessiond complete (DB-1), Qt 6.11 D-Bus coverage documented (Section 14), DB-2/3/4 service daemons implemented as stubs (notifications, upower, udisks, polkit) |
+| redbear-sessiond | **builds, scaffold** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; now includes runtime control updates used by the greeter/auth session handoff |
+| redbear-authd | **builds** | Privileged local-user auth daemon; `/etc/passwd`/`/etc/shadow`/`/etc/group` parsing, SHA-256/SHA-512 crypt verification, bounded lockout, target-side recipe build proven |
+| redbear-session-launch | **builds** | User-session bootstrap tool; runtime-dir/env setup, uid/gid handoff, dbus-run-session → `redbear-kde-session`, target-side recipe build proven |
+| redbear-greeterd | **builds, experimental** | Root-owned greeter orchestrator; UI/auth socket protocol, bounded restart policy, return-to-greeter daemon logic, crate tests pass; end-to-end runtime proof still pending |
+| redbear-greeter UI | **builds, experimental** | Qt6/QML unprivileged login surface now ships in-tree; bounded runtime proof remains narrower than a full trusted KDE desktop-login claim |
+| redbear-validation-session | **builds, bounded helper** | Still staged as a validation launcher/helper, but no longer the primary `redbear-full` display-service owner |
+| Greeter runtime checker | ✅ implemented (bounded checker) | `redbear-greeter-check` asserts greeter binaries, assets, service files, socket reachability, hello protocol, invalid-login handling, and a validation-only successful-login/session-return loop inside the guest; current graphical runtime proof is still blocked below the greeter slice by guest-side Qt shared-plugin parsing |
+| Greeter QEMU harness | ✅ implemented (bounded harness) | `test-greeter-qemu.sh` boots `redbear-full`, logs in on the fallback console, and runs the in-guest greeter checker for hello, invalid-login, and bounded successful-login return-to-greeter proof; the compositor leg is presently blocked by guest-side Qt plugin loader failure rather than missing greeter artifacts |
 | redbear-notifications | ✅ Scaffold | org.freedesktop.Notifications — logs to stderr, no display integration yet |
 | redbear-upower | ✅ bounded real | org.freedesktop.UPower — enumerates real AC adapters/batteries from `/scheme/acpi/power`; desktop machines with no battery report line power only |
 | redbear-udisks | ✅ bounded real | org.freedesktop.UDisks2 — enumerates real `disk.*` schemes and partitions into read-only D-Bus objects; no fabricated mount/serial metadata |
@@ -61,36 +71,37 @@ next work target. The repo has not yet started systematic runtime validation.
 | GPU acceleration | **blocked** | PRIME/DMA-BUF ioctls and bounded private CS surface implemented; real vendor render CS/fence path still missing |
 | validation compositor runtime | **experimental** | Reaches early init in QEMU; no complete session |
 | validation profile | **builds, boots** | Bounded Wayland runtime profile |
-| `redbear-full` profile | **builds, boots** | Broader desktop plumbing profile |
-| `redbear-kde` profile | **builds** | Tracked KWin desktop-direction profile |
-| `redbear-live` profile | **builds** | Live image following the tracked KWin desktop target |
+| `redbear-full` profile | **builds, boots** | Active desktop/graphics compile surface; now owns the experimental greeter/auth/session-launch integration path |
+| `redbear-live-full` profile | **builds** | Live image following the active desktop/graphics target |
+| `redbear-mini` profile | **builds** | Minimal non-desktop compile target |
+| `redbear-live-mini` profile | **builds** | Minimal live image target |
 
 ## Profile View
 
-### Validation profile
-
-- **Role:** Phase 2 Wayland compositor validation target
-- **Current truth:** Builds and boots in QEMU; bounded compositor initialization reaches early init but no complete session
-- **Use for:** Compositor/runtime regression testing, not broad desktop claims
-
 ### `redbear-full`
 
-- **Role:** Broader desktop/network/session plumbing
-- **Current truth:** Carries D-Bus and broader integration pieces; VirtIO networking works in QEMU, and the bounded Phase 5 network/session checker is evidence-backed there
-- **Use for:** Desktop integration testing beyond the narrow Wayland slice
+- **Role:** Active desktop/graphics compile target and current greeter-integration surface
+- **Current truth:** Carries D-Bus, sessiond, broader integration pieces, and the experimental Red Bear-native greeter/auth/session-launch stack; VirtIO networking works in QEMU, the bounded Phase 5 network/session checker is evidence-backed there, and the repo now includes a bounded greeter checker/harness for the login surface. `redbear-validation-session` remains staged only as a bounded helper, not the active `20_display.service` owner on this target.
+- **Use for:** Desktop integration testing, greeter/login bring-up, and bounded desktop/network plumbing validation
 - **Do not overclaim:** This profile proves bounded QEMU desktop/network plumbing only. It does not by itself close the Wi-Fi implementation plan's later real-hardware Phase W5 reporting/recovery gate.
 
-### `redbear-kde`
+### `redbear-live-full`
 
-- **Role:** Phase 3–4 KDE/Plasma session bring-up
-- **Current truth:** Carries KWin/session wiring and KDE-facing package set; experimental but selected as the tracked default desktop target
-- **Use for:** KDE session surface testing once Phase 2 completes
+- **Role:** Live/demo/recovery image layered on the active desktop target
+- **Current truth:** Follows `redbear-full`; desktop/graphics-capable live image, but the greeter/login surface remains experimental until end-to-end proof exists
+- **Use for:** Demo, install, and bounded live-media validation on the current desktop surface
 
-### `redbear-live`
+### `redbear-mini`
 
-- **Role:** Live/demo/recovery image layered on the tracked desktop profile
-- **Current truth:** Inherits `redbear-kde`, so live media now follows the tracked KWin desktop target
-- **Use for:** Demo, install, and recovery workflows based on the current shipped desktop surface
+- **Role:** Minimal non-desktop target
+- **Current truth:** No desktop/graphics path; recovery and non-desktop integration surface only
+- **Use for:** Minimal runtime bring-up, subsystem validation, and non-desktop packaging checks
+
+### `redbear-live-mini`
+
+- **Role:** Minimal live image target
+- **Current truth:** No desktop/graphics path; live/recovery-oriented minimal image surface
+- **Use for:** Minimal live boot and recovery workflows
 
 ## Current Blockers
 
@@ -104,7 +115,31 @@ Phase 1 exists specifically to close this gap.
 A bounded compositor initialization reaches early startup but does not complete a usable Wayland compositor session.
 This blocks all desktop session work.
 
-### 3. KWin reduced build is now dependency-honest, but runtime proof is still missing (Phase 3 gate)
+### 3. Greeter/login path now exists, but runtime proof is still missing (desktop-login gate)
+
+The repo now carries the main non-visual pieces of the Red Bear-native greeter/login plan:
+
+- `redbear-authd`
+- `redbear-session-launch`
+- `redbear-greeterd`
+- `redbear-greeter-services.toml`
+- `redbear-greeter-check`
+- `test-greeter-qemu.sh`
+
+Current truth for that slice:
+
+| Piece | Current state | Remaining limitation |
+|---|---|---|
+| `redbear-authd` | Target-side recipe build proven; unit tests cover passwd/shadow parsing, SHA-crypt verification, lockout, approval checks | No bounded in-guest login proof yet |
+| `redbear-session-launch` | Target-side recipe build proven; unit tests cover env/runtime-dir/argument handling | Real session handoff still depends on full greeter/runtime proof |
+| `redbear-greeterd` | Crate tests cover protocol-facing state strings, installed asset paths, bounded restart policy, and now own successful-login session launch directly after response delivery | Full desktop-login trust still depends on wider KDE runtime proof plus the unresolved guest-side Qt plugin-loader defect |
+| Greeter validation helpers | `redbear-greeter-check` + `test-greeter-qemu.sh` exist and are wired for bounded runtime proof | The successful-login path is validation-only and does not replace broader KDE session proof; current graphical proof is blocked by guest-side Qt plugin parsing rather than by greeter protocol/packaging gaps |
+| `redbear-greeter` packaging | Builds in-tree | Qt/QML UI binary, compositor wrapper, and branded assets are packaged; broader runtime trust still remains experimental because the guest-side Qt plugin loader currently rejects shared platform plugins (`libqminimal.so`, KWin QPA) as invalid ELF during metadata scan |
+
+This means Red Bear now has a credible **build-visible login boundary**, but not yet a runtime-trusted
+graphical login surface.
+
+### 4. KWin reduced build is now dependency-honest, but runtime proof is still missing (desktop-session gate)
 
 The reduced KWin path now builds with honest provider linkage for `libepoxy`, `lcms2`, `libudev`,
 and `libdisplay-info`.
@@ -121,7 +156,7 @@ Current truth for that slice:
 Additionally, two packages still need more honest session-ready treatment: kirigami (stub-only),
 kf6-kio (heavy shim).
 
-### 4. Hardware acceleration missing GPU CS ioctl (Phase 5 gate)
+### 5. Hardware acceleration missing GPU CS ioctl (Phase 5 gate)
 
 PRIME/DMA-BUF buffer sharing is implemented at the scheme level, and a bounded private CS
 surface now exists for shared-contract work. Real vendor render command submission and shared
@@ -139,9 +174,10 @@ exercised on real Intel and AMD hardware.
 |---|---|
 | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Canonical desktop path plan (v2.0, Phase 1–5) |
 | This document | Current build/runtime truth summary |
+| `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | Canonical GPU/DRM execution plan beneath the desktop path |
 | `local/docs/QT6-PORT-STATUS.md` | Qt/KF6/KWin package-level build status |
 | `local/docs/AMD-FIRST-INTEGRATION.md` | AMD-specific hardware/driver detail |
-| `docs/03-WAYLAND-ON-REDOX.md` | Historical Wayland design rationale |
+| `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` | Canonical Wayland subsystem plan |
 | `docs/05-KDE-PLASMA-ON-REDOX.md` | Historical KDE design rationale |
 | `local/docs/PROFILE-MATRIX.md` | Profile roles and support-language reference |
 
@@ -149,8 +185,9 @@ exercised on real Intel and AMD hardware.
 
 The Red Bear desktop stack has crossed major build-side gates:
 - All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
-- Three tracked desktop profiles exist and at least boot in QEMU
+- Four supported compile targets exist, with desktop/graphics on `redbear-full` and `redbear-live-full`
+- the non-visual Red Bear-native greeter/login pieces now build and test
 - relibc compatibility is materially stronger than before
 
-The remaining work is **runtime validation, session assembly, and the remaining KDE session/runtime proof work**.
-Phase 1 (Runtime Substrate Validation) remains the immediate next target, while the KWin reduced path still lacks runtime compositor/session proof.
+The remaining work is **runtime validation, greeter/UI completion, session assembly, and the remaining KDE session/runtime proof work**.
+Phase 1 (Runtime Substrate Validation) remains the immediate broad target, while the new greeter/login path and the KWin reduced path both still need bounded runtime proof before stronger claims are safe.

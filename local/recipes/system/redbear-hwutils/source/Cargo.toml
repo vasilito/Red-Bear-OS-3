@@ -60,6 +60,10 @@ name = "redbear-phase6-kde-check"
 path = "src/bin/redbear-phase6-kde-check.rs"
 
 [[bin]]
+name = "redbear-greeter-check"
+path = "src/bin/redbear-greeter-check.rs"
+
+[[bin]]
 name = "redbear-drm-display-check"
 path = "src/bin/redbear-drm-display-check.rs"
 

@@ -17,9 +17,9 @@ PREFIX_USE_UPSTREAM_RUST_COMPILER?=0
 ## Enable to use binary packages (much faster)
 REPO_BINARY?=0
 ## Name of the configuration to include in the image name e.g. desktop or server.
-## Red Bear's tracked default desktop target is redbear-kde. Runtime claims remain evidence-qualified
+## Red Bear's tracked default desktop target is redbear-full. Runtime claims remain evidence-qualified
 ## until compositor/session proof is strong enough for broader support language.
-CONFIG_NAME?=redbear-kde
+CONFIG_NAME?=redbear-full
 ## Build appstream data for repo
 REPO_APPSTREAM?=0
 ## Ignore errors when building the repo, attempt to build every package

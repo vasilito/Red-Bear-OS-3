@@ -178,6 +178,22 @@ fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
 
+wait_for_wayland_socket() {
+    socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    attempts=0
+    while [ "$attempts" -lt 30 ]; do
+        if [ -e "$socket_path" ]; then
+            return 0
+        fi
+        if ! kill -0 "$kwin_pid" 2>/scheme/null; then
+            return 1
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    return 1
+}
+
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     eval "$(dbus-launch --sh-syntax)"
 fi
@@ -197,7 +213,13 @@ if [ -d /usr/share/glib-2.0/schemas ]; then
 fi
 
 kwin_wayland --replace &
-sleep 2
+kwin_pid=$!
+
+if ! wait_for_wayland_socket; then
+    echo "kwin_wayland failed to expose $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" >&2
+    exit 1
+fi
+
 exec /usr/bin/wayland-session
 """
 

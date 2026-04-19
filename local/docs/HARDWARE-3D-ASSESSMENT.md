@@ -42,7 +42,7 @@ GPU hardware (AMD RDNA / Intel Gen)
 | Component | Status | Lines | What's Implemented |
 |-----------|--------|-------|-------------------|
 | DRM/KMS modesetting | ✅ Code complete | ~500 | 16 KMS ioctls, CRTC/connector/encoder/plane |
-| AMD Display Core | ✅ Compiles | ~1400 | DC init, CRTC programming, firmware loading, HPD |
+| AMD display backend (bounded retained path) | ✅ Builds | ~2 C glue files + Rust FFI surface | Red Bear display glue (`amdgpu_redox_main.c`, `redox_stubs.c`) plus the Rust FFI consumer build; imported Linux AMD DC/TTM/core remain under compile triage |
 | Intel Display Driver | ✅ Compiles | ~800 | Display pipe, GGTT, forcewake |
 | GEM buffer management | ✅ Full | ~350 | create/close/mmap with DmaBuffer |
 | GEM scheme ioctls | ✅ Wired | ~100 | GEM_CREATE, GEM_CLOSE, GEM_MMAP |
@@ -167,5 +167,5 @@ platform priority.
 
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — Phase 5 covers hardware GPU enablement
 - `local/docs/AMD-FIRST-INTEGRATION.md` — AMD-specific GPU driver details
-- `local/docs/P2-AMD-GPU-DISPLAY.md` — Display driver code-complete status
+- `local/docs/AMDGPU-DC-COMPILE-TRIAGE-PLAN.md` — AMD DC compile-triage and bounded source-set strategy
 - `docs/04-LINUX-DRIVER-COMPAT.md` — linux-kpi architecture reference

@@ -91,41 +91,23 @@ pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
 sleep 1
 
 rm -f "$log_file"
-set +e
-timeout 120s qemu-system-x86_64 \
-  -name "Red Bear OS x86_64" \
-  -device qemu-xhci,id=xhci \
-  -smp 4 \
-  -m 2048 \
-  -bios "$firmware" \
-  -chardev stdio,id=debug,signal=off,mux=on \
-  -serial chardev:debug \
-  -mon chardev=debug \
-  -machine q35 \
-  -device ich9-intel-hda -device hda-output \
-  -device virtio-net,netdev=net0 \
-  -netdev user,id=net0 \
-  -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
-  -nographic -vga none \
-  -drive file="$image",format=raw,if=none,id=drv0 \
-  -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
-  -device nvme,drive=drv1,serial=NVME_EXTRA \
-  -drive file="$usb_img",format=raw,if=none,id=usbdisk \
-  -device usb-storage,bus=xhci.0,drive=usbdisk \
-  -enable-kvm -cpu host \
-  > "$log_file" 2>&1
-set -e
+expect <<EOF
+log_user 1
+log_file -noappend $log_file
+set timeout 300
+spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci,id=xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/$config/network.pcap -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -drive file=$usb_img,format=raw,if=none,id=usbdisk,snapshot=on -device usb-storage,bus=xhci.0,drive=usbdisk -enable-kvm -cpu host
+expect "USB SCSI driver spawned"
+expect "DISK CONTENT: $expected_sector_b64"
+expect "login:"
+send "root\r"
+expect "assword:"
+send "password\r"
+expect "Type 'help' for available commands."
+send "shutdown\r"
+sleep 2
+EOF
 
-if ! grep -q "USB SCSI driver spawned" "$log_file"; then
-    echo "ERROR: usbscsid did not autospawn; see $log_file" >&2
-    exit 1
-fi
-
-if ! grep -Fq "DISK CONTENT: $expected_sector_b64" "$log_file"; then
-    echo "ERROR: USB storage sector 0 readback did not match the seeded pattern; see $log_file" >&2
-    exit 1
-fi
+pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
 
 if grep -q "panic\|usbscsid: .*IO ERROR\|usbscsid: startup failed\|usbscsid: event queue error\|usbscsid: scheme tick failed\|bulk .* endpoint stalled" "$log_file"; then
     echo "ERROR: USB storage path hit a crash/error; see $log_file" >&2

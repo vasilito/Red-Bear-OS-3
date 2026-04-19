@@ -16,6 +16,7 @@ script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+QDBUSXML2CPP="${HOST_BUILD}/bin/qdbusxml2cpp"
 
 for qtdir in plugins mkspecs metatypes modules; do
     if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
@@ -36,8 +37,18 @@ sed -i 's/^include(ECMQmlModule)/#include(ECMQmlModule)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^    add_subdirectory(qml)/#    add_subdirectory(qml)/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
-sed -i 's/^#add_subdirectory(src)/add_subdirectory(src)/' \
+sed -i 's/^#\\+add_subdirectory(src)/add_subdirectory(src)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+if [ -x "${QDBUSXML2CPP}" ]; then
+    "${QDBUSXML2CPP}" -m -p "${COOKBOOK_SOURCE}/src/notifications_interface" \
+        "${COOKBOOK_SOURCE}/src/org.freedesktop.Notifications.xml"
+    sed -i '/notifications_interface\\.moc/d' "${COOKBOOK_SOURCE}/src/notifications_interface.cpp"
+fi
+sed -i 's/^  qt_add_dbus_interface(knotifications_dbus_SRCS .*$/  set(knotifications_dbus_SRCS notifications_interface.cpp)/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^  target_sources(KF6Notifications PRIVATE ${knotifications_dbus_SRCS})$/  target_sources(KF6Notifications PRIVATE ${knotifications_dbus_SRCS})/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles

@@ -119,6 +119,25 @@ pub const PCI_CAP_ID_PCIE: u8 = 0x10;
 pub const PCI_CAP_ID_POWER: u8 = 0x01;
 pub const PCI_CAP_ID_VNDR: u8 = 0x09;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InterruptSupport {
+    None,
+    LegacyOnly,
+    Msi,
+    MsiX,
+}
+
+impl InterruptSupport {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::LegacyOnly => "legacy",
+            Self::Msi => "msi",
+            Self::MsiX => "msix",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MsixCapability {
     pub table_bar: u8,
@@ -172,6 +191,41 @@ impl PciDeviceInfo {
 
     pub fn find_memory_bar(&self, index: usize) -> Option<&PciBarInfo> {
         self.bars.iter().find(|b| b.index == index && b.is_memory())
+    }
+
+    pub fn supports_msi(&self) -> bool {
+        self.find_capability(PCI_CAP_ID_MSI).is_some()
+    }
+
+    pub fn supports_msix(&self) -> bool {
+        self.find_capability(PCI_CAP_ID_MSIX).is_some()
+    }
+
+    pub fn interrupt_support(&self) -> InterruptSupport {
+        let quirks = self.quirks();
+
+        let has_legacy = self.irq.is_some();
+        let has_msi = self.supports_msi() && !quirks.contains(crate::quirks::PciQuirkFlags::NO_MSI);
+        let has_msix =
+            self.supports_msix() && !quirks.contains(crate::quirks::PciQuirkFlags::NO_MSIX);
+
+        if quirks.contains(crate::quirks::PciQuirkFlags::FORCE_LEGACY_IRQ) {
+            return if has_legacy {
+                InterruptSupport::LegacyOnly
+            } else {
+                InterruptSupport::None
+            };
+        }
+
+        if has_msix {
+            InterruptSupport::MsiX
+        } else if has_msi {
+            InterruptSupport::Msi
+        } else if has_legacy {
+            InterruptSupport::LegacyOnly
+        } else {
+            InterruptSupport::None
+        }
     }
 
     pub fn quirks(&self) -> crate::quirks::PciQuirkFlags {
@@ -629,52 +683,11 @@ fn enumerate_pci_filtered(class: Option<u8>) -> Result<Vec<PciDeviceInfo>> {
 
         let config_path = format!("{}/config", location.scheme_path());
         if let Ok(data) = std::fs::read(&config_path) {
-            if data.len() < 64 {
-                continue;
+            if let Some(info) = parse_device_info_from_config_space(location, &data)
+                .filter(|info| class.is_none_or(|class| info.class_code == class))
+            {
+                devices.push(info);
             }
-            let class_code = data[0x0b];
-            if let Some(class) = class {
-                if class_code != class {
-                    continue;
-                }
-            }
-            let vendor_id = u16::from_le_bytes([data[0x00], data[0x01]]);
-            let device_id = u16::from_le_bytes([data[0x02], data[0x03]]);
-            let subclass = data[0x0a];
-            let prog_if = data[0x09];
-            let revision = data[0x08];
-            let header_type = data[0x0e] & 0x7F;
-            let irq_line = data[0x3c];
-
-            let (subsystem_vendor_id, subsystem_device_id) =
-                if header_type == PCI_HEADER_TYPE_NORMAL && data.len() > 0x2F {
-                    (
-                        u16::from_le_bytes([data[0x2c], data[0x2d]]),
-                        u16::from_le_bytes([data[0x2e], data[0x2f]]),
-                    )
-                } else {
-                    (0xFFFF, 0xFFFF)
-                };
-
-            devices.push(PciDeviceInfo {
-                location,
-                vendor_id,
-                device_id,
-                subsystem_vendor_id,
-                subsystem_device_id,
-                revision,
-                class_code,
-                subclass,
-                prog_if,
-                header_type,
-                irq: if irq_line != 0 && irq_line != 0xff {
-                    Some(irq_line as u32)
-                } else {
-                    None
-                },
-                bars: Vec::new(),
-                capabilities: Vec::new(),
-            });
         }
     }
 
@@ -686,6 +699,97 @@ fn enumerate_pci_filtered(class: Option<u8>) -> Result<Vec<PciDeviceInfo>> {
         devices.len()
     );
     Ok(devices)
+}
+
+pub fn parse_device_info_from_config_space(location: PciLocation, data: &[u8]) -> Option<PciDeviceInfo> {
+    if data.len() < 64 {
+        return None;
+    }
+
+    let class_code = data[0x0b];
+
+    let header_type = data[0x0e] & 0x7F;
+    let capabilities = if header_type == PCI_HEADER_TYPE_NORMAL {
+        parse_capabilities_from_config_bytes(data)
+    } else {
+        Vec::new()
+    };
+
+    let (subsystem_vendor_id, subsystem_device_id) =
+        if header_type == PCI_HEADER_TYPE_NORMAL && data.len() > 0x2F {
+            (
+                u16::from_le_bytes([data[0x2c], data[0x2d]]),
+                u16::from_le_bytes([data[0x2e], data[0x2f]]),
+            )
+        } else {
+            (0xFFFF, 0xFFFF)
+        };
+
+    let irq_line = data[0x3c];
+    Some(PciDeviceInfo {
+        location,
+        vendor_id: u16::from_le_bytes([data[0x00], data[0x01]]),
+        device_id: u16::from_le_bytes([data[0x02], data[0x03]]),
+        subsystem_vendor_id,
+        subsystem_device_id,
+        revision: data[0x08],
+        class_code,
+        subclass: data[0x0a],
+        prog_if: data[0x09],
+        header_type,
+        irq: if irq_line != 0 && irq_line != 0xff {
+            Some(irq_line as u32)
+        } else {
+            None
+        },
+        bars: Vec::new(),
+        capabilities,
+    })
+}
+
+fn parse_capabilities_from_config_bytes(data: &[u8]) -> Vec<PciCapability> {
+    if data.len() < 64 {
+        return Vec::new();
+    }
+
+    let status = u16::from_le_bytes([data[0x06], data[0x07]]);
+    if status & 0x0010 == 0 {
+        return Vec::new();
+    }
+
+    let mut caps = Vec::new();
+    let mut cap_ptr = usize::from(data[0x34]);
+    let mut visited = 0u8;
+
+    while cap_ptr >= 0x40 && cap_ptr + 1 < data.len() && visited < 48 {
+        let cap_id = data[cap_ptr];
+        let next_ptr = usize::from(data[cap_ptr + 1]);
+
+        if cap_id == 0 {
+            break;
+        }
+
+        let vendor_cap_id = if cap_id == PCI_CAP_ID_VNDR && cap_ptr + 2 < data.len() {
+            Some(data[cap_ptr + 2])
+        } else {
+            None
+        };
+
+        caps.push(PciCapability {
+            id: cap_id,
+            offset: cap_ptr as u8,
+            vendor_cap_id,
+        });
+
+        if next_ptr == 0 || next_ptr <= cap_ptr {
+            break;
+        }
+
+        cap_ptr = next_ptr;
+        visited += 1;
+    }
+
+    caps
 }
 
 pub fn enumerate_pci_class(class: u8) -> Result<Vec<PciDeviceInfo>> {
@@ -791,5 +895,162 @@ mod tests {
         assert_eq!(parsed.bus, 0x80);
         assert_eq!(parsed.device, 0x1f);
         assert_eq!(parsed.function, 0x00);
+    }
+
+    #[test]
+    fn parse_capabilities_from_config_bytes_reads_standard_and_vendor_caps() {
+        let mut data = vec![0u8; 256];
+        data[0x06] = 0x10;
+        data[0x34] = 0x50;
+
+        data[0x50] = PCI_CAP_ID_MSI;
+        data[0x51] = 0x60;
+
+        data[0x60] = PCI_CAP_ID_VNDR;
+        data[0x61] = 0x00;
+        data[0x62] = 0xAB;
+
+        let caps = parse_capabilities_from_config_bytes(&data);
+        assert_eq!(caps.len(), 2);
+        assert_eq!(caps[0].id, PCI_CAP_ID_MSI);
+        assert_eq!(caps[0].offset, 0x50);
+        assert_eq!(caps[0].vendor_cap_id, None);
+        assert_eq!(caps[1].id, PCI_CAP_ID_VNDR);
+        assert_eq!(caps[1].offset, 0x60);
+        assert_eq!(caps[1].vendor_cap_id, Some(0xAB));
+    }
+
+    #[test]
+    fn parse_capabilities_from_config_bytes_stops_on_backwards_pointer() {
+        let mut data = vec![0u8; 256];
+        data[0x06] = 0x10;
+        data[0x34] = 0x50;
+        data[0x50] = PCI_CAP_ID_MSI;
+        data[0x51] = 0x48;
+
+        let caps = parse_capabilities_from_config_bytes(&data);
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].id, PCI_CAP_ID_MSI);
+    }
+
+    #[test]
+    fn parse_device_info_from_config_bytes_includes_capabilities() {
+        let mut data = vec![0u8; 256];
+        data[0x00] = 0x86;
+        data[0x01] = 0x80;
+        data[0x02] = 0x34;
+        data[0x03] = 0x12;
+        data[0x06] = 0x10;
+        data[0x08] = 0x02;
+        data[0x09] = 0x01;
+        data[0x0a] = PCI_CLASS_DISPLAY_VGA;
+        data[0x0b] = PCI_CLASS_DISPLAY;
+        data[0x0e] = PCI_HEADER_TYPE_NORMAL;
+        data[0x2c] = 0x86;
+        data[0x2d] = 0x80;
+        data[0x2e] = 0x78;
+        data[0x2f] = 0x56;
+        data[0x34] = 0x50;
+        data[0x3c] = 11;
+        data[0x50] = PCI_CAP_ID_MSIX;
+        data[0x51] = 0x00;
+
+        let info = parse_device_info_from_config_space(
+            PciLocation {
+                segment: 0,
+                bus: 0,
+                device: 2,
+                function: 0,
+            },
+            &data,
+        )
+        .expect("display device should be parsed");
+
+        assert_eq!(info.vendor_id, PCI_VENDOR_ID_INTEL);
+        assert_eq!(info.device_id, 0x1234);
+        assert_eq!(info.subsystem_device_id, 0x5678);
+        assert_eq!(info.irq, Some(11));
+        assert_eq!(info.capabilities.len(), 1);
+        assert_eq!(info.capabilities[0].id, PCI_CAP_ID_MSIX);
+    }
+
+    #[test]
+    fn parse_device_info_from_config_space_rejects_short_config() {
+        let location = PciLocation {
+            segment: 0,
+            bus: 0,
+            device: 0,
+            function: 0,
+        };
+        assert!(parse_device_info_from_config_space(location, &[0u8; 32]).is_none());
+    }
+
+    #[test]
+    fn interrupt_support_prefers_msix_over_msi_and_legacy() {
+        let info = PciDeviceInfo {
+            location: PciLocation {
+                segment: 0,
+                bus: 0,
+                device: 0,
+                function: 0,
+            },
+            vendor_id: 0x1234,
+            device_id: 0x5678,
+            subsystem_vendor_id: 0xffff,
+            subsystem_device_id: 0xffff,
+            revision: 0,
+            class_code: 0,
+            subclass: 0,
+            prog_if: 0,
+            header_type: PCI_HEADER_TYPE_NORMAL,
+            irq: Some(11),
+            bars: Vec::new(),
+            capabilities: vec![
+                PciCapability {
+                    id: PCI_CAP_ID_MSI,
+                    offset: 0x50,
+                    vendor_cap_id: None,
+                },
+                PciCapability {
+                    id: PCI_CAP_ID_MSIX,
+                    offset: 0x60,
+                    vendor_cap_id: None,
+                },
+            ],
+        };
+
+        assert_eq!(info.interrupt_support(), InterruptSupport::MsiX);
+        assert_eq!(info.interrupt_support().as_str(), "msix");
+    }
+
+    #[test]
+    fn interrupt_support_honors_no_msix_quirk() {
+        let info = PciDeviceInfo {
+            location: PciLocation {
+                segment: 0,
+                bus: 0,
+                device: 0,
+                function: 0,
+            },
+            vendor_id: 0x1022,
+            device_id: 0x145C,
+            subsystem_vendor_id: 0xffff,
+            subsystem_device_id: 0xffff,
+            revision: 0,
+            class_code: 0,
+            subclass: 0,
+            prog_if: 0,
+            header_type: PCI_HEADER_TYPE_NORMAL,
+            irq: Some(9),
+            bars: Vec::new(),
+            capabilities: vec![PciCapability {
+                id: PCI_CAP_ID_MSIX,
+                offset: 0x60,
+                vendor_cap_id: None,
+            }],
+        };
+
+        assert_eq!(info.interrupt_support(), InterruptSupport::LegacyOnly);
+        assert_eq!(info.interrupt_support().as_str(), "legacy");
     }
 }

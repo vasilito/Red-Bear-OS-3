@@ -1,0 +1,11 @@
+[package]
+name = "redbear-session-launch"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "redbear-session-launch"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

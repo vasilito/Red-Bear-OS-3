@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+
+export DISPLAY=""
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XDG_SESSION_TYPE=wayland
+export LIBSEAT_BACKEND=seatd
+export SEATD_SOCK=/run/seatd.sock
+export QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/plugins}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_QPA_PLATFORM_PLUGIN_PATH:-/usr/plugins/platforms}"
+export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:-/usr/qml}"
+export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
+export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
+
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/run/greeter"
+fi
+
+mkdir -p "$XDG_RUNTIME_DIR"
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/scheme/null 2>&1; then
+    eval "$(dbus-launch --sh-syntax)"
+fi
+
+exec kwin_wayland --replace

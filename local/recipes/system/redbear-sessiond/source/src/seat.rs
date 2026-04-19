@@ -2,20 +2,22 @@ use std::sync::Mutex;
 
 use zbus::{fdo, interface, zvariant::OwnedObjectPath};
 
+use crate::runtime_state::SharedRuntime;
+
 #[derive(Debug)]
 pub struct LoginSeat {
     id: String,
-    session_id: String,
     session_path: OwnedObjectPath,
+    runtime: SharedRuntime,
     last_requested_vt: Mutex<u32>,
 }
 
 impl LoginSeat {
-    pub fn new(session_path: OwnedObjectPath) -> Self {
+    pub fn new(session_path: OwnedObjectPath, runtime: SharedRuntime) -> Self {
         Self {
             id: String::from("seat0"),
-            session_id: String::from("c1"),
             session_path,
+            runtime,
             last_requested_vt: Mutex::new(1),
         }
     }
@@ -46,12 +48,24 @@ impl LoginSeat {
 
     #[zbus(property(emits_changed_signal = "const"), name = "ActiveSession")]
     fn active_session(&self) -> (String, OwnedObjectPath) {
-        (self.session_id.clone(), self.session_path.clone())
+        (
+            self.runtime
+                .read()
+                .map(|runtime| runtime.session_id.clone())
+                .unwrap_or_else(|_| String::from("c1")),
+            self.session_path.clone(),
+        )
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Sessions")]
     fn sessions(&self) -> Vec<(String, OwnedObjectPath)> {
-        vec![(self.session_id.clone(), self.session_path.clone())]
+        vec![(
+            self.runtime
+                .read()
+                .map(|runtime| runtime.session_id.clone())
+                .unwrap_or_else(|_| String::from("c1")),
+            self.session_path.clone(),
+        )]
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "CanGraphical")]

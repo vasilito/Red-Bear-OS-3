@@ -7,7 +7,6 @@
 **Supersedes as planning authority:**
 
 - `local/docs/AMD-FIRST-INTEGRATION.md` for forward execution order
-- `local/docs/P2-AMD-GPU-DISPLAY.md` for future-task sequencing
 - `local/docs/HARDWARE-3D-ASSESSMENT.md` for roadmap ordering
 - `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md` for PRIME/render dependency ordering
 
@@ -54,7 +53,7 @@ The repo has real progress in shared DRM/KMS, GEM, PRIME, firmware plumbing, int
 | KMS ioctl surface | Implemented in shared scheme layer | `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
 | GEM allocation and mapping | Implemented in shared scheme and GEM manager | `local/recipes/gpu/redox-drm/source/src/gem.rs`, `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
 | PRIME and DMA-BUF style sharing | Implemented at scheme level | `local/docs/HARDWARE-3D-ASSESSMENT.md`, `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md`, `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
-| AMD display backend | Build-visible, firmware-aware, interrupt-aware | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs`, `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` |
+| AMD display backend | Build-visible on the bounded retained path, firmware-aware, interrupt-aware | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs`, `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` |
 | Intel display backend | Build-visible, GGTT and ring scaffolding present | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs`, `.../intel/ring.rs` |
 | Mesa userland base | Builds with EGL, GBM, OSMesa, software Gallium path | `recipes/libs/mesa/recipe.toml` |
 
@@ -255,6 +254,8 @@ quirk path. Do not use the Linux quirk extractor as a substitute for PCI naming 
 - the raw `(crtc_id, vblank_count)` IRQ tuple path has been replaced with a small shared driver-event model for internal driver → main loop → scheme transport.
 - `scheme.rs` now owns event ingestion through a shared helper, so page-flip retirement remains tied to explicit vblank events while non-vblank events do not pretend to be render completion.
 - both Intel and AMD now forward shared hotplug events through the same internal event path instead of backend-specific side handling.
+- `scheme.rs` now turns shared hotplug and vblank events into a queued scheme-visible `EVENT_READ` surface for `card0`, and hotplug also targets the matching connector handle.
+- unit tests now cover card-level hotplug readiness, connector-targeted hotplug readiness, queued vblank delivery, and event draining, while preserving the rule that non-vblank events do not retire pending page flips.
 - this is structural groundwork only; real fence objects, sync waits, and backend-proven render completion semantics are still not implemented.
 
 ### Workstream C, Intel backend maturation
@@ -276,7 +277,7 @@ quirk path. Do not use the Linux quirk extractor as a substitute for PCI naming 
 
 ### Workstream D, AMD backend maturation
 
-**Goal:** Turn the AMD path from code-complete display work plus amdgpu port scaffolding into an evidence-backed modern AMD track.
+**Goal:** Turn the AMD path from a bounded retained display build plus broader imported amdgpu/DC triage into an evidence-backed modern AMD track.
 
 **Tasks:**
 

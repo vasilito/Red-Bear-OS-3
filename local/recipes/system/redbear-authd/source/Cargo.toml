@@ -1,0 +1,15 @@
+[package]
+name = "redbear-authd"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "redbear-authd"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Pure-Rust SHA-256/SHA-512 crypt verifier for /etc/shadow entries.
+# Free/open-source (`MIT OR Apache-2.0` upstream; acceptable under the project's free-software policy).
+sha-crypt = "0.6.0-rc.4"

@@ -49,7 +49,8 @@ The Red Bear USB stack consists of:
 - native USB observability (`lsusb`, `usbctl`, `redbear-info`)
 - a low-level userspace client API through `xhcid_interface`
 - a hardware quirks system that applies USB device-specific workarounds at runtime
-- three QEMU validation harnesses covering interrupt delivery, full stack, and storage autospawn
+- four QEMU validation harnesses covering interrupt delivery, bounded device lifecycle hotplug,
+  full stack, and storage autospawn
 - an in-guest scheme-tree checker (`redbear-usb-check`)
 
 ### Red Bear xHCI Patch Layer
@@ -104,12 +105,9 @@ source:
 Even with the Red Bear patch applied:
 
 - HID is still wired through the legacy mixed-stream `inputd` path
-- SuperSpeedPlus differentiation requires Extended Port Status (not yet implemented)
-- TTT (Think Time) in Slot Context hardcoded to 0 — needs parent hub descriptor propagation
-- Composite devices and non-default alternate settings use first-match only
-  (`//TODO: USE ENDPOINTS FROM ALL INTERFACES`)
-- `grow_event_ring()` swaps to a new ring but does not copy pending TRBs from the old one; under
-  sustained event-ring-full conditions this may lose in-flight events
+- Any remaining USB composite/device-model issues now sit above the bounded helper fixes already
+  landed for active alternates, endpoint direction, real interface/alternate hub configuration, and
+  SSP-aware endpoint-context calculations.
 - ~57 TODO/FIXME comments remain across xHCI driver files
 - usbhubd: interrupt-driven change detection implemented; 1-second polling retained as fallback
 - usbscsid: `ReadCapacity16` now implemented with automatic fallback from `ReadCapacity10`
@@ -168,6 +166,7 @@ Key files and their sizes:
 
 | Script | What it tests | Limitations |
 |---|---|---|
+| `test-xhci-device-lifecycle-qemu.sh --check` | Bounded xHCI hotplug lifecycle proof: runtime attach → configure → driver spawn → detach for HID and storage devices | QEMU-only; monitor-driven hotplug; not a broad hardware stress test |
 | `test-usb-qemu.sh --check` | Full stack: xHCI interrupt mode, HID spawn, SCSI spawn, bounded sector-0 readback, BOS processing, crash errors | QEMU-only; log-grep based; no guest-side write proof |
 | `test-usb-storage-qemu.sh` | USB mass storage autospawn + sector-0 readback + crash patterns | No guest-side write proof yet; no multi-LUN; no UAS |
 | `test-xhci-irq-qemu.sh --check` | xHCI interrupt delivery mode (MSI/MSI-X/INTx) | No devices attached during check; single log grep |
@@ -262,6 +261,12 @@ hardware; controller enumerates attached devices reliably across repeated boot c
 - USB 3 hub endpoint configuration stall handled
 - `endp_direction` off-by-one fixed (`checked_sub(1)`)
 - `cfg_idx` assigned after validation
+- xHCI lifecycle gating prevents new I/O from entering while a port is detaching
+- `attach_device()` no longer leaves a published partially-enumerated `PortState` on attach failure
+- `detach_device()` now waits for in-flight lifecycle operations before removing the port state
+- `configure_endpoints_once()` is transactional: endpoint state is staged locally, input-context
+  mutations are snapshotted, and rollback is attempted if `CONFIGURE_ENDPOINT` or
+  `SET_CONFIGURATION` fails
 - `CLEAR_FEATURE` uses correct USB endpoint address from descriptor
 - `usbhubd` status_change_buf sizing and bitmap parsing fixed
 - Hub interrupt EP1 status change detection replacing polling
@@ -314,6 +319,9 @@ replug do not collapse all USB HID into one anonymous stream.
 - `usbscsid` SCSI layer: `plain::from_bytes().unwrap()` replaced with typed `ScsiError` and fallible `parse_bytes`/`parse_mut_bytes` helpers
 - `usbscsid` main.rs: fallible `run()` helper, event loop continues on individual failures
 - `ReadCapacity16` implemented with automatic fallback when `ReadCapacity10` returns max LBA (0xFFFFFFFF)
+- `usbscsid` now issues bounded `SYNCHRONIZE CACHE(10/16)` commands when the runtime storage quirk
+  set includes `needs_sync_cache`, using Linux `sd.c` sync-cache behavior as a donor reference for
+  command selection and tolerant error handling.
 
 **Remaining** (all require hardware or design decisions):
 - Runtime I/O validation: prove stall recovery works under real device I/O (requires hardware)
@@ -359,6 +367,7 @@ scope.
 - `test-usb-qemu.sh` — full USB stack validation harness (6 checks)
 - `test-usb-storage-qemu.sh` — USB mass storage autospawn check
 - `test-xhci-irq-qemu.sh` — xHCI interrupt delivery mode check
+- `test-xhci-device-lifecycle-qemu.sh` — bounded xHCI attach/configure/detach hotplug proof
 - `USB-VALIDATION-RUNBOOK.md` — operator documentation with Paths A and B
 - `redbear-usb-check` — in-guest scheme-tree checker (now installed in image)
 - `lsusb` — full USB scheme walk with descriptor parsing and quirks integration
@@ -367,7 +376,7 @@ scope.
 **Remaining** (all require hardware):
 - Add hardware-matrix coverage for target controllers and class families
 - Add USB storage data I/O validation (read/write to block device)
-- Add hot-plug stress testing harness
+- Add repeated hardware hot-plug stress testing beyond the bounded QEMU lifecycle slice
 
 **Exit criteria**: at least one profile can honestly claim a validated USB baseline for named
 controller/class scope; USB support language in docs matches real test evidence.
@@ -613,24 +622,49 @@ zero `unwrap()`/`expect()` panics), interrupt-driven hub change detection, `Read
 for large disk support, and a USB quirk table expanded from 8 to 146 entries with 22 quirk flags
 mined from Linux 7.0.
 
+Recent bounded maturity progress:
+
+- `xhcid` now tracks active alternate settings per interface in `PortState` and resolves endpoint
+  descriptors through that active-alternate map instead of flattening all interface descriptors
+  indiscriminately.
+- Direct unit coverage now exists for both default-alternate endpoint selection and
+  alternate-setting-aware endpoint remapping.
+- `xhcid` now also preserves previously selected alternates on the same configuration and applies a
+  requested interface/alternate override before endpoint planning, so alternate-setting
+  reconfiguration no longer silently falls back to all-zero defaults.
+- `xhcid` endpoint-direction lookup now also follows the active interface/alternate selection state
+  instead of reading from the first configuration/interface pair unconditionally.
+- `xhcid` driver spawning now also follows the selected configuration and active alternate map
+  instead of hardcoding the first configuration and ignoring non-zero alternates.
+- `xhcid` now keeps per-port lifecycle state so detach blocks new transfer/configure/suspend/resume
+  work, waits for in-flight operations to drain, and removes the published port state only after
+  slot disable succeeds.
+- `xhcid` endpoint configuration is now transactional: software endpoint bookkeeping stays staged
+  until `CONFIGURE_ENDPOINT` and optional `SET_CONFIGURATION` succeed, and the input context is
+  restored with an explicit rollback attempt on failure.
+- the xHCI IRQ reactor now replaces the old `TODO: grow event ring` stub with a preserve-and-grow
+  path that copies unread event TRBs into a larger event ring and reprograms ERST registers instead
+  of dropping pending events during `EventRingFull` recovery.
+- `usbhubd` now derives USB 2 hub TT Think Time from the hub descriptor using the same bounded
+  Linux-compatible encoding and passes it through `ConfigureEndpointsReq`, and `xhcid` now writes
+  that value into the Slot Context TT information bits for hub devices.
+- xHCI endpoint-context calculations are now protocol-speed-aware for SuperSpeedPlus, so interval
+  and ESIT-payload selection use the resolved port protocol speed instead of relying only on
+  endpoint companion presence.
+
 All validation is QEMU-only. No real hardware USB testing exists.
 
-The remaining gaps fall into three categories:
+The remaining gaps now fall into two categories:
 
-**Still-open software work (implementable without hardware):**
-- Composite-device endpoint selection across interfaces (xHCI scheme.rs — `//TODO: USE ENDPOINTS FROM ALL INTERFACES`)
-- Non-default configuration and alternate-setting support (xHCI scheme.rs)
-- SuperSpeedPlus differentiation via Extended Port Status
-- TTT (Think Time) propagation from parent hub descriptor into Slot Context
-- Event ring growth does not copy pending TRBs from old ring (may lose events under sustained load)
-
-**Architectural redesign (cross-cutting, not USB-internal):**
+**Broader architectural work (cross-cutting, not a small bounded USB-only fix):**
+- Any remaining USB composite/device-model issues now belong to wider device-model/design cleanup
+  rather than one more isolated helper patch.
 - HID producer modernization: per-device streams, hotplug add/remove (requires inputd redesign)
 - Userspace USB API: `libusb` WIP, no coherent native story
 
 **Hardware-dependent or design decisions:**
 - Real hardware validation: no controller tested outside QEMU
-- Hot-plug stress testing
+- Hot-plug stress testing beyond the new bounded QEMU lifecycle harness
 - Storage write validation (bounded sector-0 readback proof now exists in QEMU via `test-usb-storage-qemu.sh`, but guest-side write verification to the USB-backed block device is still open)
 - usbhubd 1-second polling fallback (only exercisable with real hub hardware)
 - Modern USB scope decision: device mode / USB-C / PD

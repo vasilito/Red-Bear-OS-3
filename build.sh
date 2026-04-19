@@ -22,11 +22,11 @@ usage()
     echo "               i686. ARCH is not checked, so you can add a new architecture."
     echo "               Defaults to the directory containing the FILESYSTEM_CONFIG file,"
     echo "               or x86_64 if no FILESYSTEM_CONFIG is specified."
-    echo "    -c CONFIG: The name of the config, e.g. redbear-kde, redbear-full or redbear-minimal."
+echo "    -c CONFIG: The name of the config, e.g. redbear-full or redbear-minimal."
     echo "               Determines the name of the image, build/ARCH/CONFIG/harddrive.img"
-    echo "               e.g. build/x86_64/redbear-kde/harddrive.img"
+echo "               e.g. build/x86_64/redbear-full/harddrive.img"
     echo "               Determines the name of FILESYSTEM_CONFIG if none is specified."
-    echo "               Defaults to the basename of FILESYSTEM_CONFIG, or 'redbear-kde'"
+echo "               Defaults to the basename of FILESYSTEM_CONFIG, or 'redbear-full'"
     echo "               if FILESYSTEM_CONFIG is not specified."
     echo "    -f FILESYSTEM_CONFIG:"
     echo "               The config file to use. It can be in any location."
@@ -50,7 +50,7 @@ if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
 fi
 
 defaultarch="x86_64"
-defaultname="redbear-kde"
+defaultname="redbear-full"
 ARCH=""
 CONFIG_NAME=""
 FILESYSTEM_CONFIG=""

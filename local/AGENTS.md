@@ -11,11 +11,20 @@ Red Bear OS relates to Redox OS in the same way Ubuntu relates to Debian:
   - The `local/` directory is our overlay — untouched by upstream updates
   - First-class configs use `redbear-*` naming (not `my-*`, which is gitignored)
 
+## FREE/LIBRE SOFTWARE POLICY
+
+Red Bear OS must remain a free/libre project.
+
+- Prefer components that are open-source, freely available to all users, or built in-tree by Red Bear.
+- Do not introduce proprietary, source-unavailable, paywalled, or redistributability-restricted dependencies into the tracked system surface.
+- When a dependency is dual-licensed under multiple free/open licenses, choose and document the option that is compatible with the Red Bear project surface.
+- For the greeter/login stack specifically, the current SHA-crypt verifier path is the pure-Rust `sha-crypt` crate, licensed `MIT OR Apache-2.0`; Red Bear treats it under the MIT option for compatibility with the project's free-software policy.
+
 Build flow:
 ```
-make all CONFIG_NAME=redbear-kde
-  → mk/config.mk resolves to config/redbear-kde.toml
-  → Config includes desktop.toml (mainline) + Red Bear packages
+make all CONFIG_NAME=redbear-full
+  → mk/config.mk resolves to the active desktop/graphics compile target
+  → Desktop/graphics are available only on redbear-full and redbear-live-full
   → repo cook builds all packages including our custom ones
   → mk/disk.mk creates harddrive.img with Red Bear branding
 ```
@@ -23,8 +32,23 @@ make all CONFIG_NAME=redbear-kde
 Update flow:
 ```
 ./local/scripts/sync-upstream.sh          # Rebase onto upstream Redox + verify symlinks
-make all CONFIG_NAME=redbear-kde           # Rebuild with latest
+make all CONFIG_NAME=redbear-full         # Rebuild the active desktop/graphics target
 ```
+
+## ACTIVE COMPILE TARGETS
+
+The supported compile targets are exactly:
+
+- `redbear-mini`
+- `redbear-live-mini`
+- `redbear-full`
+- `redbear-live-full`
+
+Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
+
+Names such as `redbear-kde`, `redbear-wayland`, and `redbear-minimal` may still appear in older
+docs, legacy validation notes, or in-repo staging configs, but they should not be treated as the
+current supported compile targets.
 
 ## TRACKING UPSTREAM (SYNC WITH REDOX OS)
 
@@ -133,9 +157,10 @@ redox-master/                  ← git pull updates mainline Redox
 ├── config/
 │   ├── desktop.toml           ← mainline configs (untouched)
 │   ├── minimal.toml
-│   ├── redbear-desktop.toml   ← RED BEAR OS configs (first-class, tracked)
-│   ├── redbear-minimal.toml
-│   └── redbear-live.toml
+│   ├── redbear-full.toml      ← Active desktop/graphics target
+│   ├── redbear-live-full.toml ← Live desktop/graphics target
+│   ├── redbear-mini*.toml     ← Minimal target surface (legacy/staging naming may still vary in-tree)
+│   └── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring fragment
 ├── recipes/                   ← mainline package recipes (untouched)
 ├── mk/                        ← mainline build system (untouched)
 ├── local/                     ← RED BEAR OS custom work
@@ -147,8 +172,11 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── drivers/           ← redox-driver-sys, linux-kpi (GPU/Wi-Fi compat only — NOT USB)
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
 │   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-quirks, redbear-meta
-│   │   │   ├── redbear-sessiond    ← org.freedesktop.login1 D-Bus session broker (zbus-based Rust daemon)
-│   │   │   ├── redbear-dbus-services ← D-Bus .service activation files + XML policies
+│   │   │   ├── redbear-sessiond       ← org.freedesktop.login1 D-Bus session broker (zbus-based Rust daemon)
+│   │   │   ├── redbear-authd          ← local-user authentication daemon (`/etc/passwd` + `/etc/shadow` + `/etc/group`)
+│   │   │   ├── redbear-session-launch ← session bootstrap helper (uid/gid/env/runtime-dir handoff)
+│   │   │   ├── redbear-greeter        ← greeter orchestrator package (`redbear-greeterd`, UI, compositor wrapper, staged assets)
+│   │   │   ├── redbear-dbus-services  ← D-Bus .service activation files + XML policies
 │   │   ├── wayland/           ← Wayland compositor (v2.0 Phase 2)
 │   │   └── kde/               ← KDE Plasma (v2.0 Phases 3–4)
 │   ├── patches/
@@ -185,25 +213,27 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   ├── test-ps2-qemu.sh ← QEMU launcher for the bounded PS/2 + serio runtime proof
 │   │   ├── test-timer-qemu.sh ← QEMU launcher for the bounded monotonic timer runtime proof
 │   │   ├── test-lowlevel-controllers-qemu.sh ← Sequential wrapper for bounded low-level controller proofs
-│   │   └── test-usb-maturity-qemu.sh ← Sequential wrapper for bounded USB maturity proofs
+│   │   ├── test-usb-maturity-qemu.sh ← Sequential wrapper for bounded USB maturity proofs
+│   │   └── test-greeter-qemu.sh ← Bounded QEMU proof for the Red Bear greeter/auth/session surface
 │   └── docs/                  ← Integration docs
 ```
 
 ## HOW TO BUILD RED BEAR OS
 
 ```bash
-# Tracked KWin Wayland desktop target
-./local/scripts/build-redbear.sh redbear-kde
+# Active desktop/graphics target
+./local/scripts/build-redbear.sh redbear-full
 
-# Minimal server variant
-./local/scripts/build-redbear.sh redbear-minimal
+# Minimal non-desktop target
+./local/scripts/build-redbear.sh redbear-mini
 
-# Live ISO
-./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-live
+# Live images
+./local/scripts/build-redbear.sh redbear-live-full && make live CONFIG_NAME=redbear-live-full
+./local/scripts/build-redbear.sh redbear-live-mini && make live CONFIG_NAME=redbear-live-mini
 
 # VM-network baseline validation helpers
 ./local/scripts/validate-vm-network-baseline.sh
-./local/scripts/test-vm-network-qemu.sh redbear-minimal
+./local/scripts/test-vm-network-qemu.sh redbear-mini
 # Then run inside the guest:
 #   ./local/scripts/test-vm-network-runtime.sh
 
@@ -212,7 +242,8 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
 
 # Legacy Phase 3 runtime-substrate validation (historical P0-P6 numbering; script still works)
-./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-kde
+# Use the active desktop target when adapting historical validation flows.
+./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-full
 
 # Low-level controller validation
 ./local/scripts/test-xhci-irq-qemu.sh --check
@@ -249,6 +280,13 @@ redox-master/                  ← git pull updates mainline Redox
 # Then run inside the guest:
 #   redbear-phase5-network-check
 
+# Experimental Red Bear greeter/login validation
+./local/scripts/build-redbear.sh redbear-full
+./local/scripts/test-greeter-qemu.sh --check
+# Then run inside the guest:
+#   redbear-greeter-check
+#   redbear-greeter-check --invalid root wrong
+
 # Bounded Intel Wi-Fi runtime validation (real target or passthrough guest)
 # Host preparation for VFIO-backed guests:
 #   sudo ./local/scripts/validate-wifi-vfio-host.sh --host-pci 0000:xx:yy.z --expect-driver iwlwifi
@@ -265,7 +303,7 @@ redox-master/                  ← git pull updates mainline Redox
 #   ./local/scripts/finalize-wifi-validation-run.sh ./wifi-passthrough-capture.json ./wifi-passthrough-artifacts.tar.gz
 
 # Legacy Phase 6 KDE session-surface validation (historical P0-P6 numbering; script still works)
-./local/scripts/build-redbear.sh redbear-kde
+./local/scripts/build-redbear.sh redbear-full
 ./local/scripts/test-phase6-kde-qemu.sh --check
 # Then run inside the guest:
 #   redbear-phase6-kde-check
@@ -274,7 +312,7 @@ redox-master/                  ← git pull updates mainline Redox
 redbear-netctl --help
 
 # Or manually:
-make all CONFIG_NAME=redbear-kde
+make all CONFIG_NAME=redbear-full
 
 # Single custom recipe:
 ./target/release/repo cook local/recipes/branding/redbear-release
@@ -313,13 +351,16 @@ When mainline updates affect our work:
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` is the canonical public execution plan.
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0) is the canonical desktop path plan from console to
   hardware-accelerated KDE Plasma on Wayland, using a three-track Phase 1–5 model.
+- `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` is the canonical Wayland subsystem plan beneath the
+  desktop path. Use it for Wayland-specific stability, completeness, ownership, and runtime-proof
+  sequencing.
 - `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` is the current DRM-focused execution plan beneath
   the canonical desktop path. It keeps Intel and AMD at the same evidence bar while separating
   display/KMS maturity from render/3D maturity.
 - Older GPU-specific docs such as `local/docs/AMD-FIRST-INTEGRATION.md`,
-  `local/docs/P2-AMD-GPU-DISPLAY.md`, `local/docs/HARDWARE-3D-ASSESSMENT.md`, and
-  `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md` remain useful reference material, but they are not the
-  planning authority when sequencing or acceptance criteria differ.
+  `local/docs/HARDWARE-3D-ASSESSMENT.md`, and `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md` remain
+  useful reference material, but they are not the planning authority when sequencing or acceptance
+  criteria differ.
 - `local/docs/AMD-FIRST-INTEGRATION.md` remains the deeper AMD-specific technical roadmap, but AMD
   and Intel machines are now equal-priority Red Bear OS targets.
 - The earlier Phase 0–3 reassessment bridge has been retired. Its reconciliation role is now
@@ -338,6 +379,7 @@ When mainline updates affect our work:
 - `local/docs/QUIRKS-IMPROVEMENT-PLAN.md` is the current follow-up plan for removing quirks drift,
   integrating quirks into real drivers, and converging on one source of truth.
 - `local/docs/DBUS-INTEGRATION-PLAN.md` is the canonical D-Bus architecture and implementation plan for KDE Plasma 6 on Wayland. It defines the phased approach to D-Bus service integration, the `redbear-sessiond` login1-compatible session broker, and the gap analysis for desktop-facing D-Bus services.
+- `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` is the canonical Red Bear-native greeter/login design and current implementation plan for the `redbear-full` desktop path. It defines the `redbear-authd` / `redbear-session-launch` / `redbear-greeter` split, service wiring, validation surface, and the current boundary between the active greeter path and the older `redbear-validation-session` helper flows.
 
 The current execution order for these subsystem plans is:
 
@@ -511,35 +553,34 @@ local/Assets/
 
 ## RED BEAR OS CONFIG HIERARCHY
 
+Active compile targets:
+
+- `redbear-mini`
+- `redbear-live-mini`
+- `redbear-full`
+- `redbear-live-full`
+
+Desktop/graphics are available only on the `full` targets. Older names such as `redbear-kde`,
+`redbear-wayland`, `redbear-minimal`, and `redbear-live-minimal` may still exist in the tree as
+legacy or staging artifacts, but they are not the supported compile-target surface.
+
 ```
-redbear-live.toml
-  └── redbear-kde.toml
+redbear-live-full.toml
+  └── redbear-full.toml
+        ├── desktop.toml (mainline)
         ├── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
         ├── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
         ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
         ├── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
-        ├── desktop.toml (mainline)
-        │     ├── desktop-minimal.toml
-        │     │     └── minimal.toml
-        │     │           └── base.toml
-        │     └── server.toml
-        │           └── minimal.toml
-        │                 └── base.toml
+        ├── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring for desktop targets
         └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
                        firmware-loader, evdevd, udev-shim, redbear-info,
-                       mc, cub
-        NOTE: ext4d is inherited from desktop.toml (mainline package)
-        NOTE: cub is treated as an essential Red Bear utility and is included through the tracked
-              flavor configs; it still depends on the custom recipe symlink
-              (recipes/system/cub → local/recipes/system/cub) being created by
-              integrate-redbear.sh or apply-patches.sh before building.
-        NOTE: redbear-netctl provides a Redox-native `netctl` command with profiles
-              in /etc/netctl and a boot-time `netctl --boot` service.
-        NOTE: redbear-info is the canonical runtime integration report. Keep it updated when
-              Red Bear adds new tools, schemes, services, or hardware integration paths.
-        NOTE: redbear-live inherits cub through redbear-kde.toml.
-        NOTE: redbear-meta is explicitly included in redbear-full.toml. Keep any broader inclusion
-              deliberate because its dependency surface is much heavier than the core utility layer.
+                       redbear-sessiond, redbear-authd, redbear-session-launch,
+                       redbear-greeter, redbear-meta, cub
+        NOTE: Desktop/graphics are available only on redbear-full and redbear-live-full.
+        NOTE: ext4d is inherited from desktop.toml (mainline package).
+        NOTE: redbear-meta is explicitly included in redbear-full.toml; keep broader inclusion deliberate.
+        NOTE: redbear-live-full inherits from redbear-full.toml.
 
 redbear-full.toml
   └── desktop.toml (mainline)
@@ -547,20 +588,17 @@ redbear-full.toml
   └── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
   └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
   └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
+  └── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring
 
-redbear-wayland.toml
-  └── wayland.toml (mainline-derived Wayland profile)
-  └── bounded validation runtime surface
-  └── validation entrypoints: test-phase4-wayland-qemu.sh + redbear-phase4-wayland-check
+redbear-live-mini.toml
+  └── minimal non-desktop live target
+  └── desktop/graphics intentionally absent
 
-redbear-kde.toml
-  └── desktop.toml (mainline)
-  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
-  └── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
-  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
+redbear-mini
+  └── legacy/staging config files in-tree still use the older `redbear-minimal*` names
+      in some places; do not treat those names as the supported compile-target surface
 
-redbear-minimal.toml
+redbear-minimal.toml (legacy/staging naming still present in tree)
   └── minimal.toml (mainline)
         └── base.toml
   └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
@@ -573,9 +611,10 @@ redbear-minimal.toml
 Config comparison:
 | Config | GPU Stack | Desktop | Branding | ext4d | filesystem_size |
 |--------|-----------|---------|----------|-------|-----------------|
-| redbear-desktop | Full | Supplementary integration support | Yes | ✅ (via desktop.toml) | 10240 MiB |
-| redbear-minimal | None | None | Yes | ❌ | 512 MiB |
-| redbear-live | Full | KWin Wayland target | Yes | ✅ (via desktop.toml) | 12288 MiB |
+| redbear-full | Full | Yes | Yes | ✅ (via desktop.toml) | 4096 MiB |
+| redbear-live-full | Full | Yes | Yes | ✅ (via redbear-full.toml) | 4096 MiB |
+| redbear-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-minimal*` files | legacy/staging |
+| redbear-live-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-live-minimal*` files | legacy/staging |
 
 ## ANTI-PATTERNS (COMMIT POLICY)
 

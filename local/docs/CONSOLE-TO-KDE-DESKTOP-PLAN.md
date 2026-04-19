@@ -9,12 +9,14 @@
 This is the single authoritative plan for the Red Bear OS path from console boot to a
 hardware-accelerated KDE Plasma desktop running on Wayland.
 
-It consolidates and replaces the planning role previously held by:
+It consolidates and replaces the top-level planning role previously held by:
 
-- `docs/03-WAYLAND-ON-REDOX.md` (historical Wayland rationale)
 - `docs/05-KDE-PLASMA-ON-REDOX.md` (historical KDE rationale)
 - `local/docs/AMD-FIRST-INTEGRATION.md` (AMD-specific hardware detail)
 - Prior revisions of this document (v1, which used a different Phase 1–5 breakdown)
+
+`local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` now serves as the canonical Wayland subsystem plan
+beneath this top-level desktop path.
 
 Those documents remain useful for subsystem detail, porting history, and design rationale.
 The earlier reassessment bridge is now retired, and its reconciliation role is covered here together
@@ -71,12 +73,12 @@ Rules:
 | Area | State | Evidence | Notes |
 |---|---|---|---|
 | AMD bare-metal boot | validated | Boot, ACPI, SMP, x2APIC all work | Bounded to current tested hardware |
-| relibc Wayland/Qt unblockers | builds | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open, bounded sys/ipc.h, bounded sys/shm.h | Runtime pressure from real consumers still untested |
+| relibc Wayland/Qt unblockers | builds + targeted runtime proof | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open, bounded sys/ipc.h, bounded sys/shm.h | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
 | redox-driver-sys | builds | Driver substrate | |
 | linux-kpi | builds | Linux kernel API compatibility layer | |
 | firmware-loader | builds, boots | scheme:firmware registers at boot | |
 | redox-drm (AMD + Intel) | builds | DRM scheme daemon | No hardware runtime validation |
-| amdgpu C port | builds | AMD DC + TTM + linux-kpi compat | No hardware runtime validation |
+| amdgpu retained C path | builds | Red Bear display glue retained path + linux-kpi compat; imported Linux AMD DC/TTM/core remain under compile triage | No hardware runtime validation |
 | evdevd | builds, boots | scheme:evdev registers at boot | |
 | udev-shim | builds, boots | scheme:udev registers at boot | |
 | libwayland 1.24.0 | builds | No compositor proof yet | |
@@ -578,7 +580,7 @@ This is the canonical document for the desktop path. It does not replace subsyst
 | `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` | Short current-state desktop truth summary |
 | `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` | relibc completeness detail + patch ownership |
 | `local/docs/INPUT-SCHEME-ENHANCEMENT.md` | Input-path design if structural cleanup needed |
-| `local/docs/P2-AMD-GPU-DISPLAY.md` | AMD display status + validation targets |
+| `local/docs/AMDGPU-DC-COMPILE-TRIAGE-PLAN.md` | AMD DC compile-triage + bounded source-set strategy |
 | `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md` | DMA-BUF scheme detail |
 | `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` | Controller/IRQ/IOMMU quality work |
 | `local/docs/PROFILE-MATRIX.md` | Profile roles + support-language reference |
@@ -600,8 +602,8 @@ continuity, not as future work.
 |---|---|---|
 | AMD bare-metal boot (ACPI, SMP, x2APIC) | ✅ Boot-baseline complete | Prior to this plan; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for ongoing ownership and robustness work |
 | Driver infrastructure (redox-driver-sys, linux-kpi, firmware-loader) | ✅ Builds complete | Prior to this plan |
-| AMD GPU display (redox-drm, amdgpu C port) | ✅ Builds complete | Prior to this plan |
-| relibc POSIX unblockers (signalfd, timerfd, eventfd, etc.) | ✅ Builds complete | Prior to this plan |
+| AMD GPU display (redox-drm + bounded amdgpu retained path) | 🚧 Partial build completion | Imported Linux AMD DC/TTM/core remain under compile triage; no hardware runtime validation yet |
+| relibc POSIX unblockers (signalfd, timerfd, eventfd, etc.) | ✅ Builds + targeted runtime proof complete | Prior to this plan |
 | Qt6 base stack (qtbase, qtdeclarative, qtsvg, qtwayland) | ✅ Builds complete | Prior to this plan |
 | D-Bus 1.16.2 | ✅ Builds + bounded runtime | Prior to this plan |
 | All 32 KF6 frameworks | ✅ Builds complete | Prior to this plan |

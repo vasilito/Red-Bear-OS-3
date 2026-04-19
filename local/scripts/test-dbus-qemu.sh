@@ -6,7 +6,7 @@
 #
 # Options:
 #   --check            Run non-interactively, exit 0 on pass, 1 on fail
-#   --config CONFIG    Build config to test (default: redbear-kde)
+#   --config CONFIG    Build config to test (default: redbear-full)
 #
 # --check mode boots the image, waits for the login prompt, then sends D-Bus
 # validation commands via the serial console. Output is captured and parsed.
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 CHECK_MODE=0
-CONFIG_NAME="redbear-kde"
+CONFIG_NAME="redbear-full"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

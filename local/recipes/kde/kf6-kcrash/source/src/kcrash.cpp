@@ -24,7 +24,9 @@
 #include <qplatformdefs.h>
 #ifndef Q_OS_WIN
 #include <cerrno>
+#include <grp.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <sys/wait.h>
 #include <sys/un.h>
 #else

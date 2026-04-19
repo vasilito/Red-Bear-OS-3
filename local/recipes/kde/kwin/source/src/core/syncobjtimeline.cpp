@@ -6,7 +6,45 @@
 #include "syncobjtimeline.h"
 
 #include <cerrno>
+#ifdef __redox__
+#include <fcntl.h>
+#include <unistd.h>
+
+#ifndef EFD_CLOEXEC
+#define EFD_CLOEXEC O_CLOEXEC
+#endif
+
+#ifndef EFD_NONBLOCK
+#define EFD_NONBLOCK O_NONBLOCK
+#endif
+
+#ifndef EFD_SEMAPHORE
+#define EFD_SEMAPHORE 0x1
+#endif
+
+static int eventfd(unsigned int initval, int flags)
+{
+    const int supported = EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE;
+    int oflag = O_RDWR;
+    char path[64];
+
+    if ((flags & ~supported) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (flags & EFD_CLOEXEC) {
+        oflag |= O_CLOEXEC;
+    }
+    if (flags & EFD_NONBLOCK) {
+        oflag |= O_NONBLOCK;
+    }
+
+    snprintf(path, sizeof(path), "/scheme/event/eventfd/%u/%d", initval, (flags & EFD_SEMAPHORE) ? 1 : 0);
+    return open(path, oflag);
+}
+#else
 #include <sys/eventfd.h>
+#endif
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 

@@ -1,0 +1,47 @@
+[source]
+path = "source"
+
+[build]
+template = "custom"
+dependencies = ["qtbase", "qtdeclarative", "qtwayland"]
+script = """
+set -ex
+
+DYNAMIC_INIT
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ -d "${COOKBOOK_SYSROOT}/${qtdir}" ] && [ ! -L "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        rm -rf "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+cookbook_cargo
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+cmake "${COOKBOOK_SOURCE}/ui" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DQT_NO_PRIVATE_MODULE_WARNING=ON \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+mkdir -pv "$COOKBOOK_STAGE/usr/bin"
+mkdir -pv "$COOKBOOK_STAGE/usr/share/redbear/greeter"
+cp -v "$COOKBOOK_SOURCE/redbear-greeter-compositor" "$COOKBOOK_STAGE/usr/share/redbear/greeter/redbear-greeter-compositor"
+chmod 0755 "$COOKBOOK_STAGE/usr/share/redbear/greeter/redbear-greeter-compositor"
+cp -v "$COOKBOOK_RECIPE/../../../../local/Assets/images/Red Bear OS loading background.png" "$COOKBOOK_STAGE/usr/share/redbear/greeter/background.png"
+cp -v "$COOKBOOK_RECIPE/../../../../local/Assets/images/Red Bear OS icon.png" "$COOKBOOK_STAGE/usr/share/redbear/greeter/icon.png"
+ln -svf ../share/redbear/greeter/redbear-greeter-compositor "$COOKBOOK_STAGE/usr/bin/redbear-greeter-compositor"
+"""
+
+[package.files]
+"/usr/bin/redbear-greeterd" = "redbear-greeterd"
+"/usr/bin/redbear-greeter-ui" = "redbear-greeter-ui"

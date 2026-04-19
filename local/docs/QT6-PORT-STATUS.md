@@ -258,7 +258,7 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 Recent relibc implementation progress in this repo now also includes:
 
-- source-visible `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `F_DUPFD_CLOEXEC`, and `MSG_NOSIGNAL`
+- source-visible plus strict Redox-target runtime-tested `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `F_DUPFD_CLOEXEC`, and `MSG_NOSIGNAL`
 - a bounded `waitid()` path in relibc, replacing the old Qt-side waitid stub workaround
 - a bounded `eth0`-backed `net_if` / `ifaddrs` path in relibc
 - a minimal source-visible `resolv.h` surface in relibc
@@ -307,7 +307,7 @@ Current downstream build proof in this repo now includes:
   - Non-udev shim (libudev stub for HAVE_UDEV=0)
   - Vendored Linux input.h selection for __redox__
   - strtod_l() fallback
-  - timerfd fallback (tracks expiry without timerfd fd)
+- timerfd path still warrants broader consumer-confidence review, but relibc now has strict Redox-target runtime proof for the bounded timerfd harness
   - Linux-only tool binaries skipped on Redox
 
 ### Phase 3 — KF6 Frameworks (✅ ALL 32 BUILT)

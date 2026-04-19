@@ -45,6 +45,8 @@ function(kwin_add_script name source)
     file(COPY ${source}/contents ${source}/metadata.json DESTINATION ${CMAKE_BINARY_DIR}/bin/kwin/scripts/${name})
 endfunction()
 
+add_subdirectory(qpa)
+
 add_subdirectory(idletime)
 
 if (KWIN_BUILD_EFFECTS)

@@ -25,7 +25,6 @@ For current Red Bear OS status, also read:
 docs/
 ├── 01-REDOX-ARCHITECTURE.md   # Architecture reference: microkernel, scheme system, driver model, display architecture
 ├── 02-GAP-ANALYSIS.md         # Historical gap matrix with corrected current-state notes
-├── 03-WAYLAND-ON-REDOX.md     # Historical Wayland implementation path + deeper rationale
 ├── 04-LINUX-DRIVER-COMPAT.md  # Driver-compat architecture reference + historical porting path
 ├── 05-KDE-PLASMA-ON-REDOX.md  # Historical KDE implementation path + deeper rationale
 ├── 06-BUILD-SYSTEM-SETUP.md   # Build/setup mechanics guide (not canonical policy)
@@ -46,11 +45,9 @@ docs/
 | What is the current Wi-Fi architecture and validation path? | local/docs/WIFI-IMPLEMENTATION-PLAN.md / local/docs/WIFI-VALIDATION-RUNBOOK.md | Entire document |
 | What is the current desktop-stack truth? | local/docs/DESKTOP-STACK-CURRENT-STATUS.md | Entire document |
 | What is the current Qt/KF6 status? | local/docs/QT6-PORT-STATUS.md | Entire document |
-| What's missing for Wayland? | 02 | Status correction + ordered remaining gaps |
+| What's missing for Wayland? | local/docs/WAYLAND-IMPLEMENTATION-PLAN.md | Entire document |
 | How to fix POSIX gaps? | local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md | Current relibc completeness work |
-| How to build evdevd? | 03 | §2 (evdev input daemon architecture) |
-| How to build DRM/KMS? | 03 | §3 (drmd daemon, Intel driver) |
-| How to port a Wayland compositor? | 03 | §4 (Smithay Redox backends) |
+| What is the current Wayland plan? | local/docs/WAYLAND-IMPLEMENTATION-PLAN.md | Entire document |
 | How to run Linux GPU drivers? | 04 | Architecture diagram, i915 porting example |
 | What is redox-driver-sys? | 04 | Crate 1: memory, IRQ, PCI, DMA wrappers |
 | What is linux-kpi? | 04 | Crate 2: C headers translating Linux→Redox APIs |

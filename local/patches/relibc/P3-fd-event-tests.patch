@@ -34,7 +34,7 @@ diff --git a/tests/sys_signalfd/signalfd.c b/tests/sys_signalfd/signalfd.c
 new file mode 100644
 --- /dev/null
 +++ b/tests/sys_signalfd/signalfd.c
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,23 @@
 +#include <assert.h>
 +#include <signal.h>
 +#include <stdio.h>
@@ -62,7 +62,7 @@ diff --git a/tests/sys_timerfd/timerfd.c b/tests/sys_timerfd/timerfd.c
 new file mode 100644
 --- /dev/null
 +++ b/tests/sys_timerfd/timerfd.c
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +#include <assert.h>
 +#include <stdint.h>
 +#include <stdio.h>
@@ -87,8 +87,44 @@ new file mode 100644
 +
 +    memset(&spec, 0, sizeof(spec));
 +    spec.it_value.tv_sec = 1;
-+    assert(timerfd_settime(fd, TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET, &spec, NULL) == 0);
++    assert(timerfd_settime(fd, TFD_TIMER_ABSTIME, &spec, NULL) == 0);
 +    assert(close(fd) == 0);
 +    puts("timerfd ok");
 +    return 0;
 +}
+diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
+--- a/tests/Makefile.tests.mk
++++ b/tests/Makefile.tests.mk
+@@ -312,6 +312,9 @@ VARIED_NAMES=\
+ 	grp/getgrgid_r \
+ 	grp/getgrnam_r \
+ 	grp/gr_iter \
++	sys_eventfd/eventfd \
++	sys_signalfd/signalfd \
++	sys_timerfd/timerfd \
+ 	waitpid \
+ 	waitpid_multiple \
+ 	$(FAILING_TESTS)
+diff --git a/tests/Makefile b/tests/Makefile
+--- a/tests/Makefile
++++ b/tests/Makefile
+@@ -78,14 +78,16 @@ FLAGS=\
+ 	-Wno-deprecated-declarations \
+ 	-pedantic \
+ 	-g \
+-	-I .
++	-I . \
++	$(CPPFLAGS) $(CFLAGS)
+ 
+ STATIC_FLAGS=\
+-	-static
++	-static $(LDFLAGS)
+ 
+ DYNAMIC_FLAGS=\
+ 	-Wl,--enable-new-dtags \
+-	-Wl,-export-dynamic
++	-Wl,-export-dynamic \
++	$(LDFLAGS)
+ 
+ SYSROOT?=$(abspath ../sysroot/$(TARGET)/)
+ SYSROOT_TARGET?=$(SYSROOT)

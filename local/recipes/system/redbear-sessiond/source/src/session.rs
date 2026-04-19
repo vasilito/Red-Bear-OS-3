@@ -13,16 +13,14 @@ use zbus::{
 };
 
 use crate::device_map::DeviceMap;
+use crate::runtime_state::SharedRuntime;
 
 #[derive(Debug)]
 pub struct LoginSession {
-    id: String,
-    seat_id: String,
     seat_path: OwnedObjectPath,
-    user_uid: u32,
     user_path: OwnedObjectPath,
-    leader: u32,
     device_map: DeviceMap,
+    runtime: SharedRuntime,
     controlled: Mutex<bool>,
     taken_devices: Mutex<HashSet<(u32, u32)>>,
 }
@@ -32,15 +30,13 @@ impl LoginSession {
         seat_path: OwnedObjectPath,
         user_path: OwnedObjectPath,
         device_map: DeviceMap,
+        runtime: SharedRuntime,
     ) -> Self {
         Self {
-            id: String::from("c1"),
-            seat_id: String::from("seat0"),
             seat_path,
-            user_uid: 0,
             user_path,
-            leader: process::id(),
             device_map,
+            runtime,
             controlled: Mutex::new(false),
             taken_devices: Mutex::new(HashSet::new()),
         }
@@ -57,21 +53,35 @@ impl LoginSession {
             .lock()
             .map_err(|_| fdo::Error::Failed(String::from("login1 device state is poisoned")))
     }
+
+    fn runtime(&self) -> fdo::Result<crate::runtime_state::SessionRuntime> {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.clone())
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))
+    }
 }
 
 #[interface(name = "org.freedesktop.login1.Session")]
 impl LoginSession {
     fn activate(&self) -> fdo::Result<()> {
-        eprintln!("redbear-sessiond: Activate requested for session {}", self.id);
+        eprintln!("redbear-sessiond: Activate requested for session {}", self.runtime()?.session_id);
         Ok(())
     }
 
     fn take_control(&self, force: bool) -> fdo::Result<()> {
         let mut controlled = self.control_state()?;
+        let runtime = self.runtime()?;
+        if *controlled && !force {
+            return Err(fdo::Error::Failed(format!(
+                "session {} is already under control",
+                runtime.session_id
+            )));
+        }
         *controlled = true;
         eprintln!(
             "redbear-sessiond: TakeControl requested for session {} (force={force})",
-            self.id
+            runtime.session_id
         );
         Ok(())
     }
@@ -79,34 +89,56 @@ impl LoginSession {
     fn release_control(&self) -> fdo::Result<()> {
         let mut controlled = self.control_state()?;
         *controlled = false;
-        eprintln!("redbear-sessiond: ReleaseControl requested for session {}", self.id);
+        self.taken_devices()?.clear();
+        eprintln!("redbear-sessiond: ReleaseControl requested for session {}", self.runtime()?.session_id);
         Ok(())
     }
 
     fn take_device(&self, major: u32, minor: u32) -> fdo::Result<OwnedFd> {
-        let file = self
+        let runtime = self.runtime()?;
+        if !*self.control_state()? {
+            return Err(fdo::Error::AccessDenied(format!(
+                "session {} must TakeControl before TakeDevice",
+                runtime.session_id
+            )));
+        }
+
+        let mut taken_devices = self.taken_devices()?;
+        if taken_devices.contains(&(major, minor)) {
+            return Err(fdo::Error::Failed(format!(
+                "device ({major}, {minor}) is already taken for session {}",
+                runtime.session_id
+            )));
+        }
+
+        let (path, file) = self
             .device_map
             .open_device(major, minor)
             .map_err(|err| fdo::Error::Failed(format!("TakeDevice({major}, {minor}) failed: {err}")))?;
 
-        let mut taken_devices = self.taken_devices()?;
         taken_devices.insert((major, minor));
 
         let owned_fd: StdOwnedFd = file.into();
         eprintln!(
-            "redbear-sessiond: TakeDevice granted for session {} -> ({major}, {minor})",
-            self.id
+            "redbear-sessiond: TakeDevice granted for session {} -> ({major}, {minor}) at {}",
+            runtime.session_id, path
         );
 
         Ok(OwnedFd::from(owned_fd))
     }
 
     fn release_device(&self, major: u32, minor: u32) -> fdo::Result<()> {
+        let runtime = self.runtime()?;
         let mut taken_devices = self.taken_devices()?;
-        taken_devices.remove(&(major, minor));
+        if !taken_devices.remove(&(major, minor)) {
+            return Err(fdo::Error::Failed(format!(
+                "device ({major}, {minor}) was not taken for session {}",
+                runtime.session_id
+            )));
+        }
         eprintln!(
             "redbear-sessiond: ReleaseDevice requested for session {} -> ({major}, {minor})",
-            self.id
+            runtime.session_id
         );
         Ok(())
     }
@@ -114,14 +146,14 @@ impl LoginSession {
     fn pause_device_complete(&self, major: u32, minor: u32) -> fdo::Result<()> {
         eprintln!(
             "redbear-sessiond: PauseDeviceComplete received for session {} -> ({major}, {minor})",
-            self.id
+            self.runtime()?.session_id
         );
         Ok(())
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Active")]
     fn active(&self) -> bool {
-        true
+        self.runtime().map(|runtime| runtime.active).unwrap_or(true)
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Remote")]
@@ -156,32 +188,40 @@ impl LoginSession {
 
     #[zbus(property(emits_changed_signal = "const"), name = "Id")]
     fn id(&self) -> String {
-        self.id.clone()
+        self.runtime().map(|runtime| runtime.session_id).unwrap_or_else(|_| String::from("c1"))
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "State")]
     fn state(&self) -> String {
-        String::from("online")
+        self.runtime().map(|runtime| runtime.state).unwrap_or_else(|_| String::from("online"))
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Seat")]
     fn seat(&self) -> (String, OwnedObjectPath) {
-        (self.seat_id.clone(), self.seat_path.clone())
+        (
+            self.runtime()
+                .map(|runtime| runtime.seat_id)
+                .unwrap_or_else(|_| String::from("seat0")),
+            self.seat_path.clone(),
+        )
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "User")]
     fn user(&self) -> (u32, OwnedObjectPath) {
-        (self.user_uid, self.user_path.clone())
+        (
+            self.runtime().map(|runtime| runtime.uid).unwrap_or(0),
+            self.user_path.clone(),
+        )
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "VTNr")]
     fn vt_nr(&self) -> u32 {
-        1
+        self.runtime().map(|runtime| runtime.vt).unwrap_or(3)
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Leader")]
     fn leader(&self) -> u32 {
-        self.leader
+        self.runtime().map(|runtime| runtime.leader).unwrap_or(process::id())
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Audit")]
@@ -191,7 +231,7 @@ impl LoginSession {
 
     #[zbus(property(emits_changed_signal = "const"), name = "TTY")]
     fn tty(&self) -> String {
-        String::new()
+        format!("tty{}", self.runtime().map(|runtime| runtime.vt).unwrap_or(3))
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "RemoteUser")]

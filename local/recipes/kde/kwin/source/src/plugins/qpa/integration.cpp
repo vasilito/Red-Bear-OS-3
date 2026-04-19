@@ -137,7 +137,7 @@ QPlatformWindow *Integration::createPlatformWindow(QWindow *window) const
 
 QPlatformOffscreenSurface *Integration::createPlatformOffscreenSurface(QOffscreenSurface *surface) const
 {
-    return new OffscreenSurface(surface);
+    return new KWin::QPA::OffscreenSurface(surface);
 }
 
 QPlatformFontDatabase *Integration::fontDatabase() const

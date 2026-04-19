@@ -22,9 +22,12 @@ diff -ruN a/src/header/mod.rs b/src/header/mod.rs
 diff -ruN a/src/header/sys_ipc/cbindgen.toml b/src/header/sys_ipc/cbindgen.toml
 --- a/src/header/sys_ipc/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_ipc/cbindgen.toml	2026-04-15 09:57:28.904120977 +0100
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,12 @@
 +sys_includes = ["sys/types.h"]
 +include_guard = "_SYS_IPC_H"
++trailer = """
++typedef struct ipc_perm ipc_perm;
++"""
 +language = "C"
 +style = "Tag"
 +no_includes = true

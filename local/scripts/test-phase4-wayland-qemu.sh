@@ -30,7 +30,7 @@ usage() {
     cat <<'USAGE'
 Usage: test-phase4-wayland-qemu.sh [--check] [extra qemu args...]
 
-Boot the repo's Wayland profile in QEMU with a VirtIO NIC using UEFI firmware.
+Boot the repo's full desktop target in QEMU with a VirtIO NIC using UEFI firmware.
 
 Examples:
   ./local/scripts/test-phase4-wayland-qemu.sh
@@ -41,7 +41,7 @@ Expected validation path:
   display session -> validation launcher -> compositor -> wayland-session
 
 Important:
-  the current harness uses '-vga std' and today still surfaces llvmpipe in-guest.
+  the current harness uses QEMU virtio-gpu for the bounded software-path desktop slice.
   Treat this as a Phase 4 software-path/runtime smoke check and regression harness.
   Hardware-accelerated desktop proof is a separate bare-metal/runtime-driver milestone.
 USAGE
@@ -78,12 +78,12 @@ else
 fi
 
 arch="${ARCH:-$(uname -m)}"
-image="build/$arch/redbear-wayland/harddrive.img"
-extra="build/$arch/redbear-wayland/extra.img"
+image="build/$arch/redbear-full/harddrive.img"
+extra="build/$arch/redbear-full/extra.img"
 
 if [[ ! -f "$image" ]]; then
     echo "ERROR: missing image $image" >&2
-    echo "Build it first with: ./local/scripts/build-redbear.sh redbear-wayland" >&2
+    echo "Build it first with: ./local/scripts/build-redbear.sh redbear-full" >&2
     exit 1
 fi
 
@@ -92,7 +92,7 @@ if [[ ! -f "$extra" ]]; then
 fi
 
 echo "=== Red Bear OS Phase 4 Wayland QEMU Launch ==="
-echo "Config: redbear-wayland"
+echo "Config: redbear-full"
 echo "Image:  $image"
 echo "UEFI:   $firmware"
 echo
@@ -102,14 +102,14 @@ echo "  netctl status"
 echo "  redbear-phase4-wayland-check"
 echo "  the validation compositor should own the bounded runtime path"
 echo "  qt6-wayland-smoke should leave a success marker via wayland-session"
-echo "  production desktop direction is redbear-kde -> kwin_wayland"
+echo "  active desktop direction is redbear-full -> kwin_wayland"
 echo
 
 if [[ "$check_mode" -eq 1 ]]; then
     expect <<EOF
 log_user 1
 set timeout 240
-spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/redbear-wayland/network.pcap -vga std -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $QEMUFLAGS
+spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/redbear-full/network.pcap -vga none -device virtio-gpu -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $QEMUFLAGS
 expect "login:"
 send "root\r"
 expect "assword:"
@@ -146,8 +146,9 @@ exec qemu-system-x86_64 \
   -device ich9-intel-hda -device hda-output \
   -device virtio-net,netdev=net0 \
   -netdev user,id=net0 \
-  -object filter-dump,id=f1,netdev=net0,file="build/$arch/redbear-wayland/network.pcap" \
-  -vga std \
+  -object filter-dump,id=f1,netdev=net0,file="build/$arch/redbear-full/network.pcap" \
+  -vga none \
+  -device virtio-gpu \
   -drive file="$image",format=raw,if=none,id=drv0 \
   -device nvme,drive=drv0,serial=NVME_SERIAL \
   -drive file="$extra",format=raw,if=none,id=drv1 \

@@ -226,4 +226,12 @@ if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
     mkdir -p "${SYSROOT}/qml"
     cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
 fi
+
+for stdlib in \
+    "${COOKBOOK_STAGE}/usr/include/stdlib.h" \
+    "${SYSROOT}/include/stdlib.h" \
+    "${SYSROOT}/usr/include/stdlib.h"; do
+    [ -f "$stdlib" ] || continue
+    sed -i '/strtold[[:space:]]*(/d' "$stdlib" 2>/dev/null || true
+done
 """

@@ -1,5 +1,4 @@
-add_library(KWinQpaPlugin OBJECT)
-target_sources(KWinQpaPlugin PRIVATE
+add_library(KWinQpaPlugin MODULE
     backingstore.cpp
     clipboard.cpp
     eglhelpers.cpp
@@ -13,14 +12,19 @@ target_sources(KWinQpaPlugin PRIVATE
     window.cpp
 )
 
+set_target_properties(KWinQpaPlugin PROPERTIES
+    AUTOMOC ON
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/platforms"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/platforms"
+    OUTPUT_NAME "qwayland-org.kde.kwin.qpa"
+)
+
 ecm_qt_declare_logging_category(KWinQpaPlugin
     HEADER logging.h
     IDENTIFIER KWIN_QPA
     CATEGORY_NAME kwin_qpa_plugin
     DEFAULT_SEVERITY Critical
 )
-
-target_compile_definitions(KWinQpaPlugin PRIVATE QT_STATICPLUGIN)
 
 target_link_libraries(KWinQpaPlugin PRIVATE
     Qt::Concurrent
@@ -30,3 +34,5 @@ target_link_libraries(KWinQpaPlugin PRIVATE
     Fontconfig::Fontconfig
     kwin
 )
+
+install(TARGETS KWinQpaPlugin DESTINATION plugins/platforms)

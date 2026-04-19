@@ -1,26 +1,93 @@
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs	2026-04-15 09:48:02.257700000 +0100
++++ b/src/header/mod.rs	2026-04-19 13:30:00.000000000 +0100
+@@ -98,6 +98,7 @@
+ pub mod sys_resource;
+ pub mod sys_select;
++pub mod sys_signalfd;
+ // TODO: sys/sem.h
+ // TODO: sys/shm.h
+ pub mod sys_socket;
 diff -ruN a/src/header/sys_signalfd/cbindgen.toml b/src/header/sys_signalfd/cbindgen.toml
 --- a/src/header/sys_signalfd/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_signalfd/cbindgen.toml	2026-04-15 09:48:02.257754724 +0100
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,41 @@
 +sys_includes = ["signal.h", "stdint.h"]
 +include_guard = "_SYS_SIGNALFD_H"
++trailer = """
++#ifndef SFD_CLOEXEC
++#define SFD_CLOEXEC 0x80000
++#endif
++
++#ifndef SFD_NONBLOCK
++#define SFD_NONBLOCK 0x800
++#endif
++
++struct signalfd_siginfo {
++    uint32_t ssi_signo;
++    int32_t ssi_errno;
++    int32_t ssi_code;
++    uint32_t ssi_pid;
++    uint32_t ssi_uid;
++    int32_t ssi_fd;
++    uint32_t ssi_tid;
++    uint32_t ssi_band;
++    uint32_t ssi_overrun;
++    uint32_t ssi_trapno;
++    int32_t ssi_status;
++    int32_t ssi_int;
++    uint64_t ssi_ptr;
++    uint64_t ssi_utime;
++    uint64_t ssi_stime;
++    uint64_t ssi_addr;
++    uint16_t ssi_addr_lsb;
++    uint16_t __pad2;
++    int32_t ssi_syscall;
++    uint64_t ssi_call_addr;
++    uint32_t ssi_arch;
++    uint8_t __pad[28];
++};
++"""
 +language = "C"
 +style = "Tag"
 +no_includes = true
 +cpp_compat = true
-+
+
 +[enum]
 +prefix_with_name = true
-+
+
 +[export.rename]
 +"signalfd_siginfo" = "struct signalfd_siginfo"
 diff -ruN a/src/header/sys_signalfd/mod.rs b/src/header/sys_signalfd/mod.rs
 --- a/src/header/sys_signalfd/mod.rs	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_signalfd/mod.rs	2026-04-15 09:48:02.257778048 +0100
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,29 @@
 +//! `sys/signalfd.h` implementation.
 +
-+pub use crate::header::signal::{SFD_CLOEXEC, SFD_NONBLOCK, signalfd, signalfd4, signalfd_siginfo};
++use crate::{
++    header::signal::{self, sigset_t, signalfd_siginfo},
++    platform::types::c_int,
++};
++
++pub const SFD_CLOEXEC: c_int = signal::SFD_CLOEXEC;
++pub const SFD_NONBLOCK: c_int = signal::SFD_NONBLOCK;
 +
 +#[unsafe(no_mangle)]
-+pub extern "C" fn _cbindgen_export_sys_signalfd_siginfo(siginfo: signalfd_siginfo) {}
++pub unsafe extern "C" fn signalfd(fd: c_int, mask: *const sigset_t, masksize: usize) -> c_int {
++    unsafe { signal::signalfd(fd, mask, masksize) }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn signalfd4(
++    fd: c_int,
++    mask: *const sigset_t,
++    masksize: usize,
++    flags: c_int,
++) -> c_int {
++    unsafe { signal::signalfd4(fd, mask, masksize, flags) }
++}
++
++#[unsafe(no_mangle)]
++pub extern "C" fn _cbindgen_export_sys_signalfd_siginfo(siginfo: signalfd_siginfo) {
++    let _ = siginfo;
++}

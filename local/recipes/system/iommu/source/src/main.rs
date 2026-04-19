@@ -28,6 +28,7 @@ struct DiscoveryResult {
     source: DiscoverySource,
     kernel_acpi_status: &'static str,
     ivrs_path: Option<PathBuf>,
+    dmar_present: bool,
 }
 
 #[cfg_attr(not(target_os = "redox"), allow(dead_code))]
@@ -141,7 +142,7 @@ fn read_sdt_from_physical(phys_addr: u64) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(target_os = "redox")]
-fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
+fn find_kernel_acpi_table(signature: &[u8; 4]) -> Result<Option<Vec<u8>>, String> {
     let rxsdt = match fs::read("/scheme/kernel.acpi/rxsdt") {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -150,14 +151,14 @@ fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
     };
 
     if rxsdt.len() < ACPI_HEADER_LEN {
-        return Ok(Vec::new());
+        return Ok(None);
     }
 
-    let signature = &rxsdt[0..4];
-    let entry_size = match signature {
+    let root_signature = &rxsdt[0..4];
+    let entry_size = match root_signature {
         b"RSDT" => 4,
         b"XSDT" => 8,
-        _ => return Ok(Vec::new()),
+        _ => return Ok(None),
     };
 
     let mut offset = ACPI_HEADER_LEN;
@@ -169,24 +170,46 @@ fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
         };
 
         let table = read_sdt_from_physical(phys_addr)?;
-        if table.len() >= 4 && &table[0..4] == b"IVRS" {
-            return AmdViUnit::detect(&table).map_err(|err| format!("failed to parse IVRS: {err}"));
+        if table.len() >= 4 && &table[0..4] == signature {
+            return Ok(Some(table));
         }
 
         offset += entry_size;
     }
 
-    Ok(Vec::new())
+    Ok(None)
+}
+
+#[cfg(target_os = "redox")]
+fn detect_units_from_kernel_acpi() -> Result<Vec<AmdViUnit>, String> {
+    match find_kernel_acpi_table(b"IVRS")? {
+        Some(table) => AmdViUnit::detect(&table).map_err(|err| format!("failed to parse IVRS: {err}")),
+        None => Ok(Vec::new()),
+    }
+}
+
+#[cfg(target_os = "redox")]
+fn detect_dmar_from_kernel_acpi() -> Result<bool, String> {
+    Ok(find_kernel_acpi_table(b"DMAR")?.is_some())
 }
 
 #[cfg(target_os = "redox")]
 fn discover_units() -> Result<DiscoveryResult, String> {
+    let dmar_present = match detect_dmar_from_kernel_acpi() {
+        Ok(present) => present,
+        Err(err) => {
+            info!("iommu: kernel ACPI DMAR discovery unavailable: {err}");
+            false
+        }
+    };
+
     match detect_units_from_kernel_acpi() {
         Ok(units) if !units.is_empty() => Ok(DiscoveryResult {
             units,
             source: DiscoverySource::KernelAcpi,
             kernel_acpi_status: "ok",
             ivrs_path: None,
+            dmar_present,
         }),
         Ok(_units) => {
             let (units, ivrs_path) = detect_units_from_discovered_ivrs()?;
@@ -199,6 +222,7 @@ fn discover_units() -> Result<DiscoveryResult, String> {
                 units,
                 kernel_acpi_status: "empty",
                 ivrs_path,
+                dmar_present,
             })
         }
         Err(err) => {
@@ -213,6 +237,7 @@ fn discover_units() -> Result<DiscoveryResult, String> {
                 units,
                 kernel_acpi_status: "error",
                 ivrs_path,
+                dmar_present,
             })
         }
     }
@@ -230,6 +255,7 @@ fn discover_units() -> Result<DiscoveryResult, String> {
         units,
         kernel_acpi_status: "unsupported",
         ivrs_path,
+        dmar_present: false,
     })
 }
 
@@ -252,6 +278,11 @@ fn run() -> Result<(), String> {
             "iommu: detected {} AMD-Vi unit(s) via {}",
             discovery.units.len(),
             discovery.source.as_str()
+        );
+    }
+    if discovery.dmar_present {
+        info!(
+            "iommu: detected kernel ACPI DMAR table; Intel VT-d runtime ownership should converge here rather than remain in acpid"
         );
     }
     for (index, unit) in discovery.units.iter().enumerate() {
@@ -308,6 +339,7 @@ fn run_self_test() -> Result<(), String> {
 
     println!("discovery_source={}", discovery.source.as_str());
     println!("kernel_acpi_status={}", discovery.kernel_acpi_status);
+    println!("dmar_present={}", if discovery.dmar_present { 1 } else { 0 });
     println!(
         "ivrs_path={}",
         discovery
@@ -429,5 +461,11 @@ mod tests {
         assert_eq!(DiscoverySource::KernelAcpi.as_str(), "kernel_acpi");
         assert_eq!(DiscoverySource::Filesystem.as_str(), "filesystem");
         assert_eq!(DiscoverySource::None.as_str(), "none");
+    }
+
+    #[test]
+    fn host_discovery_defaults_to_no_dmar() {
+        let discovery = super::discover_units().expect("host discovery should succeed");
+        assert!(!discovery.dmar_present);
     }
 }

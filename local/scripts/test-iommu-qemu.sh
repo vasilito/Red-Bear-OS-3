@@ -97,7 +97,7 @@ if [[ "$check_mode" -eq 1 ]]; then
     expect <<EOF
 log_user 1
 set timeout 240
-spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -device amd-iommu -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/$config/network.pcap -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $extra_qemu_args
+spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -device amd-iommu -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/$config/network.pcap -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $extra_qemu_args
 expect -re {PCI .*1022:1419}
 expect "login:"
 send "root\r"
@@ -111,8 +111,9 @@ expect "units_initialized_now="
 expect "units_initialized_after="
 expect "events_drained="
 send "shutdown\r"
-expect eof
+sleep 2
 EOF
+    pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
     echo "IOMMU first-use validation path completed via guest runtime check"
     exit 0
 fi
@@ -133,9 +134,9 @@ exec qemu-system-x86_64 \
   -netdev user,id=net0 \
   -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
   -nographic -vga none \
-  -drive file="$image",format=raw,if=none,id=drv0 \
+  -drive file="$image",format=raw,if=none,id=drv0,snapshot=on \
   -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
+  -drive file="$extra",format=raw,if=none,id=drv1,snapshot=on \
   -device nvme,drive=drv1,serial=NVME_EXTRA \
   -enable-kvm -cpu host \
   $extra_qemu_args

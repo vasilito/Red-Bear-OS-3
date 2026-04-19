@@ -44,7 +44,7 @@ take 5+ years.
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
-| AMD GPU | 🚧 In progress | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
+| AMD GPU | 🚧 In progress | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
 | Wi-Fi/BT | 🚧 In progress | Repo now carries bounded wireless scaffolding: one experimental in-tree Bluetooth slice exists, and a bounded Intel Wi-Fi scaffold exists elsewhere, but validated wireless connectivity support is still incomplete |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |
 
@@ -259,21 +259,26 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 | MSI-X interrupt support | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs` — shared MSI-X/MSI/legacy abstraction with quirk-aware fallback |
 | Intel pcid-spawner config | ✅ | `local/config/pcid.d/intel_gpu.toml` — auto-detect Intel GPUs |
 
-### P2: AMD GPU Display — COMPLETE (compiles, no HW validation)
+### P2: AMD GPU Display — BOUNDED PATH BUILDS (imported Linux AMD DC/TTM/core still under compile triage)
 
 | Component | Status | Files |
 |-----------|--------|-------|
 | redox-drm daemon | ✅ | `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon |
 | AMD driver (Rust) | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs` |
-| AMD DisplayCore (FFI) | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/display.rs` |
-| AMD PCI stubs (dynamic) | ✅ | `local/recipes/gpu/amdgpu/source/redox_stubs.c` — populated from Rust via FFI |
-| AMD DC init (C) | ✅ | `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` — modesetting, connector detect |
-| AMD glue headers | ✅ | `local/recipes/gpu/amdgpu/source/redox_glue.h` — Linux compat surface |
+| AMD DisplayCore (FFI surface) | ✅ bounded | `local/recipes/gpu/redox-drm/source/src/drivers/amd/display.rs` |
+| AMD PCI stubs (dynamic) | ✅ bounded | `local/recipes/gpu/amdgpu/source/redox_stubs.c` — populated from Rust via FFI |
+| AMD DC init / modeset glue (C) | ✅ bounded | `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` — modesetting, connector detect |
+| AMD glue headers | ✅ bounded | `local/recipes/gpu/amdgpu/source/redox_glue.h` — Linux compat surface for the retained path |
 | GTT manager | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/gtt.rs` |
 | Ring buffer | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/amd/ring.rs` |
 | GEM buffer mgmt | ✅ | `local/recipes/gpu/redox-drm/source/src/gem.rs` |
 | DMA-BUF | ✅ | `local/recipes/gpu/redox-drm/source/src/scheme.rs` (PRIME export/import via opaque tokens) |
 | Intel driver | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs` + `display.rs` |
+
+The current retained AMD build path now produces the `amdgpu` recipe from the Red Bear glue layer
+plus Rust-side driver/runtime pieces. The broad imported Linux AMD display, TTM, and amdgpu core
+trees are no longer treated as compile-complete deliverables; they remain under compile triage until
+the bounded path proves a concrete need to re-introduce them.
 
 For bounded runtime display validation, Red Bear now uses the shared
 `local/scripts/test-drm-display-runtime.sh` harness, with `local/scripts/test-amd-gpu.sh` as the
@@ -281,6 +286,27 @@ AMD wrapper.
 
 Human-readable PCI naming for AMD/Intel devices now comes from the shipped `pciids` database rather
 than from hand-maintained GPU name tables in local runtime tools.
+
+#### Historical P2 implementation snapshot
+
+The old standalone `P2-AMD-GPU-DISPLAY.md` milestone record is now folded into this AMD-specific
+reference.
+
+Important historical P2 details that still matter:
+
+- **Architecture:** `userspace apps -> scheme:drm -> redox-drm daemon -> AMD DC (C code,
+  linux-kpi) -> MMIO`
+- **Build integration:** the Red Bear GPU path is rooted in `local/recipes/gpu/redox-drm/` and
+  `local/recipes/gpu/amdgpu/`, with PCI auto-detection from `local/config/pcid.d/amd_gpu.toml`
+  and the imported Linux AMD driver tree in `local/recipes/gpu/amdgpu-source/`
+- **Historical P2 boot sequence:** kernel PCI init -> `pcid` AMD GPU detection -> `redox-drm`
+  launch -> BAR/MMIO mapping -> firmware load via `scheme:firmware` -> AMD DC init -> connector
+  detect / EDID -> `scheme:drm/card0` registration
+- **Historical implementation closure:** the scoped P2 implementation task was compile-complete for
+  display-side bring-up, but hardware validation remained and still remains a separate evidence gate
+
+That milestone should now be read through the current GPU/DRM plan and current desktop status docs
+rather than as a standalone execution authority.
 
 ### Build Verification
 

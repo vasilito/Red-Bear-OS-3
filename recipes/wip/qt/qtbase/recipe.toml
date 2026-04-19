@@ -19,8 +19,39 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
-RELIBC_STAGE_INCLUDE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
-RELIBC_STAGE_LIB="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/lib"
+RELIBC_STAGE_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
+RELIBC_STAGE_INCLUDE_TMP="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include"
+RELIBC_STAGE_LIB_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/lib"
+RELIBC_STAGE_LIB_TMP="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/lib"
+RELIBC_BUILD_LIB="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/build/target/${TARGET}/release"
+
+RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_STAGE"
+if [ ! -d "$RELIBC_STAGE_INCLUDE" ] && [ -d "$RELIBC_STAGE_INCLUDE_TMP" ]; then
+    RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_TMP"
+fi
+
+choose_relibc_lib_stage() {
+    local candidate="$1"
+    if [ -f "$candidate/libc.so" ] && readelf -Ws "$candidate/libc.so" | grep -q '_Z7strtoldPKcPPc'; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+if RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_STAGE")"; then
+    :
+elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_TMP")"; then
+    :
+elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_BUILD_LIB")"; then
+    :
+elif [ -d "$RELIBC_STAGE_LIB_STAGE" ]; then
+    RELIBC_STAGE_LIB="$RELIBC_STAGE_LIB_STAGE"
+elif [ -d "$RELIBC_BUILD_LIB" ]; then
+    RELIBC_STAGE_LIB="$RELIBC_BUILD_LIB"
+else
+    RELIBC_STAGE_LIB="$RELIBC_STAGE_LIB_TMP"
+fi
 if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
     mkdir -p "${COOKBOOK_SYSROOT}/include"
     cp -a "${RELIBC_STAGE_INCLUDE}/." "${COOKBOOK_SYSROOT}/include/"
@@ -33,6 +64,24 @@ if [ -d "${RELIBC_STAGE_LIB}" ]; then
     cp -a "${RELIBC_STAGE_LIB}/." "${COOKBOOK_SYSROOT}/lib/"
     export LDFLAGS="-L${RELIBC_STAGE_LIB} -Wl,-rpath-link,${RELIBC_STAGE_LIB} ${LDFLAGS}"
 fi
+
+cat > strtold_cpp_compat.c <<'EOF'
+long double strtold(const char *nptr, char **endptr);
+
+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr)
+    __asm__("_Z7strtoldPKcPPc");
+
+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr) {
+    return strtold(nptr, endptr);
+}
+EOF
+"${GNU_TARGET}-gcc" \
+    --sysroot="${COOKBOOK_SYSROOT}" \
+    -shared -fPIC strtold_cpp_compat.c \
+    -o "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so"
+mkdir -p "${COOKBOOK_STAGE}/usr/lib"
+cp -f "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so" "${COOKBOOK_STAGE}/usr/lib/"
+export LDFLAGS="${LDFLAGS} -Wl,--no-as-needed -L${COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat"
 
 export CFLAGS="${CFLAGS} -fcf-protection=none"
 export CXXFLAGS="${CXXFLAGS} -fcf-protection=none"

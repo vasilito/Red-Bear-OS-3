@@ -1,4 +1,4 @@
-use super::{UsbQuirkEntry, UsbQuirkFlags, PCI_QUIRK_ANY_ID};
+use super::{UsbQuirkEntry, UsbQuirkFlags};
 
 const F_00: UsbQuirkFlags = UsbQuirkFlags::from_bits_truncate(
     UsbQuirkFlags::NEED_RESET.bits() | UsbQuirkFlags::NO_LPM.bits(),

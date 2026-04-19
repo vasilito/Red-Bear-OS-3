@@ -15,10 +15,24 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
-if [ -d "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include" ]; then
+RELIBC_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
+if [ ! -f "${RELIBC_INCLUDE_STAGE}/sys/signalfd.h" ]; then
+    RELIBC_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include"
+fi
+
+if [ -d "${RELIBC_INCLUDE_STAGE}" ]; then
     mkdir -p "${COOKBOOK_SYSROOT}/include" "${COOKBOOK_SYSROOT}/usr/include"
-    cp -a "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include/." "${COOKBOOK_SYSROOT}/include/"
-    cp -a "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include/." "${COOKBOOK_SYSROOT}/usr/include/"
+    cp -a "${RELIBC_INCLUDE_STAGE}/." "${COOKBOOK_SYSROOT}/include/"
+    cp -a "${RELIBC_INCLUDE_STAGE}/." "${COOKBOOK_SYSROOT}/usr/include/"
+    mkdir -p "${COOKBOOK_SYSROOT}/include/sys" "${COOKBOOK_SYSROOT}/usr/include/sys"
+    for header in signalfd.h timerfd.h eventfd.h; do
+        if [ -f "${RELIBC_INCLUDE_STAGE}/sys/${header}" ]; then
+            cp -f "${RELIBC_INCLUDE_STAGE}/sys/${header}" \
+                "${COOKBOOK_SYSROOT}/include/sys/${header}"
+            cp -f "${RELIBC_INCLUDE_STAGE}/sys/${header}" \
+                "${COOKBOOK_SYSROOT}/usr/include/sys/${header}"
+        fi
+    done
 fi
 
 python - <<'PY'
@@ -45,44 +59,159 @@ event_text = event_loop.read_text()
 event_text = event_text.replace(
     '''#include <sys/epoll.h>
 #ifdef __redox__
-#include <sys/types.h>
-#ifndef SFD_CLOEXEC
-#define SFD_CLOEXEC O_CLOEXEC
-#endif
-#ifndef SFD_NONBLOCK
-#define SFD_NONBLOCK O_NONBLOCK
-#endif
-struct signalfd_siginfo {
-	uint8_t pad[128];
-};
-int signalfd(int fd, const sigset_t *mask, int flags);
-#ifndef TFD_CLOEXEC
-#define TFD_CLOEXEC O_CLOEXEC
-#endif
-#ifndef TFD_NONBLOCK
-#define TFD_NONBLOCK O_NONBLOCK
-#endif
-#ifndef TFD_TIMER_ABSTIME
-#define TFD_TIMER_ABSTIME TIMER_ABSTIME
-#endif
-int timerfd_create(int clockid, int flags);
-int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
 #else
 #include <sys/signalfd.h>
 #include <sys/timerfd.h>
 #endif''',
     '''#include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>''',
-)
-event_text = event_text.replace(
-    '''#include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>''',
-    '''#include <sys/epoll.h>
 #ifdef __redox__
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>
+#include <stdint.h>
+#include <time.h>
+
+#ifndef SFD_CLOEXEC
+#define SFD_CLOEXEC O_CLOEXEC
+#endif
+
+#ifndef SFD_NONBLOCK
+#define SFD_NONBLOCK O_NONBLOCK
+#endif
+
+struct signalfd_siginfo {
+	uint8_t pad[128];
+};
+
+#ifndef TFD_CLOEXEC
+#define TFD_CLOEXEC O_CLOEXEC
+#endif
+
+#ifndef TFD_NONBLOCK
+#define TFD_NONBLOCK O_NONBLOCK
+#endif
+
+#ifndef TFD_TIMER_ABSTIME
+#define TFD_TIMER_ABSTIME 0x1
+#endif
+
+int signalfd4(int fd, const sigset_t *mask, uintptr_t masksize, int flags);
+int signalfd(int fd, const sigset_t *mask, uintptr_t masksize);
+int timerfd_create(int clockid, int flags);
+int timerfd_gettime(int fd, struct itimerspec *curr);
+int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
+
+int signalfd4(int fd, const sigset_t *mask, uintptr_t masksize, int flags)
+{
+	const int supported = SFD_CLOEXEC | SFD_NONBLOCK;
+	int new_fd = fd;
+
+	if ((flags & ~supported) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (mask == NULL || masksize != sizeof(*mask)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (fd == -1) {
+		int oflag = O_RDWR;
+		if (flags & SFD_CLOEXEC)
+			oflag |= O_CLOEXEC;
+		if (flags & SFD_NONBLOCK)
+			oflag |= O_NONBLOCK;
+		new_fd = open("/scheme/event", oflag);
+		if (new_fd < 0)
+			return -1;
+	} else {
+		if ((flags & SFD_CLOEXEC) && fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+			return -1;
+		if (flags & SFD_NONBLOCK) {
+			int current = fcntl(fd, F_GETFL, 0);
+			if (current < 0)
+				return -1;
+			if (fcntl(fd, F_SETFL, current | O_NONBLOCK) < 0)
+				return -1;
+		}
+	}
+
+	if (sigprocmask(SIG_BLOCK, mask, NULL) < 0) {
+		if (fd == -1)
+			close(new_fd);
+		return -1;
+	}
+
+	return new_fd;
+}
+
+int signalfd(int fd, const sigset_t *mask, uintptr_t masksize)
+{
+	return signalfd4(fd, mask, masksize, 0);
+}
+
+int timerfd_create(int clockid, int flags)
+{
+	const int supported = TFD_CLOEXEC | TFD_NONBLOCK;
+	int oflag = O_RDWR;
+	char path[64];
+
+	if ((flags & ~supported) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (flags & TFD_CLOEXEC)
+		oflag |= O_CLOEXEC;
+	if (flags & TFD_NONBLOCK)
+		oflag |= O_NONBLOCK;
+
+	snprintf(path, sizeof(path), "/scheme/time/%d", clockid);
+	return open(path, oflag);
+}
+
+int timerfd_gettime(int fd, struct itimerspec *curr)
+{
+	ssize_t bytes_read;
+
+	if (curr == NULL) {
+		errno = EFAULT;
+		return -1;
+	}
+
+	curr->it_interval = (struct timespec){0};
+	bytes_read = read(fd, &curr->it_value, sizeof(struct timespec));
+	if (bytes_read != (ssize_t)sizeof(struct timespec)) {
+		if (bytes_read >= 0)
+			errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
+
+int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value)
+{
+	ssize_t bytes_written;
+
+	if (flags & ~TFD_TIMER_ABSTIME) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (new_value == NULL) {
+		errno = EFAULT;
+		return -1;
+	}
+	if (old_value != NULL && timerfd_gettime(fd, old_value) < 0)
+		return -1;
+
+	bytes_written = write(fd, &new_value->it_value, sizeof(struct timespec));
+	if (bytes_written != (ssize_t)sizeof(struct timespec)) {
+		if (bytes_written >= 0)
+			errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
 #else
 #include <sys/signalfd.h>
 #include <sys/timerfd.h>
@@ -97,6 +226,45 @@ server_text = server_text.replace(
 #include <sys/eventfd.h>''',
     '''#include <fcntl.h>
 #ifdef __redox__
+
+#ifndef EFD_CLOEXEC
+#define EFD_CLOEXEC O_CLOEXEC
+#endif
+
+#ifndef EFD_NONBLOCK
+#define EFD_NONBLOCK O_NONBLOCK
+#endif
+
+#ifndef EFD_SEMAPHORE
+#define EFD_SEMAPHORE 0x1
+#endif
+
+int eventfd(unsigned int initval, int flags)
+{
+	const int supported = EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE;
+	int oflag = O_RDWR;
+	char path[64];
+
+	if ((flags & ~supported) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (flags & EFD_CLOEXEC)
+		oflag |= O_CLOEXEC;
+	if (flags & EFD_NONBLOCK)
+		oflag |= O_NONBLOCK;
+
+	snprintf(path, sizeof(path), "/scheme/event/eventfd/%u/%d",
+		 initval, (flags & EFD_SEMAPHORE) ? 1 : 0);
+	return open(path, oflag);
+}
+#else
+#include <sys/eventfd.h>
+#endif''',
+)
+server_text = server_text.replace(
+    '''#include <fcntl.h>
+#ifdef __redox__
 #ifndef EFD_CLOEXEC
 #define EFD_CLOEXEC O_CLOEXEC
 #endif
@@ -104,6 +272,32 @@ server_text = server_text.replace(
 #define EFD_NONBLOCK O_NONBLOCK
 #endif
 int eventfd(unsigned int initval, int flags);
+#else
+#include <sys/eventfd.h>
+#endif''',
+    '''#include <fcntl.h>
+#ifdef __redox__
+#include <sys/eventfd.h>
+
+int eventfd(unsigned int initval, int flags)
+{
+	const int supported = EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE;
+	int oflag = O_RDWR;
+	char path[64];
+
+	if ((flags & ~supported) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (flags & EFD_CLOEXEC)
+		oflag |= O_CLOEXEC;
+	if (flags & EFD_NONBLOCK)
+		oflag |= O_NONBLOCK;
+
+	snprintf(path, sizeof(path), "/scheme/event/eventfd/%u/%d",
+		 initval, (flags & EFD_SEMAPHORE) ? 1 : 0);
+	return open(path, oflag);
+}
 #else
 #include <sys/eventfd.h>
 #endif''',
@@ -126,6 +320,42 @@ FILE *open_memstream(char **bufp, size_t *sizep);
 #endif
 
 #include "wayland-util.h"''',
+)
+connection_text = connection_text.replace(
+    '''void
+wl_closure_print(struct wl_closure *closure, struct wl_object *target,
+		 int send, int discarded, uint32_t (*n_parse)(union wl_argument *arg),
+		 const char *queue_name)
+{
+	int i;''',
+    '''void
+wl_closure_print(struct wl_closure *closure, struct wl_object *target,
+		 int send, int discarded, uint32_t (*n_parse)(union wl_argument *arg),
+		 const char *queue_name)
+{
+#ifdef __redox__
+	(void)closure;
+	(void)target;
+	(void)send;
+	(void)discarded;
+	(void)n_parse;
+	(void)queue_name;
+	return;
+#else
+	int i;''',
+)
+connection_text = connection_text.replace(
+    '''	if (fclose(f) == 0) {
+		fprintf(stderr, "%s", buffer);
+		free(buffer);
+	}
+}''',
+    '''	if (fclose(f) == 0) {
+		fprintf(stderr, "%s", buffer);
+		free(buffer);
+	}
+#endif
+}''',
 )
 connection.write_text(connection_text)
 PY

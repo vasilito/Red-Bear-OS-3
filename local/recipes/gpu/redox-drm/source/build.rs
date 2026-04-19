@@ -5,6 +5,7 @@ const LIB_NAME: &str = "libamdgpu_dc_redox.so";
 const ENV_HINTS: &[&str] = &[
     "AMDGPU_DC_LIB_DIR",
     "COOKBOOK_STAGE",
+    "COOKBOOK_SYSROOT",
     "REDOX_SYSROOT",
     "SYSROOT",
     "TARGET_SYSROOT",

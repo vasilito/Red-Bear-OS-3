@@ -88,8 +88,8 @@ with the subsystem plans listed above.
 |---|---|---|
 | P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; forward ownership/robustness/validation work lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | P1 driver infra | ✅ Complete | Compile-oriented infrastructure present |
-| P2 DRM / display | ✅ Code complete | Hardware validation still pending |
-| P3 POSIX + input | 🚧 In progress | relibc exports now cover the rebuilt `signalfd`/`timerfd`/`eventfd`/`open_memstream` consumer path; runtime validation remains |
+| P2 DRM / display | 🚧 Partial | redox-drm + bounded AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; hardware validation still pending |
+| P3 POSIX + input | 🚧 In progress | relibc now has strict Redox-target runtime proof for `signalfd` / `timerfd` / `eventfd` through the repaired test runner; broader desktop/runtime hardening still continues |
 | P4 Wayland runtime | 🚧 In progress | bounded Wayland runtime validation builds to a bootable image and reaches its packaged runtime entrypoint in QEMU/UEFI |
 | P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing as a broader integration slice, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
 | P6 KDE Plasma | 🚧 In progress | Mix of real builds, shims, and stubs |
@@ -127,7 +127,7 @@ expand on top of them.
 
 | Component | Status | Detail |
 |-----------|--------|--------|
-| AMD GPU driver (amdgpu) | ✅ Compiles | LinuxKPI compat + AMD DC modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
+| AMD GPU driver (amdgpu) | 🚧 Bounded path builds | redox-drm + Red Bear AMD display glue compile; imported Linux AMD DC/TTM/core remain under compile triage; quirk-aware MSI-X/MSI/legacy IRQ fallback present (no HW validation) |
 | Intel GPU driver | ✅ Compiles | Display pipe modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
 | ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
 | ACPI for AMD bare metal | ✅ Materially complete (historical boot baseline) | x2APIC, MADT, FADT shutdown/reboot, power methods; not release-grade complete; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, sleep-state, and validation work |

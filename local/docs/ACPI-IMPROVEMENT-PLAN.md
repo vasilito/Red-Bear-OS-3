@@ -103,12 +103,16 @@ bounded-hardware, or release-grade completeness.
 - MCFG handling was removed from `acpid` and replaced with the `pcid /config` path.
 - Shutdown eventing via `/scheme/kernel.acpi/kstop` is implemented and consumed by
   `redbear-sessiond`.
+- `acpid` now models `S1` / `S3` / `S4` / `S5` explicitly in userspace, and the current `_S5`
+  shutdown path routes through that model instead of a special-case magic value.
 
 ### Weak today
 
 - Sleep-state transitions beyond `\_S5` are unsupported.
 - Sleep eventing is unsupported.
 - `SLP_TYPb` remains incomplete for broader sleep-state handling.
+- Non-`S5` sleep targets are now represented explicitly, but they remain groundwork-only and do not
+  imply implemented suspend/resume support yet.
 - AML init order is still tied to PCI FD registration timing.
 - Some physmem / opregion failure paths are still not explicit enough.
 - DMAR remains orphaned in `acpid` source: present, not wired, not fully transferred.

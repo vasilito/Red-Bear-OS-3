@@ -12,12 +12,9 @@ diff -ruN a/src/header/mod.rs b/src/header/mod.rs
 diff -ruN a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindgen.toml
 --- a/src/header/sys_eventfd/cbindgen.toml	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_eventfd/cbindgen.toml	2026-04-15 09:46:42.009280833 +0100
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,9 @@
 +sys_includes = ["stdint.h"]
 +include_guard = "_SYS_EVENTFD_H"
-+trailer = """
-+typedef uint64_t eventfd_t;
-+"""
 +language = "C"
 +style = "Tag"
 +no_includes = true
@@ -28,7 +25,7 @@ diff -ruN a/src/header/sys_eventfd/cbindgen.toml b/src/header/sys_eventfd/cbindg
 diff -ruN a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
 --- a/src/header/sys_eventfd/mod.rs	1970-01-01 00:00:00.000000000 +0000
 +++ b/src/header/sys_eventfd/mod.rs	2026-04-15 09:46:42.009305629 +0100
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,87 @@
 +//! `sys/eventfd.h` implementation.
 +//!
 +//! Non-POSIX, see <https://man7.org/linux/man-pages/man2/eventfd.2.html>.
@@ -36,6 +33,7 @@ diff -ruN a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
 +use core::{mem, slice};
 +
 +use crate::{
++    c_str::{CStr, CString},
 +    error::{Errno, ResultExt},
 +    header::{
 +        errno::{EFAULT, EINVAL, EIO},
@@ -80,18 +78,14 @@ diff -ruN a/src/header/sys_eventfd/mod.rs b/src/header/sys_eventfd/mod.rs
 +        oflag |= O_NONBLOCK;
 +    }
 +
-+    let fd = Sys::open(c"/scheme/event".into(), oflag, 0)?;
-+    if initval != 0 {
-+        let value = u64::from(initval);
-+        let buf = unsafe {
-+            slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<u64>())
-+        };
-+        if let Err(err) = write_exact(fd, buf) {
-+            let _ = Sys::close(fd);
-+            return Err(err);
-+        }
-+    }
-+    Ok(fd)
++    let path = CString::new(format!(
++        "/scheme/event/eventfd/{}/{}",
++        initval,
++        if flags & EFD_SEMAPHORE == EFD_SEMAPHORE { 1 } else { 0 }
++    ))
++    .map_err(|_| Errno(EINVAL))?;
++
++    Sys::open(CStr::borrow(&path), oflag, 0)
 +}
 +
 +#[unsafe(no_mangle)]

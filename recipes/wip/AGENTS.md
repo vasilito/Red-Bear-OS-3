@@ -48,8 +48,9 @@ recipes/wip/
 │   ├── wlroots/          # wlroots (not compiled/tested)
 │   ├── sway/             # sway (not compiled/tested)
 │   ├── hyprland/         # hyprland (not compiled/tested)
-│   ├── xwayland/         # XWayland (partially patched)
-│   └── seatd/            # Seat daemon (recipe exists, untested)
+│   └── xwayland/         # XWayland (partially patched)
+├── services/
+│   └── seatd/            # Seat daemon recipe (service category, runtime trust still open)
 ├── kde/                  # 9 KDE app recipes
 │   ├── kde-dolphin/      # File manager (needs kio)
 │   ├── kdenlive/         # Video editor (needs MLT)
@@ -67,21 +68,21 @@ recipes/wip/
 
 | Task | Location |
 |------|----------|
-| Fix Wayland build | `wayland/libwayland/redox.patch` — still carries POSIX compatibility workarounds |
+| Fix Wayland build | `wayland/libwayland/redox.patch` plus recipe-time source rewrites — residual Redox compatibility and scanner/build handling remain |
 | Add Wayland compositor | `wayland/<name>/recipe.toml` — use `dependencies = ["libwayland"]` |
-| Fix cosmic-comp | `wayland/cosmic-comp/` — missing libinput causes no keyboard |
-| Work on smallvil | `wayland/smallvil/` — Smithay-based, already running |
+| Inspect cosmic-comp status | `wayland/cosmic-comp/` — historical partial bring-up; not the active forward path |
+| Inspect smallvil history | `wayland/smallvil/` — historical bounded validation compositor reference only |
 | Port a KDE app | Copy existing recipe pattern, add `#TODO` header |
 | Add Qt port | Prefer the newer `local/recipes/qt/` / `local/recipes/kde/` work over this older note |
 
 ## WAYLAND STATUS
 
-- **libwayland**: Builds with `redox.patch`; several POSIX-dependent code paths are still commented out there
-- **cosmic-comp**: Partially working, no keyboard input (missing libinput)
-- **smallvil**: Basic compositor running, poor performance
+- **libwayland**: Builds with a smaller Redox patch plus recipe-time source rewriting; runtime trust is still incomplete
+- **cosmic-comp**: Historical partial bring-up note only; current runtime/session status is not trusted enough for support claims
+- **smallvil**: Historical bounded validation compositor reference only; no longer part of the active forward desktop workflow
 - **wlroots/sway/hyprland**: Not compiled or tested
 - **xwayland**: Partially patched
-- **Blockers**: downstream Wayland patch reduction, libinput/runtime input validation, DRM/KMS hardware/runtime validation
+- **Blockers**: runtime substrate trust, complete compositor session proof, libinput/seatd runtime validation, and DRM/KMS hardware/runtime validation
 
 ## KDE STATUS
 

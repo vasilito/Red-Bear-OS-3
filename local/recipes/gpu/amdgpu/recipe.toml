@@ -1,6 +1,8 @@
-# AMD GPU driver port for Redox OS — Phase P2+P5: Display Core + DML2 + TTM
-# Scope: AMD DC modesetting, DML2 display modeling, TTM memory manager, connector detection.
-# Full acceleration (compute, video decode) requires Mesa radeonsi backend.
+# AMD GPU retained display glue path for Redox OS
+# Scope: bounded Red Bear display glue path for init, connector detection, and modeset.
+# Imported Linux AMD DC / TTM / amdgpu core trees remain adjacent source under compile triage and
+# are not part of the default retained build path. Full acceleration still requires broader GPU work
+# plus Mesa radeonsi backend enablement.
 
 [source]
 # Local overlay recipe. The extracted Linux 7.0-rc7 AMDGPU tree lives next to this
@@ -20,13 +22,13 @@ DYNAMIC_INIT
 # Paths
 AMD_ROOT="${COOKBOOK_SOURCE}/../../amdgpu-source/gpu/drm/amd"
 AMD_SRC="${AMD_ROOT}"
-TTM_SRC="${COOKBOOK_SOURCE}/../../amdgpu-source/gpu/drm/ttm"
 INCLUDES="${COOKBOOK_SOURCE}/../../amdgpu-source/include"
 LINUX_KPI="${COOKBOOK_ROOT}/local/recipes/drivers/linux-kpi/source/src/c_headers"
 REDOX_GLUE="${COOKBOOK_SOURCE}"
 TARGET_CC="${TARGET}-gcc"
 
-# Compiler flags for AMD driver — DML2 enabled
+# Compiler flags for the bounded retained AMD path. Legacy AMD DC config defines remain here only
+# for header compatibility with the adjacent imported Linux source trees.
 export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC \
     -DCONFIG_DRM_AMD_DC_DML2=1 \
     -DCONFIG_DRM_AMD_DC_FP -DCONFIG_DRM_AMD_ACP \
@@ -66,11 +68,20 @@ export CFLAGS="-D__redox__ -D__KERNEL__ -DCONFIG_DRM_AMDGPU -DCONFIG_DRM_AMD_DC 
 "${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/amdgpu_redox_main.c" -o amdgpu_redox_main.o
 "${TARGET_CC}" -c ${CFLAGS} "${REDOX_GLUE}/redox_stubs.c" -o redox_stubs.o
 
-# Stage 2: Compile AMD Display Core (DC) — all display sources including DML/DML2
-# Each file MUST compile. Any failure is a hard error.
+# Stage 2: Bounded first-display path
+#
+# The current Red Bear AMD display bring-up path does not call into the imported
+# Linux AMD Display Core tree directly. The live FFI surface comes from the
+# Red Bear glue layer (`amdgpu_redox_main.c` / `redox_stubs.c`), while the
+# broad `display/*.c` compile currently drags in optional and unsupported
+# subtrees such as freesync before the retained path is even proven.
+#
+# Keep Stage 2 explicit and intentionally empty until a retained imported
+# display-source subset is proven necessary by bounded compile triage.
+DISPLAY_SRCS=""
 success=0
 failed=0
-find "${AMD_SRC}/display/" -name '*.c' | while read -r src; do
+for src in $DISPLAY_SRCS; do
     obj=$(basename "${src%.c}.o")
     if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
         success=$((success + 1))
@@ -81,12 +92,17 @@ find "${AMD_SRC}/display/" -name '*.c' | while read -r src; do
         exit 1
     fi
 done
-echo "Stage 2: AMD DC compiled ${success} files, ${failed} failed"
+echo "Stage 2: bounded AMD display path compiled ${success} imported display files, ${failed} failed"
 
-# Stage 3: Compile TTM memory manager
+# Stage 3: Imported TTM path
+#
+# The current bounded Red Bear display path uses Rust-side GEM/GTT/ring handling in
+# `redox-drm`, not the imported Linux TTM stack. Keep this explicit and empty until
+# the bounded path proves a concrete need for imported TTM code.
+TTM_SRCS=""
 success=0
 failed=0
-find "${TTM_SRC}/" -name '*.c' | while read -r src; do
+for src in $TTM_SRCS; do
     obj=$(basename "${src%.c}.o")
     if "${TARGET_CC}" -c ${CFLAGS} "$src" -o "$obj" 2>"${obj}.log"; then
         success=$((success + 1))
@@ -97,13 +113,15 @@ find "${TTM_SRC}/" -name '*.c' | while read -r src; do
         exit 1
     fi
 done
-echo "Stage 3: TTM compiled ${success} files, ${failed} failed"
+echo "Stage 3: bounded imported TTM path compiled ${success} files, ${failed} failed"
 
-# Stage 4: Compile minimal amdgpu core (enough for display init)
-CORE_SRCS="amdgpu_device.c amdgpu_drv.c amdgpu_i2c.c amdgpu_atombios.c \
-    amdgpu_atombios_crtc.c amdgpu_bios.c amdgpu_mode.c amdgpu_display.c \
-    amdgpu_fb.c amdgpu_gem.c amdgpu_object.c amdgpu_gmc.c amdgpu_mmhub.c \
-    amdgpu_irq.c amdgpu_ring.c amdgpu_fence.c amdgpu_ttm.c amdgpu_bo_list.c"
+# Stage 4: Imported amdgpu core path
+#
+# The current bounded Red Bear display path uses the custom glue layer for init,
+# connector enumeration, and modeset, while Rust-side code owns GEM/GTT/ring state.
+# Keep imported amdgpu core sources out of the retained compile surface until the
+# bounded path proves a specific dependency on them.
+CORE_SRCS=""
 
 success=0
 failed=0

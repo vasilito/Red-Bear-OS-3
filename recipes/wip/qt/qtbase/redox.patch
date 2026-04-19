@@ -320,17 +320,76 @@ diff -ruwN source-old/src/corelib/plugin/qelfparser_p.cpp source/src/corelib/plu
          return header.e_version == EV_CURRENT;
      }
 
+@@ -742,7 +752,9 @@
+
+     qEDebug << ElfHeaderDebug{ reinterpret_cast<const uchar *>(data.data()) };
+
+-    auto header = reinterpret_cast<const T::Ehdr *>(data.data());
++    typename T::Ehdr headerStorage;
++    memcpy(&headerStorage, data.data(), sizeof(headerStorage));
++    const auto header = &headerStorage;
+     if (!ElfHeaderCheck<>::checkHeader(*header))
+         return error(ElfHeaderCheck<>::explainCheckFailure(*header));
+
 diff -ruwN source-old/src/corelib/plugin/qlibrary.cpp source/src/corelib/plugin/qlibrary.cpp
 --- source-old/src/corelib/plugin/qlibrary.cpp	2024-12-02 05:39:06.000000000 +0000
-+++ source/src/corelib/plugin/qlibrary.cpp	2026-04-16 00:00:00.000000000 +0000
-@@ -232,24 +232,37 @@
++++ source/src/corelib/plugin/qlibrary.cpp	2026-04-19 00:00:00.000000000 +0000
+@@ -17,6 +17,10 @@
+ #include <qoperatingsystemversion.h>
+ #include <qstringlist.h>
+ 
++#ifdef Q_OS_REDOX
++#  include <unistd.h>
++#endif
++
+ #ifdef Q_OS_DARWIN
+ #  include <private/qcore_mac_p.h>
+ #endif
+@@ -176,7 +180,14 @@
+      to it being used in the plugin in the first place.
+    */
+ #if defined(Q_OF_ELF)
++#  if defined(Q_OS_REDOX)
++    // Redox currently reaches the plugin file successfully but the ELF-specific
++    // metadata parser misreads shared plugins inside the guest runtime. Fall
++    // back to the generic QTMETADATA search path until the Redox ELF loader /
++    // parser path is trustworthy again.
++#  else
+     return QElfParser::parse({s, s_len}, errMsg);
++#  endif
+ #elif defined(Q_OF_MACH_O)
+     return QMachOParser::parse(s, s_len, errMsg);
+ #elif defined(Q_OS_WIN) || defined(Q_OS_CYGWIN)
+ @@ -230,7 +234,41 @@
+              Q_INT64_C(1) << (sizeof(qsizetype) > 4 ? 40 : 29);
+ 
      qsizetype fdlen = qMin(file.size(), MaxMemoryMapSize);
 -    const char *filedata = reinterpret_cast<char *>(file.map(0, fdlen));
 +    const char *filedata = nullptr;
 +    QByteArray data;
 +
 +#ifdef Q_OS_REDOX
-+    data = file.read(qMin<qsizetype>(fdlen, 64 * 1024 * 1024));
++    const qsizetype readLimit = qMin<qsizetype>(fdlen, 64 * 1024 * 1024);
++    data.resize(readLimit);
++    qsizetype total = 0;
++    const int fd = file.handle();
++    if (fd < 0) {
++        qCWarning(qt_lcDebugPlugins, "%ls: failed to acquire file descriptor: %ls",
++                  qUtf16Printable(library), qUtf16Printable(file.errorString()));
++        return {};
++    }
++    while (total < readLimit) {
++        const qint64 chunk = ::pread(fd, data.data() + total, size_t(readLimit - total), off_t(total));
++        if (chunk < 0) {
++            qCWarning(qt_lcDebugPlugins, "%ls: failed to pread for metadata scan: %ls",
++                      qUtf16Printable(library), qUtf16Printable(qt_error_string(errno)));
++            return {};
++        }
++        if (chunk == 0)
++            break;
++        total += chunk;
++    }
++    data.truncate(total);
 +    filedata = data.constData();
 +    fdlen = data.size();
 +    if (filedata == nullptr || fdlen == 0) {
@@ -344,10 +403,7 @@ diff -ruwN source-old/src/corelib/plugin/qlibrary.cpp source/src/corelib/plugin/
  
  #ifdef Q_OS_UNIX
      if (filedata == nullptr) {
-         // If we can't mmap(), then the dynamic loader won't be able to either.
-         // This can't be used as a plugin.
-         qCWarning(qt_lcDebugPlugins, "%ls: failed to map to memory: %ls",
-                   qUtf16Printable(library), qUtf16Printable(file.errorString()));
+@@ -241,7 +279,6 @@
          return {};
      }
  #else
@@ -355,14 +411,6 @@ diff -ruwN source-old/src/corelib/plugin/qlibrary.cpp source/src/corelib/plugin/
      if (filedata == nullptr) {
          // It's unknown at this point whether Windows supports LoadLibrary() on
          // files that fail to CreateFileMapping / MapViewOfFile, so we err on
-         // the side of doing a regular read into memory (up to 64 MB).
-         data = file.read(64 * 1024 * 1024);
-         filedata = data.constData();
-         fdlen = data.size();
-     }
- #endif
- 
-     QString errMsg = library;
 
 diff -ruwN source-old/src/corelib/global/qsimd.cpp source/src/corelib/global/qsimd.cpp
 --- source-old/src/corelib/global/qsimd.cpp	2024-12-02 05:39:06.000000000 +0000

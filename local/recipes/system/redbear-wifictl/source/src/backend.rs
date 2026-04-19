@@ -10,10 +10,9 @@ use std::process::Command;
 pub(crate) static TEST_ENV_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
 
+use redox_driver_sys::pci::{parse_device_info_from_config_space, PciLocation};
 #[cfg(target_os = "redox")]
 use redox_driver_sys::pci::PciDevice;
-#[cfg(target_os = "redox")]
-use redox_driver_sys::pci::PciLocation;
 
 #[derive(Clone, Debug)]
 struct ParsedPciLocation {
@@ -862,7 +861,7 @@ fn detect_intel_wifi_interfaces(
                     device_id,
                     subsystem_id,
                     firmware_family,
-                    transport_status: transport_status_from_config(&config),
+                    transport_status: transport_status_from_config(&location, &config),
                     ucode_candidates,
                     selected_ucode,
                     pnvm_candidate,
@@ -945,7 +944,7 @@ fn intel_firmware_candidates(
     )
 }
 
-fn transport_status_from_config(config: &[u8]) -> String {
+fn transport_status_from_config(location: &ParsedPciLocation, config: &[u8]) -> String {
     let command = u16::from_le_bytes([config[0x04], config[0x05]]);
     let bar0 = u32::from_le_bytes([config[0x10], config[0x11], config[0x12], config[0x13]]);
     let irq_pin = config[0x3D];
@@ -954,13 +953,38 @@ fn transport_status_from_config(config: &[u8]) -> String {
     let bus_master = (command & 0x4) != 0;
     let bar_present = bar0 != 0;
     let irq_present = irq_pin != 0;
+    let interrupt_support = parse_device_info_from_config_space(
+        PciLocation {
+            segment: location.segment,
+            bus: location.bus,
+            device: location.device,
+            function: location.function,
+        },
+        config,
+    )
+    .map(|info| {
+        let support = info.interrupt_support();
+        if support.as_str() == "none" && irq_present {
+            "legacy".to_string()
+        } else {
+            support.as_str().to_string()
+        }
+    })
+    .unwrap_or_else(|| {
+        if irq_present {
+            "legacy".to_string()
+        } else {
+            "none".to_string()
+        }
+    });
 
     format!(
-        "transport=pci memory_enabled={} bus_master={} bar0_present={} irq_pin_present={}",
+        "transport=pci memory_enabled={} bus_master={} bar0_present={} irq_pin_present={} interrupt_support={}",
         if memory_enabled { "yes" } else { "no" },
         if bus_master { "yes" } else { "no" },
         if bar_present { "yes" } else { "no" },
-        if irq_present { "yes" } else { "no" }
+        if irq_present { "yes" } else { "no" },
+        interrupt_support
     )
 }
 
@@ -1174,7 +1198,8 @@ fn read_transport_status(config_path: &PathBuf) -> Result<String, String> {
             config_path.display()
         ));
     }
-    Ok(transport_status_from_config(&config))
+    let location = parse_location_from_config_path(config_path)?;
+    Ok(transport_status_from_config(&location, &config))
 }
 
 fn program_transport_bits(config_path: &PathBuf) -> Result<(), String> {
@@ -1286,6 +1311,38 @@ mod tests {
             .transport_status("wlan0")
             .contains("memory_enabled=yes"));
         assert!(backend.transport_status("wlan0").contains("bus_master=yes"));
+        assert!(backend
+            .transport_status("wlan0")
+            .contains("interrupt_support=legacy"));
+    }
+
+    #[test]
+    fn transport_status_reports_interrupt_support_from_shared_pci_parser() {
+        let location = ParsedPciLocation {
+            segment: 0,
+            bus: 0,
+            device: 0x14,
+            function: 3,
+        };
+        let mut cfg = vec![0u8; 256];
+        cfg[0x00] = 0x86;
+        cfg[0x01] = 0x80;
+        cfg[0x02] = 0x25;
+        cfg[0x03] = 0x27;
+        cfg[0x04] = 0x06;
+        cfg[0x06] = 0x10;
+        cfg[0x0A] = 0x80;
+        cfg[0x0B] = 0x02;
+        cfg[0x0E] = 0x00;
+        cfg[0x34] = 0x50;
+        cfg[0x3C] = 11;
+        cfg[0x50] = 0x05;
+        cfg[0x51] = 0x00;
+
+        let status = transport_status_from_config(&location, &cfg);
+        assert!(status.contains("memory_enabled=yes"));
+        assert!(status.contains("bus_master=yes"));
+        assert!(status.contains("interrupt_support=msi"));
     }
 
     #[test]

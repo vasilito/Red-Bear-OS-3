@@ -7,6 +7,7 @@ patches = [
     "../../../local/patches/relibc/P3-signalfd.patch",
     "../../../local/patches/relibc/P3-signalfd-header.patch",
     "../../../local/patches/relibc/P3-timerfd.patch",
+    "../../../local/patches/relibc/P3-elf64-types.patch",
 ]
 
 [build]

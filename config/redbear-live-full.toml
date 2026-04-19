@@ -1,0 +1,13 @@
+# Red Bear OS Live Full Configuration
+# Live ISO variant for the primary full desktop/session target.
+#
+# Build: make live CONFIG_NAME=redbear-live-full
+
+include = ["redbear-full.toml"]
+
+[general]
+filesystem_size = 4096
+
+[packages]
+cub = {}
+redbear-meta = {}

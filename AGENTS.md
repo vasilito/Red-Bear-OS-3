@@ -67,13 +67,13 @@ redox-master/
 | Fix kernel | `recipes/core/kernel/source/` | Kernel is a recipe, not top-level |
 | Fix a driver | `recipes/core/base/source/drivers/` | All drivers are userspace daemons |
 | Fix relibc (POSIX) | `recipes/core/relibc/source/` | C library written in Rust |
-| Wayland integration | `recipes/wip/wayland/` + `docs/03-WAYLAND-ON-REDOX.md` | 21 WIP recipes |
+| Wayland integration | `recipes/wip/wayland/` + `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` | 21 WIP recipes + local validation/ownership plan |
 | KDE Plasma path | `recipes/wip/kde/` + `docs/05-KDE-PLASMA-ON-REDOX.md` | 9 WIP KDE app recipes |
 | **Desktop path plan** | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | **Canonical plan: console → HW-accelerated KDE** |
 | Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture (**GPU and Wi-Fi only — not USB**) |
 | Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
-| Display/session surface | `config/redbear-kde.toml`, `config/wayland.toml` | Tracked KWin desktop target plus bounded validation slice |
+| Display/session surface | `config/redbear-full.toml` | Active desktop/graphics compile surface; `redbear-kde` references elsewhere are historical/staging and not supported compile targets |
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
 | GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
 | D-Bus integration | `local/docs/DBUS-INTEGRATION-PLAN.md` | Architecture, gap analysis, phased implementation for KDE Plasma D-Bus |
@@ -92,10 +92,13 @@ echo 'PODMAN_BUILD?=0' > .config          # Native build (no container)
 echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 
 # Build Red Bear OS
-make all                                  # Build tracked KWin Wayland target → harddrive.img
-make all CONFIG_NAME=redbear-full         # Broader Red Bear integration slice + custom drivers
-make all CONFIG_NAME=redbear-minimal      # Minimal Red Bear OS server
-CI=1 make all CONFIG_NAME=redbear-minimal # CI mode (disables TUI, for non-interactive)
+# Supported compile targets: redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
+# Desktop/graphics are available only on redbear-full and redbear-live-full.
+make all CONFIG_NAME=redbear-full         # Desktop/graphics-enabled Red Bear target → harddrive.img
+make live CONFIG_NAME=redbear-live-full   # Desktop/graphics live image
+make all CONFIG_NAME=redbear-mini         # Minimal non-desktop Red Bear target
+make live CONFIG_NAME=redbear-live-mini   # Minimal live image
+CI=1 make all CONFIG_NAME=redbear-mini    # CI mode (disables TUI, for non-interactive)
 
 # Run
 make qemu                                 # Boot in QEMU
@@ -256,7 +259,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 | ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
 | x2APIC/SMP | ✅ | Multi-core works |
 | IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
-| AMD GPU | 🚧 | MMIO mapped, DC port compiles, MSI-X wired, no hardware validation yet |
+| AMD GPU | 🚧 | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
 
 ### Phased Roadmap (historical P0–P6)
 
@@ -268,10 +271,10 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 |-------|----------|----------|
 | ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Materially complete — boots on modern AMD bare metal; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for forward work |
 | ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
-| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | ✅ Complete — redox-drm + AMD DC port + Intel driver (compiles, no HW validation) |
+| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | 🚧 Partial — redox-drm + bounded Red Bear AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; Intel driver compiles, no HW validation |
 | ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — relibc gaps exported to downstream consumers, evdevd/udev-shim/libevdev/libinput/D-Bus build; runtime validation still open |
 | P4: Wayland compositor | 4-6 weeks | 🚧 Partial — libwayland/Qt6 Wayland/Mesa EGL+GBM+GLES2/Qt6 OpenGL now build, but compositor/runtime validation is still incomplete |
-| ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 DML2 config enabled, 63 DML source files in build, TTM compiled, libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
+| ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 Historical DML2 config work landed, but the current retained AMDGPU build no longer treats imported DML2/TTM as part of the default bounded compile path; libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
 | P6: KDE Plasma | 12-16 weeks | 🚧 In progress — Qt6 ✅, KF6 32/32 ✅, Mesa EGL/GBM/GLES2 ✅, kf6-kcmutils ✅, kf6-kwayland ✅, kdecoration ✅, KWin 🔄 building |
 
 ### Canonical Desktop Path (current plan)

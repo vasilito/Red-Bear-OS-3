@@ -1,5 +1,9 @@
+use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::{self, Command};
+
+use syscall::O_NONBLOCK;
 
 use redbear_hwutils::parse_args;
 
@@ -8,7 +12,14 @@ const USAGE: &str =
     "Usage: redbear-phase-ps2-check\n\nRun the bounded PS/2 and serio proof check inside the guest.";
 
 fn require_path(path: &str) -> Result<(), String> {
-    if Path::new(path).exists() {
+    if Path::new(path).exists()
+        || OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(O_NONBLOCK as i32)
+            .open(path)
+            .is_ok()
+    {
         println!("present={path}");
         Ok(())
     } else {

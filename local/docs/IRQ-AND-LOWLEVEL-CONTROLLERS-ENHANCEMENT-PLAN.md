@@ -78,6 +78,9 @@ Red Bear OS already has a meaningful low-level controller and interrupt foundati
   including PCI scheme-entry parsing bounds, I/O BAR port conversion safety, and MSI-X BAR window
   helper validation. This should be treated as **source + host-test evidence**, not as runtime
   controller proof.
+- `redox-driver-sys` fast PCI enumeration now preserves capability-chain data from config-space
+  bytes instead of returning empty capability lists, and exposes a quirk-aware interrupt-support
+  summary (`none` / `legacy` / `msi` / `msix`) for downstream policy convergence.
 - `redox-drm` already contains a shared interrupt abstraction with MSI-X-first and legacy-IRQ
   fallback paths for GPU drivers.
 - The AMD-Vi / Intel VT-d reference material and the in-tree `iommu` daemon establish a serious
@@ -328,6 +331,9 @@ Open enhancement items:
 - the repo now has a bounded PS/2 runtime-proof path via `redbear-phase-ps2-check` and
   `local/scripts/test-ps2-qemu.sh --check`, which proves serio node presence and a successful
   handoff into the existing Phase 3 input-path checker inside a guest
+- `ps2d` controller init now also drains stale controller output during probe and around the core
+  init/self-test path, which is the current bounded Red Bear-native equivalent of Linux i8042 flush
+  discipline before broader PS/2 suspend/resume work exists.
 
 ### USB xHCI controller interrupt path
 
