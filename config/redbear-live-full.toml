@@ -1,7 +1,8 @@
 # Red Bear OS Live Full Configuration
-# Live ISO variant for the primary full desktop/session target.
+# Live ISO variant for the primary full desktop/session target on real bare metal.
 #
 # Build: make live CONFIG_NAME=redbear-live-full
+# This ISO is for real bare-metal boot/install/recovery, not VM/QEMU use.
 
 include = ["redbear-full.toml"]
 

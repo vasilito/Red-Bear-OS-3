@@ -1,7 +1,7 @@
 # Red Bear OS Full Configuration
 # Primary desktop/session target: Wayland + KWin/KDE session surface on Red Bear OS.
 # Build: make all CONFIG_NAME=redbear-full
-# Live:  make live CONFIG_NAME=redbear-live-full
+# Live:  make live CONFIG_NAME=redbear-live-full  # bare-metal live ISO only
 #
 # This is the only active full desktop target. Wayland and KDE package/runtime surfaces are folded
 # here instead of being split across redbear-wayland and redbear-kde.
@@ -91,6 +91,7 @@ wayland-protocols = {}
 
 # Keyboard support
 libxkbcommon = {}
+xkeyboard-config = {}
 libevdev = {}
 libinput = {}
 
@@ -285,12 +286,20 @@ directory = true
 mode = 0o755
 
 [[files]]
+path = "/usr/lib/fonts"
+data = "/usr/share/fonts"
+symlink = true
+
+[[files]]
 path = "/usr/bin/redbear-validation-session"
 mode = 0o755
 data = """
 #!/usr/bin/env sh
 
 export DISPLAY=""
+export HOME="${HOME:-/home/root}"
+export USER="${USER:-root}"
+export LOGNAME="${LOGNAME:-$USER}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export XDG_SESSION_TYPE=wayland
 export LIBSEAT_BACKEND=seatd
@@ -308,6 +317,27 @@ if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
 fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+wait_for_path() {
+    target="$1"
+    attempts=0
+    while [ "$attempts" -lt 30 ]; do
+        if [ -e "$target" ]; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    return 1
+}
+
+if ! wait_for_path /run/dbus/system_bus_socket; then
+    echo "system D-Bus socket did not appear" >&2
+    exit 1
+fi
+
+sleep 2
 
 wait_for_wayland_socket() {
     socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
@@ -329,16 +359,18 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     eval "$(dbus-launch --sh-syntax)"
 fi
 
-let validation_request = "/run/redbear-kde-session.validation-request"
-let validation_success = "/run/redbear-kde-session.validation-success"
+validation_request="/run/redbear-kde-session.validation-request"
+validation_success="/run/redbear-kde-session.validation-success"
 
-if test -f $validation_request
-    echo "user=$USER" > $validation_success
-    echo "runtime=$XDG_RUNTIME_DIR" >> $validation_success
-    echo "wayland=$WAYLAND_DISPLAY" >> $validation_success
-    rm -f $validation_request
+if [ -f "$validation_request" ]; then
+    {
+        echo "user=$USER"
+        echo "runtime=$XDG_RUNTIME_DIR"
+        echo "wayland=$WAYLAND_DISPLAY"
+    } > "$validation_success"
+    rm -f "$validation_request"
     exit 0
-end
+fi
 
 dbus-update-activation-environment \
     DBUS_SESSION_BUS_ADDRESS \
@@ -354,7 +386,12 @@ if [ -d /usr/share/glib-2.0/schemas ]; then
     glib-compile-schemas /usr/share/glib-2.0/schemas/
 fi
 
-kwin_wayland --replace &
+if [ -n "$KWIN_DRM_DEVICES" ]; then
+    kwin_wayland_wrapper --drm &
+else
+    echo "redbear-validation-session: using virtual KWin backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
+    kwin_wayland_wrapper --virtual &
+fi
 kwin_pid=$!
 
 if ! wait_for_wayland_socket; then
@@ -452,12 +489,18 @@ export KDE_FULL_SESSION=true
 export XDG_CURRENT_DESKTOP=KDE
 export LIBSEAT_BACKEND=seatd
 export SEATD_SOCK=/run/seatd.sock
+export QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/plugins}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_QPA_PLATFORM_PLUGIN_PATH:-/usr/plugins/platforms}"
+export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:-/usr/qml}"
+export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
+export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
 
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
     export XDG_RUNTIME_DIR="/tmp/run/user/$(id -u)"
 fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     eval "$(dbus-launch --sh-syntax)"
@@ -490,5 +533,10 @@ dbus-update-activation-environment \
     HOME \
     USER
 
-exec kwin_wayland --replace
+if [ -n "$KWIN_DRM_DEVICES" ]; then
+    exec kwin_wayland_wrapper --drm
+else
+    echo "redbear-kde-session: using virtual KWin backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
+    exec kwin_wayland_wrapper --virtual
+fi
 """

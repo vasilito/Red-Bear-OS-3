@@ -4,14 +4,20 @@
 
 include = ["desktop.toml", "redbear-legacy-base.toml", "redbear-legacy-desktop.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
-# Override the default settings here
-
-# General settings
 [general]
-# Filesystem size in MiB
 filesystem_size = 2048
 
-# Package settings
+[users.messagebus]
+uid = 100
+gid = 100
+name = "messagebus"
+home = "/nonexistent"
+shell = "/usr/bin/false"
+
+[groups.messagebus]
+gid = 100
+members = ["messagebus"]
+
 [packages]
 redbear-release = {}
 redbear-hwutils = {}
@@ -93,13 +99,15 @@ args = [
 type = "oneshot_async"
 """
 
-# Replace the legacy desktop-minimal init script with an explicit service unit.
 [[files]]
 path = "/usr/lib/init.d/20_display.service"
 data = """
 [unit]
 description = "Display session service (Wayland validation)"
 requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
 ]
 
 [service]
@@ -156,7 +164,7 @@ type = "oneshot_async"
 [[files]]
 path = "/usr/bin/redbear-validation-session"
 mode = 0o755
- data = """
+data = """
 #!/usr/bin/env sh
 
 export DISPLAY=""
@@ -177,6 +185,27 @@ if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
 fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+wait_for_path() {
+    target="$1"
+    attempts=0
+    while [ "$attempts" -lt 30 ]; do
+        if [ -e "$target" ]; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+    return 1
+}
+
+if ! wait_for_path /run/dbus/system_bus_socket; then
+    echo "system D-Bus socket did not appear" >&2
+    exit 1
+fi
+
+sleep 2
 
 wait_for_wayland_socket() {
     socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
@@ -212,7 +241,14 @@ if [ -d /usr/share/glib-2.0/schemas ]; then
     glib-compile-schemas /usr/share/glib-2.0/schemas/
 fi
 
-kwin_wayland --replace &
+export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
+export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
+
+if [ -z "${KWIN_DRM_DEVICES:-}" ] && [ -e /scheme/drm/card0 ]; then
+    export KWIN_DRM_DEVICES=/scheme/drm/card0
+fi
+
+kwin_wayland_wrapper --drm &
 kwin_pid=$!
 
 if ! wait_for_wayland_socket; then
@@ -229,8 +265,10 @@ mode = 0o755
 data = """
 #!/usr/bin/env ion
 
-# env G_MAIN_POLL_DEBUG=1 G_MESSAGES_DEBUG=all LD_DEBUG=all WEBKIT_DEBUG=all MiniBrowser&
-printenv
+export HOME=/home/root
+export USER=root
+export LOGNAME=root
+
 let session_started = "$HOME/.wayland-session.started"
 rm -f $session_started
 echo "started" > $session_started
@@ -257,11 +295,6 @@ rm -f $bootstrap_ok $bootstrap_log
 rm -f $plugin_ok $plugin_err $plugin_log
 rm -f $smoke_minimal_ok $smoke_offscreen_ok $smoke_wayland_ok
 rm -f $smoke_minimal_log $smoke_offscreen_log $smoke_wayland_log
-#wayland-rs_simple_window
-#winit-wayland_window
-#softbuffer-wayland_animation
-#iced-wayland_sctk_lazy
-#gtk3-widget-factory
 if which qt6-wayland-smoke >/scheme/null
     if test -f /usr/plugins/platforms/libqminimal.so
         echo "=== qminimal ELF header (guest) ==="

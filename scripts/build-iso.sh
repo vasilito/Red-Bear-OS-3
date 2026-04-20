@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 
-# Build Red Bear OS live ISO
-# Usage: ./scripts/build-iso.sh [--upstream] [CONFIG_NAME] [ARCH]
-#   CONFIG_NAME  - build config (default: redbear-live)
-#   ARCH         - target architecture (default: x86_64)
-
 set -euo pipefail
 
 CONFIG_NAME="redbear-live"
@@ -15,7 +10,11 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [CONFIG_NAME] [ARCH]
 
-Build a Red Bear OS live ISO.
+Build a Red Bear OS live ISO for real bare metal.
+
+Important:
+  Live .iso outputs are for bare-metal boot/install/recovery workflows.
+  They are not the virtual/QEMU target surface; use harddrive.img + make qemu for virtualization.
 
 Options:
   --upstream          Allow Redox/upstream recipe source refresh during build
@@ -67,7 +66,7 @@ if [ -z "${CI:-}" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
     export CI=1
 fi
 
-echo "Building Red Bear OS ISO"
+echo "Building Red Bear OS ISO for real bare metal"
 echo "  config: ${CONFIG_NAME}"
 echo "  arch:   ${ARCH}"
 if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
@@ -80,3 +79,4 @@ fi
 
 echo ""
 echo "Done: build/${ARCH}/${CONFIG_NAME}.iso"
+echo "Note: live .iso outputs are for real bare metal, not VM/QEMU use."

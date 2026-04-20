@@ -137,7 +137,6 @@ ensure_relibc_desktop_surface() {
     fi
 }
 
-# Step 0: Apply local patches
 if [ "$APPLY_PATCHES" = "1" ]; then
     echo ">>> Applying local patches..."
 
@@ -194,7 +193,6 @@ if [ "$APPLY_PATCHES" = "1" ]; then
     echo ""
 fi
 
-# Step 1: Build cookbook binary
 if [ ! -f "target/release/repo" ]; then
     echo ">>> Building cookbook binary..."
     cargo build --release
@@ -204,7 +202,6 @@ if [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-live-full" ]; then
     ensure_relibc_desktop_surface
 fi
 
-# Step 2: Check firmware
 FW_AMD_DIR="$PROJECT_ROOT/local/firmware/amdgpu"
 if [ "$CONFIG" != "redbear-minimal" ]; then
     if [ -d "$FW_AMD_DIR" ] && [ -n "$(ls -A "$FW_AMD_DIR" 2>/dev/null)" ]; then
@@ -218,7 +215,6 @@ if [ "$CONFIG" != "redbear-minimal" ]; then
     echo ""
 fi
 
-# Step 3: Build
 echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
 if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
@@ -229,7 +225,6 @@ else
     REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 fi
 
-# Step 4: Report
 ARCH="${ARCH:-$(uname -m)}"
 echo ""
 echo "========================================"
@@ -270,6 +265,7 @@ fi
 echo ""
 echo "To build live ISO:"
 echo "  make live CONFIG_NAME=$CONFIG"
+echo "  # live .iso outputs are for real bare metal, not VM/QEMU use"
 echo ""
-echo "To burn to USB (verify device first!):"
+echo "To write a real bare-metal image to USB (verify device first!):"
 echo "  dd if=build/$ARCH/$CONFIG/harddrive.img of=/dev/sdX bs=4M status=progress"
