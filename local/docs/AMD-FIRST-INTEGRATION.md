@@ -40,7 +40,7 @@ take 5+ years.
 |-----------|--------|--------|
 | UEFI boot | ✅ Works | x86_64 UEFI bootloader functional |
 | AMD CPUs | ✅ Works | AMD 32/64-bit supported, Ryzen Threadripper verified |
-| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; historical bring-up goal met, but not release-grade complete; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, sleep-state, and validation work |
+| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and bounded AML-backed power enumeration exist; historical bring-up goal met, but the explicit AML bootstrap producer contract, startup hardening, sleep-state scope, and validation depth still remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the forward plan |
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
@@ -477,7 +477,7 @@ P0 (ACPI boot)
 ## ANTI-PATTERNS FOR AMD GPU ENABLEMENT
 
 - **DO NOT** attempt a clean Rust rewrite of amdgpu — 6M lines, 5+ years
-- **DO NOT** skip the ACPI boot baseline — AMD machines WILL NOT BOOT without the RSDP/SDT/MADT/FADT bring-up path; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the separate post-bring-up ownership and robustness work
+- **DO NOT** treat the historical ACPI boot-baseline work as optional when revisiting AMD bring-up — modern AMD boot depended on the RSDP/SDT/MADT/FADT path that is now already landed; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the separate post-bring-up ownership and robustness work
 - **DO NOT** forget firmware blobs — amdgpu CANNOT FUNCTION without PSP/GC/SDMA firmware
 - **DO NOT** test only in QEMU — AMD GPU behavior differs significantly from VirtIO
 - **DO NOT** assume Intel patterns work for AMD — AMD uses different register maps, different firmware flow

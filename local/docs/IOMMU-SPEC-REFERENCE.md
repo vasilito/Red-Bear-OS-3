@@ -2,15 +2,7 @@
 
 **Purpose**: Implementation-ready hardware register and data structure reference for Red Bear OS IOMMU support. Based on AMD IOMMU Specification 48882 Rev 3.10 and Intel Virtualization Technology for Directed I/O (VT-d) Rev 5.0.
 
-**Status**: The `iommu` daemon now builds in-tree, owns AMD-Vi runtime initialization, and also detects the presence of a kernel ACPI `DMAR` table so Intel VT-d runtime ownership can converge here instead of remaining conceptually stranded in `acpid`. Hardware validation is still missing in the AMD-first integration plan (see `AMD-FIRST-INTEGRATION.md`). This document provides the register and data-structure reference for finishing AMD-Vi and Intel VT-d bring-up.
-
----
-
-## Table of Contents
-
-1. [AMD-Vi (AMD IOMMU)](#1-amd-vi-amd-iommu)
-2. [Intel VT-d](#2-intel-vt-d)
-3. [Rust Struct Definitions](#3-rust-struct-definitions)
+**Status**: The `iommu` daemon now builds in-tree, owns AMD-Vi runtime initialization, and also detects the presence of a kernel ACPI `DMAR` table as a convergence seam so Intel VT-d runtime ownership can move here instead of remaining conceptually stranded in `acpid`. That does **not** yet mean Intel VT-d ownership is cleanly closed in the current tree. Hardware validation is still missing in the AMD-first integration plan (see `AMD-FIRST-INTEGRATION.md`). This document provides the register and data-structure reference for finishing AMD-Vi and Intel VT-d bring-up.
 
 ---
 

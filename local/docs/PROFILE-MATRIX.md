@@ -27,9 +27,9 @@ USB plan uses:
 | Profile | Intent | Key Fragments | Current support language |
 |---|---|---|---|
 | `redbear-mini` | Console + storage + wired-network baseline | `minimal.toml`, `redbear-legacy-base.toml`, `redbear-device-services.toml`, `redbear-netctl.toml` | builds / primary validation baseline / DHCP boot profile enabled / input-runtime substrate wired / USB: daemons built via base and targeted for bounded mini-profile validation |
-| `redbear-live-mini` | Live/recovery form of the mini baseline | `redbear-live-minimal.toml`, `redbear-minimal.toml` | builds / live media variant of the mini profile / desktop graphics intentionally absent |
+| `redbear-live-mini` | Live/recovery form of the mini baseline | `redbear-live-minimal.toml`, `redbear-minimal.toml` | builds / live media variant of the mini profile for real bare metal / desktop graphics intentionally absent |
 | `redbear-full` | Desktop/network/session plumbing target | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml`, `redbear-greeter-services.toml` | builds / boots in QEMU / active desktop-capable compile target / support claims remain evidence-qualified |
-| `redbear-live-full` | Live/recovery form of the full desktop target | `redbear-live-full.toml`, `redbear-full.toml` | builds / live desktop-capable image / inherits the full target surface |
+| `redbear-live-full` | Live/recovery form of the full desktop target | `redbear-live-full.toml`, `redbear-full.toml` | builds / live desktop-capable image for real bare metal / inherits the full target surface |
 
 ## Profile Notes
 

@@ -1,13 +1,17 @@
-# Bare Metal Test Log — AMD Hardware
+# Bare Metal Validation Log — ACPI and Hardware Evidence
 
-Template for recording test results when booting Redox on AMD hardware.
+Template for recording bounded bare-metal validation results on AMD and Intel hardware.
 Fill one section per test run. Date is ISO 8601.
+
+This file is an **evidence log**, not the canonical source of support language. For current ACPI
+status and ownership truth, use `local/docs/ACPI-IMPROVEMENT-PLAN.md`. For hardware-facing support
+language, use `HARDWARE.md`.
 
 ## How to Test
 
 ```bash
 # 1. Build the image
-./local/scripts/build-redbear.sh redbear-desktop
+./local/scripts/build-redbear.sh redbear-full
 
 # 2. Burn to USB (DANGEROUS — verify target device!)
 ./local/scripts/test-baremetal.sh --device /dev/sdX
@@ -41,7 +45,7 @@ For boot debugging, connect a serial console before powering on:
 
 **Build:**
 - Redox version: (git rev-parse --short HEAD)
-- Config: (e.g., my-amd-desktop)
+- Config: (e.g., redbear-full)
 - Kernel patch version: (checksum of local/patches/kernel/P0-amd-acpi-x2apic.patch)
 
 **Result:** Booting / Broken / Recommended
@@ -81,17 +85,16 @@ For boot debugging, connect a serial console before powering on:
 - Storage: NVMe SSD
 
 **Build:**
-- Redox version: (pending first test with P0 patches applied)
-- Config: my-amd-desktop
-- Kernel patch: P0-amd-acpi-x2apic.patch (with timeout + SIPI fixes)
+- Redox version: historical note only; fresh rerun needed
+- Config: historical pre-rename run; repeat on `redbear-full`
+- Kernel patch: historical P0 ACPI bring-up patch set (with timeout + SIPI fixes)
 
-**Result:** PENDING TEST
+**Result:** Booting
 
-**Known from HARDWARE.md:**
+**Known from current repo docs:**
 - Previous status: **Broken** — crash due to unimplemented ACPI function
-- Reference: jackpot51/acpi#3
-- With P0 patches applied, x2APIC should now work; need to verify the specific
-  ACPI function that was missing
+- Historical boot-baseline ACPI fixes moved this machine out of the Broken path
+- Broader bounded validation is still incomplete; a fresh run should replace this carry-forward note
 
 ---
 
@@ -113,8 +116,8 @@ For boot debugging, connect a serial console before powering on:
 
 **Analysis:**
 - AML interpreter hits unsupported opcode (`NoCurrentOp`)
-- This is in the userspace acpid, not the kernel
-- Likely needs AML opcode support added to `aml_physmem.rs` or `acpi.rs`
+- This is in the userspace `acpid`, not the kernel
+- Treat this as an unresolved bare-metal failure record until a fresh validation run disproves it
 
 ---
 

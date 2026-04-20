@@ -13,11 +13,19 @@ P0 ACPI boot-baseline work is **materially complete for the historical boot goal
 be read as release-grade ACPI completeness; ownership cleanup, sleep-state support, and bounded
 bare-metal validation still remain open. Kernel patch is 574 lines, base/acpid patch is 558 lines.
 
+Where this historical ledger differs from the current source tree, prefer
+`local/docs/ACPI-IMPROVEMENT-PLAN.md`. In particular, do **not** read older references here to
+typed `acpid` startup hardening as proof that current-tree boot-path hardening is already complete.
+Do **not** use this file as the current boot-wiring authority either: initfs lifecycle, `hwd` →
+`acpid` ad hoc spawning, explicit `RSDP_ADDR` forwarding plus x86 BIOS AML fallback, weak legacy
+fallback, and provisional `/scheme/acpi/power` semantics are tracked in
+`local/docs/ACPI-IMPROVEMENT-PLAN.md`.
+
 ## Crash Reports
 
 | Hardware | Symptom | Root Cause | Status |
 |----------|---------|------------|--------|
-| Framework Laptop 16 (AMD 7040) | Crash on boot | Unimplemented ACPI function (jackpot51/acpi#3) | ✅ Fixed (RSDP/SDT checksums, MADT NMI types, FADT parse, ACPI init typed errors) |
+| Framework Laptop 16 (AMD 7040) | Crash on boot | Unimplemented ACPI function (jackpot51/acpi#3) | ✅ Fixed for the historical boot-baseline path (RSDP/SDT checksums, MADT NMI types, FADT parse, related bring-up fixes). `acpid` startup hardening still remains open in the current tree. |
 | Lenovo ThinkCentre M83 | `Aml(NoCurrentOp)` panic at acpid acpi.rs:256 | AML interpreter encounters unsupported opcode | Under investigation (upstream AML issue; not resolved by P0 work) |
 | HP Compaq nc6120 | Crash after `kernel::acpi` prints APIC info | xAPIC APIC ID read returned raw value, caused page fault on Intel | ✅ Fixed (xAPIC `id()` now shifts `read(0x20) >> 24`) |
 
@@ -106,7 +114,7 @@ platforms, not just AMD.
 | `aml_physmem.rs` | 418,423,428 | Mutex create/acquire/release | Upstream | Mainline AML interpreter | **Partially addressed** — real tracked state implemented, not placeholder |
 | `ec.rs` | 193+ (8 occurrences) | Proper error types | Upstream | Mainline EC handler | **Partially addressed** — widened accesses implemented via byte transactions |
 | `dmar/mod.rs` | 7 | Move DMAR to separate driver | Upstream | Mainline driver refactor | **Partially addressed** — DMAR module present but not wired into startup; ownership remains transitional/orphaned rather than cleanly moved |
-| `main.rs` | — | Startup panic/expect handling | Local | Boot-path hardening | **Addressed** — typed `StartupError` enum with explicit error messages and clean exit paths |
+| `main.rs` | — | Startup panic/expect handling | Local | Boot-path hardening | **Open** — active current-tree `acpid` still contains panic/expect startup paths; see Wave 1 in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 
 ## P0 Fixes Applied
 
@@ -137,7 +145,7 @@ platforms, not just AMD.
 | # | Fix | Description |
 |---|-----|-------------|
 | 1 | DMAR iterator fix | `type_bytes` renamed to `len_bytes` bug fix + `len < 4` guard |
-| 2 | DMAR init re-enabled | Safe on AMD (no DMAR table = early return, no crash) |
+| 2 | DMAR parser/runtime safety fixes | Iterator/length guards were repaired so the DMAR carrier no longer crashes merely by existing; this does **not** mean active `acpid` startup ownership was re-established |
 | 3 | DMAR not wired into acpid startup | DMAR module present in `dmar/mod.rs` but not imported or called from `main.rs`; this removes active startup ownership from `acpid`, but does not yet establish a clean Intel runtime owner |
 | 4 | FADT shutdown | `acpi_shutdown()` using PM1a/PM1b CNT_BLK writes with `\_S5` sleep types |
 | 5 | FADT reboot | `acpi_reboot()` using ACPI reset register via GenericAddress |
@@ -146,7 +154,7 @@ platforms, not just AMD.
 | 8 | GenericAddress rename | `GenericAddressStructure` renamed to `GenericAddress` with `is_empty()`, `write_u8()` |
 | 9 | Reboot wiring | `reboot_requested` flag in main.rs, scheme path detection |
 | 10 | ivrs/mcfg removed | Broken stub references eliminated (deferred to P2+, handled by pcid) |
-| 11 | Typed startup errors | `StartupError` enum covers all startup failure paths; no `panic!` on firmware-origin paths; ACPI-absent causes clean `exit(0)` |
+| 11 | Historical startup-hardening direction | Earlier patch work attempted `StartupError`-style handling, but active current-tree `acpid` still requires Wave 1 boot-path hardening; do **not** treat startup hardening as complete from this ledger alone |
 | 12 | AML mutex real state | `AmlMutexState` with handle-based create/acquire/release; `FxHashMap<Handle, bool>` tracking; poisoned-state recovery |
 | 13 | EC widened accesses | `read_bytes`/`write_bytes` implement u16/u32/u64 via per-byte transactions; `ensure_access` bounds-checks against u8 addressable range |
 | 14 | kstop shutdown eventing | `main.rs` opens `/scheme/kernel.acpi/kstop` and subscribes via `RawEventQueue`; `redbear-sessiond` reads kstop and emits D-Bus `PrepareForShutdown` signal |

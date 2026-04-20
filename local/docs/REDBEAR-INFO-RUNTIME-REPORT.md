@@ -36,9 +36,10 @@ are hardware-validated at runtime.
 - **Networking** — stack state, connected flag, interface, MAC, IP/CIDR, DNS, default route,
   active `netctl` profile, visible `network.*` schemes, Wi-Fi control/firmware/transport surfaces,
   and bounded Bluetooth transport/control visibility
-- **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility
 - **Hardware** — PCI device count, USB controller count, DRM card count, RTL8125 PCI visibility,
   VirtIO NIC visibility for VM baselines
+- **Hardware** — bounded PCI interrupt-support summary (`none`, `legacy`, `msi`, `msix`) derived
+  from the shared `redox-driver-sys` parser instead of a second local decoder
 - **Integrations** — tools, daemons, and integration paths such as `lspci`, `lsusb`, `netctl`,
   `pcid-spawner`, `smolnetd`, `firmware-loader`, `udev-shim`, `evdevd`, `redox-drm`,
   `redbear-wifictl`, `redbear-btusb`, `redbear-btctl`, and the native RTL8125 and VirtIO
@@ -70,6 +71,16 @@ That includes new:
 
 Recent examples include the Wi-Fi control-plane surfaces and the bounded Bluetooth first-slice
 surfaces, both of which extend the runtime report without over-claiming hardware validation.
+
+Recent PCI/IRQ examples now also include:
+
+- aggregate interrupt-support counts in the hardware section,
+- bounded `redbear-upower` integration reporting tied to the live `/scheme/acpi/power` surface,
+- the distinction between “PCI device visible” and “PCI interrupt mode/runtime proof is still a
+  bounded claim”,
+- and normalized bounded proof outputs from the MSI-X and xHCI QEMU helpers (`IRQ_DRIVER`,
+  `IRQ_MODE`, `IRQ_REASON`, `IRQ_LOG`) so the current proof surface says which mode was actually
+  observed and why the driver believed it was using that path.
 
 The goal is for `redbear-info` to remain the first command users run when they need to understand
 the state of a Red Bear system.

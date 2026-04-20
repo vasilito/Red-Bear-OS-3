@@ -58,12 +58,12 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | redbear-greeterd | **builds, experimental** | Root-owned greeter orchestrator; UI/auth socket protocol, bounded restart policy, return-to-greeter daemon logic, crate tests pass; end-to-end runtime proof still pending |
 | redbear-greeter UI | **builds, experimental** | Qt6/QML unprivileged login surface now ships in-tree; bounded runtime proof remains narrower than a full trusted KDE desktop-login claim |
 | redbear-validation-session | **builds, bounded helper** | Still staged as a validation launcher/helper, but no longer the primary `redbear-full` display-service owner |
-| Greeter runtime checker | ✅ implemented (bounded checker) | `redbear-greeter-check` asserts greeter binaries, assets, service files, socket reachability, hello protocol, invalid-login handling, and a validation-only successful-login/session-return loop inside the guest; current graphical runtime proof is still blocked below the greeter slice by guest-side Qt shared-plugin parsing |
-| Greeter QEMU harness | ✅ implemented (bounded harness) | `test-greeter-qemu.sh` boots `redbear-full`, logs in on the fallback console, and runs the in-guest greeter checker for hello, invalid-login, and bounded successful-login return-to-greeter proof; the compositor leg is presently blocked by guest-side Qt plugin loader failure rather than missing greeter artifacts |
+| Greeter runtime checker | ✅ implemented (bounded checker) | `redbear-greeter-check` asserts greeter binaries, assets, service files, socket reachability, hello protocol, invalid-login handling, and a validation-only successful-login/session-return loop inside the guest |
+| Greeter QEMU harness | ✅ implemented (bounded harness) | `test-greeter-qemu.sh` boots `redbear-full`, logs in on the fallback console, and now passes the in-guest greeter checker for hello, invalid-login, and bounded successful-login return-to-greeter proof |
 | redbear-notifications | ✅ Scaffold | org.freedesktop.Notifications — logs to stderr, no display integration yet |
-| redbear-upower | ✅ bounded real | org.freedesktop.UPower — enumerates real AC adapters/batteries from `/scheme/acpi/power`; desktop machines with no battery report line power only |
+| redbear-upower | ⚠️ scaffold / experimental | org.freedesktop.UPower — service exists, and the backing `/scheme/acpi/power` surface now performs real AML-backed enumeration, but its bootstrap preconditions and runtime proof are still too weak to call release-grade or consumer-validated; treat current enumeration as provisional until Wave 3 in `local/docs/ACPI-IMPROVEMENT-PLAN.md` closes |
 | redbear-udisks | ✅ bounded real | org.freedesktop.UDisks2 — enumerates real `disk.*` schemes and partitions into read-only D-Bus objects; no fabricated mount/serial metadata |
-| Phase 5 D-Bus runtime proof | ✅ implemented (bounded QEMU proof) | `redbear-phase5-network-check` + `test-phase5-network-qemu.sh` assert bounded-real UPower/UDisks2 registration and runtime-backed enumeration on `redbear-full`; this is a desktop/network plumbing proof, not a claim that the Wi-Fi plan's later Phase W5 hardware/runtime-reporting exit criteria are complete |
+| Phase 5 D-Bus runtime proof | ✅ implemented (bounded QEMU proof) | `redbear-phase5-network-check` + `test-phase5-network-qemu.sh` assert bounded QEMU service registration and current runtime plumbing on `redbear-full`; treat UPower as provisional until the ACPI power surface is made honest in `local/docs/ACPI-IMPROVEMENT-PLAN.md` Wave 3 |
 | Phase 6 Solid readiness proof | ✅ implemented, blocked | `redbear-phase6-kde-check` + `test-phase6-kde-qemu.sh` now distinguish real Solid validation from blocked states; `kf6-solid` remains disabled until runtime proof + tooling are present |
 | redbear-polkit | ✅ Scaffold | org.freedesktop.PolicyKit1 — always-permit authorization; KAuth still uses FAKE backend because PolkitQt6-1 is not packaged yet |
 | redbear-dbus-services | ✅ Created | D-Bus activation files + policies staged |
@@ -130,14 +130,14 @@ Current truth for that slice:
 
 | Piece | Current state | Remaining limitation |
 |---|---|---|
-| `redbear-authd` | Target-side recipe build proven; unit tests cover passwd/shadow parsing, SHA-crypt verification, lockout, approval checks | No bounded in-guest login proof yet |
-| `redbear-session-launch` | Target-side recipe build proven; unit tests cover env/runtime-dir/argument handling | Real session handoff still depends on full greeter/runtime proof |
-| `redbear-greeterd` | Crate tests cover protocol-facing state strings, installed asset paths, bounded restart policy, and now own successful-login session launch directly after response delivery | Full desktop-login trust still depends on wider KDE runtime proof plus the unresolved guest-side Qt plugin-loader defect |
-| Greeter validation helpers | `redbear-greeter-check` + `test-greeter-qemu.sh` exist and are wired for bounded runtime proof | The successful-login path is validation-only and does not replace broader KDE session proof; current graphical proof is blocked by guest-side Qt plugin parsing rather than by greeter protocol/packaging gaps |
-| `redbear-greeter` packaging | Builds in-tree | Qt/QML UI binary, compositor wrapper, and branded assets are packaged; broader runtime trust still remains experimental because the guest-side Qt plugin loader currently rejects shared platform plugins (`libqminimal.so`, KWin QPA) as invalid ELF during metadata scan |
+| `redbear-authd` | Target-side recipe build proven; unit tests cover passwd/shadow parsing, SHA-crypt and Argon2 verification, lockout, approval checks | Remaining risk is no longer auth-format handling, but broader desktop-session stability below the greeter slice |
+| `redbear-session-launch` | Target-side recipe build proven; unit tests cover env/runtime-dir/argument handling, including current session environment contract | Remaining limitation is broader compositor/session stability, not the basic session-launch boundary |
+| `redbear-greeterd` | Crate tests cover protocol-facing state strings, installed asset paths, bounded restart policy, and now own successful-login session launch directly after response delivery | Full desktop-login trust still depends on wider KDE runtime proof; the remaining instability is KWin compositor startup, not greeter/auth protocol wiring |
+| Greeter validation helpers | `redbear-greeter-check` + `test-greeter-qemu.sh` exist and are wired for bounded runtime proof | The successful-login path is validation-only and does not replace broader KDE session proof, but the bounded QEMU greeter proof now passes |
+| `redbear-greeter` packaging | Builds in-tree | Qt/QML UI binary, compositor wrapper, branded assets, and a shared login-protocol crate are present; Qt shared-plugin loading now works in the guest, while broader KWin runtime stability still remains experimental |
 
-This means Red Bear now has a credible **build-visible login boundary**, but not yet a runtime-trusted
-graphical login surface.
+This means Red Bear now has a credible **bounded runtime-visible login boundary**, but not yet a
+runtime-trusted general-purpose graphical login surface.
 
 ### 4. KWin reduced build is now dependency-honest, but runtime proof is still missing (desktop-session gate)
 
@@ -183,11 +183,11 @@ exercised on real Intel and AMD hardware.
 
 ## Bottom Line
 
-The Red Bear desktop stack has crossed major build-side gates:
+The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
 - All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
 - Four supported compile targets exist, with desktop/graphics on `redbear-full` and `redbear-live-full`
-- the non-visual Red Bear-native greeter/login pieces now build and test
+- the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`)
 - relibc compatibility is materially stronger than before
 
-The remaining work is **runtime validation, greeter/UI completion, session assembly, and the remaining KDE session/runtime proof work**.
-Phase 1 (Runtime Substrate Validation) remains the immediate broad target, while the new greeter/login path and the KWin reduced path both still need bounded runtime proof before stronger claims are safe.
+The remaining work is **broader runtime validation, compositor/session stability, and the remaining KDE session/runtime proof work**.
+Phase 1 (Runtime Substrate Validation) remains the immediate broad target. The key current boundary is now explicit: the greeter/login slice has crossed its bounded proof gate, the old `kwin_wayland` page-fault path has been removed, and current QEMU now fails lower in the desktop/runtime layer with a clean no-usable-DRM limitation rather than with a compositor crash.

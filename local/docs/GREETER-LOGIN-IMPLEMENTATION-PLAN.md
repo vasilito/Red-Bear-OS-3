@@ -1,51 +1,30 @@
 # Red Bear OS Greeter / Login Implementation Plan
 
 **Version:** 1.0 — 2026-04-19
-**Status:** Active plan with experimental implementation in progress on `redbear-full`
+**Status:** Active plan with bounded greeter/login proof now passing on `redbear-full`; broader desktop-runtime trust still remains experimental
 **Scope:** Red Bear-native graphical greeter, authentication boundary, and session handoff for the KDE-on-Wayland desktop path
 **Parent plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0), `local/docs/DBUS-INTEGRATION-PLAN.md`
 
 ---
 
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [Scope and Non-Goals](#2-scope-and-non-goals)
-3. [Evidence Model](#3-evidence-model)
-4. [Current State Assessment](#4-current-state-assessment)
-5. [Decision Record: Login-Manager Direction](#5-decision-record-login-manager-direction)
-6. [Architecture Principles](#6-architecture-principles)
-7. [Architecture Design](#7-architecture-design)
-8. [Component Specifications](#8-component-specifications)
-9. [Protocols and Session Contracts](#9-protocols-and-session-contracts)
-10. [Phased Implementation](#10-phased-implementation)
-11. [Testing and Validation](#11-testing-and-validation)
-12. [Risks and Mitigations](#12-risks-and-mitigations)
-13. [Relationship to Other Plans](#13-relationship-to-other-plans)
-14. [File and Recipe Inventory](#14-file-and-recipe-inventory)
-15. [Open Questions](#15-open-questions)
-
----
-
 ## 1. Executive Summary
 
-Red Bear OS currently has enough session substrate to start **one fixed KDE Wayland session**, but it does
-not yet have a real graphical login path.
+Red Bear OS currently has enough session substrate to start **one fixed KDE Wayland session** and now
+has a bounded Red Bear-native graphical greeter/login proof on `redbear-full`, but it does not yet
+have a runtime-trusted generally stable desktop login surface.
 
 What exists today:
 
 - `dbus-daemon` on the system bus
 - `redbear-sessiond` exposing a minimal `org.freedesktop.login1` subset for KWin
 - `seatd` as the seat/libseat backend
-- a direct session launcher (`redbear-kde-session`) that starts `kwin_wayland`
+- a direct session launcher (`redbear-kde-session`) that now starts `kwin_wayland_wrapper --drm`
 - fallback text `getty` surfaces on VT2 and `/scheme/debug/no-preserve`
 
 What does **not** exist today:
 
 - no display manager
-- no graphical greeter
-- no authentication daemon
-- no session-launch privilege boundary
+- no runtime-trusted generally stable compositor-backed desktop login surface
 - no PAM-backed or systemd-logind-shaped login stack
 
 This plan defines the forward path for the missing layer:
@@ -136,8 +115,8 @@ Rules:
 | display VT activation | `29_activate_console.service` in desktop configs | ✅ usable (bounded) | `inputd -A 3` activates desktop VT |
 | fallback text login | `30_console.service` | ✅ boots | `getty 2` on VT2 |
 | debug console | `31_debug_console.service` | ✅ boots | `getty /scheme/debug/no-preserve -J` |
-| direct KDE session launcher | `/usr/bin/redbear-kde-session` | ✅ builds, experimental | Starts session bus if needed, then `exec kwin_wayland --replace` |
-| authentication daemon | `local/recipes/system/redbear-authd/` | ✅ builds, experimental | Local-user auth boundary with `/etc/passwd` / `/etc/shadow` / `/etc/group` parsing and SHA-crypt verification |
+| direct KDE session launcher | `/usr/bin/redbear-kde-session` | ✅ builds, experimental | Starts session bus if needed, then `exec kwin_wayland_wrapper --drm` |
+| authentication daemon | `local/recipes/system/redbear-authd/` | ✅ builds, experimental | Local-user auth boundary with `/etc/passwd` / `/etc/shadow` / `/etc/group` parsing plus SHA-crypt and Argon2 verification |
 | session launcher boundary | `local/recipes/system/redbear-session-launch/` | ✅ builds, experimental | User-session bootstrap with bounded environment/runtime-dir setup |
 | greeter daemon scaffold | `local/recipes/system/redbear-greeter/` | ✅ builds, experimental | Root-owned greeter orchestrator, socket protocol, bounded restart policy |
 | greeter config fragment | `config/redbear-greeter-services.toml` | ✅ builds, experimental | Adds `19_redbear-authd.service`, `20_greeter.service`, compatibility `20_display.service`, and fallback console dependencies |
@@ -148,33 +127,29 @@ Rules:
 
 | Component | Status | Gap |
 |---|---|---|
-| `redbear-sessiond` seat switching | ⚠️ scaffold | `Seat.SwitchTo` is currently logged/delegated externally to `inputd -A` |
+| `redbear-sessiond` seat switching | ✅ boundedly implemented | `Seat.SwitchTo` now delegates to `inputd -A <vt>`; remaining compositor stability is not blocked on a seat-switch no-op anymore |
 | KDE runtime services | ⚠️ partial | D-Bus substrate exists, but broader Plasma session services remain incomplete |
-| `redbear-full` greeter flow | ⚠️ experimental | Non-visual pieces are implemented, but final packaged UI and bounded runtime proof are still pending |
-| greeter runtime validation | ⚠️ partial | `redbear-greeter-check` + `test-greeter-qemu.sh` exist, but final proof still depends on the packaged greeter UI |
+| `redbear-full` greeter flow | ✅ bounded proof passes | Packaged UI, auth/session plumbing, and bounded compositor-backed greeter proof now work end to end; the old `kwin_wayland` page-fault path is gone, and current QEMU now stops at a clean no-usable-DRM limitation below the greeter slice |
+| greeter runtime validation | ✅ bounded proof passes | `redbear-greeter-check` + `test-greeter-qemu.sh` now pass hello, invalid-login, and validation-only successful-login return-to-greeter flow |
 
 ### 4.3 What Does Not Exist
 
 | Missing piece | Why it matters |
 |---|---|
-| packaged graphical greeter UI | no complete user-visible graphical login surface is staged yet |
-| bounded end-to-end login proof | build-side pieces exist, but runtime-trusted login/session handoff is not proven yet |
-| shared login protocol extraction | current protocol is encoded directly in the first-cut daemon/checker implementations |
 | display-manager package integration | no SDDM/greetd/lightdm/ly path in repo |
 
 ### 4.4 Baseline Conclusion
 
-The current Red Bear desktop path can **start a session**, but it cannot yet **own a login flow**.
+The current Red Bear desktop path can now **own a bounded login flow**, and the active greeter/login
+implementation bar in this plan is substantially met.
 
-The missing work is not “port more KDE packages.” The missing work is the **login boundary**:
+The remaining blocker to a stronger desktop-runtime claim is now evidence-backed as **below this
+greeter slice**: the old `kwin_wayland` crash path has been eliminated, and current QEMU now reaches
+clean `No suitable DRM devices have been found` exits instead. That means the follow-on work has
+shifted to the parent desktop/Wayland/runtime plans rather than to missing core greeter/auth/session-boundary pieces here.
 
-1. graphical greeter surface,
-2. authentication boundary,
-3. session-launch privilege drop,
-4. clean handoff into the existing KDE Wayland session path.
-
-That login boundary must be added **without** replacing the current seat/session substrate and
-without removing existing console recovery paths.
+Future work beyond this plan should continue **without** replacing the current seat/session substrate
+and without removing existing console recovery paths.
 
 ---
 
@@ -524,6 +499,7 @@ elsewhere, but the greeter/auth path must interact only with installed runtime a
 - `XDG_RUNTIME_DIR=/run/user/$UID`
 - `XDG_SESSION_TYPE=wayland`
 - `XDG_CURRENT_DESKTOP=KDE`
+- `XDG_SESSION_ID=c1`
 - `KDE_FULL_SESSION=true`
 - `WAYLAND_DISPLAY=wayland-0`
 - `XDG_SEAT=seat0`
@@ -571,7 +547,11 @@ Required behavior:
 
 ## 10. Phased Implementation
 
-### Phase G0 — Scope Freeze and Wiring Baseline
+> **Current implementation note:** the repo has now crossed the bounded proof bar through the core
+> G0–G4 path and parts of G5. The phase breakdown below remains useful as an ownership and acceptance
+> model, but it should be read as an active status ladder rather than as an untouched future-only plan.
+
+### Phase G0 — Scope Freeze and Wiring Baseline (✅ boundedly complete)
 
 **Goal:** Freeze the architectural split and identify the tracked desktop profile(s) that will own the
 greeter path.
@@ -588,13 +568,13 @@ greeter path.
 - session policy is explicit,
 - asset source of truth is explicit.
 
-### Phase G1 — Service Skeleton and Boot Wiring
+### Phase G1 — Service Skeleton and Boot Wiring (✅ boundedly complete)
 
 **Goal:** Add daemon/package skeletons and init wiring without claiming a usable login flow.
 
 | # | Task | Acceptance criteria |
 |---|---|---|
-| G1.1 | Create recipe skeletons | `redbear-greeter`, `redbear-authd`, `redbear-session-launch`, optional `redbear-login-protocol` build and stage |
+| G1.1 | Create recipe skeletons | `redbear-greeter`, `redbear-authd`, `redbear-session-launch`, and shared `redbear-login-protocol` build and stage |
 | G1.2 | Add config fragment | A tracked config fragment wires `20_greeter.service` and supporting files |
 | G1.3 | Replace direct display launch in the chosen profile | Desktop profile starts `redbear-greeterd` instead of directly starting `redbear-kde-session` |
 | G1.4 | Keep text/debug recovery path | VT2 `getty` and debug `getty` still boot |
@@ -606,7 +586,7 @@ greeter path.
 - image still boots,
 - fallback text surfaces remain reachable.
 
-### Phase G2 — Auth Foundation
+### Phase G2 — Auth Foundation (✅ boundedly complete)
 
 **Goal:** Prove the local account/authentication boundary independent of the full greeter UI.
 
@@ -626,7 +606,7 @@ greeter path.
 - no UI process reads auth data,
 - repeated auth failure behavior is bounded and explicit.
 
-### Phase G3 — Greeter UI and Daemon State Machine
+### Phase G3 — Greeter UI and Daemon State Machine (✅ boundedly complete)
 
 **Goal:** Bring up the graphical greeter surface and daemon orchestration.
 
@@ -646,7 +626,7 @@ greeter path.
 - no session starts yet without auth success,
 - fallback console path remains reachable under greeter failure.
 
-### Phase G4 — Session Handoff to KDE on Wayland
+### Phase G4 — Session Handoff to KDE on Wayland (✅ boundedly complete for the current bounded proof)
 
 **Goal:** Replace direct session startup with authenticated session launch.
 
@@ -664,7 +644,7 @@ greeter path.
 - session exit returns to greeter,
 - fallback VT2 login still works.
 
-### Phase G5 — Desktop Integration and Product Surface Hardening
+### Phase G5 — Desktop Integration and Product Surface Hardening (⚠️ partial / follow-on)
 
 **Goal:** Move from “bounded login proof” to a product-quality Red Bear login surface.
 
@@ -681,6 +661,14 @@ greeter path.
 - power actions are bounded and explicit,
 - hardening checks pass,
 - documentation matches shipped surface.
+
+**Current state:**
+
+- G5.1 is present in bounded form through the greeter power-action path,
+- G5.3 is substantially present for the tracked `redbear-full` profile wiring,
+- G5.4 exists as `local/scripts/test-greeter-qemu.sh` plus in-target `redbear-greeter-check`,
+- the remaining open part is moving from bounded proof to stronger desktop-runtime trust and broader
+  compositor/session stability evidence.
 
 ### Critical Path
 
@@ -720,15 +708,16 @@ The first bounded integration proofs should answer these questions in order:
 
 ### 11.3 Suggested Validation Commands / Harnesses
 
-This plan expects a bounded QEMU harness similar in style to existing Red Bear runtime proofs.
+This plan now has a bounded QEMU/runtime harness in the repo and should continue to follow the same
+proof style as other Red Bear runtime validation flows.
 
-Expected future surfaces:
+Current surfaces:
 
 - `local/scripts/test-greeter-qemu.sh`
-- in-target checker such as `redbear-greeter-check`
+- in-target checker `redbear-greeter-check`
 
-The exact script names are implementation details, but the proof style should match existing bounded
-runtime validation patterns already used elsewhere in the repo.
+The exact script names are still implementation details, but the proof style should match existing
+bounded runtime validation patterns already used elsewhere in the repo.
 
 ### 11.4 Definition of Done
 
@@ -742,6 +731,11 @@ This plan is only substantially complete when **all** of the following are true:
 - VT2 fallback and debug console remain available,
 - greeter/UI failure does not trap the machine in an unrecoverable restart loop,
 - the bounded login/logout proof repeats reliably on the intended target class.
+
+**Current status against this bar:** the bounded QEMU greeter proof now satisfies the greeter/login
+implementation bar in this plan. The remaining blocker to stronger desktop-session claims reproduces
+under direct `dbus-run-session -- redbear-kde-session` as well, so it no longer points to a missing
+greeter/auth/session-boundary implementation inside this plan.
 
 ---
 
@@ -791,6 +785,7 @@ the login/greeter boundary between a booted desktop substrate and a real KDE ses
 ```text
 local/recipes/system/
 ├── redbear-authd/
+├── redbear-login-protocol/
 ├── redbear-session-launch/
 └── redbear-greeter/
 ```
@@ -800,8 +795,9 @@ Current implementation status:
 - `redbear-authd/` — implemented (experimental, target-side recipe build proven)
 - `redbear-session-launch/` — implemented (experimental, target-side recipe build proven)
 - `redbear-greeter/` — implemented as an experimental bounded surface; daemon, Qt/QML UI, compositor wrapper, staged assets, and bounded runtime checks now exist, while broader KDE runtime trust still remains open
-- Current blocker after the greeter/UI packaging work: guest-side Qt shared-plugin loading on Red Bear still rejects platform plugins during metadata scan (`libqminimal.so`, `qwayland-org.kde.kwin.qpa.so`) even though the plugin files are present in the image and their on-disk ELF headers read correctly via non-Qt tools. This blocks the bounded graphical compositor proof below the greeter slice.
-- `redbear-login-protocol/` — optional follow-up extraction, not required for the first bounded runtime proof
+- `redbear-login-protocol/` — implemented as a shared local crate for greeter/auth/checker protocol types
+- The previous guest-side Qt shared-plugin metadata blocker is now fixed: `libqminimal.so` and `qwayland-org.kde.kwin.qpa.so` load successfully in the guest once the Redox toolchain's stale `elf.h` is synchronized with relibc's corrected ELF64 typedefs.
+- Current remaining desktop-runtime blocker below the greeter slice: on current QEMU the compositor no longer page-faults, but still exits cleanly when no usable DRM device can be opened; the greeter's bounded QEMU proof still passes through hello, invalid-login, and validation-only successful-login return-to-greeter flow.
 
 ### 14.3 Proposed New Runtime Files
 

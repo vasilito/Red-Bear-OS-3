@@ -5,6 +5,21 @@
 This document assesses the current IRQ and low-level controller implementation in Red Bear OS for
 completeness and quality, then defines the next enhancement plan in execution order.
 
+This is the **canonical current implementation plan** for PCI interrupt plumbing, IRQ delivery,
+MSI/MSI-X quality, low-level controller runtime proof, and IOMMU/interrupt-remapping follow-up
+work.
+
+When another document discusses PCI, IRQ, MSI/MSI-X, `pcid`, `pcid-spawner`, or low-level
+controller execution order, prefer this file for:
+
+- the current robustness judgment,
+- the current implementation order,
+- the current validation/proof expectations,
+- and the current language for build-visible vs runtime-proven vs hardware-validated claims.
+
+Other documents may still hold deeper architecture or donor-material detail, but they should point
+here instead of acting as competing execution authorities.
+
 It is grounded in the current repository state, especially:
 
 - `local/recipes/drivers/redox-driver-sys/`
@@ -106,6 +121,73 @@ controller-specific validation.
 - Low-level controller quality is uneven: ACPI/APIC are much further along than IOMMU, MSI-X, and
   controller-specific runtime characterization.
 
+## Current Robustness Assessment
+
+### Bottom line
+
+The PCI/IRQ stack is now **architecturally credible and usable for bounded bring-up plus QEMU/runtime
+proof**, but it is **not yet release-grade robust end to end**.
+
+The strongest layers are:
+
+- the kernel IRQ substrate,
+- the `scheme:irq` delivery model,
+- and the shared `redox-driver-sys` PCI/IRQ helper layer.
+
+The weakest layers are:
+
+- `pcid` and `pcid-spawner`,
+- the `pcid` driver-interface helper surface,
+- the shared `virtio-core` MSI-X setup path,
+- and several upstream-owned base drivers that still panic on missing BARs, missing interrupt
+  handles, impossible feature states, or scheme-operation failures.
+
+### What is materially strong today
+
+- Kernel IRQ ownership is real and active: PIC, IOAPIC, LAPIC/x2APIC, IDT reservation, masking,
+  EOI, and spurious IRQ accounting all exist in the checked-in kernel.
+- `redox-driver-sys` is the strongest PCI/IRQ userspace substrate: typed BAR parsing, quirk-aware
+  interrupt-support reporting, IRQ handle abstractions, MSI-X table helpers, affinity helpers, and
+  direct host-runnable substrate tests all exist.
+- `redox-drm` consumes the interrupt substrate honestly with MSI-X → MSI → legacy fallback and
+  quirk-aware downgrade policy.
+- `iommu` and the low-level proof scripts provide bounded runtime evidence rather than pretending
+  broader hardware support exists.
+
+### What is still fragile today
+
+- `pcid` and `pcid-spawner` still assume a trusted environment too often: launch sequencing,
+  device-enable timing, and several error paths are weaker than the substrate beneath them.
+- `pcid` helper files such as `driver_interface/{bar,cap,irq_helpers,msi}.rs` still treat several
+  malformed-device or unsupported-state cases as invariants rather than recoverable failures.
+- `virtio-core` still hard-requires MSI-X in its active x86 path and uses assert/expect/
+  unreachable semantics for feature/capability assumptions that are acceptable for bounded proof,
+  but weak for a general PCI substrate.
+- A broad set of shipped consumers (`rtl8168d`, `rtl8139d`, `ixgbed`, `ac97d`, `ihdad`, `ided`,
+  `vboxd`, `virtio-blkd`, `virtio-gpud`, `ihdgd`, and others) still encode panic-grade startup
+  assumptions around BARs, IRQs, or scheme operations.
+
+### Validation truth
+
+- MSI-X and IOMMU now have **bounded QEMU/runtime proof**.
+- xHCI interrupt mode also has bounded QEMU proof.
+- That is enough to justify further implementation work and proof tooling.
+- It is **not** enough to justify broad hardware robustness claims for PCI/IRQ handling.
+
+## Current Authority Split
+
+For PCI/IRQ planning and current-state language, use the repo doc set this way:
+
+- **This file** — canonical implementation plan and current robustness judgment for PCI/IRQ and
+  low-level controllers.
+- `local/docs/LINUX-BORROWING-RUST-IMPLEMENTATION-PLAN.md` — donor-material and Rust-rewrite
+  policy only; not the execution authority for PCI/IRQ rollout.
+- `local/docs/IOMMU-SPEC-REFERENCE.md` — specification/reference detail for AMD-Vi / VT-d.
+- `local/docs/QUIRKS-SYSTEM.md` and `local/docs/QUIRKS-IMPROVEMENT-PLAN.md` — quirk-policy source
+  of truth and forward convergence work.
+- `README.md`, `docs/README.md`, `AGENTS.md`, and `local/AGENTS.md` — public/current-state summary
+  surfaces that should point here rather than restating competing PCI/IRQ execution plans.
+
 ## Architectural Assessment
 
 ### 1. IRQ delivery architecture
@@ -185,7 +267,9 @@ especially under real runtime scenarios.
 Strengths:
 
 - MADT entries for xAPIC/x2APIC/NMI are handled.
-- ACPI reboot/shutdown/power methods exist.
+- ACPI reboot/shutdown/power methods are implemented, but robustness, sleep-state scope beyond
+  `\_S5`, and bounded validation still remain open as tracked in
+  `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 - x2APIC and SMP platform bring-up have already crossed the foundational threshold.
 
 Open enhancement items:
@@ -498,6 +582,185 @@ scope than the cross-cutting MSI-X and IOMMU priorities above because the interr
 already restored and QEMU-proven.
 
 ## Execution Plan
+
+## Detailed Implementation Plan
+
+The remaining work should be executed in six waves. The order matters: shared control-plane and
+helper hardening comes before broad driver cleanup, and runtime-proof/observability comes before any
+ stronger public claim language.
+
+### Wave 1 — Harden `pcid` / `pcid-spawner` orchestration
+
+**Primary targets**
+
+- `recipes/core/base/source/drivers/pcid/src/{main,scheme,driver_handler}.rs`
+- `recipes/core/base/source/drivers/pcid-spawner/src/main.rs`
+
+**Implement**
+
+- replace panic-grade launch/setup assumptions with explicit failure states
+- make device-discovered / config-matched / driver-launch-attempted / driver-launch-failed /
+  device-enabled states observable
+- stop leaving device state ambiguous when spawn fails after partial setup
+- emit explicit logs for chosen driver, config source, interrupt mode, and launch result
+
+**Acceptance**
+
+- no normal launch/config mismatch path depends on `expect`/`unreachable!`
+- failed driver launch is bounded and observable
+- enable-before-spawn behavior is either removed or explicitly justified and logged
+
+**Verification**
+
+- `cargo test -p pcid`
+- `cargo test -p pcid-spawner`
+- verify `redbear-info` still reports the expected PCI surfaces after boot
+
+### Wave 2 — Fix `pcid` helper contract
+
+**Primary targets**
+
+- `recipes/core/base/source/drivers/pcid/src/driver_interface/{bar,cap,config,irq_helpers,msi,mod}.rs`
+
+**Implement**
+
+- replace panic-style BAR/capability helpers with typed error-returning variants
+- treat malformed vendor capabilities as device faults, not invariants
+- make IRQ allocation and MSI/MSI-X selection explicit return values
+- keep any `expect_*` helpers as thin wrappers only where absolutely necessary
+
+**Acceptance**
+
+- helper layer is error-returning by default
+- malformed BAR/capability state no longer aborts bring-up by default
+- vector selection and failure reasons are reportable state, not only implicit side effects
+
+**Verification**
+
+- `cargo test -p pcid`
+- add unit tests for malformed BARs, malformed vendor caps, and IRQ-allocation failure behavior
+
+### Wave 3 — Harden shared `virtio-core` IRQ/MSI-X setup
+
+**Primary targets**
+
+- `recipes/core/base/source/drivers/virtio-core/src/{probe,transport,arch/x86}.rs`
+
+**Implement**
+
+- remove assert/expect assumptions around virtio identity, capability presence, and MSI-X setup
+- return typed probe/setup failure instead
+- emit explicit logs for “virtio present but unsupported/incomplete” states
+- make chosen interrupt mode visible to runtime tools and proof scripts
+
+**Acceptance**
+
+- partial or malformed virtio devices fail probe cleanly
+- MSI-X setup failure is a bounded bring-up error instead of a crash path
+
+**Verification**
+
+- `cargo test -p virtio-core`
+- re-run virtio-using consumer/runtime tools after the change
+
+### Wave 4 — Convert highest-risk consumers
+
+**Primary consumer batches**
+
+- network/storage/audio: `rtl8168d`, `rtl8139d`, `ixgbed`, `ahcid`, `nvmed`, `virtio-blkd`,
+  `ided`, `ac97d`, `ihdad`
+- graphics/VM: `ihdgd`, `virtio-gpud`, `vboxd`
+
+**Implement**
+
+- move drivers onto checked helper APIs from Wave 2
+- remove direct panic-grade assumptions around BARs, legacy IRQs, and scheme operations
+- make legacy-only or bounded-mode requirements explicit and logged
+
+**Acceptance**
+
+- consumer startup fails cleanly for unsupported or partial hardware states
+- legacy-only requirements are explicit compatibility outcomes, not abrupt aborts
+
+**Verification**
+
+- per-driver crate tests where available
+- existing bounded proof scripts still pass after the helper and consumer migration
+
+### Wave 5 — Improve observability and proof
+
+**Primary targets**
+
+- `local/recipes/system/redbear-info/source/src/main.rs`
+- `local/recipes/system/redbear-hwutils/source/src/bin/{lspci,redbear-phase-iommu-check}.rs`
+- `local/scripts/test-{msix,iommu,xhci-irq,lowlevel-controllers}-qemu.sh`
+- `local/docs/{REDBEAR-INFO-RUNTIME-REPORT,SCRIPT-BEHAVIOR-MATRIX}.md`
+
+**Implement**
+
+- expose chosen interrupt mode per device
+- expose fallback reason: MSI-X unavailable, quirk-disabled, vector allocation failed, legacy-only,
+  etc.
+- keep QEMU-first proofs explicit and bounded
+- separate “installed”, “configured”, “active”, and “runtime-functional” states clearly
+
+**Acceptance**
+
+- operators can answer “what IRQ mode is this device using and why?” from runtime tooling
+- proof scripts distinguish architecture proof from hardware proof cleanly
+
+**Verification**
+
+- `cargo test` for `redbear-info`
+- `cargo test` for `redbear-hwutils`
+- re-run bounded proof scripts and confirm mode/fallback signals appear in output
+
+### Wave 6 — Docs and hardware-evidence sync
+
+**Primary targets**
+
+- `README.md`
+- `AGENTS.md`
+- `local/AGENTS.md`
+- `docs/README.md`
+- this file
+- `local/docs/{IOMMU-SPEC-REFERENCE,QUIRKS-SYSTEM,QUIRKS-IMPROVEMENT-PLAN,REDBEAR-INFO-RUNTIME-REPORT,SCRIPT-BEHAVIOR-MATRIX}.md`
+
+**Implement**
+
+- sync public/current-state docs to the actual proof scope
+- keep QEMU/runtime proof separate from hardware proof
+- keep the repo-facing status story aligned with this canonical plan
+
+**Acceptance**
+
+- no doc claims broader PCI/IRQ robustness than tests actually prove
+- public/current-state docs all point here for PCI/IRQ execution authority
+
+**Verification**
+
+- manual doc/code cross-check against current runtime tools and proof scripts
+
+### Recommended commit boundaries
+
+1. `pcid` / `pcid-spawner` orchestration hardening
+2. `pcid` helper API hardening
+3. `virtio-core` MSI-X/probe hardening
+4. consumer batch A
+5. consumer batch B
+6. observability/runtime tools
+7. docs/proof sync
+
+### Definition of done
+
+This plan’s implementation work is materially complete only when:
+
+- no panic-grade behavior remains on normal PCI/IRQ failure paths in `pcid`, shared helpers, or key
+  consumers,
+- IRQ mode selection is observable,
+- bounded proof scripts still pass,
+- docs match actual proof scope,
+- and the remaining gaps are clearly hardware-evidence gaps rather than hidden code fragility.
 
 ### Step A — Establish validation vocabulary in all related docs
 

@@ -7,25 +7,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [Architecture Principles](#2-architecture-principles)
-3. [Current State Assessment](#3-current-state-assessment)
-4. [Gap Analysis](#4-gap-analysis)
-5. [Architecture Design](#5-architecture-design)
-6. [Component Specifications](#6-component-specifications)
-7. [Phased Implementation](#7-phased-implementation)
-8. [Integration with Console-to-KDE Plan](#8-integration-with-console-to-kde-plan)
-9. [D-Bus Service Dependency Map](#9-d-bus-service-dependency-map)
-10. [Security Model](#10-security-model)
-11. [Build Recipe Changes](#11-build-recipe-changes)
-12. [Testing and Validation](#12-testing-and-validation)
-13. [Risks and Mitigations](#13-risks-and-mitigations)
-14. [Qt 6.11 D-Bus Coverage](#14-qt-611-d-bus-coverage)
-
----
-
 ## 1. Executive Summary
 
 D-Bus is **mandatory infrastructure** for KDE Plasma 6 — not optional, not deferrable. KDE
@@ -149,7 +130,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **Session tracker** | `org.freedesktop.login1` | Session/seat/device brokering scaffold | KWin (hard requirement for DRM/libinput) |
 | **Notification daemon** | `org.freedesktop.Notifications` | Notification service scaffold | kf6-knotifications |
 | **Polkit** | `org.freedesktop.PolicyKit1` | Authorization scaffold (always-permit) | KAuth |
-| **UPower** | `org.freedesktop.UPower` | Bounded real ACPI-backed power enumeration | kf6-solid, PowerDevil |
+| **UPower** | `org.freedesktop.UPower` | Provisional ACPI-backed power service; current backing power surface is still incomplete | kf6-solid, PowerDevil |
 | **UDisks2** | `org.freedesktop.UDisks2` | Bounded real `disk.*` / partition enumeration | kf6-solid |
 | **D-Bus service files** | `/usr/share/dbus-1/` | Activation is staged and shipped, but only for the current scaffold services | All D-Bus services |
 | **D-Bus policy files** | `/etc/dbus-1/` | Policy is staged and shipped for the current scaffold services | All D-Bus services |
@@ -196,7 +177,7 @@ plasma-workspace needs:
 
 ```
 Complete Plasma needs (after re-enabling disabled components):
-  org.freedesktop.UPower          ✅ bounded real enumeration exists — still needs runtime validation for kf6-solid
+  org.freedesktop.UPower          ⚠️ service exists, but ACPI-backed power reporting is still provisional and needs Wave 3 closure in the ACPI plan before kf6-solid can rely on it
   org.freedesktop.UDisks2         ✅ bounded real enumeration exists — still needs runtime validation for kf6-solid
   org.freedesktop.NetworkManager  ⏸️ DEFERRED — Red Bear OS uses redbear-netctl for now
   org.freedesktop.PolicyKit1      ⚠️ scaffold exists — KAuth still blocked on missing PolkitQt6-1 packaging
@@ -285,7 +266,7 @@ Session launch (redbear-kde-session):
   4. dbus-daemon --system already running
   5. eval $(dbus-launch --sh-syntax)  →  session bus started
   6. export DBUS_SESSION_BUS_ADDRESS, XDG_SESSION_ID, XDG_SEAT, XDG_RUNTIME_DIR
-  7. kwin_wayland --replace  →  registers org.kde.KWin on session bus
+  7. kwin_wayland_wrapper --drm  →  launches KWin on the session bus and owns the Wayland socket lifecycle for the current Red Bear session path
   8. [later] plasmashell  →  registers org.kde.plasmashell on session bus
 ```
 
@@ -394,7 +375,7 @@ local/recipes/system/redbear-sessiond/
 │       ├── session.rs       # org.freedesktop.login1.Session interface
 │       ├── seat.rs          # org.freedesktop.login1.Seat interface
 │       ├── device_map.rs    # major/minor → scheme path resolution (via udev-shim)
-│       └── acpi_watcher.rs  # scheme:acpi → PrepareForSleep/Shutdown signals
+│       └── acpi_watcher.rs  # current kstop-backed shutdown watcher; sleep signaling remains future-only until ACPI sleep eventing exists
 ```
 
 ### 6.2 D-Bus Service Activation Files
@@ -585,16 +566,16 @@ APIs, which relibc provides.
 
 | # | Task | Acceptance Criteria |
 |---|------|---------------------|
-| 3.1 | Implement `redbear-upower` — minimal UPower D-Bus service | Registers `org.freedesktop.UPower`, enumerates power devices from `scheme:acpi` |
+| 3.1 | Implement `redbear-upower` — minimal UPower D-Bus service | Registers `org.freedesktop.UPower`, exposes the current ACPI-backed power surface honestly, and does not overclaim unsupported battery/AC detail |
 | 3.2 | Implement `redbear-udisks` — minimal UDisks2 D-Bus service | Registers `org.freedesktop.UDisks2`, enumerates block devices from `scheme:` filesystem |
 | 3.3 | Re-enable D-Bus in kf6-solid (`-DUSE_DBUS=ON`, re-enable UPower backend) | kf6-solid builds with D-Bus enabled, UPower backend active |
 | 3.4 | Implement ACPI sleep/shutdown integration in `redbear-sessiond` | `PrepareForShutdown` emitted from the current ACPI shutdown event path; `PrepareForSleep` only after ACPI sleep eventing exists |
-| 3.5 | Validate PowerDevil (if plasma-workspace includes it) | Power management UI shows battery/AC status |
+| 3.5 | Validate PowerDevil (if plasma-workspace includes it) | PowerDevil only graduates once the underlying ACPI power surface is trustworthy enough for consumer use |
 
 **Exit criteria:**
-- [ ] `org.freedesktop.UPower` registers and enumerates devices
+- [ ] `org.freedesktop.UPower` registers and exposes the current power surface without overclaiming unsupported detail
 - [ ] `org.freedesktop.UDisks2` registers and enumerates block devices
-- [ ] kf6-solid uses UPower backend for power queries
+- [ ] kf6-solid uses UPower backend for power queries only after the ACPI power surface is validated enough for consumer use
 - [ ] Shutdown signal flows through login1 D-Bus interface now; sleep signal only if ACPI sleep eventing is implemented
 
 **Dependencies:** Phase DB-2 complete, ACPI boot-baseline integration working; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the remaining ownership, robustness, and validation work
@@ -649,7 +630,7 @@ This D-Bus plan maps directly onto the phases in `CONSOLE-TO-KDE-DESKTOP-PLAN.md
 | **Phase 1:** Runtime Substrate Validation | (no D-Bus work — substrate is below D-Bus) | — |
 | **Phase 2:** Wayland Compositor Proof | **DB-1:** KWin MVP | login1 session broker, system/session bus validation |
 | **Phase 3:** KWin Desktop Session | **DB-1** (completion) + **DB-2** (session services) | kglobalaccel, kded6, notifications, plasmashell D-Bus |
-| **Phase 4:** KDE Plasma Session | **DB-3** (hardware services) + **DB-4** (network/policy) | UPower, udisks2, NM, polkit, full session |
+| **Phase 4:** KDE Plasma Session | **DB-3** (hardware services) + **DB-4** (network/policy) | UPower once the ACPI power surface is honest, udisks2, NM, polkit, full session |
 | **Phase 5:** Hardware GPU Enablement | (D-Bus not on critical path for GPU) | login1 TakeDevice for GPU fd passing |
 
 ### Modifications to Console-to-KDE Plan
@@ -675,7 +656,7 @@ Replace the existing task 3.4 with:
 
 | # | Task | Acceptance Criteria |
 |---|------|---------------------|
-| 4.X | D-Bus hardware services operational | `org.freedesktop.UPower` and `org.freedesktop.UDisks2` register on system bus and enumerate devices |
+| 4.X | D-Bus hardware services operational | `org.freedesktop.UPower` and `org.freedesktop.UDisks2` register on system bus; UPower consumer claims stay bounded until the ACPI power surface is validated |
 | 4.X | D-Bus network service operational | Deferred — Red Bear OS uses `redbear-netctl`, not NetworkManager |
 
 ---
@@ -695,7 +676,7 @@ org.freedesktop.DBus (dbus-daemon itself — always present)
 │   └── Consumed by: kf6-solid (session properties)
 │
 ├── [Phase DB-3] org.freedesktop.UPower (redbear-upower)
-│   ├── Depends on: scheme:acpi (for battery/power state)
+│   ├── Depends on: the current `/scheme/acpi/power` surface (still provisional until the ACPI plan's Wave 3 closes)
 │   └── Consumed by: kf6-solid, PowerDevil
 │
 ├── [Phase DB-3] org.freedesktop.UDisks2 (redbear-udisks)
@@ -787,12 +768,18 @@ service to perform an operation. The broker service holds the scheme capability,
 `dbus-daemon` uses the EXTERNAL SASL mechanism, which authenticates clients by their UNIX
 socket credentials (UID/GID via `SCM_CREDENTIALS`). On Redox, this requires:
 
-1. `relibc`'s `SO_PASSCRED` / `SCM_CREDENTIALS` support — verify this works with Redox
-   UNIX domain sockets
+1. `relibc`'s `SO_PASSCRED` / `SCM_CREDENTIALS` support on Redox UNIX domain sockets
 2. `getpeereid()` or equivalent — for the bus daemon to verify the connecting process's UID
 
-**Watch out:** If Redox UNIX domain sockets do not support credential passing, D-Bus
-authentication will fail silently or fall back to cookie-based auth. Test this early.
+Current repo status:
+
+- relibc now exposes `SO_PASSCRED`, `SO_PEERCRED`, `SCM_CREDENTIALS`, and `getpeereid()` in the
+  active tree
+- the bounded relibc test path now covers peer-credential lookup (`SO_PEERCRED`) and credential
+  delivery via `recvmsg()` / `SCM_CREDENTIALS` on Redox UNIX domain sockets
+
+That means the remaining D-Bus risk is no longer raw absence of the credential path in relibc; it
+is broader desktop/runtime trust and integration with the real bus daemons.
 
 ### 10.3 Policy Granularity
 
@@ -986,13 +973,13 @@ dbus-send --session --dest=org.freedesktop.DBus --print-reply \
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|-----------|------------|
-| **UNIX socket credential passing not working on Redox** | D-Bus authentication fails | Medium | Test early in Phase DB-1; if broken, fall back to cookie auth or patch relibc |
+| **UNIX socket credential passing regresses on Redox** | D-Bus authentication fails | Medium | Keep the relibc UDS credential tests in the preserved proof path; if broken again, fall back to cookie auth or patch relibc |
 | **KWin login1 expectations exceed our minimal subset** | KWin crashes or refuses to start | Medium | Start with KWin's Noop fallback; add methods incrementally as KWin logs errors |
 | **zbus async runtime conflicts with Redox event system** | zbus doesn't build or run | Low | zbus supports multiple async runtimes; test tokio + Redox early |
 | **D-Bus service activation files not picked up by dbus-daemon** | Services must be started manually | Low | dbus-daemon 1.16.2 supports classic activation; verify search path in redox.patch |
 | **Device major/minor mapping unstable** | TakeDevice returns wrong device | Medium | Use udev-shim as single source of truth; add validation tests |
 | **PAM not available for elogind-like session tracking** | Cannot use elogind directly | Certain | That's why we're building redbear-sessiond — no PAM dependency |
-| **Peer credential passing (SCM_CREDENTIALS) missing** | System bus policy can't verify UIDs | Medium | Coarse default-allow policy initially; tighten after credential passing works |
+| **Peer credential path behaves differently under real dbus-daemon load** | System bus policy can't verify UIDs reliably | Medium | The relibc credential path is now present and bounded-tested; next tighten with real dbus-daemon/session-bus runtime validation |
 
 ### 13.2 Integration Risks
 
@@ -1097,126 +1084,3 @@ convenience layer. The remaining gap is the difference between **shipping minima
 implementations** and **shipping full desktop-complete service contracts** for login1,
 Notifications, UPower, UDisks2, and PolicyKit. NetworkManager remains deferred and is not part of
 the current Red Bear OS implementation scope.
-
----
-
-## Appendix A: Why Not elogind?
-
-elogind was considered and rejected as the primary session tracker because:
-
-1. **Too Linux-shaped.** elogind depends on cgroups, PAM, udev, and the Linux device model.
-   Redox has none of these natively. Porting elogind would mean porting a large chunk of
-   Linux infrastructure that doesn't fit the scheme-based model.
-
-2. **PAM dependency.** elogind requires `pam_elogind.so` for session tracking. Redox has
-   no PAM. Building a PAM compatibility layer just for elogind is wasteful when we can
-   build a targeted Rust daemon instead.
-
-3. **Unnecessary scope.** elogind implements the full `org.freedesktop.login1` interface,
-   including cgroup management, session resource limits, and multi-seat complexity that
-   Red Bear OS doesn't need. Our `redbear-sessiond` implements only the subset KWin
-   actually consumes.
-
-4. **The recipe already exists but doesn't build.** The WIP elogind recipe in
-   `recipes/wip/services/elogind/` has been "not compiled or tested" since it was added.
-   This confirms the difficulty of porting it.
-
-**When to reconsider:** If KDE Plasma later adds hard dependencies on elogind-specific
-behavior beyond the login1 D-Bus interface, or if a future elogind version becomes easier
-to port, reassess.
-
-## Appendix B: Why Not dbus-broker?
-
-dbus-broker was considered and rejected because:
-
-1. **Requires systemd for launcher.** `dbus-broker-launch` depends on `libsystemd-daemon`.
-   Redox has no systemd. While dbus-broker can run without systemd (as Guix does), it
-   loses service activation.
-
-2. **No traditional activation.** dbus-broker does not implement the classic `.service`
-   file activation mechanism. It relies on systemd for service launching. This means we'd
-   need to write our own activation helper.
-
-3. ** dbus-daemon is sufficient.** The reference implementation works on every non-systemd
-   distro (Alpine, Void, Gentoo/OpenRC). Performance concerns are irrelevant at our scale.
-
-**When to reconsider:** If D-Bus throughput becomes a measurable bottleneck during KDE
-Plasma sessions, or if dbus-broker gains first-class non-systemd support.
-
-## Appendix C: Why Not ConsoleKit2?
-
-ConsoleKit2 was considered as a fallback because KWin has a `session_consolekit.cpp` backend.
-However:
-
-1. **Legacy.** ConsoleKit2 is unmaintained (last release 2020). freedesktop.org itself
-   recommends elogind or systemd-logind.
-
-2. **Incomplete API.** ConsoleKit2's D-Bus interface doesn't match `org.freedesktop.login1`.
-   It uses `org.freedesktop.ConsoleKit` with different method signatures. KWin's ConsoleKit
-   backend is a lowest-priority fallback, not a primary path.
-
-3. **Doesn't help with broader compatibility.** Other freedesktop services (UPower, udisks2,
-   NM) all expect `org.freedesktop.login1` for session checks. ConsoleKit2 would only
-   help KWin, not the rest of the stack.
-
-**Verdict:** Building a login1-compatible daemon (`redbear-sessiond`) serves KWin *and*
-every other freedesktop service that checks for session validity.
-
-## Appendix D: File Inventory
-
-### New files to create
-
-| File | Purpose |
-|------|---------|
-| `local/recipes/system/redbear-sessiond/recipe.toml` | Session broker build recipe |
-| `local/recipes/system/redbear-sessiond/source/Cargo.toml` | Rust workspace |
-| `local/recipes/system/redbear-sessiond/source/src/main.rs` | Daemon entry point |
-| `local/recipes/system/redbear-sessiond/source/src/manager.rs` | login1.Manager interface |
-| `local/recipes/system/redbear-sessiond/source/src/session.rs` | login1.Session interface |
-| `local/recipes/system/redbear-sessiond/source/src/seat.rs` | login1.Seat interface |
-| `local/recipes/system/redbear-sessiond/source/src/device_map.rs` | Major/minor → scheme path |
-| `local/recipes/system/redbear-sessiond/source/src/acpi_watcher.rs` | ACPI signal bridge |
-| `local/recipes/system/redbear-dbus-services/recipe.toml` | D-Bus service file staging |
-| `local/recipes/system/redbear-dbus-services/files/system-services/org.freedesktop.login1.service` | login1 activation |
-| `local/recipes/system/redbear-dbus-services/files/system-services/org.freedesktop.UPower.service` | UPower activation |
-| `local/recipes/system/redbear-dbus-services/files/system-services/org.freedesktop.UDisks2.service` | UDisks2 activation |
-| `local/recipes/system/redbear-dbus-services/files/system-services/org.freedesktop.PolicyKit1.service` | PolicyKit1 activation |
-| `local/recipes/system/redbear-dbus-services/files/session-services/org.kde.kglobalaccel.service` | kglobalaccel activation |
-| `local/recipes/system/redbear-dbus-services/files/session-services/org.kde.kded6.service` | kded6 activation |
-| `local/recipes/system/redbear-dbus-services/files/session-services/org.freedesktop.Notifications.service` | Notifications activation |
-| `local/recipes/system/redbear-dbus-services/files/system.d/org.freedesktop.login1.conf` | login1 policy |
-| `local/recipes/system/redbear-dbus-services/files/system.d/org.freedesktop.UPower.conf` | UPower policy |
-| `local/recipes/system/redbear-dbus-services/files/system.d/org.freedesktop.UDisks2.conf` | UDisks2 policy |
-| `local/recipes/system/redbear-dbus-services/files/system.d/org.freedesktop.PolicyKit1.conf` | PolicyKit1 policy |
-| `local/recipes/system/redbear-dbus-services/files/session.d/org.redbear.session.conf` | Session policy |
-| `local/recipes/system/redbear-notifications/recipe.toml` | Notification daemon recipe |
-| `local/recipes/system/redbear-notifications/source/src/main.rs` | org.freedesktop.Notifications (session bus) |
-| `local/recipes/system/redbear-upower/recipe.toml` | UPower daemon recipe |
-| `local/recipes/system/redbear-upower/source/src/main.rs` | org.freedesktop.UPower (system bus) |
-| `local/recipes/system/redbear-udisks/recipe.toml` | UDisks2 daemon recipe |
-| `local/recipes/system/redbear-udisks/source/src/main.rs` | org.freedesktop.UDisks2 (system bus) |
-| `local/recipes/system/redbear-polkit/recipe.toml` | PolicyKit1 daemon recipe |
-| `local/recipes/system/redbear-polkit/source/src/main.rs` | org.freedesktop.PolicyKit1 (system bus) |
-| `local/recipes/libs/zbus/recipe.toml` | zbus crate build-ordering marker |
-| `local/scripts/test-dbus-qemu.sh` | D-Bus validation script |
-
-### Existing files to modify
-
-| File | Change | Phase |
-|------|--------|-------|
-| `config/redbear-kde.toml` | Add redbear-sessiond package + init service + env vars | DB-1 |
-| `config/redbear-full.toml` | Add redbear-sessiond package + init service (optional) | DB-1 |
-| `local/recipes/kde/kf6-knotifications/recipe.toml` | Change `-DUSE_DBUS=OFF` → `ON` | DB-2 |
-| `local/recipes/kde/kf6-solid/recipe.toml` | Deferred — Phase 5/Phase 6 validation harness exists, but runtime consumer proof is still blocked while `solid-hardware6` tooling / backend enablement remain off | DB-3 |
-| `local/recipes/kde/kf6-kauth/recipe.toml` | Still uses `KAUTH_BACKEND_NAME=FAKE` until PolkitQt6-1 exists in-tree | DB-4 blocker |
-| `local/recipes/kde/kf6-kio/recipe.toml` | Change `-DUSE_DBUS=OFF` → `ON` | DB-5 |
-| `local/recipes/kde/kf6-kwallet/recipe.toml` | Replace stub with real build | DB-5 |
-| `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Add D-Bus tasks to Phases 2–4 | DB-1 |
-| `AGENTS.md` | Add D-Bus plan reference | DB-1 |
-| `local/AGENTS.md` | Add D-Bus plan reference | DB-1 |
-
----
-
-*This document should be read alongside `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the
-full desktop execution context. D-Bus phases DB-1 through DB-5 align directly with desktop
-plan Phases 2 through 5.*

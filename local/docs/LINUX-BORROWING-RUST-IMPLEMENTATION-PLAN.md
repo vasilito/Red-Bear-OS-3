@@ -1,14 +1,12 @@
 # Linux Borrowing and Rust Implementation Plan for Red Bear OS
 
-**Date:** 2026-04-18  
-**Status:** Planning authority for Linux-derived borrowing boundaries and Rust rewrite guidance across low-level subsystem work  
+**Date:** 2026-04-18
+**Status:** Planning authority for Linux-derived borrowing boundaries and Rust rewrite guidance across low-level subsystem work. PCI/IRQ rollout authority lives in `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`.
 **Scope:** Hardware enablement, ACPI including suspend/resume, low-level startup/init, PCI, IRQ/MSI/MSI-X, PS/2 init, IOMMU, USB/xHCI/storage, bounded Wi-Fi transport reuse, and selective GPU/DRM orchestration reuse
 
 ## Intent
 
-This document answers a specific Red Bear question:
-
-> Which Linux kernel source and Linux documentation already present in this repo should be used as donor material for Red Bear OS, what should be rewritten into Rust, what should remain reference-only, and where should that logic live in Red Bear’s architecture?
+Which Linux kernel source and Linux documentation already present in this repo should be used as donor material for Red Bear OS, what should be rewritten into Rust, what should remain reference-only, and where should that logic live in Red Bear's architecture?
 
 This plan is intentionally **Red Bear-native**. It does **not** propose importing Linux subsystem architecture into Red Bear.
 
@@ -17,15 +15,14 @@ This plan is intentionally **Red Bear-native**. It does **not** propose importin
 The software-only, bounded slices from this plan that are now implemented in code are:
 
 - **Phase A — PCI / IRQ substrate**
-- shared PCI config-space parsing now preserves capability chains in `redox-driver-sys`
-- shared quirk-aware interrupt support summary exists (`none` / `legacy` / `msi` / `msix`)
-- `pcid` now consumes the shared PCI parser in its header path for interrupt-support reporting,
-  which starts the planned downstream convergence onto the shared substrate instead of keeping all
-  capability interpretation local.
+  - bounded shared substrate slices landed in code (`redox-driver-sys` capability-chain parsing,
+    interrupt-support summary, and early `pcid` convergence)
+  - the **canonical execution order, current robustness judgment, and remaining implementation work**
+    for PCI/IRQ now live in `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - **Phase B — ACPI / IOMMU groundwork**
-  - `acpid` now has an explicit userspace sleep-target model for `S1` / `S3` / `S4` / `S5`
-  - `_S5` shutdown routes through that model, while non-`S5` targets remain groundwork-only
-  - `iommu` now detects kernel ACPI `DMAR` presence, establishing the Intel VT-d ownership seam
+  - `acpid` now carries an explicit userspace sleep-target model naming `S1` / `S3` / `S4` / `S5`
+  - only `_S5` soft-off is materially wired today; non-`S5` targets remain groundwork-only
+  - `iommu` now detects kernel ACPI `DMAR` presence as a convergence seam, but Intel VT-d runtime ownership is not yet cleanly closed outside `acpid`
 - **Phase C — PS/2 / USB / storage**
   - `ps2d` now flushes stale controller output during probe and around core init/self-test
   - `xhcid` now tracks active alternate settings and resolves endpoint descriptors through that map
@@ -253,7 +250,7 @@ Reason: all of those conflict with the ownership rules that Red Bear already imp
 ## 5. What Red Bear still materially needs
 
 - ACPI sleep beyond `_S5`
-- Intel VT-d / DMAR runtime ownership moved out of `acpid`
+- clean Intel VT-d / DMAR runtime ownership outside `acpid`
 - better PCI host bridge / interrupt-link handling
 - quirk convergence in `redox-driver-sys`
 - USB composite/interface correctness
@@ -291,45 +288,39 @@ Keep only:
 
 ## 2. Implementation order
 
-1. PCI / IRQ / quirk substrate
-2. ACPI sleep groundwork
-3. IOMMU ownership cleanup
-4. PS/2 hardening deltas
-5. USB maturity
-6. Wi-Fi bounded helper extraction
-7. GPU/DRM selective orchestration extraction only after hardware proof
+For current execution order, priority ranking, and acceptance language:
+
+- use `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` for PCI / IRQ / low-level
+  controller work,
+- use `local/docs/ACPI-IMPROVEMENT-PLAN.md` for ACPI ownership/robustness/sleep work,
+- use `local/docs/USB-IMPLEMENTATION-PLAN.md` for USB maturity,
+- and use the Wi-Fi / DRM plans for those later subsystem-specific phases.
+
+This file should keep the **borrowing and rewrite policy** for those phases, not act as a competing
+execution roadmap.
 
 ## 3. Work package backlog
 
 ### Phase A — PCI / IRQ / quirk substrate
 
-**Primary targets**
-- `local/recipes/drivers/redox-driver-sys/source/src/pci.rs`
-- `.../src/irq.rs`
-- `.../src/quirks/*`
-- `recipes/core/base/source/drivers/pcid/src/main.rs`
-- `.../src/driver_interface/irq_helpers.rs`
+For Phase A execution detail, file targets, acceptance criteria, and validation language, use the
+canonical PCI/IRQ plan:
 
-**Implement**
-- typed PCI capability walkers
-- BAR/resource validation helpers
-- MSI/MSI-X mode selection helpers
-- quirk pass model in Rust
-- interrupt mode reporting
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 
-**Acceptance**
-- build clean
-- unit tests for malformed capability chains and BAR layout
-- interrupt mode logged deterministically
+This document keeps only the borrowing-policy summary for Phase A:
 
-**Current implementation progress (2026-04-18)**
-- `redox-driver-sys` fast PCI enumeration now parses capability chains from config bytes in the
-  read-only path, so enumerated `PciDeviceInfo` records no longer default to empty capability
-  lists.
-- `PciDeviceInfo` now exposes a quirk-aware interrupt support summary (`none`, `legacy`, `msi`,
-  `msix`) that can serve as the common policy input for future `pcid`/driver convergence.
-- Host-runnable unit coverage exists for capability-chain parsing, malformed next-pointer handling,
-  and interrupt-support selection behavior.
+- borrow Linux capability/fixup/MSI semantics as donor knowledge,
+- reimplement them as typed Rust helpers in `redox-driver-sys` / `pcid`,
+- prefer data-driven quirks over daemon-local special cases,
+- and do not import Linux generic IRQ-core ownership into Red Bear.
+
+Current implementation progress remains true but is intentionally summarized only:
+
+- shared PCI capability parsing and interrupt-support summarization are already present in
+  `redox-driver-sys`,
+- and the remaining rollout/convergence work now belongs to the canonical IRQ plan rather than this
+  borrowing-policy document.
 
 ### Phase B — ACPI / suspend / IOMMU
 
@@ -351,17 +342,18 @@ Keep only:
 - IOMMU ownership clarified and moved out of `acpid`
 
 **Current implementation progress (2026-04-18)**
-- `acpid` now has an explicit `SleepTarget` / `SleepPhase` model in userspace, covering `S1`, `S3`,
-  `S4`, and `S5` as named Red Bear sleep targets.
+- `acpid` now has an explicit `SleepTarget` / `SleepPhase` model in userspace, naming `S1`, `S3`,
+  `S4`, and `S5` as Red Bear sleep targets.
 - The real shutdown path now routes through that target model, while non-`S5` targets are
-  recognized but reported as groundwork-only rather than silently ignored.
+  recognized but still remain groundwork-only rather than implemented suspend/resume support.
 - Unit coverage exists for sleep-target parsing, AML sleep-object naming, and the current
   Red Bear-native rule that only `S5` is treated as an implemented soft-off path today.
 - This is still groundwork only: there is no claim of full suspend/resume or sleep eventing yet,
   and Linux suspend sequencing remains reference material rather than imported structure.
 - The `iommu` daemon now also detects the presence of a kernel ACPI `DMAR` table and reports that
   Intel VT-d runtime ownership should converge there instead of remaining conceptually attached to
-  the old transitional `acpid` DMAR code.
+  the old transitional `acpid` DMAR code, but that ownership is not yet cleanly closed in the
+  current tree.
 
 ### Phase C — PS/2 / USB / storage
 

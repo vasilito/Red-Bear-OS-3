@@ -40,7 +40,7 @@
 | **libinput** | ✅ | 1.30.2 with comprehensive redox.patch |
 | **D-Bus** | ✅ | 1.16.2, libdbus-1.so |
 | **KF6 Frameworks** | ✅ 32/32 | All frameworks built |
-| **KWin** | 🔄 | Reduced recipe path now uses real `libxcvt`, `libepoxy`, `lcms2`, and honest `libudev.so` / `libdisplay-info.so` provider linkage, but runtime/session proof is still incomplete |
+| **KWin** | 🔄 | Reduced recipe path now uses real `libxcvt`, `libepoxy`, `lcms2`, and honest `libudev.so` / `libdisplay-info.so` provider linkage; guest-side Qt plugin loading is fixed, but broader KWin runtime/session stability is still incomplete |
 | **Hardware acceleration** | ❌ | PRIME/DMA-BUF scheme ioctls implemented; blocked on GPU command submission (CS ioctl) |
 
 ---
@@ -221,54 +221,42 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 ---
 
-## relibc Gaps — Complete Inventory
+## relibc Status — Qt-facing Summary
 
-### Resolved (workarounds in recipe/patch)
+The canonical relibc assessment now lives in:
 
-| Gap | Workaround | Location |
-|-----|-----------|----------|
-| `sys/statfs.h` missing | Wrapper → `sys/statvfs.h` (typedef, #define) | recipe.toml heredoc |
-| `ELFMAG` string missing from `elf.h` | `#define ELFMAG "\177ELF"` prepended to source | recipe.toml printf |
-| `resolv.h` availability | Minimal relibc header now exists in-tree | verify downstream consumers against the generated header |
-| `unlinkat()`/`linkat()` missing | Inline stubs with `AT_FDCWD` | redox.patch |
-| `byteswap.h` missing | Skip include on Redox | redox.patch (brg_endian.h) |
-| Float16 soft-fp (`__truncsfhf2` etc.) | Custom IEEE 754 C implementation | redox.patch (qt_float16_shims.c) |
-| Half-float comparison (`__eqhf2` etc.) | Custom IEEE 754 C implementation | redox.patch (same file) |
-| `openat()` not available | `#ifdef Q_OS_REDOX` guard | redox.patch (qcore_unix_p.h) |
+- `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`
+- `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md`
 
-### Networking Surface — Now Present, Still Needs Runtime Validation
+This Qt status document should use those files as the source of truth instead of carrying a second,
+more optimistic relibc inventory.
 
-| Gap | Impact | relibc File to Modify |
-|-----|--------|----------------------|
-| `resolv.h` | Present in relibc as a minimal source-visible header | `recipes/core/relibc/source/src/header/resolv/` |
-| `in6_pktinfo` / `ipv6_mreq` | Present in relibc | `recipes/core/relibc/source/src/header/netinet_in/mod.rs` |
-| `SIOCGIF*` ioctls | Present for the current Redox `eth0` model | `recipes/core/relibc/source/src/header/sys_ioctl/redox/mod.rs` |
-| `::ioctl` path | Present in relibc Redox ioctl implementation | `recipes/core/relibc/source/src/header/sys_ioctl/` |
-| `ifreq` / `ifconf` / `ifaddrs` | Present for the current Redox `eth0` model | `recipes/core/relibc/source/src/header/net_if/mod.rs`, `recipes/core/relibc/source/src/header/ifaddrs/mod.rs` |
+### Current Qt-facing relibc position
 
-### Unresolved — Blocks Other Qt Modules/Features
+| Area | Current state for Qt/KDE work |
+|-----|-------------------------------|
+| fd-event APIs | The active relibc recipe patch chain provides bounded `eventfd`, `signalfd`, `timerfd`, and `waitid()` support. These should be treated as recipe-applied compatibility, not plain-source upstream convergence. |
+| shared memory and semaphores | The active build now includes a bounded named-semaphore path through the relibc recipe surface. Broader SysV shm/sem work remains deferred outside the current concrete wave, and runtime trust for real Qt/KDE consumer paths is still the key remaining question. |
+| interface discovery | `ifaddrs` / `net_if` support currently comes from a bounded Red Bear patch layer with a synthetic `loopback` + `eth0` model, not full live interface enumeration. |
+| still-missing surfaces | Message queues remain absent, and broader relibc completeness work is still open in the live source tree. |
 
-| Gap | Impact | Module Blocked |
-|-----|--------|---------------|
+### Qt/KDE-facing relibc gaps that still matter
+
+| Gap | Impact | Module blocked or pressured |
+|-----|--------|----------------------------|
 | broader networking runtime validation | QtNetwork end-to-end behavior | QtNetwork |
-| GPU hardware display validation | Hardware-accelerated rendering | QtOpenGL hardware path |
-| broader shared-memory validation beyond the existing `shm_open()` path | Shared memory | QSharedMemory |
-| broader semaphore/system-IPC validation beyond the new `sem_open()` path | POSIX semaphores | QSystemSemaphore |
-| process/runtime validation beyond the new bounded `waitid()` path | QProcess internals | QProcess |
+| broader shared-memory validation beyond the existing `shm_open()` path | shared memory confidence | QSharedMemory |
+| broader semaphore and SysV-IPC runtime validation | semaphore and IPC confidence | QSystemSemaphore and direct KDE consumers |
+| process/runtime validation beyond the bounded `waitid()` path | process-control confidence | QProcess |
+| GPU hardware display validation | hardware-accelerated rendering | QtOpenGL hardware path |
 
-Recent relibc implementation progress in this repo now also includes:
+The practical takeaway is that relibc is no longer blocked on raw fd-event API absence, but Qt/KDE
+still depends on more proof and more semantic hardening than the current patch-applied surface alone
+provides.
 
-- source-visible plus strict Redox-target runtime-tested `signalfd`, `timerfd`, `eventfd`, `open_memstream`, `F_DUPFD_CLOEXEC`, and `MSG_NOSIGNAL`
-- a bounded `waitid()` path in relibc, replacing the old Qt-side waitid stub workaround
-- a bounded `eth0`-backed `net_if` / `ifaddrs` path in relibc
-- a minimal source-visible `resolv.h` surface in relibc
-- bounded `sys/ipc.h` / `sys/shm.h` surfaces for the `IPC_PRIVATE` shared-memory workflow
-
-Current downstream build proof in this repo now includes:
-
-- `libwayland` cooking successfully against the updated relibc surfaces
-- qtbase configuring, building, and staging with `process`, `sharedmemory`, and `systemsemaphore` enabled
-| Fontconfig | Advanced font selection | QtGui (bundled FreeType works for basic) |
+In the current pass, the active bounded relibc wave was also revalidated through focused relibc
+tests for `eventfd`, `signalfd`, `timerfd`, `waitid`, named and unnamed semaphores,
+`open_memstream`, and the bounded `ifaddrs` surface.
 
 ---
 
@@ -283,19 +271,19 @@ Current downstream build proof in this repo now includes:
 - Unblocks: kf6-kdbusaddons, kf6-kservice, kf6-kpackage, kf6-kglobalaccel
 - D-Bus plan: `local/docs/DBUS-INTEGRATION-PLAN.md` — redbear-sessiond login1 broker + D-Bus service infrastructure for KDE Plasma
 
-**redbear-sessiond:** Implemented. Rust daemon at `local/recipes/system/redbear-sessiond/` using zbus 5, serving `org.freedesktop.login1` Manager/Session/Seat interfaces on the system bus. Maps `TakeDevice(major, minor)` to Redox scheme paths (`/scheme/drm/card0`, `/dev/input/eventN`). Config wired in `config/redbear-kde.toml` with init service at slot 13.
+**redbear-sessiond:** Implemented. Rust daemon at `local/recipes/system/redbear-sessiond/` using zbus 5, serving `org.freedesktop.login1` Manager/Session/Seat interfaces on the system bus. Maps `TakeDevice(major, minor)` to Redox scheme paths (`/scheme/drm/card0`, `/dev/input/eventN`). Config wired in `config/redbear-full.toml` with init service at slot 13.
 
 **qdbuscpp2xml/qdbusxml2cpp provisioning:** Qt host build has `FEATURE_dbus=OFF` with these tools disabled. KDE recipes provision them via symlinks: kf6-kdbusaddons falls back to `/usr/bin/qdbuscpp2xml` and `/usr/bin/qdbusxml2cpp` from the host system. This works for cross-compilation but is not a long-term solution. Future improvement: enable FEATURE_dbus=ON in host build once D-Bus session bus validation passes.
 
-**KF6 D-Bus re-enablement roadmap:** 15 KF6 components currently build with `-DUSE_DBUS=OFF`. Re-enablement is gated on D-Bus service availability: kf6-knotifications needs `org.freedesktop.Notifications` (DB-2, now enabled against a stub notification daemon), kf6-solid needs runtime-validated `org.freedesktop.UPower` + `org.freedesktop.UDisks2` enumeration (DB-3, both daemons now expose bounded real enumeration). The runtime proof harness is now in place, but `kf6-solid` still keeps `-DUSE_DBUS=OFF`, `-DBUILD_DEVICE_BACKEND_upower=OFF`, and `-DBUILD_DEVICE_BACKEND_udisks2=OFF` until `solid-hardware6`/Phase 6 validation can confirm the consumer path. kf6-kio and 10 others need full desktop services (DB-5). See `local/docs/DBUS-INTEGRATION-PLAN.md` Section 14 for the complete matrix.
+**KF6 D-Bus re-enablement roadmap:** 15 KF6 components currently build with `-DUSE_DBUS=OFF`. Re-enablement is gated on D-Bus service availability: kf6-knotifications needs `org.freedesktop.Notifications` (DB-2, now enabled against a stub notification daemon), while kf6-solid needs `org.freedesktop.UPower` + `org.freedesktop.UDisks2` only after those services are consumer-trustworthy. The current UDisks2 path is much closer to that bar than UPower; the ACPI-backed UPower surface remains provisional until Wave 3 in `local/docs/ACPI-IMPROVEMENT-PLAN.md` closes. The runtime proof harness is now in place, but `kf6-solid` still keeps `-DUSE_DBUS=OFF`, `-DBUILD_DEVICE_BACKEND_upower=OFF`, and `-DBUILD_DEVICE_BACKEND_udisks2=OFF` until `solid-hardware6`/Phase 6 validation can confirm the consumer path. kf6-kio and 10 others need full desktop services (DB-5). See `local/docs/DBUS-INTEGRATION-PLAN.md` Section 14 for the complete matrix.
 
 **Key insight:** QtDBus is NOT the gap — Qt6DBus builds and kf6-kdbusaddons provides the KDE convenience layer. The gap is the freedesktop service contracts (login1, Notifications, UPower, UDisks2, PolicyKit) that need Redox-native implementations. NetworkManager is deferred; Red Bear OS uses `redbear-netctl` for now.
 
-### Phase 2b — qtwayland Module (🔄 Building)
+### Phase 2b — qtwayland Module (◐ Client path complete, compositor slice intentionally reduced)
 
 - Recipe at `recipes/wip/qt/qtwayland/recipe.toml`
 - Uses redox-toolchain.cmake + host Qt build pattern
-- Wayland compositor disabled, client-only build
+- Wayland client path is built and staged; compositor-side coverage remains intentionally reduced in the recipe
 - OpenGL guards applied for software rendering
 
 ### Phase 2c — Input Stack (✅ COMPLETE)
@@ -366,8 +354,9 @@ Current truth for Phase 4:
   not proof of a hardware-accelerated desktop session
 - the current QEMU validation harness is still software-rendered (`llvmpipe`) and should be treated
   as a bounded regression/test path, not as the final acceleration proof target
-- the in-repo Phase 4 runtime check currently still fails in `qt6-bootstrap-check` during early Qt
-  startup, so even the bounded software-path runtime proof remains incomplete
+- the earlier guest-side Qt bootstrap/plugin blocker is now fixed: bounded guest checks load both
+  `libqminimal.so` and KWin's `qwayland-org.kde.kwin.qpa.so`, but compositor-backed runtime proof
+  is still incomplete because KWin/session stability remains open
 - true hardware-accelerated desktop readiness still requires GPU command submission (CS ioctl) plus real
   AMD/Intel hardware validation through the DRM → GBM/EGL → compositor → Qt client path
   (PRIME/DMA-BUF cross-process buffer sharing is implemented at scheme level)
@@ -444,8 +433,8 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
 4. **relibc / graphics surface still incomplete for runtime** — the build-side `open_memstream` and Wayland-facing header export path now work,
    and DMA-BUF ioctls plus a bounded private CS surface now exist, but real sync objects/shared fence semantics and broader graphics runtime validation are still unavailable.
 
-5. **KDE Plasma does NOT compile or run end-to-end** — KWin, plasma-workspace, plasma-desktop recipes exist,
-   and KWin’s reduced build now verifies with honest `libudev.so` / `libdisplay-info.so` linkage, but runtime integration, compositor validation, and broader Plasma session proof are still missing.
+5. **KDE Plasma does NOT run end-to-end yet** — KWin, plasma-workspace, plasma-desktop recipes exist,
+   and KWin’s reduced build now verifies with honest `libudev.so` / `libdisplay-info.so` linkage and a successful current `kwin` cook, but runtime integration, compositor validation, and broader Plasma session proof are still missing.
 
 ## Honest Status Assessment
 

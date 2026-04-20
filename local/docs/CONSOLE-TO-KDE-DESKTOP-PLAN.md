@@ -37,9 +37,9 @@ hardware GPU validation → KWin session bring-up → KDE Plasma session bring-u
 
 Out of scope: USB, Wi-Fi, Bluetooth (covered by their own subsystem plans).
 
-Tracked-default truth: this document is the canonical desktop-path plan, and the tracked default
-build now resolves to `CONFIG_NAME?=redbear-kde`. Runtime/session support claims still follow the
-evidence model below.
+Tracked-default truth: this document is the canonical desktop-path plan, and the tracked desktop-
+capable surface is `redbear-full` / `redbear-live-full`. Older names such as `redbear-wayland` and
+`redbear-kde` should be read as historical or staging labels, not supported compile targets.
 
 ---
 
@@ -73,7 +73,7 @@ Rules:
 | Area | State | Evidence | Notes |
 |---|---|---|---|
 | AMD bare-metal boot | validated | Boot, ACPI, SMP, x2APIC all work | Bounded to current tested hardware |
-| relibc Wayland/Qt unblockers | builds + targeted runtime proof | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open, bounded sys/ipc.h, bounded sys/shm.h | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
+| relibc Wayland/Qt unblockers | builds + targeted runtime proof | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
 | redox-driver-sys | builds | Driver substrate | |
 | linux-kpi | builds | Linux kernel API compatibility layer | |
 | firmware-loader | builds, boots | scheme:firmware registers at boot | |
@@ -98,9 +98,9 @@ Rules:
 | plasma-wayland-protocols | builds | | |
 | kf6-kwayland | builds | | |
 | kf6-kcmutils | builds | Widget-only build (QML stripped) | |
-| `redbear-wayland` profile | builds, boots | Bounded Wayland runtime profile | |
+| `redbear-wayland` profile | historical / staging | Bounded Wayland validation profile | Not a supported compile target |
 | `redbear-full` profile | builds, boots | Broader desktop plumbing profile | Session/network/runtime integration slice |
-| `redbear-kde` profile | builds | KDE session-surface profile | Tracked default KWin direction; KWin only, not plasma-workspace/desktop yet |
+| `redbear-kde` profile | historical / staging | Older KDE session-surface profile | Not a supported compile target; use `redbear-full` / `redbear-live-full` for the tracked desktop-capable surface |
 | bounded compositor validation path | experimental | Reaches xkbcommon init + EGL platform selection in QEMU | No complete session |
 | qt6-wayland-smoke | builds, partial | Creates QWindow with colored background, runs 3 seconds | |
 | QEMU graphics | usable (bounded) | Renderer is llvmpipe | Not hardware acceleration |
@@ -125,12 +125,12 @@ still display-only evidence, not render proof.
 
 The repo has crossed major build-side gates:
 
-1. **relibc surface** — signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open, bounded sys/ipc.h, bounded sys/shm.h
+1. **relibc surface** — signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open
 2. **Driver substrate** — redox-driver-sys, linux-kpi, firmware-loader, redox-drm (AMD+Intel), amdgpu C port, evdevd, udev-shim
 3. **Wayland/graphics packages** — libwayland, wayland-protocols, Mesa EGL+GBM+GLES2, libdrm, libdrm_amdgpu
 4. **Qt6 + D-Bus** — qtbase (7 libs + 12 plugins), qtdeclarative (11 libs), qtsvg, qtwayland, D-Bus 1.16.2
 5. **KF6 + KDE-facing** — All 32 KF6 frameworks, kdecoration, plasma-wayland-protocols, kf6-kwayland, kf6-kcmutils
-6. **Tracked profiles** — redbear-wayland, redbear-full, redbear-kde
+6. **Tracked profiles** — redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
 
 ### What is runtime-proven (limited scope)
 
@@ -314,7 +314,7 @@ compositor + input + Qt client issues before session-shell complexity.
 
 **Duration:** 6–10 weeks (starts after Phase 2)
 **Goal:** Turn compositor proof into a real desktop-session substrate centered on KWin.
-**Profile target:** `redbear-kde`
+**Profile target:** `redbear-full`
 **Renderer:** LLVMpipe (software) — KWin inherits accelerated renderer once Phase 5 lands.
 
 #### Blocked dependency set that must be closed
@@ -382,7 +382,7 @@ compositor + input + Qt client issues before session-shell complexity.
 
 **Duration:** 8–12 weeks (starts after Phase 3)
 **Goal:** Boot into a KDE Plasma session with essential desktop shell and session services.
-**Profile target:** `redbear-kde`
+**Profile target:** `redbear-full`
 
 #### Work items
 
@@ -416,7 +416,7 @@ plasma-desktop
 
 #### Exit criteria
 
-- [ ] `redbear-kde` boots into a KDE Plasma session (plasmashell process is running)
+- [ ] `redbear-full` boots into a KDE Plasma session (plasmashell process is running)
 - [ ] KWin is the active compositor (`WAYLAND_DISPLAY` owned by KWin)
 - [ ] Plasma panel renders and is interactive (launcher opens, clock visible)
 - [ ] An application can be launched from the session and displays a window
@@ -609,7 +609,7 @@ continuity, not as future work.
 | All 32 KF6 frameworks | ✅ Builds complete | Prior to this plan |
 | Input stack (libevdev, libinput, evdevd, udev-shim) | ✅ Builds complete | Prior to this plan |
 | Mesa EGL/GBM/GLES2 + libdrm amdgpu | ✅ Builds complete | Prior to this plan |
-| Desktop profiles (redbear-wayland, redbear-full, redbear-kde) | ✅ Builds complete | Prior to this plan |
+| Desktop profiles (`redbear-mini`, `redbear-live-mini`, `redbear-full`, `redbear-live-full`) | ✅ Builds complete | Prior to this plan |
 | `local/docs/DBUS-INTEGRATION-PLAN.md` | D-Bus architecture, service dependency map, and phased implementation |
 | PRIME/DMA-BUF scheme ioctls | ✅ Implemented | Prior to this plan |
 | KWin recipe with 5 re-enabled features | ✅ Partial build | Prior to this plan |
