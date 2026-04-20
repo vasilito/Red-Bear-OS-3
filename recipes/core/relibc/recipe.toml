@@ -7,19 +7,23 @@ patches = [
     "../../../local/patches/relibc/P3-signalfd.patch",
     "../../../local/patches/relibc/P3-signalfd-header.patch",
     "../../../local/patches/relibc/P3-timerfd.patch",
+    "../../../local/patches/relibc/P3-waitid.patch",
+    "../../../local/patches/relibc/P3-semaphore-fixes.patch",
+    "../../../local/patches/relibc/P3-socket-cred.patch",
     "../../../local/patches/relibc/P3-elf64-types.patch",
+    "../../../local/patches/relibc/P3-open-memstream.patch",
+    "../../../local/patches/relibc/P3-ifaddrs-net_if.patch",
+    "../../../local/patches/relibc/P3-fd-event-tests.patch",
 ]
 
 [build]
 template = "custom"
 script = """
 # rustup workaround https://github.com/rust-lang/rustup/issues/988
-if [ "${COOKBOOK_HOST_SYSROOT}" = "/usr" ]; then
-if command -v rustup >/dev/null 2>&1; then
+if [ "${COOKBOOK_HOST_SYSROOT}" = "/usr" ] && command -v rustup >/dev/null 2>&1; then
     pushd ${COOKBOOK_SOURCE}
     ${RUSTUP:-rustup} install
     popd
-fi
 fi
 
 export CARGO=${CARGO:-env -u CARGO cargo}

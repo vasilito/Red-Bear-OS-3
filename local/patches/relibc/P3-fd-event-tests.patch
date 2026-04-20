@@ -58,6 +58,23 @@ new file mode 100644
 +    puts("signalfd ok");
 +    return 0;
 +}
+diff --git a/tests/sys_signalfd/header_only.c b/tests/sys_signalfd/header_only.c
+new file mode 100644
+--- /dev/null
++++ b/tests/sys_signalfd/header_only.c
+@@ -0,0 +1,12 @@
++#include <stdint.h>
++#include <sys/signalfd.h>
++
++int main(void) {
++    struct signalfd_siginfo info = {0};
++    int (*fn1)(int, const sigset_t *, size_t) = signalfd;
++    int (*fn2)(int, const sigset_t *, size_t, int) = signalfd4;
++
++    return (int)sizeof(info)
++        + (fn1 == 0)
++        + (fn2 == 0);
++}
 diff --git a/tests/sys_timerfd/timerfd.c b/tests/sys_timerfd/timerfd.c
 new file mode 100644
 --- /dev/null
@@ -95,36 +112,15 @@ new file mode 100644
 diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
 --- a/tests/Makefile.tests.mk
 +++ b/tests/Makefile.tests.mk
-@@ -312,6 +312,9 @@ VARIED_NAMES=\
- 	grp/getgrgid_r \
- 	grp/getgrnam_r \
- 	grp/gr_iter \
+@@ -314,8 +314,12 @@ VARIED_NAMES=\
+	grp/gr_iter \
+	semaphore/named \
+	semaphore/unnamed \
 +	sys_eventfd/eventfd \
++	sys_signalfd/header_only \
 +	sys_signalfd/signalfd \
 +	sys_timerfd/timerfd \
- 	waitpid \
- 	waitpid_multiple \
- 	$(FAILING_TESTS)
-diff --git a/tests/Makefile b/tests/Makefile
---- a/tests/Makefile
-+++ b/tests/Makefile
-@@ -78,14 +78,16 @@ FLAGS=\
- 	-Wno-deprecated-declarations \
- 	-pedantic \
- 	-g \
--	-I .
-+	-I . \
-+	$(CPPFLAGS) $(CFLAGS)
- 
- STATIC_FLAGS=\
--	-static
-+	-static $(LDFLAGS)
- 
- DYNAMIC_FLAGS=\
- 	-Wl,--enable-new-dtags \
--	-Wl,-export-dynamic
-+	-Wl,-export-dynamic \
-+	$(LDFLAGS)
- 
- SYSROOT?=$(abspath ../sysroot/$(TARGET)/)
- SYSROOT_TARGET?=$(SYSROOT)
+	waitid \
+	waitpid \
+	waitpid_multiple \
+	$(FAILING_TESTS)

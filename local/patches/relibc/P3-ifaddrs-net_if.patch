@@ -17,7 +17,7 @@ index bddb69b8..598beba3 100644
      platform::{
          self,
          types::{c_char, c_int, c_uint, c_void},
-@@ -27,6 +33,68 @@ pub struct ifaddrs {
+@@ -27,6 +33,83 @@ pub struct ifaddrs {
      ifa_data: *mut c_void,
  }
  
@@ -32,11 +32,22 @@ index bddb69b8..598beba3 100644
 +    }
 +}
 +
++fn align_up(offset: usize, align: usize) -> usize {
++    (offset + (align - 1)) & !(align - 1)
++}
++
 +unsafe fn make_ifaddrs_node(entry: &crate::header::net_if::InterfaceEntry) -> *mut ifaddrs {
 +    let name_len = entry.name.to_bytes_with_nul().len();
 +    let addr_size = if entry.addr.is_some() { core::mem::size_of::<sockaddr_in>() } else { 0 };
 +    let netmask_size = if entry.netmask.is_some() { core::mem::size_of::<sockaddr_in>() } else { 0 };
-+    let total = core::mem::size_of::<ifaddrs>() + name_len + addr_size + netmask_size;
++    let addr_align = core::mem::align_of::<sockaddr_in>();
++    let mut total = core::mem::size_of::<ifaddrs>() + name_len;
++    if addr_size != 0 {
++        total = align_up(total, addr_align) + addr_size;
++    }
++    if netmask_size != 0 {
++        total = align_up(total, addr_align) + netmask_size;
++    }
 +    let raw = unsafe { stdlib::malloc(total) } as *mut u8;
 +    if raw.is_null() {
 +        return core::ptr::null_mut();
@@ -52,6 +63,8 @@ index bddb69b8..598beba3 100644
 +    cursor = unsafe { cursor.add(name_len) };
 +
 +    let addr_ptr = if let Some(addr) = entry.addr {
++        let aligned = align_up(cursor as usize, addr_align);
++        cursor = aligned as *mut u8;
 +        let ptr = cursor.cast::<sockaddr_in>();
 +        unsafe { ptr.write(ipv4_addr(addr)) };
 +        cursor = unsafe { cursor.add(core::mem::size_of::<sockaddr_in>()) };
@@ -61,6 +74,8 @@ index bddb69b8..598beba3 100644
 +    };
 +
 +    let netmask_ptr = if let Some(netmask) = entry.netmask {
++        let aligned = align_up(cursor as usize, addr_align);
++        cursor = aligned as *mut u8;
 +        let ptr = cursor.cast::<sockaddr_in>();
 +        unsafe { ptr.write(ipv4_addr(netmask)) };
 +        ptr.cast::<sockaddr>()
@@ -125,7 +140,7 @@ diff --git a/src/header/net_if/mod.rs b/src/header/net_if/mod.rs
 index edbfedec..bd07e2c9 100644
 --- a/src/header/net_if/mod.rs
 +++ b/src/header/net_if/mod.rs
-@@ -21,21 +21,54 @@ pub struct if_nameindex {
+@@ -21,21 +21,51 @@ pub struct if_nameindex {
      if_name: *const c_char,
  }
  
@@ -171,23 +186,20 @@ index edbfedec..bd07e2c9 100644
 -        if_name: null::<c_char>(),
 -    },
 -];
-+fn interface_nameindex_table() -> [if_nameindex; 3] {
-+    let entries = interface_entries();
-+    [
-+        if_nameindex {
-+            if_index: entries[0].index,
-+            if_name: entries[0].name.as_ptr(),
-+        },
-+        if_nameindex {
-+            if_index: entries[1].index,
-+            if_name: entries[1].name.as_ptr(),
-+        },
-+        if_nameindex {
-+            if_index: 0,
-+            if_name: null::<c_char>(),
-+        },
-+    ]
-+}
++const INTERFACES: [if_nameindex; 3] = [
++    if_nameindex {
++        if_index: 1,
++        if_name: (c"loopback").as_ptr(),
++    },
++    if_nameindex {
++        if_index: 2,
++        if_name: (c"eth0").as_ptr(),
++    },
++    if_nameindex {
++        if_index: 0,
++        if_name: null::<c_char>(),
++    },
++];
  
  /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/if_freenameindex.html>.
  ///
@@ -215,26 +227,8 @@ index edbfedec..bd07e2c9 100644
      }
      ERRNO.set(ENXIO);
      null::<c_char>()
-@@ -66,7 +112,17 @@ pub unsafe extern "C" fn if_indextoname(idx: c_uint, buf: *mut c_char) -> *const
- /// The end of the list is determined by an if_nameindex struct having if_index 0 and if_name NULL
- #[unsafe(no_mangle)]
- pub unsafe extern "C" fn if_nameindex() -> *const if_nameindex {
--    core::ptr::from_ref::<if_nameindex>(&INTERFACES[0])
-+    static mut TABLE: [if_nameindex; 3] = [
-+        if_nameindex { if_index: 0, if_name: core::ptr::null() },
-+        if_nameindex { if_index: 0, if_name: core::ptr::null() },
-+        if_nameindex { if_index: 0, if_name: core::ptr::null() },
-+    ];
-+
-+    let computed = interface_nameindex_table();
-+    unsafe {
-+        TABLE = computed;
-+        core::ptr::from_ref::<if_nameindex>(&TABLE[0])
-+    }
- }
- 
- /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/if_nametoindex.html>.
-@@ -80,8 +136,11 @@ pub unsafe extern "C" fn if_nametoindex(name: *const c_char) -> c_uint {
+@@ -78,9 +136,12 @@ pub unsafe extern "C" fn if_nametoindex(name: *const c_char) -> c_uint {
+     if name.is_null() {
          return 0;
      }
      let name = unsafe { CStr::from_ptr(name).to_str().unwrap_or("") };
@@ -248,3 +242,60 @@ index edbfedec..bd07e2c9 100644
      }
      0
  }
+diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
+--- a/tests/Makefile.tests.mk
++++ b/tests/Makefile.tests.mk
+@@ -63,6 +63,7 @@ VARIED_NAMES=\
+	features \
+	fnmatch \
+	glob \
++	ifaddrs/getifaddrs \
+	iso646 \
+	libgen \
+	locale/duplocale \
+diff --git a/tests/ifaddrs/getifaddrs.c b/tests/ifaddrs/getifaddrs.c
+new file mode 100644
+--- /dev/null
++++ b/tests/ifaddrs/getifaddrs.c
+@@ -0,0 +1,41 @@
++#include <assert.h>
++#include <ifaddrs.h>
++#include <net/if.h>
++#include <stdio.h>
++#include <string.h>
++
++int main(void) {
++    struct ifaddrs *list = NULL;
++    struct ifaddrs *it;
++    const struct if_nameindex *names;
++    char name[IF_NAMESIZE] = {0};
++    int saw_loopback = 0;
++    int saw_eth0 = 0;
++
++    assert(getifaddrs(&list) == 0);
++    for (it = list; it != NULL; it = it->ifa_next) {
++        assert(it->ifa_name != NULL);
++        if (strcmp(it->ifa_name, "loopback") == 0) {
++            saw_loopback = 1;
++            assert((it->ifa_flags & IFF_LOOPBACK) != 0);
++        } else if (strcmp(it->ifa_name, "eth0") == 0) {
++            saw_eth0 = 1;
++            assert(if_nametoindex("eth0") == 2);
++            assert(if_indextoname(2, name) == name);
++            assert(strcmp(name, "eth0") == 0);
++        }
++    }
++
++    names = if_nameindex();
++    assert(names != NULL);
++    assert(names[0].if_index == 1 && strcmp(names[0].if_name, "loopback") == 0);
++    assert(names[1].if_index == 2 && strcmp(names[1].if_name, "eth0") == 0);
++    assert(names[2].if_index == 0 && names[2].if_name == NULL);
++
++    assert(saw_loopback != 0);
++    assert(saw_eth0 != 0);
++    if_freenameindex((struct if_nameindex *)names);
++    freeifaddrs(list);
++    puts("getifaddrs ok");
++    return 0;
++}

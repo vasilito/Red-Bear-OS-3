@@ -1,0 +1,435 @@
+diff --git a/src/sync/semaphore.rs b/src/sync/semaphore.rs
+--- a/src/sync/semaphore.rs
++++ b/src/sync/semaphore.rs
+@@ -2,8 +2,10 @@
+ //TODO: improve implementation
+ 
+ use crate::{
++    error::{Errno, Result},
+     header::{
+         bits_timespec::timespec,
++        errno::{EINVAL, ETIMEDOUT},
+         time::{CLOCK_MONOTONIC, CLOCK_REALTIME, timespec_realtime_to_monotonic},
+     },
+     platform::types::{c_uint, clockid_t},
+@@ -30,12 +32,12 @@
+         crate::sync::futex_wake(&self.count, i32::MAX);
+     }
+ 
+-    pub fn try_wait(&self) -> u32 {
++    pub fn try_wait(&self) -> bool {
+         loop {
+             let value = self.count.load(Ordering::SeqCst);
+ 
+             if value == 0 {
+-                return 0;
++                return false;
+             }
+ 
+             match self.count.compare_exchange_weak(
+@@ -45,20 +47,16 @@
+                 Ordering::SeqCst,
+             ) {
+                 Ok(_) => {
+-                    // Acquired
+-                    return value;
++                    return true;
+                 }
+                 Err(_) => (),
+             }
+-            // Try again (as long as value > 0)
+         }
+     }
+ 
+-    pub fn wait(&self, timeout_opt: Option<&timespec>, clock_id: clockid_t) -> Result<(), ()> {
++    pub fn wait(&self, timeout_opt: Option<&timespec>, clock_id: clockid_t) -> Result<()> {
+         loop {
+-            let value = self.try_wait();
+-
+-            if value == 0 {
++            if self.try_wait() {
+                 return Ok(());
+             }
+ 
+@@ -68,17 +66,20 @@
+                     CLOCK_MONOTONIC => timeout.clone(),
+                     CLOCK_REALTIME => match timespec_realtime_to_monotonic(timeout.clone()) {
+                         Ok(relative) => relative,
+-                        Err(_) => return Err(()),
++                        Err(_) => return Err(Errno(EINVAL)),
+                     },
+-                    _ => return Err(()),
++                    _ => return Err(Errno(EINVAL)),
+                 };
+-                crate::sync::futex_wait(&self.count, value, Some(&relative));
++                match crate::sync::futex_wait(&self.count, 0, Some(&relative)) {
++                    crate::sync::FutexWaitResult::TimedOut => return Err(Errno(ETIMEDOUT)),
++                    crate::sync::FutexWaitResult::Waited | crate::sync::FutexWaitResult::Stale => {}
++                }
+             } else {
+-                // Use futex to wait for the next change, without a timeout
+-                crate::sync::futex_wait(&self.count, value, None);
++                crate::sync::futex_wait(&self.count, 0, None);
+             }
+         }
+     }
++
+     pub fn value(&self) -> c_uint {
+         self.count.load(Ordering::SeqCst)
+     }
+diff --git a/src/header/semaphore/mod.rs b/src/header/semaphore/mod.rs
+--- a/src/header/semaphore/mod.rs
++++ b/src/header/semaphore/mod.rs
+@@ -3,12 +3,20 @@
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/semaphore.h.html>.
+ 
+ use crate::{
++    error::{Errno, ResultExt},
+     header::{
+         bits_timespec::timespec,
++        errno::{EAGAIN, EINVAL},
++        fcntl::{O_CREAT, O_EXCL, O_RDWR},
++        sys_mman::{MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, mmap, munmap, shm_open, shm_unlink},
++        sys_stat::stat,
+         time::{CLOCK_MONOTONIC, CLOCK_REALTIME},
++        unistd::close,
+     },
+-    platform::types::{c_char, c_int, c_long, c_uint, clockid_t},
++    out::Out,
++    platform::{ERRNO, Pal, Sys, types::{c_char, c_int, c_long, c_uint, clockid_t, mode_t, c_void}},
+ };
++use core::{mem, ptr};
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/semaphore.h.html>.
+ // TODO: Statically verify size and align
+@@ -20,10 +28,90 @@
+ }
+ pub type RlctSempahore = crate::sync::Semaphore;
+ 
++#[repr(C)]
++struct NamedSemaphore {
++    sem: RlctSempahore,
++}
++
++const SEM_FAILED_PTR: *mut sem_t = usize::MAX as *mut sem_t;
++
++unsafe fn map_named_semaphore(
++    name: *const c_char,
++    oflag: c_int,
++    mode: mode_t,
++    value: c_uint,
++) -> Result<*mut sem_t, Errno> {
++    if name.is_null() {
++        return Err(Errno(EINVAL));
++    }
++
++    let mut shm_flags = O_RDWR;
++    if oflag & O_CREAT == O_CREAT {
++        shm_flags |= O_CREAT;
++    }
++    if oflag & O_EXCL == O_EXCL {
++        shm_flags |= O_EXCL;
++    }
++
++    let fd = unsafe { shm_open(name, shm_flags, mode) };
++    if fd < 0 {
++        return Err(Errno(ERRNO.get()));
++    }
++
++    let mut st = stat::default();
++    if let Err(err) = Sys::fstat(fd, Out::from_mut(&mut st)) {
++        let _ = close(fd);
++        return Err(err);
++    }
++
++    let size = mem::size_of::<NamedSemaphore>() as i64;
++    let created = st.st_size == 0;
++    if created {
++        if let Err(err) = Sys::ftruncate(fd, size) {
++            let _ = close(fd);
++            return Err(err);
++        }
++    } else if st.st_size < size {
++        let _ = close(fd);
++        return Err(Errno(EINVAL));
++    }
++
++    let mapped = unsafe {
++        mmap(
++            ptr::null_mut(),
++            size as usize,
++            PROT_READ | PROT_WRITE,
++            MAP_SHARED,
++            fd,
++            0,
++        )
++    };
++    let _ = close(fd);
++    if mapped == MAP_FAILED {
++        return Err(Errno(ERRNO.get()));
++    }
++
++    let named = mapped.cast::<NamedSemaphore>();
++    if created {
++        unsafe {
++            named.write(NamedSemaphore {
++                sem: RlctSempahore::new(value),
++            });
++        }
++    }
++
++    Ok(named.cast())
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_close.html>.
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_close(sem: *mut sem_t) -> c_int {
+-    todo!("named semaphores")
++    if sem.is_null() || sem == SEM_FAILED_PTR {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++
++    unsafe { munmap(sem.cast::<c_void>(), mem::size_of::<NamedSemaphore>()) }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_destroy.html>.
+@@ -51,12 +139,25 @@
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_open.html>.
+ // TODO: va_list
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_open(
+     name: *const c_char,
+-    oflag: c_int, /* (va_list) value: c_uint */
++    oflag: c_int,
++    mut args: ...,
+ ) -> *mut sem_t {
+-    todo!("named semaphores")
++    let (mode, value) = if oflag & O_CREAT == O_CREAT {
++        (unsafe { args.arg::<mode_t>() }, unsafe { args.arg::<c_uint>() })
++    } else {
++        (0o600 as mode_t, 0)
++    };
++
++    match unsafe { map_named_semaphore(name, oflag, mode, value) } {
++        Ok(sem) => sem,
++        Err(Errno(errno)) => {
++            ERRNO.set(errno);
++            SEM_FAILED_PTR
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_post.html>.
+@@ -70,23 +171,27 @@
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_trywait.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_trywait(sem: *mut sem_t) -> c_int {
+-    unsafe { get(sem) }.try_wait();
+-
+-    0
++    if unsafe { get(sem) }.try_wait() {
++        0
++    } else {
++        crate::platform::ERRNO.set(EAGAIN);
++        -1
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_unlink.html>.
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_unlink(name: *const c_char) -> c_int {
+-    todo!("named semaphores")
++    unsafe { shm_unlink(name) }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_trywait.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_wait(sem: *mut sem_t) -> c_int {
+-    if let Ok(()) = unsafe { get(sem) }.wait(None, CLOCK_MONOTONIC) {}; // TODO handle error
+-
+-    0
++    unsafe { get(sem) }
++        .wait(None, CLOCK_MONOTONIC)
++        .map(|()| 0)
++        .or_minus_one_errno()
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_clockwait.html>.
+@@ -96,18 +201,19 @@
+     clock_id: clockid_t,
+     abstime: *const timespec,
+ ) -> c_int {
+-    if let Ok(()) = unsafe { get(sem) }.wait(Some(&unsafe { (*abstime).clone() }), clock_id) {}; // TODO handle error
+-
+-    0
++    unsafe { get(sem) }
++        .wait(Some(&unsafe { (*abstime).clone() }), clock_id)
++        .map(|()| 0)
++        .or_minus_one_errno()
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_timedwait.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sem_timedwait(sem: *mut sem_t, abstime: *const timespec) -> c_int {
+-    if let Ok(()) = unsafe { get(sem) }.wait(Some(&unsafe { (*abstime).clone() }), CLOCK_REALTIME) {
+-    }; // TODO handle error
+-
+-    0
++    unsafe { get(sem) }
++        .wait(Some(&unsafe { (*abstime).clone() }), CLOCK_REALTIME)
++        .map(|()| 0)
++        .or_minus_one_errno()
+ }
+ 
+ unsafe fn get<'any>(sem: *mut sem_t) -> &'any RlctSempahore {
+diff --git a/src/header/semaphore/cbindgen.toml b/src/header/semaphore/cbindgen.toml
+--- a/src/header/semaphore/cbindgen.toml
++++ b/src/header/semaphore/cbindgen.toml
+@@ -2,6 +2,9 @@
+ include_guard = "_RELIBC_SEMAPHORE_H"
+ after_includes = """
+ #include <bits/timespec.h> // for timespec
++"""
++trailer = """
++#define SEM_FAILED ((sem_t *) -1)
+ """
+ language = "C"
+ style = "Type"
+diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
+--- a/tests/Makefile.tests.mk
++++ b/tests/Makefile.tests.mk
+@@ -312,6 +312,8 @@
+ 	grp/getgrgid_r \
+ 	grp/getgrnam_r \
+ 	grp/gr_iter \
++	semaphore/named \
++	semaphore/unnamed \
+ 	waitid \
+ 	waitpid \
+ 	waitpid_multiple \
+diff --git a/tests/semaphore/unnamed.c b/tests/semaphore/unnamed.c
+new file mode 100644
+--- /dev/null
++++ b/tests/semaphore/unnamed.c
+@@ -0,0 +1,57 @@
++#include <assert.h>
++#include <errno.h>
++#include <pthread.h>
++#include <semaphore.h>
++#include <time.h>
++#include <unistd.h>
++
++static sem_t sem;
++
++static void *post_after_delay(void *arg)
++{
++    (void)arg;
++    usleep(50000);
++    assert(sem_post(&sem) == 0);
++    return NULL;
++}
++
++static long elapsed_ns(const struct timespec *start, const struct timespec *end)
++{
++    return (end->tv_sec - start->tv_sec) * 1000000000L + (end->tv_nsec - start->tv_nsec);
++}
++
++int main(void)
++{
++    assert(sem_init(&sem, 0, 0) == 0);
++
++    errno = 0;
++    assert(sem_trywait(&sem) == -1);
++    assert(errno == EAGAIN);
++
++    struct timespec deadline;
++    assert(clock_gettime(CLOCK_REALTIME, &deadline) == 0);
++    deadline.tv_nsec += 20000000L;
++    if (deadline.tv_nsec >= 1000000000L) {
++        deadline.tv_sec += 1;
++        deadline.tv_nsec -= 1000000000L;
++    }
++
++    errno = 0;
++    assert(sem_timedwait(&sem, &deadline) == -1);
++    assert(errno == ETIMEDOUT);
++
++    pthread_t thread;
++    assert(pthread_create(&thread, NULL, post_after_delay, NULL) == 0);
++
++    struct timespec start;
++    struct timespec end;
++    assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
++    assert(sem_wait(&sem) == 0);
++    assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
++    assert(elapsed_ns(&start, &end) >= 20000000L);
++
++    assert(pthread_join(thread, NULL) == 0);
++    assert(sem_destroy(&sem) == 0);
++
++    return 0;
++}
+diff --git a/tests/semaphore/named.c b/tests/semaphore/named.c
+new file mode 100644
+--- /dev/null
++++ b/tests/semaphore/named.c
+@@ -0,0 +1,54 @@
++#include <assert.h>
++#include <fcntl.h>
++#include <pthread.h>
++#include <semaphore.h>
++#include <stdio.h>
++#include <sys/types.h>
++#include <time.h>
++#include <unistd.h>
++
++static sem_t *first;
++static sem_t *second;
++
++static void *post_after_delay(void *arg)
++{
++    (void)arg;
++    usleep(50000);
++    assert(sem_post(second) == 0);
++    return NULL;
++}
++
++static long elapsed_ns(const struct timespec *start, const struct timespec *end)
++{
++    return (end->tv_sec - start->tv_sec) * 1000000000L + (end->tv_nsec - start->tv_nsec);
++}
++
++int main(void)
++{
++    char name[64];
++    snprintf(name, sizeof(name), "/relibc_named_sem_%ld", (long)getpid());
++
++    sem_unlink(name);
++
++    first = sem_open(name, O_CREAT | O_EXCL, 0600, 0);
++    assert(first != SEM_FAILED);
++    second = sem_open(name, 0);
++    assert(second != SEM_FAILED);
++
++    pthread_t thread;
++    assert(pthread_create(&thread, NULL, post_after_delay, NULL) == 0);
++
++    struct timespec start;
++    struct timespec end;
++    assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
++    assert(sem_wait(first) == 0);
++    assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
++    assert(elapsed_ns(&start, &end) >= 20000000L);
++
++    assert(pthread_join(thread, NULL) == 0);
++    assert(sem_close(second) == 0);
++    assert(sem_close(first) == 0);
++    assert(sem_unlink(name) == 0);
++
++    return 0;
++}

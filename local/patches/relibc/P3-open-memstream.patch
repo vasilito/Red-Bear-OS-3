@@ -138,3 +138,44 @@ new file mode 100644
 +pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut size_t) -> *mut FILE {
 +    create_memstream(bufp, sizep).or_errno_null_mut()
 +}
+diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
+--- a/tests/Makefile.tests.mk
++++ b/tests/Makefile.tests.mk
+@@ -85,6 +85,7 @@ VARIED_NAMES=\
+	stdio/fseek \
+	stdio/fwrite \
+	stdio/getc_unget \
+-  	stdio/getline \
++	stdio/getline \
++	stdio/open_memstream \
+	stdio/mutex \
+	stdio/popen \
+diff --git a/tests/stdio/open_memstream.c b/tests/stdio/open_memstream.c
+new file mode 100644
+--- /dev/null
++++ b/tests/stdio/open_memstream.c
+@@ -0,0 +1,24 @@
++#include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++int main(void) {
++    char *buf = NULL;
++    size_t size = 0;
++
++    FILE *stream = open_memstream(&buf, &size);
++    assert(stream != NULL);
++    assert(fputs("hello", stream) >= 0);
++    assert(fflush(stream) == 0);
++    assert(size == 5);
++    assert(strcmp(buf, "hello") == 0);
++    assert(fputc('!', stream) != EOF);
++    assert(fclose(stream) == 0);
++    assert(size == 6);
++    assert(strcmp(buf, "hello!") == 0);
++
++    free(buf);
++    puts("open_memstream ok");
++    return 0;
++}

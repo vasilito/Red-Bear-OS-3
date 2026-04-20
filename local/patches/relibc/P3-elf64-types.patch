@@ -1,7 +1,8 @@
-diff -ruN a/src/header/elf/mod.rs b/src/header/elf/mod.rs
+diff --git a/src/header/elf/mod.rs b/src/header/elf/mod.rs
 --- a/src/header/elf/mod.rs
 +++ b/src/header/elf/mod.rs
 @@ -9,8 +9,8 @@
+ 
  pub type Elf32_Word = uint32_t;
  pub type Elf32_Sword = int32_t;
 -pub type Elf64_Word = uint64_t;

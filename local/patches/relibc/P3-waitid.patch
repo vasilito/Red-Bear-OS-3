@@ -1,8 +1,7 @@
 diff --git a/src/header/sys_wait/mod.rs b/src/header/sys_wait/mod.rs
-index 11f4bf2c..23e1a356 100644
 --- a/src/header/sys_wait/mod.rs
 +++ b/src/header/sys_wait/mod.rs
-@@ -4,13 +4,17 @@
+@@ -4,12 +4,16 @@
  
  use crate::{
      error::ResultExt,
@@ -15,14 +14,13 @@ index 11f4bf2c..23e1a356 100644
 +        types::{c_int, c_uint, pid_t},
      },
  };
- 
++
 +pub type idtype_t = c_int;
 +pub type id_t = c_uint;
-+
+ 
  pub const WNOHANG: c_int = 1;
  pub const WUNTRACED: c_int = 2;
- 
-@@ -24,25 +28,112 @@ pub const __WALL: c_int = 0x4000_0000;
+@@ -24,25 +28,143 @@
  #[allow(overflowing_literals)]
  pub const __WCLONE: c_int = 0x8000_0000;
  
@@ -37,13 +35,33 @@ index 11f4bf2c..23e1a356 100644
 +pub const CLD_STOPPED: c_int = 5;
 +pub const CLD_CONTINUED: c_int = 6;
 +
-+fn wexitstatus(status: c_int) -> c_int { (status >> 8) & 0xff }
-+fn wtermsig(status: c_int) -> c_int { status & 0x7f }
-+fn wstopsig(status: c_int) -> c_int { wexitstatus(status) }
-+fn wcoredump(status: c_int) -> bool { (status & 0x80) != 0 }
-+fn wifexited(status: c_int) -> bool { (status & 0x7f) == 0 }
-+fn wifstopped(status: c_int) -> bool { (status & 0xff) == 0x7f }
-+fn wifcontinued(status: c_int) -> bool { status == 0xffff }
++fn wexitstatus(status: c_int) -> c_int {
++    (status >> 8) & 0xff
++}
++
++fn wtermsig(status: c_int) -> c_int {
++    status & 0x7f
++}
++
++fn wstopsig(status: c_int) -> c_int {
++    wexitstatus(status)
++}
++
++fn wcoredump(status: c_int) -> bool {
++    (status & 0x80) != 0
++}
++
++fn wifexited(status: c_int) -> bool {
++    (status & 0x7f) == 0
++}
++
++fn wifstopped(status: c_int) -> bool {
++    (status & 0xff) == 0x7f
++}
++
++fn wifcontinued(status: c_int) -> bool {
++    status == 0xffff
++}
 +
  /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wait.html>.
  #[unsafe(no_mangle)]
@@ -89,6 +107,10 @@ index 11f4bf2c..23e1a356 100644
 +    if options & WCONTINUED != 0 {
 +        waitpid_options |= WCONTINUED;
 +    }
++    if options & WNOWAIT != 0 {
++        waitpid_options |= WNOWAIT;
++    }
++
 +    Some(waitpid_options)
 +}
 +
@@ -114,12 +136,15 @@ index 11f4bf2c..23e1a356 100644
 +    };
 +
 +    let mut status = 0;
-+    let pid = Sys::waitpid(pid_target, Some(Out::from_mut(&mut status)), waitpid_options).or_minus_one_errno();
++    let pid = Sys::waitpid(pid_target, Some(Out::from_mut(&mut status)), waitpid_options)
++        .or_minus_one_errno();
 +    if pid < 0 {
 +        return -1;
 +    }
 +
-+    unsafe { *infop = core::mem::zeroed() };
++    unsafe {
++        *infop = core::mem::zeroed();
++    }
 +    if pid == 0 {
 +        return 0;
 +    }
@@ -139,7 +164,11 @@ index 11f4bf2c..23e1a356 100644
 +            (*infop).si_status = crate::header::signal::SIGCONT as c_int;
 +        } else {
 +            (*infop).si_status = wtermsig(status);
-+            (*infop).si_code = if wcoredump(status) { CLD_DUMPED } else { CLD_KILLED };
++            (*infop).si_code = if wcoredump(status) {
++                CLD_DUMPED
++            } else {
++                CLD_KILLED
++            };
 +        }
 +    }
 +
@@ -148,3 +177,69 @@ index 11f4bf2c..23e1a356 100644
  
  /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/waitpid.html>.
  #[unsafe(no_mangle)]
+diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
+--- a/tests/Makefile.tests.mk
++++ b/tests/Makefile.tests.mk
+@@ -312,6 +312,7 @@
+ 	grp/getgrgid_r \
+ 	grp/getgrnam_r \
+ 	grp/gr_iter \
++	waitid \
+ 	waitpid \
+ 	waitpid_multiple \
+ 	$(FAILING_TESTS)
+diff --git a/tests/waitid.c b/tests/waitid.c
+new file mode 100644
+--- /dev/null
++++ b/tests/waitid.c
+@@ -0,0 +1,50 @@
++#include <assert.h>
++#include <signal.h>
++#include <stdlib.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++#include "test_helpers.h"
++
++static void wait_until_child_exits(pid_t pid) {
++    siginfo_t info;
++    for (int i = 0; i < 50; ++i) {
++        info.si_pid = 0;
++        int ret = waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT);
++        ERROR_IF(waitid, ret, == -1);
++        if (info.si_pid == pid) {
++            assert(info.si_code == CLD_EXITED);
++            assert(info.si_status == 42);
++            return;
++        }
++        usleep(10000);
++    }
++    assert(!"waitid never observed child exit");
++}
++
++int main(void) {
++    pid_t pid = fork();
++    ERROR_IF(fork, pid, == -1);
++
++    if (pid == 0) {
++        usleep(50000);
++        _Exit(42);
++    }
++
++    siginfo_t info;
++    info.si_pid = 0;
++    int ret = waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT);
++    ERROR_IF(waitid, ret, == -1);
++    assert(info.si_pid == 0);
++
++    wait_until_child_exits(pid);
++
++    int status = 0;
++    pid_t waited = waitpid(pid, &status, 0);
++    ERROR_IF(waitpid, waited, == -1);
++    assert(waited == pid);
++    assert(WIFEXITED(status));
++    assert(WEXITSTATUS(status) == 42);
++
++    return EXIT_SUCCESS;
++}

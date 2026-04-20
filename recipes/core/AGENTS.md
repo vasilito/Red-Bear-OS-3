@@ -68,12 +68,12 @@ Driver access pattern:
 
 | Missing API | Location to implement |
 |-------------|----------------------|
-| signalfd/signalfd4 | `relibc/source/src/header/signal/` — now source-visible in the current Red Bear tree |
-| timerfd_create/settime/gettime | `relibc/source/src/header/sys_timerfd/` — now source-visible in the current Red Bear tree |
-| eventfd | `relibc/source/src/header/sys_eventfd/` — now source-visible in the current Red Bear tree |
-| F_DUPFD_CLOEXEC | `relibc/source/src/header/fcntl/` — now source-visible in the current Red Bear tree |
-| MSG_CMSG_CLOEXEC, MSG_NOSIGNAL | `relibc/source/src/header/sys_socket/` — now source-visible in the current Red Bear tree |
-| open_memstream | `relibc/source/src/header/stdio/` — now source-visible in the current Red Bear tree |
+| signalfd/signalfd4 | `relibc/source/src/header/signal/` + active `local/patches/relibc/P3-signalfd*.patch` carriers — current support is recipe-applied, not plain-source convergence |
+| timerfd_create/settime/gettime | `relibc/source/src/header/sys_timerfd/` + active `local/patches/relibc/P3-timerfd.patch` carrier — current support is recipe-applied |
+| eventfd | `relibc/source/src/header/sys_eventfd/` + active `local/patches/relibc/P3-eventfd.patch` carrier — current support is recipe-applied |
+| F_DUPFD_CLOEXEC | `relibc/source/src/header/fcntl/` + `local/patches/relibc/redox.patch` — support language should remain evidence-qualified |
+| MSG_CMSG_CLOEXEC, MSG_NOSIGNAL | `relibc/source/src/header/sys_socket/` — support language should remain evidence-qualified |
+| open_memstream | `relibc/source/src/header/stdio/` + `local/patches/relibc/P3-open-memstream.patch` carrier — current support is patch-carried |
 
 The current relibc work is therefore no longer just “add the missing Wayland APIs.” The higher-value
 remaining work is completeness depth, downstream cleanup, and runtime validation.

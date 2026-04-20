@@ -1,34 +1,15 @@
-diff --git a/src/c/stdlib.c b/src/c/stdlib.c
-index 62e98108..a9c72392 100644
---- a/src/c/stdlib.c
-+++ b/src/c/stdlib.c
-@@ -4,6 +4,13 @@ long double strtold(const char *nptr, char **endptr) {
-     return (long double)strtod(nptr, endptr);
- }
- 
-+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr)
-+    __asm__("_Z7strtoldPKcPPc");
-+
-+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr) {
-+    return strtold(nptr, endptr);
-+}
-+
- double relibc_ldtod(const long double* val) {
-     return (double)(*val);
- }
 diff --git a/src/header/stdlib/cbindgen.toml b/src/header/stdlib/cbindgen.toml
-index 2e02e68a..c2643c49 100644
 --- a/src/header/stdlib/cbindgen.toml
 +++ b/src/header/stdlib/cbindgen.toml
-@@ -1,17 +1,4 @@
+@@ -1,21 +1,5 @@
  sys_includes = ["stddef.h", "alloca.h", "wchar.h", "features.h"]
  include_guard = "_RELIBC_STDLIB_H"
 -trailer = """
--#ifndef _RELIBC_STDLIB_STRTOLD_H
--#define _RELIBC_STDLIB_STRTOLD_H
+-#ifndef _RELIBC_STDLIB_EXTRA_H
+-#define _RELIBC_STDLIB_EXTRA_H
 -
 -#ifdef __cplusplus
--extern \"C\" {
+-extern "C" {
 -#endif
 -
 -long double strtold(const char *nptr, char **endptr);
@@ -41,3 +22,4 @@ index 2e02e68a..c2643c49 100644
 -"""
  language = "C"
  style = "Type"
+ no_includes = true
