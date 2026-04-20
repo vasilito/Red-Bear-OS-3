@@ -109,14 +109,20 @@ if [[ "$check_mode" -eq 1 ]]; then
     expect <<EOF
 log_user 1
 set timeout 240
-spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/redbear-full/network.pcap -vga none -device virtio-gpu -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $QEMUFLAGS
-expect "login:"
-send "root\r"
-expect "assword:"
-send "password\r"
-expect "Type 'help' for available commands."
-send "redbear-phase4-wayland-check\r"
-expect "Red Bear OS Phase 4 Wayland Runtime Check"
+spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/redbear-full/network.pcap -nographic -vga none -device virtio-gpu -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $QEMUFLAGS
+    expect "login:"
+    send "root\r"
+    expect "assword:"
+    send "password\r"
+    expect "Type 'help' for available commands."
+    send "rm -f /home/root/.wayland-session.started /home/root/.qt6-wayland-smoke.ok /home/root/.qt6-wayland-smoke.err /home/root/.qt6-plugin-minimal.ok /home/root/.qt6-plugin-minimal.err /home/root/.qt6-plugin-minimal.log /home/root/.qt6-bootstrap-minimal.ok /home/root/.qt6-bootstrap-minimal.err /home/root/.qt6-bootstrap-minimal.log /home/root/.qt6-wayland-smoke-minimal.ok /home/root/.qt6-wayland-smoke-offscreen.ok /home/root/.qt6-wayland-smoke-wayland.ok /home/root/.qt6-wayland-smoke.log /home/root/.qt6-wayland-smoke-minimal.log /home/root/.qt6-wayland-smoke-offscreen.log /home/root/.qt6-wayland-smoke-wayland.log /tmp/redbear-phase4-session.log\r"
+    expect "#"
+    send "redbear-validation-session >/tmp/redbear-phase4-session.log ^>/tmp/redbear-phase4-session.log &\r"
+    expect "#"
+    send "sleep 10\r"
+    expect "#"
+    send "redbear-phase4-wayland-check\r"
+    expect "Red Bear OS Phase 4 Wayland Runtime Check"
 expect "redbear-validation-session"
 expect "wayland-session"
 expect "/home/root/.qt6-bootstrap-minimal.ok"

@@ -27,9 +27,12 @@
 #include <QDebug>
 #include <QProcess>
 #include <QTemporaryFile>
+#include <QTimer>
 
 #include <KSignalHandler>
+#ifndef Q_OS_REDOX
 #include <KUpdateLaunchEnvironmentJob>
+#endif
 
 #include <signal.h>
 
@@ -148,7 +151,9 @@ void KWinWrapper::run()
         }
         qputenv("KWIN_RESTART_COUNT", QByteArray::number(m_crashCount));
         // restart
-        m_kwinProcess->start();
+        QTimer::singleShot(0, this, [this]() {
+            m_kwinProcess->start();
+        });
     });
 
     m_kwinProcess->start();
@@ -163,11 +168,15 @@ void KWinWrapper::run()
         }
     }
 #endif
+#ifdef Q_OS_REDOX
+    Q_UNUSED(env)
+#else
     auto envSyncJob = new KUpdateLaunchEnvironmentJob(env);
     connect(envSyncJob, &KUpdateLaunchEnvironmentJob::finished, this, []() {
         // The service name is merely there to indicate to the world that we're up and ready with all envs exported
         QDBusConnection::sessionBus().registerService(QStringLiteral("org.kde.KWinWrapper"));
     });
+#endif
 }
 
 void KWinWrapper::terminate(std::chrono::milliseconds timeout)
@@ -194,12 +203,15 @@ int main(int argc, char **argv)
     QCoreApplication app(argc, argv);
     app.setQuitLockEnabled(false); // don't exit when the first KJob finishes
 
+#ifndef Q_OS_REDOX
     KSignalHandler::self()->watchSignal(SIGTERM);
     KSignalHandler::self()->watchSignal(SIGHUP);
+#endif
 
     KWinWrapper wrapper(&app);
     wrapper.run();
 
+#ifndef Q_OS_REDOX
     QObject::connect(KSignalHandler::self(), &KSignalHandler::signalReceived, &app, [&app, &wrapper](int signal) {
         if (signal == SIGTERM) {
             app.quit();
@@ -207,6 +219,7 @@ int main(int argc, char **argv)
             wrapper.restart();
         }
     });
+#endif
 
     return app.exec();
 }

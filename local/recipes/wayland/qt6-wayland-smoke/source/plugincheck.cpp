@@ -3,6 +3,9 @@
 #include <QFile>
 #include <QPluginLoader>
 
+#include <elf.h>
+#include <cstddef>
+
 #include <cstdio>
 #include <fstream>
 
@@ -31,11 +34,16 @@ int main(int argc, char **argv) {
     if (rawFile.open(QIODevice::ReadOnly)) {
         const QByteArray header = rawFile.read(64);
         qInfo() << "qt6-plugin-check raw-header" << header.toHex(' ');
+        qInfo() << "qt6-plugin-check sizeof(Elf64_Word)" << sizeof(Elf64_Word);
+        qInfo() << "qt6-plugin-check sizeof(Elf64_Ehdr)" << sizeof(Elf64_Ehdr);
+        qInfo() << "qt6-plugin-check offsetof(e_phentsize)" << offsetof(Elf64_Ehdr, e_phentsize);
         if (header.size() >= 56) {
             const quint8 low = static_cast<quint8>(header[54]);
             const quint8 high = static_cast<quint8>(header[55]);
             const quint16 phentsize = quint16(low) | (quint16(high) << 8);
             qInfo() << "qt6-plugin-check raw-e_phentsize" << phentsize;
+            const auto *elfHeader = reinterpret_cast<const Elf64_Ehdr *>(header.constData());
+            qInfo() << "qt6-plugin-check struct-e_phentsize" << elfHeader->e_phentsize;
         }
     } else {
         qWarning() << "qt6-plugin-check failed to open raw file" << rawFile.errorString();

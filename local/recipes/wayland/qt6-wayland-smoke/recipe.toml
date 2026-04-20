@@ -10,6 +10,53 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+RELIBC_STAGE_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
+RELIBC_STAGE_INCLUDE_TMP="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include"
+RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_STAGE"
+if [ ! -d "$RELIBC_STAGE_INCLUDE" ] && [ -d "$RELIBC_STAGE_INCLUDE_TMP" ]; then
+    RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_TMP"
+fi
+
+choose_toolchain_root() {
+    if [ -n "${COOKBOOK_HOST_SYSROOT:-}" ] && [ -d "${COOKBOOK_HOST_SYSROOT}" ]; then
+        printf '%s\n' "${COOKBOOK_HOST_SYSROOT}"
+        return 0
+    fi
+    if [ -d "${HOME}/.redoxer/x86_64-unknown-redox/toolchain" ]; then
+        printf '%s\n' "${HOME}/.redoxer/x86_64-unknown-redox/toolchain"
+        return 0
+    fi
+    printf '%s\n' "${COOKBOOK_ROOT}/prefix/x86_64-unknown-redox/sysroot"
+}
+
+if [ -f "${RELIBC_STAGE_INCLUDE}/elf.h" ]; then
+    TOOLCHAIN_ROOT="$(choose_toolchain_root)"
+    TOOLCHAIN_TARGET_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/include"
+    TOOLCHAIN_TARGET_USR_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/usr/include"
+    mkdir -p "${COOKBOOK_SYSROOT}/include"
+    cp -f "${RELIBC_STAGE_INCLUDE}/elf.h" "${COOKBOOK_SYSROOT}/include/elf.h"
+    sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "${COOKBOOK_SYSROOT}/include/elf.h"
+    sed -i 's/typedef int64_t Elf64_Sword;/typedef int32_t Elf64_Sword;/' "${COOKBOOK_SYSROOT}/include/elf.h"
+    if [ -d "${TOOLCHAIN_TARGET_INCLUDE}" ]; then
+        cp -f "${RELIBC_STAGE_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_INCLUDE}/elf.h"
+    fi
+    if [ -d "${TOOLCHAIN_TARGET_USR_INCLUDE}" ]; then
+        cp -f "${RELIBC_STAGE_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_USR_INCLUDE}/elf.h"
+    fi
+    for header_path in "${TOOLCHAIN_TARGET_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_USR_INCLUDE}/elf.h"; do
+        if [ -f "$header_path" ]; then
+            sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "$header_path"
+            sed -i 's/typedef int64_t Elf64_Sword;/typedef int32_t Elf64_Sword;/' "$header_path"
+        fi
+    done
+fi
+
+if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
+    export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CXXFLAGS="${CXXFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+fi
+
 for qtdir in plugins mkspecs metatypes modules; do
     if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ -d "${COOKBOOK_SYSROOT}/${qtdir}" ] && [ ! -L "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
         rm -rf "${COOKBOOK_SYSROOT}/${qtdir}"

@@ -14,6 +14,7 @@ script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+export LDFLAGS="${LDFLAGS} -Wl,--copy-dt-needed-entries -lc"
 
 for qtdir in plugins mkspecs metatypes modules; do
     if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
@@ -28,6 +29,8 @@ sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
 
 sed -i 's/find_package(LibMount)/#find_package(LibMount)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(tools)/# add_subdirectory(tools) # disabled for Redox runtime-validation focus/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles

@@ -39,6 +39,18 @@ choose_relibc_lib_stage() {
     return 1
 }
 
+choose_toolchain_root() {
+    if [ -n "${COOKBOOK_HOST_SYSROOT:-}" ] && [ -d "${COOKBOOK_HOST_SYSROOT}" ]; then
+        printf '%s\n' "${COOKBOOK_HOST_SYSROOT}"
+        return 0
+    fi
+    if [ -d "${HOME}/.redoxer/x86_64-unknown-redox/toolchain" ]; then
+        printf '%s\n' "${HOME}/.redoxer/x86_64-unknown-redox/toolchain"
+        return 0
+    fi
+    printf '%s\n' "${COOKBOOK_ROOT}/prefix/x86_64-unknown-redox/sysroot"
+}
+
 if RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_STAGE")"; then
     :
 elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_TMP")"; then
@@ -55,9 +67,35 @@ fi
 if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
     mkdir -p "${COOKBOOK_SYSROOT}/include"
     cp -a "${RELIBC_STAGE_INCLUDE}/." "${COOKBOOK_SYSROOT}/include/"
+    if [ -f "${COOKBOOK_SYSROOT}/include/elf.h" ]; then
+        sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "${COOKBOOK_SYSROOT}/include/elf.h"
+        sed -i 's/typedef int64_t Elf64_Sword;/typedef int32_t Elf64_Sword;/' "${COOKBOOK_SYSROOT}/include/elf.h"
+    fi
     export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
     export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
     export CXXFLAGS="${CXXFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+
+    # The Redox GCC toolchain currently prefers its own bundled target elf.h
+    # under .../x86_64-unknown-redox/include/ over the recipe sysroot copy.
+    # Sync the freshly built relibc header into that toolchain include root so
+    # Qt's ELF plugin parser sees the corrected ELF64 typedef layout.
+    TOOLCHAIN_ROOT="$(choose_toolchain_root)"
+    TOOLCHAIN_TARGET_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/include"
+    TOOLCHAIN_TARGET_USR_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/usr/include"
+    for header in elf.h semaphore.h; do
+        if [ -f "${RELIBC_STAGE_INCLUDE}/${header}" ] && [ -d "${TOOLCHAIN_TARGET_INCLUDE}" ]; then
+            cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_INCLUDE}/${header}"
+        fi
+        if [ -f "${RELIBC_STAGE_INCLUDE}/${header}" ] && [ -d "${TOOLCHAIN_TARGET_USR_INCLUDE}" ]; then
+            cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_USR_INCLUDE}/${header}"
+        fi
+    done
+    for header_path in "${TOOLCHAIN_TARGET_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_USR_INCLUDE}/elf.h"; do
+        if [ -f "$header_path" ]; then
+            sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "$header_path"
+            sed -i 's/typedef int64_t Elf64_Sword;/typedef int32_t Elf64_Sword;/' "$header_path"
+        fi
+    done
 fi
 if [ -d "${RELIBC_STAGE_LIB}" ]; then
     mkdir -p "${COOKBOOK_SYSROOT}/lib"
@@ -81,7 +119,7 @@ EOF
     -o "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so"
 mkdir -p "${COOKBOOK_STAGE}/usr/lib"
 cp -f "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so" "${COOKBOOK_STAGE}/usr/lib/"
-export LDFLAGS="${LDFLAGS} -Wl,--no-as-needed -L${COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat"
+export LDFLAGS="${LDFLAGS} -Wl,--no-as-needed -L${COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat -lc"
 
 export CFLAGS="${CFLAGS} -fcf-protection=none"
 export CXXFLAGS="${CXXFLAGS} -fcf-protection=none"
@@ -238,14 +276,34 @@ sed -i 's/^    add_subdirectory(network)/    # add_subdirectory(network) # disab
 sed -i 's/^    add_subdirectory(tuiotouch)/    # add_subdirectory(tuiotouch) # disabled for Redox (needs Network)/' \
     "${COOKBOOK_SOURCE}/src/plugins/generic/CMakeLists.txt"
 # Disable Wayland shm-emulation-server on Redox.
-# It requires QSharedMemory lock/unlock support, which is gated behind systemsemaphore
-# and is not available in the current Redox QtCore configuration.
+# Clean rebuilds still do not expose QSharedMemory::lock/unlock strongly enough for this path,
+# so keep the bounded software compositor path honest until QtCore runtime support is proven.
 HWI_CMAKE="${COOKBOOK_SOURCE}/src/plugins/platforms/wayland/plugins/hardwareintegration/CMakeLists.txt"
 awk 'index($0, "if(QT_FEATURE_wayland_shm_emulation_server_buffer)") {
-         print "if(FALSE AND QT_FEATURE_wayland_shm_emulation_server_buffer) # disabled for Redox (no systemsemaphore-backed QSharedMemory locking)";
+         print "if(FALSE AND QT_FEATURE_wayland_shm_emulation_server_buffer) # disabled for Redox (QSharedMemory locking still not runtime-proven on clean rebuilds)";
          next
      } { print }' "${HWI_CMAKE}" > "${HWI_CMAKE}.tmp"
 mv "${HWI_CMAKE}.tmp" "${HWI_CMAKE}"
+
+# Redox relibc now exports sem_open/sem_close/sem_unlink, but the target toolchain's
+# builtin semaphore.h can still hide those declarations during C++ feature probes.
+# Inject a small Redox-only declaration shim both into the POSIX semaphore compile test
+# and the Qt runtime backend source so configure can detect the path honestly.
+python - <<'PY'
+import os
+from pathlib import Path
+
+root = Path(os.environ["COOKBOOK_SOURCE"])
+
+backend = root / "src/corelib/ipc/qsystemsemaphore_posix.cpp"
+text = backend.read_text()
+marker = "#define REDOX_POSIX_SEM_RUNTIME_DECLS 1"
+if marker not in text:
+    needle = '#include <errno.h>\\n'
+    shim = '#ifdef __redox__\\n#define REDOX_POSIX_SEM_RUNTIME_DECLS 1\\nextern "C" sem_t *sem_open(const char *name, int oflag, ...);\\nextern "C" int sem_close(sem_t *sem);\\nextern "C" int sem_unlink(const char *name);\\n#ifndef SEM_FAILED\\n#define SEM_FAILED ((sem_t *) -1)\\n#endif\\n#endif\\n'
+    text = text.replace(needle, needle + shim, 1)
+    backend.write_text(text)
+PY
 
 # QtGui needs the float16 shims — copy to gui dir and append to first SOURCES line
 cp "${COOKBOOK_SOURCE}/src/corelib/global/qt_float16_shims.c" \
@@ -346,25 +404,6 @@ fi
 # forkfd still needs waitid idtype constants on Redox. Provide source-level fallbacks near the
 # waitid consumer instead of relying on toolchain/env defines that clean builds may drop.
 FORKFD_C="${COOKBOOK_SOURCE}/src/3rdparty/forkfd/forkfd.c"
-if ! grep -q 'REDOX_WAITID_IDTYPE_SHIMS' "${FORKFD_C}" 2>/dev/null; then
-    awk '/#include <unistd.h>/ {
-            print;
-            print "#ifdef __redox__";
-            print "#define REDOX_WAITID_IDTYPE_SHIMS 1";
-            print "#ifndef P_ALL";
-            print "#define P_ALL 0";
-            print "#endif";
-            print "#ifndef P_PID";
-            print "#define P_PID 1";
-            print "#endif";
-            print "#ifndef P_PGID";
-            print "#define P_PGID 2";
-            print "#endif";
-            print "#endif";
-            next
-         } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
-    mv "${FORKFD_C}.tmp" "${FORKFD_C}"
-fi
 if ! grep -q 'REDOX_DISABLE_HAVE_WAITID' "${FORKFD_C}" 2>/dev/null; then
     awk 'index($0, "#if !defined(WEXITED) || !defined(WNOWAIT)") {
             print;
@@ -387,7 +426,25 @@ if ! grep -q 'REDOX_FORCE_WAITPID_FALLBACK' "${FORKFD_C}" 2>/dev/null; then
          } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
     mv "${FORKFD_C}.tmp" "${FORKFD_C}"
 fi
-
+if ! grep -q 'REDOX_WAITID_IDTYPE_SHIMS' "${FORKFD_C}" 2>/dev/null; then
+    awk '/#include <unistd.h>/ {
+            print;
+            print "#ifdef __redox__";
+            print "#define REDOX_WAITID_IDTYPE_SHIMS 1";
+            print "#ifndef P_ALL";
+            print "#define P_ALL 0";
+            print "#endif";
+            print "#ifndef P_PID";
+            print "#define P_PID 1";
+            print "#endif";
+            print "#ifndef P_PGID";
+            print "#define P_PGID 2";
+            print "#endif";
+            print "#endif";
+            next
+         } { print }' "${FORKFD_C}" > "${FORKFD_C}.tmp"
+    mv "${FORKFD_C}.tmp" "${FORKFD_C}"
+fi
 # qprocess_unix.cpp needs sys/ioctl.h (for FIONREAD) but doesn't include it
 QP="${COOKBOOK_SOURCE}/src/corelib/io/qprocess_unix.cpp"
 if ! grep -q 'sys/ioctl.h' "${QP}" 2>/dev/null; then
@@ -449,6 +506,8 @@ PY
 cmake "${COOKBOOK_SOURCE}" \
     -GNinja \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-lc" \
+    -DCMAKE_EXE_LINKER_FLAGS="-lc" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
@@ -539,4 +598,27 @@ for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
     patchelf --remove-rpath "${lib}" 2>/dev/null || true
 done
 find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --set-rpath '$ORIGIN/../../lib' {} + 2>/dev/null || true
+
+# Propagate libc through Qt6::Core for downstream CMake consumers. QtCore now relies on relibc
+# exports such as waitid() and sem_* on Redox, so imported targets must link libc explicitly.
+python - <<'PY'
+import os
+from pathlib import Path
+
+targets = [
+    Path(os.environ["COOKBOOK_STAGE"]) / "usr/lib/cmake/Qt6Core/Qt6CoreTargets.cmake",
+    Path(os.environ["COOKBOOK_SYSROOT"]) / "lib/cmake/Qt6Core/Qt6CoreTargets.cmake",
+]
+old = 'INTERFACE_LINK_LIBRARIES "Qt6::Platform;WrapAtomic::WrapAtomic"'
+new = 'INTERFACE_LINK_LIBRARIES "Qt6::Platform;WrapAtomic::WrapAtomic;c"'
+
+for path in targets:
+    if not path.exists():
+        continue
+    text = path.read_text()
+    if new in text:
+        continue
+    text = text.replace(old, new, 1)
+    path.write_text(text)
+PY
 """

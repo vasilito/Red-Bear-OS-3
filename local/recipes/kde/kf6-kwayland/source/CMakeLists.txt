@@ -47,23 +47,6 @@ find_package(Qt6WaylandClient ${QT_MIN_VERSION} CONFIG REQUIRED NO_MODULE COMPON
 
 find_package(Wayland 1.15 COMPONENTS Client)
 find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
-find_package(Qt6WaylandClientPrivate REQUIRED)
 set_package_properties(Wayland PROPERTIES
                        TYPE REQUIRED
                       )

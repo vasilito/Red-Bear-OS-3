@@ -101,6 +101,16 @@ set(CMAKE_PREFIX_PATH "${COOKBOOK_SYSROOT}")
 set(CMAKE_LIBRARY_PATH "${COOKBOOK_SYSROOT}/lib")
 set(CMAKE_INCLUDE_PATH "${COOKBOOK_SYSROOT}/include")
 
+# The Redox cross-toolchain currently also ships its own target headers under
+# ~/.redoxer/.../x86_64-unknown-redox/include. For Qt builds we must prefer the
+# recipe sysroot's relibc-generated headers under usr/include, otherwise files
+# like elf.h can be taken from the toolchain instead of the freshly built sysroot.
+if(DEFINED ENV{COOKBOOK_SYSROOT} AND EXISTS "$ENV{COOKBOOK_SYSROOT}/usr/include")
+    set(_redbear_sysroot_include_flags "-I$ENV{COOKBOOK_SYSROOT}/usr/include -I$ENV{COOKBOOK_SYSROOT}/include")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_redbear_sysroot_include_flags}" CACHE STRING "" FORCE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_redbear_sysroot_include_flags}" CACHE STRING "" FORCE)
+endif()
+
 if(DEFINED ENV{COOKBOOK_SYSROOT} AND EXISTS "$ENV{COOKBOOK_SYSROOT}/lib")
     set(_redbear_sysroot_link_flags "-L$ENV{COOKBOOK_SYSROOT}/lib -Wl,-rpath-link,$ENV{COOKBOOK_SYSROOT}/lib")
     set(CMAKE_EXE_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS_INIT} ${_redbear_sysroot_link_flags}")

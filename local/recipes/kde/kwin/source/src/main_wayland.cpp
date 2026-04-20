@@ -17,6 +17,7 @@
 #include "compositor_wayland.h"
 #include "core/outputbackend.h"
 #include "core/session.h"
+#include "core/session_noop.h"
 #include "effect/effecthandler.h"
 #include "inputmethod.h"
 #include "tabletmodemanager.h"
@@ -431,7 +432,6 @@ int main(int argc, char *argv[])
     };
 
     BackendType backendType;
-    QString pluginName;
     QSize initialWindowSize;
     int outputCount = 1;
     qreal outputScale = 1;

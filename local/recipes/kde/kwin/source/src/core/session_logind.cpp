@@ -108,7 +108,19 @@ static bool activate(const QString &sessionPath)
 
 std::unique_ptr<LogindSession> LogindSession::create()
 {
-    if (!QDBusConnection::systemBus().interface()->isServiceRegistered(s_serviceName)) {
+    const QDBusConnection systemBus = QDBusConnection::systemBus();
+    if (!systemBus.isConnected()) {
+        qCWarning(KWIN_CORE) << "Could not connect to the system D-Bus";
+        return nullptr;
+    }
+
+    QDBusConnectionInterface *busInterface = systemBus.interface();
+    if (!busInterface) {
+        qCWarning(KWIN_CORE) << "Could not acquire the system D-Bus interface";
+        return nullptr;
+    }
+
+    if (!busInterface->isServiceRegistered(s_serviceName)) {
         return nullptr;
     }
 

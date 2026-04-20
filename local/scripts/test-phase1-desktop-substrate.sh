@@ -55,6 +55,13 @@ run_guest_checks() {
         fi
     }
 
+    supported_drm_gpu_present() {
+        if ! command -v lspci >/dev/null 2>&1; then
+            return 1
+        fi
+        lspci 2>/dev/null | grep -E '(VGA compatible controller|3D controller)' | grep -E '(8086:|1002:)' >/dev/null 2>&1
+    }
+
     echo "--- relibc POSIX API surface ---"
     require_path /usr/include/sys/signalfd.h "sys/signalfd.h header present"
     require_path /usr/include/sys/timerfd.h "sys/timerfd.h header present"
@@ -107,9 +114,11 @@ run_guest_checks() {
     fi
     if [ -e /scheme/drm ]; then
         echo "  PASS  /scheme/drm exists"
-    else
-        echo "  FAIL  /scheme/drm does not exist"
+    elif supported_drm_gpu_present; then
+        echo "  FAIL  /scheme/drm does not exist despite supported AMD/Intel GPU presence"
         failures=$((failures + 1))
+    else
+        echo "  NOTE  /scheme/drm missing, but no supported AMD/Intel GPU detected for redox-drm in this runtime"
     fi
     if which redbear-drm-display-check >/dev/null 2>&1; then
         echo "  NOTE  redbear-drm-display-check available (run manually for bounded display validation)"
@@ -244,13 +253,8 @@ expect {
     "__UDEV_SCH_OK__" { }
     "__UDEV_SCH_FAIL__" { puts "FAIL: /scheme/udev missing"; exit 1 }
 }
-send "test -e /scheme/firmware && echo __FW_SCH_OK__ || echo __FW_SCH_FAIL__\r"
-expect {
-    "__FW_SCH_OK__" { }
-    "__FW_SCH_FAIL__" { puts "FAIL: /scheme/firmware missing"; exit 1 }
-}
-send "test -e /lib/firmware && echo __FW_DIR_OK__ || echo __FW_DIR_FAIL__\r"
-expect {
+    send "test -e /lib/firmware && echo __FW_DIR_OK__ || echo __FW_DIR_FAIL__\r"
+    expect {
     "__FW_DIR_OK__" { }
     "__FW_DIR_FAIL__" { puts "FAIL: /lib/firmware missing"; exit 1 }
 }
@@ -259,14 +263,20 @@ expect {
     "__DRM_OK__" { }
     "__DRM_FAIL__" { puts "FAIL: redox-drm missing"; exit 1 }
 }
-send "test -e /scheme/drm && echo __DRM_SCH_OK__ || echo __DRM_SCH_FAIL__\r"
-expect {
+    send "test -e /scheme/drm && echo __DRM_SCH_OK__ || echo __DRM_SCH_FAIL__\r"
+    expect {
     "__DRM_SCH_OK__" { }
-    "__DRM_SCH_FAIL__" { puts "FAIL: /scheme/drm missing"; exit 1 }
+    "__DRM_SCH_FAIL__" {
+        send "if lspci 2>/dev/null | grep -E '(VGA compatible controller|3D controller)' | grep -E '(8086:|1002:)' >/dev/null 2>&1; then echo __DRM_GPU_EXPECTED__; else echo __DRM_GPU_SKIP__; fi\r"
+        expect {
+            "__DRM_GPU_EXPECTED__" { puts "FAIL: /scheme/drm missing with supported AMD/Intel GPU present"; exit 1 }
+            "__DRM_GPU_SKIP__" { }
+        }
+    }
 }
-send "redbear-info --json\r"
-expect "\"virtio_net_present\": true"
-expect "scheme firmware is registered"
+    send "redbear-info --json\r"
+    expect "\"virtio_net_present\": true"
+    expect "scheme firmware is registered"
 expect "scheme udev is registered"
 send "echo __PHASE1_DONE__\r"
 expect "__PHASE1_DONE__"

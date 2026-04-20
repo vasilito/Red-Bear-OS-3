@@ -22,6 +22,9 @@ namespace KWin
 
 static std::unique_ptr<DrmDevice> findRenderDevice()
 {
+#ifdef Q_OS_REDOX
+    return nullptr;
+#endif
     const int deviceCount = drmGetDevices2(0, nullptr, 0);
     if (deviceCount <= 0) {
         return nullptr;

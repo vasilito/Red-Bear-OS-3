@@ -9,6 +9,8 @@ mesonflags = [
     "-Denable-wayland=false",
     "-Denable-x11=false",
     "-Denable-tools=false",
+    "-Dxkb-config-root=/usr/share/X11/xkb",
+    "-Dx-locale-root=/usr/share/X11/locale",
 ]
 dependencies = [
     "libxml2",

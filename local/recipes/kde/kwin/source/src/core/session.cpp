@@ -24,6 +24,9 @@ static const struct
 
 std::unique_ptr<Session> Session::create()
 {
+#ifdef Q_OS_REDOX
+    return NoopSession::create();
+#else
     for (const auto &sessionInfo : s_availableSessions) {
         std::unique_ptr<Session> session = sessionInfo.createFunc();
         if (session) {
@@ -31,15 +34,27 @@ std::unique_ptr<Session> Session::create()
         }
     }
     return nullptr;
+#endif
 }
 
 std::unique_ptr<Session> Session::create(Type type)
 {
+#ifdef Q_OS_REDOX
+    switch (type) {
+    case Type::Logind:
+        return NoopSession::create();
+    case Type::ConsoleKit:
+        return ConsoleKitSession::create();
+    case Type::Noop:
+        return NoopSession::create();
+    }
+#else
     for (const auto &sessionInfo : s_availableSessions) {
         if (sessionInfo.type == type) {
             return sessionInfo.createFunc();
         }
     }
+#endif
     return nullptr;
 }
 
