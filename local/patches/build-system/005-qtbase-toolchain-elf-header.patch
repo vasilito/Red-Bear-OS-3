@@ -1,0 +1,44 @@
+diff --git a/recipes/wip/qt/qtbase/recipe.toml b/recipes/wip/qt/qtbase/recipe.toml
+index 0af3b77ba..05eac497a 100644
+--- a/recipes/wip/qt/qtbase/recipe.toml
++++ b/recipes/wip/qt/qtbase/recipe.toml
+@@ -39,6 +39,18 @@ choose_relibc_lib_stage() {
+     return 1
+ }
+ 
++choose_toolchain_root() {
++    if [ -n "${COOKBOOK_HOST_SYSROOT:-}" ] && [ -d "${COOKBOOK_HOST_SYSROOT}" ]; then
++        printf '%s\n' "${COOKBOOK_HOST_SYSROOT}"
++        return 0
++    fi
++    if [ -d "${HOME}/.redoxer/x86_64-unknown-redox/toolchain" ]; then
++        printf '%s\n' "${HOME}/.redoxer/x86_64-unknown-redox/toolchain"
++        return 0
++    fi
++    printf '%s\n' "${COOKBOOK_ROOT}/prefix/x86_64-unknown-redox/sysroot"
++}
++
+ if RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_STAGE")"; then
+     :
+ elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_TMP")"; then
+@@ -58,6 +70,20 @@ if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
+     export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+     export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+     export CXXFLAGS="${CXXFLAGS} -I${RELIBC_STAGE_INCLUDE}"
++
++    # The Redox GCC toolchain currently prefers its own bundled target elf.h
++    # under .../x86_64-unknown-redox/include/ over the recipe sysroot copy.
++    # Sync the freshly built relibc header into that toolchain include root so
++    # Qt's ELF plugin parser sees the corrected ELF64 typedef layout.
++    TOOLCHAIN_ROOT="$(choose_toolchain_root)"
++    TOOLCHAIN_TARGET_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/include"
++    TOOLCHAIN_TARGET_USR_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/usr/include"
++    if [ -f "${RELIBC_STAGE_INCLUDE}/elf.h" ] && [ -d "${TOOLCHAIN_TARGET_INCLUDE}" ]; then
++        cp -f "${RELIBC_STAGE_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_INCLUDE}/elf.h"
++    fi
++    if [ -f "${RELIBC_STAGE_INCLUDE}/elf.h" ] && [ -d "${TOOLCHAIN_TARGET_USR_INCLUDE}" ]; then
++        cp -f "${RELIBC_STAGE_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_USR_INCLUDE}/elf.h"
++    fi
+ fi
+ if [ -d "${RELIBC_STAGE_LIB}" ]; then
+     mkdir -p "${COOKBOOK_SYSROOT}/lib"

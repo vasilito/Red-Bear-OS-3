@@ -1,0 +1,224 @@
+diff --git a/drivers/acpid/src/aml_physmem.rs b/drivers/acpid/src/aml_physmem.rs
+index 2bdd667b..69b8c48b 100644
+--- a/drivers/acpid/src/aml_physmem.rs
++++ b/drivers/acpid/src/aml_physmem.rs
+@@ -6,7 +6,10 @@ use rustc_hash::FxHashMap;
+ use std::fmt::LowerHex;
+ use std::mem::size_of;
+ use std::ptr::NonNull;
+-use std::sync::{Arc, Mutex};
++use std::sync::atomic::{AtomicU32, Ordering};
++use std::sync::{Arc, Condvar, Mutex};
++use std::thread::ThreadId;
++use std::time::{Duration, Instant};
+ use syscall::PAGE_SIZE;
+ 
+ const PAGE_MASK: usize = !(PAGE_SIZE - 1);
+@@ -141,6 +144,20 @@ impl AmlPageCache {
+ pub struct AmlPhysMemHandler {
+     page_cache: Arc<Mutex<AmlPageCache>>,
+     pci_fd: Arc<Option<libredox::Fd>>,
++    aml_mutexes: Arc<Mutex<FxHashMap<u32, Arc<AmlMutex>>>>,
++    next_mutex_handle: Arc<AtomicU32>,
++}
++
++#[derive(Debug, Default)]
++struct AmlMutexState {
++    owner: Option<ThreadId>,
++    depth: u32,
++}
++
++#[derive(Debug, Default)]
++struct AmlMutex {
++    state: Mutex<AmlMutexState>,
++    condvar: Condvar,
+ }
+ 
+ /// Read from a physical address.
+@@ -156,6 +173,30 @@ impl AmlPhysMemHandler {
+         Self {
+             page_cache,
+             pci_fd: Arc::new(pci_fd),
++            aml_mutexes: Arc::new(Mutex::new(FxHashMap::default())),
++            next_mutex_handle: Arc::new(AtomicU32::new(1)),
++        }
++    }
++
++    fn aml_mutex(&self, handle: Handle) -> Option<Arc<AmlMutex>> {
++        self.aml_mutexes
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner())
++            .get(&handle.0)
++            .cloned()
++    }
++
++    fn read_phys_or_fault<T>(&self, address: usize) -> T
++    where
++        T: PrimInt + LowerHex,
++    {
++        let mut page_cache = self
++            .page_cache
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++        match page_cache.read_from_phys::<T>(address) {
++            Ok(value) => value,
++            Err(error) => panic!("AML physmem read failed at {:#x}: {}", address, error),
+         }
+     }
+ 
+@@ -240,43 +281,19 @@ impl acpi::Handler for AmlPhysMemHandler {
+ 
+     fn read_u8(&self, address: usize) -> u8 {
+         log::trace!("read u8 {:X}", address);
+-        if let Ok(mut page_cache) = self.page_cache.lock() {
+-            if let Ok(value) = page_cache.read_from_phys::<u8>(address) {
+-                return value;
+-            }
+-        }
+-        log::error!("failed to read u8 {:#x}", address);
+-        0
++        self.read_phys_or_fault::<u8>(address)
+     }
+     fn read_u16(&self, address: usize) -> u16 {
+         log::trace!("read u16 {:X}", address);
+-        if let Ok(mut page_cache) = self.page_cache.lock() {
+-            if let Ok(value) = page_cache.read_from_phys::<u16>(address) {
+-                return value;
+-            }
+-        }
+-        log::error!("failed to read u16 {:#x}", address);
+-        0
++        self.read_phys_or_fault::<u16>(address)
+     }
+     fn read_u32(&self, address: usize) -> u32 {
+         log::trace!("read u32 {:X}", address);
+-        if let Ok(mut page_cache) = self.page_cache.lock() {
+-            if let Ok(value) = page_cache.read_from_phys::<u32>(address) {
+-                return value;
+-            }
+-        }
+-        log::error!("failed to read u32 {:#x}", address);
+-        0
++        self.read_phys_or_fault::<u32>(address)
+     }
+     fn read_u64(&self, address: usize) -> u64 {
+         log::trace!("read u64 {:X}", address);
+-        if let Ok(mut page_cache) = self.page_cache.lock() {
+-            if let Ok(value) = page_cache.read_from_phys::<u64>(address) {
+-                return value;
+-            }
+-        }
+-        log::error!("failed to read u64 {:#x}", address);
+-        0
++        self.read_phys_or_fault::<u64>(address)
+     }
+ 
+     fn write_u8(&self, address: usize, value: u8) {
+@@ -415,16 +432,102 @@ impl acpi::Handler for AmlPhysMemHandler {
+     }
+ 
+     fn create_mutex(&self) -> Handle {
+-        log::debug!("TODO: Handler::create_mutex");
+-        Handle(0)
++        let handle = self.next_mutex_handle.fetch_add(1, Ordering::Relaxed);
++        self.aml_mutexes
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner())
++            .insert(handle, Arc::new(AmlMutex::default()));
++        log::trace!("created AML mutex handle {handle}");
++        Handle(handle)
+     }
+ 
+     fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError> {
+-        log::debug!("TODO: Handler::acquire");
+-        Ok(())
++        let Some(aml_mutex) = self.aml_mutex(mutex) else {
++            log::error!("attempted to acquire unknown AML mutex handle {}", mutex.0);
++            return Err(AmlError::MutexAcquireTimeout);
++        };
++
++        let current_thread = std::thread::current().id();
++        let deadline = (timeout != 0xffff).then(|| Instant::now() + Duration::from_millis(timeout.into()));
++
++        let mut state = aml_mutex
++            .state
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++
++        loop {
++            match state.owner {
++                None => {
++                    state.owner = Some(current_thread);
++                    state.depth = 1;
++                    return Ok(());
++                }
++                Some(owner) if owner == current_thread => {
++                    state.depth = state.depth.saturating_add(1);
++                    return Ok(());
++                }
++                Some(_) if timeout == 0 => return Err(AmlError::MutexAcquireTimeout),
++                Some(_) if timeout == 0xffff => {
++                    state = aml_mutex
++                        .condvar
++                        .wait(state)
++                        .unwrap_or_else(|poisoned| poisoned.into_inner());
++                }
++                Some(_) => {
++                    let Some(deadline) = deadline else {
++                        return Err(AmlError::MutexAcquireTimeout);
++                    };
++                    let now = Instant::now();
++                    if now >= deadline {
++                        return Err(AmlError::MutexAcquireTimeout);
++                    }
++
++                    let remaining = deadline.saturating_duration_since(now);
++                    let (next_state, wait_result) = aml_mutex
++                        .condvar
++                        .wait_timeout(state, remaining)
++                        .unwrap_or_else(|poisoned| poisoned.into_inner());
++                    state = next_state;
++
++                    if wait_result.timed_out() && state.owner != Some(current_thread) {
++                        return Err(AmlError::MutexAcquireTimeout);
++                    }
++                }
++            }
++        }
+     }
+ 
+     fn release(&self, mutex: Handle) {
+-        log::debug!("TODO: Handler::release");
++        let Some(aml_mutex) = self.aml_mutex(mutex) else {
++            log::error!("attempted to release unknown AML mutex handle {}", mutex.0);
++            return;
++        };
++
++        let current_thread = std::thread::current().id();
++        let mut state = aml_mutex
++            .state
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++
++        match state.owner {
++            Some(owner) if owner == current_thread => {
++                if state.depth > 1 {
++                    state.depth -= 1;
++                } else {
++                    state.owner = None;
++                    state.depth = 0;
++                    aml_mutex.condvar.notify_one();
++                }
++            }
++            Some(_) => {
++                log::warn!(
++                    "ignoring AML mutex release for handle {} from non-owner thread",
++                    mutex.0
++                );
++            }
++            None => {
++                log::warn!("ignoring AML mutex release for unlocked handle {}", mutex.0);
++            }
++        }
+     }
+ }

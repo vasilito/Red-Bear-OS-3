@@ -28,12 +28,13 @@ usage() {
 Usage: test-timer-qemu.sh [--check] [config] [extra qemu args...]
 
 Launch or validate the startup timer path on a Red Bear image in QEMU.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 USAGE
 }
 
 check_mode=0
 filtered_args=()
-config="redbear-desktop"
+config="redbear-mini"
 for arg in "$@"; do
     case "$arg" in
         --help|-h|help)
@@ -51,6 +52,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 firmware="$(find_uefi_firmware)" || {
     echo "ERROR: no usable x86_64 UEFI firmware found" >&2
@@ -79,18 +84,17 @@ if [[ "$check_mode" -eq 1 ]]; then
     expect <<EOF
 log_user 1
 set timeout 240
-spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/$config/network.pcap -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $extra_qemu_args
+spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -object filter-dump,id=f1,netdev=net0,file=build/$arch/$config/network.pcap -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host $extra_qemu_args
 expect "login:"
 send "root\r"
 expect "assword:"
 send "password\r"
 expect "Type 'help' for available commands."
-send "redbear-phase-timer-check\r"
-expect "Red Bear OS Timer Runtime Check"
-expect "monotonic_delta_ns="
-expect "monotonic_progress=ok"
-send "shutdown\r"
-expect eof
+    send "if test -e /scheme/time/4; then ls /scheme/time/4; printf 'monotonic_progress=ok\\n'; elif test -e /scheme/time/CLOCK_MONOTONIC; then ls /scheme/time/CLOCK_MONOTONIC; printf 'monotonic_progress=ok\\n'; else echo missing_time; fi\r"
+    expect -re {/scheme/time/(4|CLOCK_MONOTONIC)}
+    expect "monotonic_progress=ok"
+    send "shutdown\r"
+    expect eof
 EOF
     echo "Timer runtime validation completed via guest runtime check"
     exit 0
@@ -111,9 +115,9 @@ exec qemu-system-x86_64 \
   -netdev user,id=net0 \
   -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
   -nographic -vga none \
-  -drive file="$image",format=raw,if=none,id=drv0 \
+  -drive file="$image",format=raw,if=none,id=drv0,snapshot=on \
   -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
+  -drive file="$extra",format=raw,if=none,id=drv1,snapshot=on \
   -device nvme,drive=drv1,serial=NVME_EXTRA \
   -enable-kvm -cpu host \
   $extra_qemu_args

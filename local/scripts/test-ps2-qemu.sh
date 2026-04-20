@@ -28,12 +28,13 @@ usage() {
 Usage: test-ps2-qemu.sh [--check] [config] [extra qemu args...]
 
 Launch or validate the PS/2 + serio path on a Red Bear image in QEMU.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 USAGE
 }
 
 check_mode=0
 filtered_args=()
-config="redbear-desktop"
+config="redbear-mini"
 for arg in "$@"; do
     case "$arg" in
         --help|-h|help)
@@ -51,6 +52,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 firmware="$(find_uefi_firmware)" || {
     echo "ERROR: no usable x86_64 UEFI firmware found" >&2

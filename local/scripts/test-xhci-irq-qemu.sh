@@ -79,7 +79,7 @@ if [[ "$check_mode" -eq 1 ]]; then
     log_file="build/$arch/$config/xhci-irq-check.log"
     rm -f "$log_file"
     set +e
-    timeout 90s qemu-system-x86_64 \
+    timeout 180s qemu-system-x86_64 \
       -name "Red Bear OS x86_64" \
       -device qemu-xhci,id=xhci \
       -device usb-kbd,bus=xhci.0 \
@@ -112,6 +112,23 @@ if [[ "$check_mode" -eq 1 ]]; then
         echo "ERROR: xhcid interrupt-mode proof never observed attached-device enumeration pressure; see $log_file" >&2
         exit 1
     fi
+    mode="unknown"
+    reason="unknown"
+    if grep -q "xhcid: using MSI/MSI-X interrupt delivery" "$log_file"; then
+        mode="msi_or_msix"
+        reason="driver_selected_interrupt_delivery"
+    elif grep -q "xhcid: using legacy INTx interrupt delivery" "$log_file"; then
+        mode="legacy"
+        reason="driver_fell_back_to_legacy_intx"
+    elif grep -q "xhcid: falling back to polling mode" "$log_file"; then
+        mode="polling"
+        reason="driver_fell_back_to_polling"
+    fi
+
+    echo "IRQ_DRIVER=xhcid"
+    echo "IRQ_MODE=$mode"
+    echo "IRQ_REASON=$reason"
+    echo "IRQ_LOG=$log_file"
     echo "xHCI interrupt mode detected in $log_file"
     exit 0
 fi

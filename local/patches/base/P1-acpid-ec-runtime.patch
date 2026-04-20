@@ -1,0 +1,279 @@
+diff --git a/drivers/acpid/src/ec.rs b/drivers/acpid/src/ec.rs
+index c322790a..99842586 100644
+--- a/drivers/acpid/src/ec.rs
++++ b/drivers/acpid/src/ec.rs
+@@ -1,3 +1,4 @@
++use std::convert::TryFrom;
+ use std::time::Duration;
+ 
+ use acpi::aml::{
+@@ -30,6 +31,28 @@ const BURST_ACK: u8 = 0x90;
+ 
+ pub const DEFAULT_EC_TIMEOUT: Duration = Duration::from_millis(10);
+ 
++#[derive(Debug, Clone, Copy)]
++enum EcError {
++    Timeout,
++    OffsetOutOfRange,
++}
++
++impl EcError {
++    fn as_aml_error(self) -> AmlError {
++        match self {
++            EcError::Timeout | EcError::OffsetOutOfRange => {
++                AmlError::NoHandlerForRegionAccess(RegionSpace::EmbeddedControl)
++            }
++        }
++    }
++}
++
++impl From<EcError> for AmlError {
++    fn from(value: EcError) -> Self {
++        value.as_aml_error()
++    }
++}
++
+ #[repr(transparent)]
+ pub struct ScBits(u8);
+ #[allow(dead_code)]
+@@ -90,28 +113,33 @@ impl Ec {
+         Pio::<u8>::new(self.data).write(value);
+     }
+     #[inline]
+-    fn wait_for_write_ready(&self) -> Option<()> {
++    fn wait_for_write_ready(&self) -> Result<(), EcError> {
+         let timeout = Timeout::new(self.timeout);
+         loop {
+             if !self.read_reg_sc().ibf() {
+-                return Some(());
++                return Ok(());
+             }
+-            timeout.run().ok()?;
++            timeout.run().map_err(|_| EcError::Timeout)?;
+         }
+     }
+     #[inline]
+-    fn wait_for_read_ready(&self) -> Option<()> {
++    fn wait_for_read_ready(&self) -> Result<(), EcError> {
+         let timeout = Timeout::new(self.timeout);
+         loop {
+             if self.read_reg_sc().obf() {
+-                return Some(());
++                return Ok(());
+             }
+-            timeout.run().ok()?;
++            timeout.run().map_err(|_| EcError::Timeout)?;
+         }
+     }
+ 
++    #[inline]
++    fn checked_address(offset: usize, byte_index: usize) -> Result<u8, EcError> {
++        u8::try_from(offset + byte_index).map_err(|_| EcError::OffsetOutOfRange)
++    }
++
+     //https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/12_ACPI_Embedded_Controller_Interface_Specification/embedded-controller-command-set.html
+-    pub fn read(&self, address: u8) -> Option<u8> {
++    fn read(&self, address: u8) -> Result<u8, EcError> {
+         trace!("ec read addr: {:x}", address);
+         self.wait_for_write_ready()?;
+ 
+@@ -125,9 +153,9 @@ impl Ec {
+ 
+         let val = self.read_reg_data();
+         trace!("got: {:x}", val);
+-        Some(val)
++        Ok(val)
+     }
+-    pub fn write(&self, address: u8, value: u8) -> Option<()> {
++    fn write(&self, address: u8, value: u8) -> Result<(), EcError> {
+         trace!("ec write addr: {:x}, with: {:x}", address, value);
+         self.wait_for_write_ready()?;
+ 
+@@ -141,7 +169,22 @@ impl Ec {
+ 
+         self.write_reg_data(value);
+         trace!("done");
+-        Some(())
++        Ok(())
++    }
++
++    fn read_bytes<const N: usize>(&self, offset: usize) -> Result<[u8; N], EcError> {
++        let mut bytes = [0u8; N];
++        for (index, byte) in bytes.iter_mut().enumerate() {
++            *byte = self.read(Self::checked_address(offset, index)?)?;
++        }
++        Ok(bytes)
++    }
++
++    fn write_bytes<const N: usize>(&self, offset: usize, bytes: [u8; N]) -> Result<(), EcError> {
++        for (index, byte) in IntoIterator::into_iter(bytes).enumerate() {
++            self.write(Self::checked_address(offset, index)?, byte)?;
++        }
++        Ok(())
+     }
+     // disabled if not met
+     //    First Access - 400 microseconds
+@@ -151,11 +194,11 @@ impl Ec {
+     #[allow(dead_code)]
+     fn enable_burst(&self) -> bool {
+         trace!("ec burst enable");
+-        self.wait_for_write_ready();
++        let _ = self.wait_for_write_ready();
+ 
+         self.write_reg_sc(BE_EC);
+ 
+-        self.wait_for_read_ready();
++        let _ = self.wait_for_read_ready();
+ 
+         let res = self.read_reg_data() == BURST_ACK;
+         trace!("success: {}", res);
+@@ -164,7 +207,7 @@ impl Ec {
+     #[allow(dead_code)]
+     fn disable_burst(&self) {
+         trace!("ec burst disable");
+-        self.wait_for_write_ready();
++        let _ = self.wait_for_write_ready();
+         self.write_reg_sc(BD_EC);
+         trace!("done");
+     }
+@@ -172,11 +215,11 @@ impl Ec {
+     #[allow(dead_code)]
+     fn queue_query(&mut self) -> u8 {
+         trace!("ec query");
+-        self.wait_for_write_ready();
++        let _ = self.wait_for_write_ready();
+ 
+         self.write_reg_sc(QR_EC);
+ 
+-        self.wait_for_read_ready();
++        let _ = self.wait_for_read_ready();
+ 
+         let val = self.read_reg_data();
+         trace!("got: {}", val);
+@@ -190,7 +233,10 @@ impl RegionHandler for Ec {
+         offset: usize,
+     ) -> Result<u8, acpi::aml::AmlError> {
+         assert_eq!(region.space, RegionSpace::EmbeddedControl);
+-        self.read(offset as u8).ok_or(AmlError::MutexAcquireTimeout) // TODO proper error type
++        self.read(Self::checked_address(offset, 0)?).map_err(|error| {
++            warn!("EC read_u8 failed at offset {offset:#x}: {error:?}");
++            error.as_aml_error()
++        })
+     }
+     fn write_u8(
+         &self,
+@@ -199,58 +245,73 @@ impl RegionHandler for Ec {
+         value: u8,
+     ) -> Result<(), acpi::aml::AmlError> {
+         assert_eq!(region.space, RegionSpace::EmbeddedControl);
+-        self.write(offset as u8, value)
+-            .ok_or(AmlError::MutexAcquireTimeout) // TODO proper error type
+-    }
+-    fn read_u16(&self, _region: &OpRegion, _offset: usize) -> Result<u16, acpi::aml::AmlError> {
+-        warn!("Got u16 EC read from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
+-    }
+-    fn read_u32(&self, _region: &OpRegion, _offset: usize) -> Result<u32, acpi::aml::AmlError> {
+-        warn!("Got u32 EC read from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
+-    }
+-    fn read_u64(&self, _region: &OpRegion, _offset: usize) -> Result<u64, acpi::aml::AmlError> {
+-        warn!("Got u64 EC read from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
++        self.write(Self::checked_address(offset, 0)?, value)
++            .map_err(|error| {
++                warn!("EC write_u8 failed at offset {offset:#x}: {error:?}");
++                error.as_aml_error()
++            })
++    }
++    fn read_u16(&self, region: &OpRegion, offset: usize) -> Result<u16, acpi::aml::AmlError> {
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.read_bytes::<2>(offset)
++            .map(u16::from_le_bytes)
++            .map_err(|error| {
++                warn!("EC read_u16 failed at offset {offset:#x}: {error:?}");
++                error.as_aml_error()
++            })
++    }
++    fn read_u32(&self, region: &OpRegion, offset: usize) -> Result<u32, acpi::aml::AmlError> {
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.read_bytes::<4>(offset)
++            .map(u32::from_le_bytes)
++            .map_err(|error| {
++                warn!("EC read_u32 failed at offset {offset:#x}: {error:?}");
++                error.as_aml_error()
++            })
++    }
++    fn read_u64(&self, region: &OpRegion, offset: usize) -> Result<u64, acpi::aml::AmlError> {
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.read_bytes::<8>(offset)
++            .map(u64::from_le_bytes)
++            .map_err(|error| {
++                warn!("EC read_u64 failed at offset {offset:#x}: {error:?}");
++                error.as_aml_error()
++            })
+     }
+     fn write_u16(
+         &self,
+-        _region: &OpRegion,
+-        _offset: usize,
+-        _value: u16,
++        region: &OpRegion,
++        offset: usize,
++        value: u16,
+     ) -> Result<(), acpi::aml::AmlError> {
+-        warn!("Got u16 EC write from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.write_bytes(offset, value.to_le_bytes()).map_err(|error| {
++            warn!("EC write_u16 failed at offset {offset:#x}: {error:?}");
++            error.as_aml_error()
++        })
+     }
+     fn write_u32(
+         &self,
+-        _region: &OpRegion,
+-        _offset: usize,
+-        _value: u32,
++        region: &OpRegion,
++        offset: usize,
++        value: u32,
+     ) -> Result<(), acpi::aml::AmlError> {
+-        warn!("Got u32 EC write from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.write_bytes(offset, value.to_le_bytes()).map_err(|error| {
++            warn!("EC write_u32 failed at offset {offset:#x}: {error:?}");
++            error.as_aml_error()
++        })
+     }
+     fn write_u64(
+         &self,
+-        _region: &OpRegion,
+-        _offset: usize,
+-        _value: u64,
++        region: &OpRegion,
++        offset: usize,
++        value: u64,
+     ) -> Result<(), acpi::aml::AmlError> {
+-        warn!("Got u64 EC write from AML!");
+-        Err(acpi::aml::AmlError::NoHandlerForRegionAccess(
+-            RegionSpace::EmbeddedControl,
+-        )) // TODO proper error type
++        assert_eq!(region.space, RegionSpace::EmbeddedControl);
++        self.write_bytes(offset, value.to_le_bytes()).map_err(|error| {
++            warn!("EC write_u64 failed at offset {offset:#x}: {error:?}");
++            error.as_aml_error()
++        })
+     }
+ }

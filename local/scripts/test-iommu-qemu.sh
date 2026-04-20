@@ -23,7 +23,6 @@ find_uefi_firmware() {
     return 1
 }
 
-# Print usage information
 usage() {
     cat << USAGE
 Usage: $(basename "$0") [--check] [config] [extra qemu args...]
@@ -35,7 +34,7 @@ Options:
   --check     Boot and verify the guest reaches a login prompt
 
 Arguments:
-  config      Optional config name (default: redbear-desktop)
+  config      Optional config name (default: redbear-mini)
   extra qemu args   Additional arguments appended to the QEMU command
 
 Environment:
@@ -44,7 +43,7 @@ Environment:
 Examples:
   $(basename "$0")
   $(basename "$0") --check
-  $(basename "$0") redbear-desktop -m 4G
+  $(basename "$0") redbear-mini -m 4G
 
 USAGE
     exit 0
@@ -52,7 +51,7 @@ USAGE
 
 check_mode=0
 filtered_args=()
-config="redbear-desktop"
+config="redbear-mini"
 for arg in "$@"; do
     case "$arg" in
         --help|-h|help)
@@ -69,6 +68,10 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [[ "$config" == "redbear-mini" ]]; then
+    config="redbear-minimal"
+fi
 
 firmware="$(find_uefi_firmware)" || {
     echo "ERROR: no usable x86_64 UEFI firmware found" >&2

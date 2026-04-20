@@ -1,0 +1,2962 @@
+diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
+index 9f507221..f74fe715 100644
+--- a/daemon/src/lib.rs
++++ b/daemon/src/lib.rs
+@@ -57,25 +57,28 @@ impl Daemon {
+     /// Executes `Command` as a child process.
+     // FIXME remove once the service spawning of hwd and pcid-spawner is moved to init
+     #[deprecated]
+-    pub fn spawn(mut cmd: Command) {
++    pub fn spawn(mut cmd: Command) -> io::Result<()> {
+         let (mut read_pipe, write_pipe) = io::pipe().unwrap();
+ 
+         unsafe { pass_fd(&mut cmd, "INIT_NOTIFY", write_pipe.into()) };
+ 
+-        if let Err(err) = cmd.spawn() {
+-            eprintln!("daemon: failed to execute {cmd:?}: {err}");
+-            return;
+-        }
++        cmd.spawn().map_err(|err| {
++            io::Error::new(err.kind(), format!("failed to execute {cmd:?}: {err}"))
++        })?;
+ 
+         let mut data = [0];
+         match read_pipe.read_exact(&mut data) {
+-            Ok(()) => {}
++            Ok(()) => Ok(()),
+             Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+-                eprintln!("daemon: {cmd:?} exited without notifying readiness");
+-            }
+-            Err(err) => {
+-                eprintln!("daemon: failed to wait for {cmd:?}: {err}");
++                Err(io::Error::new(
++                    io::ErrorKind::UnexpectedEof,
++                    format!("{cmd:?} exited without notifying readiness"),
++                ))
+             }
++            Err(err) => Err(io::Error::new(
++                err.kind(),
++                format!("failed to wait for {cmd:?}: {err}"),
++            )),
+         }
+     }
+ }
+diff --git a/drivers/audio/ac97d/src/main.rs b/drivers/audio/ac97d/src/main.rs
+index ffa8a94b..e4dbf930 100644
+--- a/drivers/audio/ac97d/src/main.rs
++++ b/drivers/audio/ac97d/src/main.rs
+@@ -3,6 +3,7 @@ use std::os::unix::io::AsRawFd;
+ use std::usize;
+ 
+ use event::{user_data, EventQueue};
++use log::error;
+ use pcid_interface::PciFunctionHandle;
+ use redox_scheme::scheme::register_sync_scheme;
+ use redox_scheme::Socket;
+@@ -22,13 +23,28 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_ac97");
+ 
+-    let bar0 = pci_config.func.bars[0].expect_port();
+-    let bar1 = pci_config.func.bars[1].expect_port();
++    let bar0 = match pci_config.func.bars[0].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            error!("ac97d: invalid BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
++    let bar1 = match pci_config.func.bars[1].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            error!("ac97d: invalid BAR1: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("ac97d: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            error!("ac97d: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     println!(" + ac97 {}", pci_config.func.display());
+ 
+@@ -40,13 +56,35 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         common::file_level(),
+     );
+ 
+-    common::acquire_port_io_rights().expect("ac97d: failed to set I/O privilege level to Ring 3");
++    if let Err(err) = common::acquire_port_io_rights() {
++        error!("ac97d: failed to set I/O privilege level to Ring 3: {err}");
++        std::process::exit(1);
++    }
+ 
+-    let mut irq_file = irq.irq_handle("ac97d");
++    let mut irq_file = match irq.try_irq_handle("ac97d") {
++        Ok(file) => file,
++        Err(err) => {
++            error!("ac97d: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let socket = Socket::nonblock().expect("ac97d: failed to create socket");
+-    let mut device =
+-        unsafe { device::Ac97::new(bar0, bar1).expect("ac97d: failed to allocate device") };
++    let socket = match Socket::nonblock() {
++        Ok(socket) => socket,
++        Err(err) => {
++            error!("ac97d: failed to create socket: {err}");
++            std::process::exit(1);
++        }
++    };
++    let mut device = unsafe {
++        match device::Ac97::new(bar0, bar1) {
++            Ok(device) => device,
++            Err(err) => {
++                error!("ac97d: failed to allocate device: {err}");
++                std::process::exit(1);
++            }
++        }
++    };
+     let mut readiness_based = ReadinessBased::new(&socket, 16);
+ 
+     user_data! {
+@@ -56,49 +94,81 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("ac97d: Could not create event queue.");
++    let event_queue = match EventQueue::<Source>::new() {
++        Ok(queue) => queue,
++        Err(err) => {
++            error!("ac97d: could not create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+     event_queue
+         .subscribe(
+             irq_file.as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            error!("ac97d: failed to subscribe IRQ fd: {err}");
++            std::process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             socket.inner().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    register_sync_scheme(&socket, "audiohw", &mut device)
+-        .expect("ac97d: failed to register audiohw scheme to namespace");
++        .unwrap_or_else(|err| {
++            error!("ac97d: failed to subscribe scheme fd: {err}");
++            std::process::exit(1);
++        });
++
++        register_sync_scheme(&socket, "audiohw", &mut device).unwrap_or_else(|err| {
++            error!("ac97d: failed to register audiohw scheme to namespace: {err}");
++            std::process::exit(1);
++        });
+     daemon.ready();
+ 
+-    libredox::call::setrens(0, 0).expect("ac97d: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        error!("ac97d: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+     let all = [Source::Irq, Source::Scheme];
+-    for event in all
+-        .into_iter()
+-        .chain(event_queue.map(|e| e.expect("ac97d: failed to get next event").user_data))
+-    {
++    for event in all.into_iter().chain(event_queue.map(|e| match e {
++        Ok(event) => event.user_data,
++        Err(err) => {
++            error!("ac97d: failed to get next event: {err}");
++            std::process::exit(1);
++        }
++    })) {
+         match event {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    error!("ac97d: failed to read IRQ file: {err}");
++                    std::process::exit(1);
++                }
+ 
+                 if !device.irq() {
+                     continue;
+                 }
+-                irq_file.write(&mut irq).unwrap();
++                if let Err(err) = irq_file.write(&mut irq) {
++                    error!("ac97d: failed to acknowledge IRQ: {err}");
++                    std::process::exit(1);
++                }
+ 
+                 readiness_based
+                     .poll_all_requests(&mut device)
+-                    .expect("ac97d: failed to poll requests");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to poll requests: {err}");
++                        std::process::exit(1);
++                    });
+                 readiness_based
+                     .write_responses()
+-                    .expect("ac97d: failed to write to socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to write to socket: {err}");
++                        std::process::exit(1);
++                    });
+ 
+                 /*
+                 let next_read = device_irq.next_read();
+@@ -110,10 +180,16 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+             Source::Scheme => {
+                 readiness_based
+                     .read_and_process_requests(&mut device)
+-                    .expect("ac97d: failed to read from socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to read from socket: {err}");
++                        std::process::exit(1);
++                    });
+                 readiness_based
+                     .write_responses()
+-                    .expect("ac97d: failed to write to socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to write to socket: {err}");
++                        std::process::exit(1);
++                    });
+ 
+                 /*
+                 let next_read = device.borrow().next_read();
+@@ -125,7 +201,7 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    std::process::exit(0);
++    std::process::exit(1);
+ }
+ 
+ #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+diff --git a/drivers/audio/ihdad/src/main.rs b/drivers/audio/ihdad/src/main.rs
+index 31a2add7..11d80133 100755
+--- a/drivers/audio/ihdad/src/main.rs
++++ b/drivers/audio/ihdad/src/main.rs
+@@ -6,7 +6,7 @@ use std::os::unix::io::AsRawFd;
+ use std::usize;
+ 
+ use event::{user_data, EventQueue};
+-use pcid_interface::irq_helpers::pci_allocate_interrupt_vector;
++use pcid_interface::irq_helpers::try_pci_allocate_interrupt_vector;
+ use pcid_interface::PciFunctionHandle;
+ 
+ pub mod hda;
+@@ -38,9 +38,19 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!("IHDA {}", pci_config.func.display());
+ 
++    if let Err(err) = pci_config.func.bars[0].try_mem() {
++        log::error!("ihdad: invalid BAR0: {err}");
++        std::process::exit(1);
++    }
+     let address = unsafe { pcid_handle.map_bar(0) }.ptr.as_ptr() as usize;
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "ihdad");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "ihdad") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("ihdad: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     {
+         let vend_prod: u32 = ((pci_config.func.full_device_id.vendor_id as u32) << 16)
+@@ -53,11 +63,28 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             }
+         }
+ 
+-        let event_queue =
+-            EventQueue::<Source>::new().expect("ihdad: Could not create event queue.");
+-        let socket = Socket::nonblock().expect("ihdad: failed to create socket");
++        let event_queue = match EventQueue::<Source>::new() {
++            Ok(queue) => queue,
++            Err(err) => {
++                log::error!("ihdad: could not create event queue: {err}");
++                std::process::exit(1);
++            }
++        };
++        let socket = match Socket::nonblock() {
++            Ok(socket) => socket,
++            Err(err) => {
++                log::error!("ihdad: failed to create socket: {err}");
++                std::process::exit(1);
++            }
++        };
+         let mut device = unsafe {
+-            hda::IntelHDA::new(address, vend_prod).expect("ihdad: failed to allocate device")
++            match hda::IntelHDA::new(address, vend_prod) {
++                Ok(device) => device,
++                Err(err) => {
++                    log::error!("ihdad: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         };
+         let mut readiness_based = ReadinessBased::new(&socket, 16);
+ 
+diff --git a/drivers/graphics/ihdgd/src/device/mod.rs b/drivers/graphics/ihdgd/src/device/mod.rs
+index ced9dd56..0dc2e659 100644
+--- a/drivers/graphics/ihdgd/src/device/mod.rs
++++ b/drivers/graphics/ihdgd/src/device/mod.rs
+@@ -246,7 +246,9 @@ impl Device {
+         };
+ 
+         let gttmm = {
+-            let (phys, size) = func.bars[0].expect_mem();
++            let (phys, size) = func.bars[0]
++                .try_mem()
++                .map_err(|_| Error::new(ENODEV))?;
+             Arc::new(MmioRegion::new(
+                 phys,
+                 size,
+@@ -255,7 +257,9 @@ impl Device {
+         };
+         log::info!("GTTMM {:X?}", gttmm);
+         let gm = {
+-            let (phys, size) = func.bars[2].expect_mem();
++            let (phys, size) = func.bars[2]
++                .try_mem()
++                .map_err(|_| Error::new(ENODEV))?;
+             MmioRegion::new(phys, size, common::MemoryType::WriteCombining)?
+         };
+         log::info!("GM {:X?}", gm);
+diff --git a/drivers/graphics/ihdgd/src/main.rs b/drivers/graphics/ihdgd/src/main.rs
+index a8b6cc60..e468aca7 100644
+--- a/drivers/graphics/ihdgd/src/main.rs
++++ b/drivers/graphics/ihdgd/src/main.rs
+@@ -1,6 +1,6 @@
+ use driver_graphics::GraphicsScheme;
+ use event::{user_data, EventQueue};
+-use pcid_interface::{irq_helpers::pci_allocate_interrupt_vector, PciFunctionHandle};
++use pcid_interface::{irq_helpers::try_pci_allocate_interrupt_vector, PciFunctionHandle};
+ use std::{
+     io::{Read, Write},
+     os::fd::AsRawFd,
+@@ -29,10 +29,21 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!("IHDG {}", pci_config.func.display());
+ 
+-    let device = Device::new(&mut pcid_handle, &pci_config.func)
+-        .expect("ihdgd: failed to initialize device");
++    let device = match Device::new(&mut pcid_handle, &pci_config.func) {
++        Ok(device) => device,
++        Err(err) => {
++            log::error!("ihdgd: failed to initialize device: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "ihdgd");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "ihdgd") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("ihdgd: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     // Needs to be before GraphicsScheme::new to avoid a deadlock due to initnsmgr blocking on
+     // /scheme/event as it is already blocked on opening /scheme/display.ihdg.*.
+diff --git a/drivers/graphics/virtio-gpud/src/main.rs b/drivers/graphics/virtio-gpud/src/main.rs
+index b27f4c56..5e9d810d 100644
+--- a/drivers/graphics/virtio-gpud/src/main.rs
++++ b/drivers/graphics/virtio-gpud/src/main.rs
+@@ -482,7 +482,10 @@ fn main() {
+ }
+ 
+ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    deamon(daemon, pcid_handle).unwrap();
++    if let Err(err) = deamon(daemon, pcid_handle) {
++        log::error!("virtio-gpud: startup failed: {err}");
++        std::process::exit(1);
++    }
+     unreachable!();
+ }
+ 
+@@ -500,7 +503,12 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // 0x1050 - virtio-gpu
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
++    if pci_config.func.full_device_id.device_id != 0x1050 {
++        return Err(anyhow::anyhow!(
++            "unexpected virtio-gpu device id: {:04x}",
++            pci_config.func.full_device_id.device_id
++        ));
++    }
+     log::info!("virtio-gpu: initiating startup sequence :^)");
+ 
+     let device = DEVICE.try_call_once(|| virtio_core::probe_device(&mut pcid_handle))?;
+@@ -530,8 +538,8 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // Needs to be before GpuScheme::new to avoid a deadlock due to initnsmgr blocking on
+     // /scheme/event as it is already blocked on opening /scheme/display.virtio-gpu.
+     // FIXME change the initnsmgr to not block on openat for the target scheme.
+-    let event_queue: EventQueue<Source> =
+-        EventQueue::new().expect("virtio-gpud: failed to create event queue");
++    let event_queue: EventQueue<Source> = EventQueue::new()
++        .map_err(|err| anyhow::anyhow!("failed to create event queue: {err}"))?;
+ 
+     let mut scheme = scheme::GpuScheme::new(
+         config,
+diff --git a/drivers/hwd/src/backend/acpi.rs b/drivers/hwd/src/backend/acpi.rs
+index 3da41d63..c24dfc4b 100644
+--- a/drivers/hwd/src/backend/acpi.rs
++++ b/drivers/hwd/src/backend/acpi.rs
+@@ -14,7 +14,7 @@ impl Backend for AcpiBackend {
+         // Spawn acpid
+         //TODO: pass rxsdt data to acpid?
+         #[allow(deprecated, reason = "we can't yet move this to init")]
+-        daemon::Daemon::spawn(Command::new("acpid"));
++        let _ = daemon::Daemon::spawn(Command::new("acpid"));
+ 
+         Ok(Self { rxsdt })
+     }
+diff --git a/drivers/hwd/src/main.rs b/drivers/hwd/src/main.rs
+index 79360e34..4a2b9469 100644
+--- a/drivers/hwd/src/main.rs
++++ b/drivers/hwd/src/main.rs
+@@ -38,7 +38,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     //TODO: launch pcid based on backend information?
+     // Must launch after acpid but before probe calls /scheme/acpi/symbols
+     #[allow(deprecated, reason = "we can't yet move this to init")]
+-    daemon::Daemon::spawn(process::Command::new("pcid"));
++    let _ = daemon::Daemon::spawn(process::Command::new("pcid"));
+ 
+     daemon.ready();
+ 
+diff --git a/drivers/net/e1000d/src/main.rs b/drivers/net/e1000d/src/main.rs
+index 373ea9b3..d971c0a1 100644
+--- a/drivers/net/e1000d/src/main.rs
++++ b/drivers/net/e1000d/src/main.rs
+@@ -28,17 +28,38 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("e1000d: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            log::error!("e1000d: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     log::info!("E1000 {}", pci_config.func.display());
+ 
+-    let mut irq_file = irq.irq_handle("e1000d");
++    let mut irq_file = match irq.try_irq_handle("e1000d") {
++        Ok(file) => file,
++        Err(err) => {
++            log::error!("e1000d: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let address = unsafe { pcid_handle.map_bar(0) }.ptr.as_ptr() as usize;
++    let address = match unsafe { pcid_handle.try_map_bar(0) } {
++        Ok(bar) => bar.ptr.as_ptr() as usize,
++        Err(err) => {
++            log::error!("e1000d: failed to map BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Intel8254x::new(address).expect("e1000d: failed to allocate device")
++            match device::Intel8254x::new(address) {
++                Ok(device) => device,
++                Err(err) => {
++                    log::error!("e1000d: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -51,7 +72,13 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("e1000d: failed to create event queue");
++    let event_queue = match EventQueue::<Source>::new() {
++        Ok(queue) => queue,
++        Err(err) => {
++            log::error!("e1000d: failed to create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     event_queue
+         .subscribe(
+@@ -59,32 +86,65 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .expect("e1000d: failed to subscribe to IRQ fd");
++        .unwrap_or_else(|err| {
++            log::error!("e1000d: failed to subscribe to IRQ fd: {err}");
++            std::process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .expect("e1000d: failed to subscribe to scheme fd");
+-
+-    libredox::call::setrens(0, 0).expect("e1000d: failed to enter null namespace");
++        .unwrap_or_else(|err| {
++            log::error!("e1000d: failed to subscribe to scheme fd: {err}");
++            std::process::exit(1);
++        });
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        log::error!("e1000d: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+-    scheme.tick().unwrap();
++    if let Err(err) = scheme.tick() {
++        log::error!("e1000d: failed initial scheme tick: {err}");
++        std::process::exit(1);
++    }
+ 
+-    for event in event_queue.map(|e| e.expect("e1000d: failed to get event")) {
++    for event in event_queue {
++        let event = match event {
++            Ok(event) => event,
++            Err(err) => {
++                log::error!("e1000d: failed to get event: {err}");
++                break;
++            }
++        };
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    log::error!("e1000d: failed to read IRQ file: {err}");
++                    break;
++                }
+                 if unsafe { scheme.adapter().irq() } {
+-                    irq_file.write(&mut irq).unwrap();
+-
+-                    scheme.tick().expect("e1000d: failed to handle IRQ")
++                    if let Err(err) = irq_file.write(&mut irq) {
++                        log::error!("e1000d: failed to acknowledge IRQ: {err}");
++                        break;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        log::error!("e1000d: failed to handle IRQ: {err}");
++                        break;
++                    }
++                }
++            }
++            Source::Scheme => {
++                if let Err(err) = scheme.tick() {
++                    log::error!("e1000d: failed to handle scheme op: {err}");
++                    break;
+                 }
+             }
+-            Source::Scheme => scheme.tick().expect("e1000d: failed to handle scheme op"),
+         }
+     }
+-    unreachable!()
++    std::process::exit(1)
+ }
+diff --git a/drivers/net/ixgbed/src/main.rs b/drivers/net/ixgbed/src/main.rs
+index 4a6ce74d..a9b6dd82 100644
+--- a/drivers/net/ixgbed/src/main.rs
++++ b/drivers/net/ixgbed/src/main.rs
+@@ -22,20 +22,44 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("ixgbed: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            eprintln!("ixgbed: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     println!(" + IXGBE {}", pci_config.func.display());
+ 
+-    let mut irq_file = irq.irq_handle("ixgbed");
++    let mut irq_file = match irq.try_irq_handle("ixgbed") {
++        Ok(file) => file,
++        Err(err) => {
++            eprintln!("ixgbed: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let mapped_bar = unsafe { pcid_handle.map_bar(0) };
++    if let Err(err) = pci_config.func.bars[0].try_mem() {
++        eprintln!("ixgbed: invalid BAR0: {err}");
++        std::process::exit(1);
++    }
++    let mapped_bar = match unsafe { pcid_handle.try_map_bar(0) } {
++        Ok(bar) => bar,
++        Err(err) => {
++            eprintln!("ixgbed: failed to map BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
+     let address = mapped_bar.ptr.as_ptr();
+     let size = mapped_bar.bar_size;
+ 
+     let mut scheme = NetworkScheme::new(
+         move || {
+-            device::Intel8259x::new(address as usize, size)
+-                .expect("ixgbed: failed to allocate device")
++            match device::Intel8259x::new(address as usize, size) {
++                Ok(device) => device,
++                Err(err) => {
++                    eprintln!("ixgbed: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -48,41 +72,78 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("ixgbed: Could not create event queue.");
++    let event_queue = match EventQueue::<Source>::new() {
++        Ok(queue) => queue,
++        Err(err) => {
++            eprintln!("ixgbed: could not create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+     event_queue
+         .subscribe(
+             irq_file.as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            eprintln!("ixgbed: failed to subscribe IRQ fd: {err}");
++            std::process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("ixgbed: failed to enter null namespace");
++        .unwrap_or_else(|err| {
++            eprintln!("ixgbed: failed to subscribe scheme fd: {err}");
++            std::process::exit(1);
++        });
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("ixgbed: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+-    scheme.tick().unwrap();
++    if let Err(err) = scheme.tick() {
++        eprintln!("ixgbed: failed initial scheme tick: {err}");
++        std::process::exit(1);
++    }
+ 
+-    for event in event_queue.map(|e| e.expect("ixgbed: failed to get next event")) {
++    for event in event_queue {
++        let event = match event {
++            Ok(event) => event,
++            Err(err) => {
++                eprintln!("ixgbed: failed to get next event: {err}");
++                break;
++            }
++        };
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    eprintln!("ixgbed: failed to read IRQ file: {err}");
++                    break;
++                }
+                 if scheme.adapter().irq() {
+-                    irq_file.write(&mut irq).unwrap();
+-
+-                    scheme.tick().unwrap();
++                    if let Err(err) = irq_file.write(&mut irq) {
++                        eprintln!("ixgbed: failed to acknowledge IRQ: {err}");
++                        break;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        eprintln!("ixgbed: failed to handle IRQ: {err}");
++                        break;
++                    }
+                 }
+             }
+             Source::Scheme => {
+-                scheme.tick().unwrap();
++                if let Err(err) = scheme.tick() {
++                    eprintln!("ixgbed: failed to handle scheme op: {err}");
++                    break;
++                }
+             }
+         }
+     }
+-    unreachable!()
++    std::process::exit(0)
+ }
+diff --git a/drivers/net/rtl8139d/src/main.rs b/drivers/net/rtl8139d/src/main.rs
+index d470e814..aa377446 100644
+--- a/drivers/net/rtl8139d/src/main.rs
++++ b/drivers/net/rtl8139d/src/main.rs
+@@ -3,7 +3,7 @@ use std::os::unix::io::AsRawFd;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+-use pcid_interface::irq_helpers::pci_allocate_interrupt_vector;
++use pcid_interface::irq_helpers::try_pci_allocate_interrupt_vector;
+ use pcid_interface::PciFunctionHandle;
+ 
+ pub mod device;
+@@ -20,19 +20,19 @@ where
+     }
+ }
+ 
+-fn map_bar(pcid_handle: &mut PciFunctionHandle) -> *mut u8 {
++fn map_bar(pcid_handle: &mut PciFunctionHandle) -> Result<*mut u8, &'static str> {
+     let config = pcid_handle.config();
+ 
+     // RTL8139 uses BAR2, RTL8169 uses BAR1, search in that order
+     for &barnum in &[2, 1] {
+         match config.func.bars[usize::from(barnum)] {
+             pcid_interface::PciBar::Memory32 { .. } | pcid_interface::PciBar::Memory64 { .. } => unsafe {
+-                return pcid_handle.map_bar(barnum).ptr.as_ptr();
++                return Ok(pcid_handle.map_bar(barnum).ptr.as_ptr());
+             },
+             other => log::warn!("BAR {} is {:?} instead of memory BAR", barnum, other),
+         }
+     }
+-    panic!("rtl8139d: failed to find BAR");
++    Err("failed to find a usable MMIO BAR")
+ }
+ 
+ fn main() {
+@@ -55,13 +55,31 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!(" + RTL8139 {}", pci_config.func.display());
+ 
+-    let bar = map_bar(&mut pcid_handle);
++    let bar = match map_bar(&mut pcid_handle) {
++        Ok(bar) => bar,
++        Err(err) => {
++            log::error!("rtl8139d: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "rtl8139d");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "rtl8139d") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("rtl8139d: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Rtl8139::new(bar as usize).expect("rtl8139d: failed to allocate device")
++            match device::Rtl8139::new(bar as usize) {
++                Ok(device) => device,
++                Err(err) => {
++                    log::error!("rtl8139d: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         },
+         daemon,
+         format!("network.{name}"),
+diff --git a/drivers/net/rtl8168d/src/main.rs b/drivers/net/rtl8168d/src/main.rs
+index 1d9963a3..c6e21bd9 100644
+--- a/drivers/net/rtl8168d/src/main.rs
++++ b/drivers/net/rtl8168d/src/main.rs
+@@ -3,7 +3,7 @@ use std::os::unix::io::AsRawFd;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+-use pcid_interface::irq_helpers::pci_allocate_interrupt_vector;
++use pcid_interface::irq_helpers::try_pci_allocate_interrupt_vector;
+ use pcid_interface::PciFunctionHandle;
+ 
+ pub mod device;
+@@ -20,19 +20,19 @@ where
+     }
+ }
+ 
+-fn map_bar(pcid_handle: &mut PciFunctionHandle) -> *mut u8 {
++fn map_bar(pcid_handle: &mut PciFunctionHandle) -> Result<*mut u8, &'static str> {
+     let config = pcid_handle.config();
+ 
+     // RTL8168 uses BAR2, RTL8169 uses BAR1, search in that order
+     for &barnum in &[2, 1] {
+         match config.func.bars[usize::from(barnum)] {
+             pcid_interface::PciBar::Memory32 { .. } | pcid_interface::PciBar::Memory64 { .. } => unsafe {
+-                return pcid_handle.map_bar(barnum).ptr.as_ptr();
++                return Ok(pcid_handle.map_bar(barnum).ptr.as_ptr());
+             },
+             other => log::warn!("BAR {} is {:?} instead of memory BAR", barnum, other),
+         }
+     }
+-    panic!("rtl8168d: failed to find BAR");
++    Err("failed to find a usable MMIO BAR")
+ }
+ 
+ fn main() {
+@@ -55,13 +55,31 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!("RTL8168 {}", pci_config.func.display());
+ 
+-    let bar = map_bar(&mut pcid_handle);
++    let bar = match map_bar(&mut pcid_handle) {
++        Ok(bar) => bar,
++        Err(err) => {
++            log::error!("rtl8168d: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "rtl8168d");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "rtl8168d") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("rtl8168d: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Rtl8168::new(bar as usize).expect("rtl8168d: failed to allocate device")
++            match device::Rtl8168::new(bar as usize) {
++                Ok(device) => device,
++                Err(err) => {
++                    log::error!("rtl8168d: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         },
+         daemon,
+         format!("network.{name}"),
+diff --git a/drivers/net/virtio-netd/src/main.rs b/drivers/net/virtio-netd/src/main.rs
+index 17d168ef..56f2c045 100644
+--- a/drivers/net/virtio-netd/src/main.rs
++++ b/drivers/net/virtio-netd/src/main.rs
+@@ -31,7 +31,10 @@ fn main() {
+ }
+ 
+ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    deamon(daemon, pcid_handle).unwrap();
++    if let Err(err) = deamon(daemon, pcid_handle) {
++        log::error!("virtio-netd: startup failed: {err}");
++        std::process::exit(1);
++    }
+     unreachable!();
+ }
+ 
+@@ -52,7 +55,13 @@ fn deamon(
+     // 0x1000 - virtio-net
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1000);
++    if pci_config.func.full_device_id.device_id != 0x1000 {
++        return Err(format!(
++            "unexpected virtio-net device id: {:04x}",
++            pci_config.func.full_device_id.device_id
++        )
++        .into());
++    }
+     log::info!("virtio-net: initiating startup sequence :^)");
+ 
+     let device = virtio_core::probe_device(&mut pcid_handle)?;
+@@ -84,7 +93,7 @@ fn deamon(
+         device.transport.ack_driver_feature(VIRTIO_NET_F_MAC);
+         mac
+     } else {
+-        unimplemented!()
++        return Err("virtio-net: device does not expose VIRTIO_NET_F_MAC".into());
+     };
+ 
+     device.transport.finalize_features();
+@@ -126,7 +135,7 @@ fn deamon(
+         data: 0,
+     })?;
+ 
+-    libredox::call::setrens(0, 0).expect("virtio-netd: failed to enter null namespace");
++    libredox::call::setrens(0, 0)?;
+ 
+     scheme.tick()?;
+ 
+diff --git a/drivers/pcid-spawner/src/main.rs b/drivers/pcid-spawner/src/main.rs
+index a968f4d4..e41caee0 100644
+--- a/drivers/pcid-spawner/src/main.rs
++++ b/drivers/pcid-spawner/src/main.rs
+@@ -55,10 +55,11 @@ fn main() -> Result<()> {
+         };
+ 
+         let full_device_id = handle.config().func.full_device_id;
++        let device_addr = handle.config().func.addr;
+ 
+         log::debug!(
+             "pcid-spawner enumerated: PCI {} {}",
+-            handle.config().func.addr,
++            device_addr,
+             full_device_id.display()
+         );
+ 
+@@ -67,7 +68,7 @@ fn main() -> Result<()> {
+             .iter()
+             .find(|driver| driver.match_function(&full_device_id))
+         else {
+-            log::debug!("no driver for {}, continuing", handle.config().func.addr);
++            log::debug!("no driver for {}, continuing", device_addr);
+             continue;
+         };
+ 
+@@ -85,16 +86,46 @@ fn main() -> Result<()> {
+         let mut command = Command::new(program);
+         command.args(args);
+ 
+-        log::info!("pcid-spawner: spawn {:?}", command);
+-
+-        handle.enable_device();
++        log::info!(
++            "pcid-spawner: matched {} to driver {:?}",
++            device_addr,
++            driver.command
++        );
++        log::info!("pcid-spawner: enabling {} before spawn", device_addr);
++
++        if let Err(err) = handle.try_enable_device() {
++            log::error!(
++                "pcid-spawner: failed to enable {} before spawn: {}",
++                device_addr,
++                err
++            );
++            continue;
++        }
+ 
+         let channel_fd = handle.into_inner_fd();
+         command.env("PCID_CLIENT_CHANNEL", channel_fd.to_string());
+ 
++        log::info!("pcid-spawner: spawn {:?}", command);
+         #[allow(deprecated, reason = "we can't yet move this to init")]
+-        daemon::Daemon::spawn(command);
+-        syscall::close(channel_fd as usize).unwrap();
++        if let Err(err) = daemon::Daemon::spawn(command) {
++            log::error!(
++                "pcid-spawner: spawn/readiness failed for {}: {}",
++                device_addr,
++                err
++            );
++            log::error!(
++                "pcid-spawner: {} remains enabled without a confirmed ready driver",
++                device_addr
++            );
++        }
++        if let Err(err) = syscall::close(channel_fd as usize) {
++            log::error!(
++                "pcid-spawner: failed to close channel fd {} for {}: {}",
++                channel_fd,
++                device_addr,
++                err
++            );
++        }
+     }
+ 
+     Ok(())
+diff --git a/drivers/pcid/src/driver_handler.rs b/drivers/pcid/src/driver_handler.rs
+index f70a7f6d..bd0db746 100644
+--- a/drivers/pcid/src/driver_handler.rs
++++ b/drivers/pcid/src/driver_handler.rs
+@@ -48,8 +48,18 @@ impl<'a> DriverHandler<'a> {
+                 self.capabilities
+                     .iter()
+                     .filter_map(|capability| match capability {
+-                        PciCapability::Vendor(addr) => unsafe {
+-                            Some(VendorSpecificCapability::parse(*addr, self.pcie))
++                        PciCapability::Vendor(addr) => match unsafe {
++                            VendorSpecificCapability::try_parse(*addr, self.pcie)
++                        } {
++                            Ok(capability) => Some(capability),
++                            Err(err) => {
++                                log::warn!(
++                                    "pcid: skipping malformed vendor capability at {:#x}: {}",
++                                    addr.offset,
++                                    err
++                                );
++                                None
++                            }
+                         },
+                         _ => None,
+                     })
+@@ -266,7 +276,7 @@ impl<'a> DriverHandler<'a> {
+                         );
+                     }
+                 }
+-                _ => unreachable!(),
++                _ => PcidClientResponse::Error(PcidServerResponseError::UnrecognizedRequest),
+             },
+             PcidClientRequest::ReadConfig(offset) => {
+                 let value = unsafe { self.pcie.read(self.func.addr, offset) };
+@@ -278,7 +288,7 @@ impl<'a> DriverHandler<'a> {
+                 }
+                 return PcidClientResponse::WriteConfig;
+             }
+-            _ => unreachable!(),
++            _ => PcidClientResponse::Error(PcidServerResponseError::UnrecognizedRequest),
+         }
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/bar.rs b/drivers/pcid/src/driver_interface/bar.rs
+index b2c1d35b..7eaade51 100644
+--- a/drivers/pcid/src/driver_interface/bar.rs
++++ b/drivers/pcid/src/driver_interface/bar.rs
+@@ -1,7 +1,37 @@
+ use std::convert::TryInto;
++use std::fmt;
+ 
+ use serde::{Deserialize, Serialize};
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum PciBarError {
++    Missing,
++    ExpectedPortFoundMemory,
++    ExpectedMemoryFoundPort,
++    AddressTooLarge,
++    SizeTooLarge,
++}
++
++impl fmt::Display for PciBarError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            PciBarError::Missing => write!(f, "expected BAR to exist"),
++            PciBarError::ExpectedPortFoundMemory => {
++                write!(f, "expected port BAR, found memory BAR")
++            }
++            PciBarError::ExpectedMemoryFoundPort => {
++                write!(f, "expected memory BAR, found port BAR")
++            }
++            PciBarError::AddressTooLarge => {
++                write!(f, "conversion from 64-bit BAR address to usize failed")
++            }
++            PciBarError::SizeTooLarge => {
++                write!(f, "conversion from 64-bit BAR size to usize failed")
++            }
++        }
++    }
++}
++
+ // This type is used instead of [pci_types::Bar] in the driver interface as the
+ // latter can't be serialized and is missing the convenience functions of [PciBar].
+ #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+@@ -30,26 +60,76 @@ impl PciBar {
+     }
+ 
+     pub fn expect_port(&self) -> u16 {
++        self.try_port().unwrap_or_else(|err| panic!("{err}"))
++    }
++
++    pub fn try_port(&self) -> Result<u16, PciBarError> {
+         match *self {
+-            PciBar::Port(port) => port,
++            PciBar::Port(port) => Ok(port),
+             PciBar::Memory32 { .. } | PciBar::Memory64 { .. } => {
+-                panic!("expected port BAR, found memory BAR");
++                Err(PciBarError::ExpectedPortFoundMemory)
+             }
+-            PciBar::None => panic!("expected BAR to exist"),
++            PciBar::None => Err(PciBarError::Missing),
+         }
+     }
+ 
+     pub fn expect_mem(&self) -> (usize, usize) {
++        self.try_mem().unwrap_or_else(|err| panic!("{err}"))
++    }
++
++    pub fn try_mem(&self) -> Result<(usize, usize), PciBarError> {
+         match *self {
+-            PciBar::Memory32 { addr, size } => (addr as usize, size as usize),
+-            PciBar::Memory64 { addr, size } => (
+-                addr.try_into()
+-                    .expect("conversion from 64bit BAR to usize failed"),
+-                size.try_into()
+-                    .expect("conversion from 64bit BAR size to usize failed"),
+-            ),
+-            PciBar::Port(_) => panic!("expected memory BAR, found port BAR"),
+-            PciBar::None => panic!("expected BAR to exist"),
++            PciBar::Memory32 { addr, size } => Ok((addr as usize, size as usize)),
++            PciBar::Memory64 { addr, size } => Ok((
++                addr.try_into().map_err(|_| PciBarError::AddressTooLarge)?,
++                size.try_into().map_err(|_| PciBarError::SizeTooLarge)?,
++            )),
++            PciBar::Port(_) => Err(PciBarError::ExpectedMemoryFoundPort),
++            PciBar::None => Err(PciBarError::Missing),
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::{PciBar, PciBarError};
++
++    #[test]
++    fn try_port_accepts_port_bar() {
++        assert_eq!(PciBar::Port(0x1234).try_port(), Ok(0x1234));
++    }
++
++    #[test]
++    fn try_port_rejects_non_port_bars() {
++        assert_eq!(
++            PciBar::Memory32 {
++                addr: 0x1000,
++                size: 0x100,
++            }
++            .try_port(),
++            Err(PciBarError::ExpectedPortFoundMemory)
++        );
++        assert_eq!(PciBar::None.try_port(), Err(PciBarError::Missing));
++    }
++
++    #[test]
++    fn try_mem_accepts_memory_bars() {
++        assert_eq!(
++            PciBar::Memory32 {
++                addr: 0x1000,
++                size: 0x200,
++            }
++            .try_mem(),
++            Ok((0x1000, 0x200))
++        );
++    }
++
++    #[test]
++    fn try_mem_rejects_non_memory_bars() {
++        assert_eq!(
++            PciBar::Port(0x1234).try_mem(),
++            Err(PciBarError::ExpectedMemoryFoundPort)
++        );
++        assert_eq!(PciBar::None.try_mem(), Err(PciBarError::Missing));
++    }
++}
+diff --git a/drivers/pcid/src/driver_interface/cap.rs b/drivers/pcid/src/driver_interface/cap.rs
+index 19521608..495aac61 100644
+--- a/drivers/pcid/src/driver_interface/cap.rs
++++ b/drivers/pcid/src/driver_interface/cap.rs
+@@ -1,14 +1,37 @@
+ use pci_types::capability::PciCapabilityAddress;
+ use pci_types::ConfigRegionAccess;
+ use serde::{Deserialize, Serialize};
++use std::fmt;
+ 
+ #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+ pub struct VendorSpecificCapability {
+     pub data: Vec<u8>,
+ }
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum VendorSpecificCapabilityError {
++    InvalidLength(u16),
++}
++
++impl fmt::Display for VendorSpecificCapabilityError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            VendorSpecificCapabilityError::InvalidLength(length) => {
++                write!(f, "invalid vendor capability length: {length}")
++            }
++        }
++    }
++}
++
+ impl VendorSpecificCapability {
+     pub unsafe fn parse(addr: PciCapabilityAddress, access: &dyn ConfigRegionAccess) -> Self {
++        Self::try_parse(addr, access).unwrap_or_else(|err| panic!("{err}"))
++    }
++
++    pub unsafe fn try_parse(
++        addr: PciCapabilityAddress,
++        access: &dyn ConfigRegionAccess,
++    ) -> Result<Self, VendorSpecificCapabilityError> {
+         let dword = access.read(addr.address, addr.offset);
+         let length = ((dword >> 16) & 0xFF) as u16;
+         // let next = (dword >> 8) & 0xFF;
+@@ -17,11 +40,9 @@ impl VendorSpecificCapability {
+         //     addr.offset
+         // );
+         let data = if length > 0 {
+-            assert!(
+-                length > 3 && length % 4 == 0,
+-                "invalid range length: {}",
+-                length
+-            );
++            if !(length > 3 && length % 4 == 0) {
++                return Err(VendorSpecificCapabilityError::InvalidLength(length));
++            }
+             let mut raw_data = {
+                 (addr.offset..addr.offset + length)
+                     .step_by(4)
+@@ -33,6 +54,69 @@ impl VendorSpecificCapability {
+             log::warn!("Vendor specific capability is invalid");
+             Vec::new()
+         };
+-        VendorSpecificCapability { data }
++        Ok(VendorSpecificCapability { data })
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{VendorSpecificCapability, VendorSpecificCapabilityError};
++    use pci_types::capability::PciCapabilityAddress;
++    use pci_types::{ConfigRegionAccess, PciAddress};
++    use std::collections::BTreeMap;
++    use std::sync::Mutex;
++
++    #[derive(Default)]
++    struct MockConfigRegionAccess {
++        values: Mutex<BTreeMap<(PciAddress, u16), u32>>,
++    }
++
++    impl MockConfigRegionAccess {
++        fn with_read(address: PciAddress, offset: u16, value: u32) -> Self {
++            let mut map = BTreeMap::new();
++            map.insert((address, offset), value);
++            Self {
++                values: Mutex::new(map),
++            }
++        }
++    }
++
++    impl ConfigRegionAccess for MockConfigRegionAccess {
++        unsafe fn read(&self, address: PciAddress, offset: u16) -> u32 {
++            self.values
++                .lock()
++                .unwrap()
++                .get(&(address, offset))
++                .copied()
++                .unwrap_or_default()
++        }
++
++        unsafe fn write(&self, _address: PciAddress, _offset: u16, _value: u32) {}
++    }
++
++    #[test]
++    fn try_parse_accepts_valid_vendor_capability() {
++        let address = PciAddress::new(0, 0, 1, 0);
++        let capability = PciCapabilityAddress {
++            address,
++            offset: 0x40,
++        };
++        let access = MockConfigRegionAccess::with_read(address, 0x40, 0x0010_0000);
++
++        let capability = unsafe { VendorSpecificCapability::try_parse(capability, &access) };
++        assert_eq!(capability.unwrap().data.len(), 13);
++    }
++
++    #[test]
++    fn try_parse_rejects_invalid_length() {
++        let address = PciAddress::new(0, 0, 1, 0);
++        let capability = PciCapabilityAddress {
++            address,
++            offset: 0x40,
++        };
++        let access = MockConfigRegionAccess::with_read(address, 0x40, 0x0005_0000);
++
++        let error = unsafe { VendorSpecificCapability::try_parse(capability, &access) }.unwrap_err();
++        assert_eq!(error, VendorSpecificCapabilityError::InvalidLength(5));
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/irq_helpers.rs b/drivers/pcid/src/driver_interface/irq_helpers.rs
+index 28ca077a..b595d703 100644
+--- a/drivers/pcid/src/driver_interface/irq_helpers.rs
++++ b/drivers/pcid/src/driver_interface/irq_helpers.rs
+@@ -180,40 +180,51 @@ pub fn allocate_single_interrupt_vector(cpu_id: usize) -> io::Result<Option<(u8,
+ }
+ 
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn allocate_single_interrupt_vector_for_msi(cpu_id: usize) -> (MsiAddrAndData, File) {
++pub fn try_allocate_single_interrupt_vector_for_msi(
++    cpu_id: usize,
++) -> io::Result<(MsiAddrAndData, File)> {
+     use crate::driver_interface::msi::x86 as x86_msix;
+ 
+-    // FIXME for cpu_id >255 we need to use the IOMMU to use IRQ remapping
+-    let lapic_id = u8::try_from(cpu_id).expect("CPU id couldn't fit inside u8");
++    let lapic_id = u8::try_from(cpu_id).map_err(|_| {
++        io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!("CPU id {cpu_id} could not fit inside u8"),
++        )
++    })?;
+     let rh = false;
+     let dm = false;
+     let addr = x86_msix::message_address(lapic_id, rh, dm);
+ 
+-    let (vector, interrupt_handle) = allocate_single_interrupt_vector(cpu_id)
+-        .expect("failed to allocate interrupt vector")
+-        .expect("no interrupt vectors left");
++    let (vector, interrupt_handle) = allocate_single_interrupt_vector(cpu_id)?
++        .ok_or_else(|| io::Error::other("no interrupt vectors left"))?;
+     let msg_data = x86_msix::message_data_edge_triggered(x86_msix::DeliveryMode::Fixed, vector);
+ 
+-    (
++    Ok((
+         MsiAddrAndData {
+             addr,
+             data: msg_data,
+         },
+         interrupt_handle,
+-    )
++    ))
+ }
+ 
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn allocate_first_msi_interrupt_on_bsp(
++pub fn allocate_single_interrupt_vector_for_msi(cpu_id: usize) -> (MsiAddrAndData, File) {
++    try_allocate_single_interrupt_vector_for_msi(cpu_id)
++        .unwrap_or_else(|err| panic!("failed to allocate MSI interrupt vector: {err}"))
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++pub fn try_allocate_first_msi_interrupt_on_bsp(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+-) -> File {
++) -> Result<File, InterruptVectorError> {
+     use crate::driver_interface::{MsiSetFeatureInfo, PciFeature, SetFeatureInfo};
+ 
+-    // TODO: Allow allocation of up to 32 vectors.
+-
+-    let destination_id = read_bsp_apic_id().expect("failed to read BSP apic id");
+-    let (msg_addr_and_data, interrupt_handle) =
+-        allocate_single_interrupt_vector_for_msi(destination_id);
++    let destination_id = read_bsp_apic_id().map_err(InterruptVectorError::ApicId)?;
++    let (msg_addr_and_data, interrupt_handle) = try_allocate_single_interrupt_vector_for_msi(
++        destination_id,
++    )
++    .map_err(InterruptVectorError::Allocate)?;
+ 
+     let set_feature_info = MsiSetFeatureInfo {
+         multi_message_enable: Some(0),
+@@ -222,10 +233,20 @@ pub fn allocate_first_msi_interrupt_on_bsp(
+     };
+     pcid_handle.set_feature_info(SetFeatureInfo::Msi(set_feature_info));
+ 
+-    pcid_handle.enable_feature(PciFeature::Msi);
++    pcid_handle
++        .try_enable_feature(PciFeature::Msi)
++        .map_err(InterruptVectorError::IrqHandle)?;
+     log::debug!("Enabled MSI");
+ 
+-    interrupt_handle
++    Ok(interrupt_handle)
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++pub fn allocate_first_msi_interrupt_on_bsp(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++) -> File {
++    try_allocate_first_msi_interrupt_on_bsp(pcid_handle)
++        .unwrap_or_else(|err| panic!("failed to allocate first MSI interrupt on BSP: {err}"))
+ }
+ 
+ pub struct InterruptVector {
+@@ -234,6 +255,39 @@ pub struct InterruptVector {
+     kind: InterruptVectorKind,
+ }
+ 
++#[derive(Debug)]
++pub enum InterruptVectorError {
++    MissingMsixFeature,
++    MissingLegacyInterrupt,
++    ApicId(io::Error),
++    Allocate(io::Error),
++    IrqHandle(io::Error),
++    MsixMap(super::msi::MsixMapError),
++}
++
++impl std::fmt::Display for InterruptVectorError {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            InterruptVectorError::MissingMsixFeature => {
++                write!(f, "missing MSI-X feature information")
++            }
++            InterruptVectorError::MissingLegacyInterrupt => {
++                write!(f, "no interrupts supported at all")
++            }
++            InterruptVectorError::ApicId(err) => write!(f, "failed to read BSP APIC ID: {err}"),
++            InterruptVectorError::Allocate(err) => {
++                write!(f, "failed to allocate interrupt vector: {err}")
++            }
++            InterruptVectorError::IrqHandle(err) => {
++                write!(f, "failed to open IRQ handle: {err}")
++            }
++            InterruptVectorError::MsixMap(err) => {
++                write!(f, "failed to map MSI-X registers: {err}")
++            }
++        }
++    }
++}
++
+ enum InterruptVectorKind {
+     Legacy,
+     Msi,
+@@ -266,10 +320,10 @@ impl InterruptVector {
+ // FIXME allow allocating multiple interrupt vectors
+ // FIXME move MSI-X IRQ allocation to pcid
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn pci_allocate_interrupt_vector(
++pub fn try_pci_allocate_interrupt_vector(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+     driver: &str,
+-) -> InterruptVector {
++) -> Result<InterruptVector, InterruptVectorError> {
+     let features = pcid_handle.fetch_all_features();
+ 
+     let has_msi = features.iter().any(|feature| feature.is_msi());
+@@ -278,57 +332,79 @@ pub fn pci_allocate_interrupt_vector(
+     if has_msix {
+         let msix_info = match pcid_handle.feature_info(super::PciFeature::MsiX) {
+             super::PciFeatureInfo::MsiX(msix) => msix,
+-            _ => unreachable!(),
++            _ => return Err(InterruptVectorError::MissingMsixFeature),
+         };
+-        let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
++        let mut info = unsafe { msix_info.try_map_and_mask_all(pcid_handle) }
++            .map_err(InterruptVectorError::MsixMap)?;
+ 
+         pcid_handle.enable_feature(crate::driver_interface::PciFeature::MsiX);
+ 
+         let entry = info.table_entry_pointer(0);
+ 
+-        let bsp_cpu_id = read_bsp_apic_id()
+-            .unwrap_or_else(|err| panic!("{driver}: failed to read BSP APIC ID: {err}"));
+-        let (msg_addr_and_data, irq_handle) = allocate_single_interrupt_vector_for_msi(bsp_cpu_id);
++        let bsp_cpu_id = read_bsp_apic_id().map_err(InterruptVectorError::ApicId)?;
++        let (msg_addr_and_data, irq_handle) =
++            try_allocate_single_interrupt_vector_for_msi(bsp_cpu_id)
++                .map_err(InterruptVectorError::Allocate)?;
+         entry.write_addr_and_data(msg_addr_and_data);
+         entry.unmask();
+ 
+-        InterruptVector {
++        Ok(InterruptVector {
+             irq_handle,
+             vector: 0,
+             kind: InterruptVectorKind::MsiX { table_entry: entry },
+-        }
++        })
+     } else if has_msi {
+-        InterruptVector {
++        Ok(InterruptVector {
+             irq_handle: allocate_first_msi_interrupt_on_bsp(pcid_handle),
+             vector: 0,
+             kind: InterruptVectorKind::Msi,
+-        }
++        })
+     } else if let Some(irq) = pcid_handle.config().func.legacy_interrupt_line {
+-        // INTx# pin based interrupts.
+-        InterruptVector {
+-            irq_handle: irq.irq_handle(driver),
++        Ok(InterruptVector {
++            irq_handle: irq
++                .try_irq_handle(driver)
++                .map_err(InterruptVectorError::IrqHandle)?,
+             vector: 0,
+             kind: InterruptVectorKind::Legacy,
+-        }
++        })
+     } else {
+-        panic!("{driver}: no interrupts supported at all")
++        Err(InterruptVectorError::MissingLegacyInterrupt)
+     }
+ }
+ 
+-// FIXME support MSI on non-x86 systems
+-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+ pub fn pci_allocate_interrupt_vector(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+     driver: &str,
+ ) -> InterruptVector {
++    try_pci_allocate_interrupt_vector(pcid_handle, driver)
++        .unwrap_or_else(|err| panic!("{driver}: {err}"))
++}
++
++// FIXME support MSI on non-x86 systems
++#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++pub fn try_pci_allocate_interrupt_vector(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++    driver: &str,
++) -> Result<InterruptVector, InterruptVectorError> {
+     if let Some(irq) = pcid_handle.config().func.legacy_interrupt_line {
+-        // INTx# pin based interrupts.
+-        InterruptVector {
+-            irq_handle: irq.irq_handle(driver),
++        Ok(InterruptVector {
++            irq_handle: irq
++                .try_irq_handle(driver)
++                .map_err(InterruptVectorError::IrqHandle)?,
+             vector: 0,
+             kind: InterruptVectorKind::Legacy,
+-        }
++        })
+     } else {
+-        panic!("{driver}: no interrupts supported at all")
++        Err(InterruptVectorError::MissingLegacyInterrupt)
+     }
+ }
++
++#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++pub fn pci_allocate_interrupt_vector(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++    driver: &str,
++) -> InterruptVector {
++    try_pci_allocate_interrupt_vector(pcid_handle, driver)
++        .unwrap_or_else(|err| panic!("{driver}: {err}"))
++}
+diff --git a/drivers/pcid/src/driver_interface/mod.rs b/drivers/pcid/src/driver_interface/mod.rs
+index bbc7304e..b0fb8aa8 100644
+--- a/drivers/pcid/src/driver_interface/mod.rs
++++ b/drivers/pcid/src/driver_interface/mod.rs
+@@ -30,7 +30,7 @@ pub struct LegacyInterruptLine {
+ 
+ impl LegacyInterruptLine {
+     /// Get an IRQ handle for this interrupt line.
+-    pub fn irq_handle(self, driver: &str) -> File {
++    pub fn try_irq_handle(self, _driver: &str) -> io::Result<File> {
+         if let Some((phandle, addr, cells)) = self.phandled {
+             let path = match cells {
+                 1 => format!("/scheme/irq/phandle-{}/{}", phandle, addr[0]),
+@@ -39,17 +39,25 @@ impl LegacyInterruptLine {
+                     "/scheme/irq/phandle-{}/{},{},{}",
+                     phandle, addr[0], addr[1], addr[2]
+                 ),
+-                _ => panic!(
+-                    "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
+-                ),
++                _ => {
++                    return Err(io::Error::new(
++                        io::ErrorKind::InvalidData,
++                        format!(
++                            "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
++                        ),
++                    ))
++                }
+             };
+             File::create(path)
+-                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
+         } else {
+             File::open(format!("/scheme/irq/{}", self.irq))
+-                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
+         }
+     }
++
++    pub fn irq_handle(self, driver: &str) -> File {
++        self.try_irq_handle(driver)
++            .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
++    }
+ }
+ 
+ impl fmt::Display for LegacyInterruptLine {
+@@ -247,6 +255,7 @@ pub enum PcidClientRequest {
+ pub enum PcidServerResponseError {
+     NonexistentFeature(PciFeature),
+     InvalidBitPattern,
++    UnrecognizedRequest,
+ }
+ 
+ #[derive(Debug, Serialize, Deserialize)]
+@@ -307,6 +316,38 @@ fn recv<T: DeserializeOwned>(r: &mut File) -> T {
+     bincode::deserialize_from(&data[..]).expect("couldn't deserialize pcid message")
+ }
+ 
++fn send_result<T: Serialize>(w: &mut File, message: &T) -> io::Result<()> {
++    let mut data = Vec::new();
++    bincode::serialize_into(&mut data, message)
++        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
++
++    let len = w.write(&data)?;
++    if len == data.len() {
++        Ok(())
++    } else {
++        Err(io::Error::new(
++            io::ErrorKind::WriteZero,
++            format!("short pcid request write: wrote {len} of {} bytes", data.len()),
++        ))
++    }
++}
++
++fn recv_result<T: DeserializeOwned>(r: &mut File) -> io::Result<T> {
++    let mut length_bytes = [0u8; 8];
++    r.read_exact(&mut length_bytes)?;
++    let length = u64::from_le_bytes(length_bytes);
++    if length > 0x100_000 {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            format!("pcid_interface: buffer too large ({length} bytes)"),
++        ));
++    }
++    let mut data = vec![0u8; length as usize];
++    r.read_exact(&mut data)?;
++    bincode::deserialize_from(&data[..])
++        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
++}
++
+ impl PciFunctionHandle {
+     fn connect_default() -> Self {
+         let channel_fd = match env::var("PCID_CLIENT_CHANNEL") {
+@@ -369,55 +410,99 @@ impl PciFunctionHandle {
+         self.config.clone()
+     }
+ 
++    pub fn try_enable_device(&mut self) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::EnableDevice)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::EnabledDevice => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while enabling device: {other:?}"),
++            )),
++        }
++    }
++
+     pub fn enable_device(&mut self) {
+-        self.send(&PcidClientRequest::EnableDevice);
+-        match self.recv() {
+-            PcidClientResponse::EnabledDevice => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_enable_device() {
++            log::error!("failed to enable PCI device: {err}");
++            process::exit(1);
+         }
+     }
+ 
+     pub fn get_vendor_capabilities(&mut self) -> Vec<VendorSpecificCapability> {
+-        self.send(&PcidClientRequest::RequestVendorCapabilities);
+-        match self.recv() {
+-            PcidClientResponse::VendorCapabilities(a) => a,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_get_vendor_capabilities() {
++            Ok(capabilities) => capabilities,
++            Err(err) => {
++                log::error!("failed to fetch vendor capabilities: {err}");
+                 process::exit(1);
+             }
+         }
+     }
+ 
++    pub fn try_get_vendor_capabilities(&mut self) -> io::Result<Vec<VendorSpecificCapability>> {
++        send_result(&mut self.channel, &PcidClientRequest::RequestVendorCapabilities)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::VendorCapabilities(capabilities) => Ok(capabilities),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!(
++                    "received wrong pcid response while requesting vendor capabilities: {other:?}"
++                ),
++            )),
++        }
++    }
++
+     // FIXME turn into struct with bool fields
++    pub fn try_fetch_all_features(&mut self) -> io::Result<Vec<PciFeature>> {
++        send_result(&mut self.channel, &PcidClientRequest::RequestFeatures)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::AllFeatures(features) => Ok(features),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while fetching features: {other:?}"),
++            )),
++        }
++    }
++
+     pub fn fetch_all_features(&mut self) -> Vec<PciFeature> {
+-        self.send(&PcidClientRequest::RequestFeatures);
+-        match self.recv() {
+-            PcidClientResponse::AllFeatures(a) => a,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_fetch_all_features() {
++            Ok(features) => features,
++            Err(err) => {
++                log::error!("failed to fetch PCI features: {err}");
+                 process::exit(1);
+             }
+         }
+     }
++    pub fn try_enable_feature(&mut self, feature: PciFeature) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::EnableFeature(feature))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::FeatureEnabled(feat) if feat == feature => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while enabling feature: {other:?}"),
++            )),
++        }
++    }
+     pub fn enable_feature(&mut self, feature: PciFeature) {
+-        self.send(&PcidClientRequest::EnableFeature(feature));
+-        match self.recv() {
+-            PcidClientResponse::FeatureEnabled(feat) if feat == feature => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_enable_feature(feature) {
++            log::error!("failed to enable PCI feature {feature:?}: {err}");
++            process::exit(1);
++        }
++    }
++    pub fn try_feature_info(&mut self, feature: PciFeature) -> io::Result<PciFeatureInfo> {
++        send_result(&mut self.channel, &PcidClientRequest::FeatureInfo(feature))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::FeatureInfo(feat, info) if feat == feature => Ok(info),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while reading feature info: {other:?}"),
++            )),
+         }
+     }
+     pub fn feature_info(&mut self, feature: PciFeature) -> PciFeatureInfo {
+-        self.send(&PcidClientRequest::FeatureInfo(feature));
+-        match self.recv() {
+-            PcidClientResponse::FeatureInfo(feat, info) if feat == feature => info,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_feature_info(feature) {
++            Ok(info) => info,
++            Err(err) => {
++                log::error!("failed to fetch PCI feature info for {feature:?}: {err}");
+                 process::exit(1);
+             }
+         }
+@@ -433,33 +518,50 @@ impl PciFunctionHandle {
+         }
+     }
+     pub unsafe fn read_config(&mut self, offset: u16) -> u32 {
+-        self.send(&PcidClientRequest::ReadConfig(offset));
+-        match self.recv() {
+-            PcidClientResponse::ReadConfig(value) => value,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_read_config(offset) {
++            Ok(value) => value,
++            Err(err) => {
++                log::error!("failed to read PCI config dword at {offset:#x}: {err}");
+                 process::exit(1);
+             }
+         }
+     }
++    pub unsafe fn try_read_config(&mut self, offset: u16) -> io::Result<u32> {
++        send_result(&mut self.channel, &PcidClientRequest::ReadConfig(offset))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::ReadConfig(value) => Ok(value),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while reading config: {other:?}"),
++            )),
++        }
++    }
+     pub unsafe fn write_config(&mut self, offset: u16, value: u32) {
+-        self.send(&PcidClientRequest::WriteConfig(offset, value));
+-        match self.recv() {
+-            PcidClientResponse::WriteConfig => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_write_config(offset, value) {
++            log::error!("failed to write PCI config dword at {offset:#x}: {err}");
++            process::exit(1);
+         }
+     }
+-    pub unsafe fn map_bar(&mut self, bir: u8) -> &MappedBar {
++    pub unsafe fn try_write_config(&mut self, offset: u16, value: u32) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::WriteConfig(offset, value))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::WriteConfig => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while writing config: {other:?}"),
++            )),
++        }
++    }
++    pub unsafe fn try_map_bar(&mut self, bir: u8) -> io::Result<&MappedBar> {
+         let mapped_bar = &mut self.mapped_bars[bir as usize];
+         if let Some(mapped_bar) = mapped_bar {
+-            mapped_bar
++            Ok(mapped_bar)
+         } else {
+-            let (bar, bar_size) = self.config.func.bars[bir as usize].expect_mem();
++            let (bar, bar_size) = self.config.func.bars[bir as usize]
++                .try_mem()
++                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err.to_string()))?;
+ 
+-            let ptr = match unsafe {
++            let ptr = unsafe {
+                 common::physmap(
+                     bar,
+                     bar_size,
+@@ -467,18 +569,23 @@ impl PciFunctionHandle {
+                     // FIXME once the kernel supports this use write-through for prefetchable BAR
+                     common::MemoryType::Uncacheable,
+                 )
+-            } {
+-                Ok(ptr) => ptr,
+-                Err(err) => {
+-                    log::error!("failed to map BAR at {bar:016X}: {err}");
+-                    process::exit(1);
+-                }
+-            };
++            }
++            .map_err(|err| io::Error::other(format!("failed to map BAR at {bar:016X}: {err}")))?;
+ 
+-            mapped_bar.insert(MappedBar {
++            Ok(mapped_bar.insert(MappedBar {
+                 ptr: NonNull::new(ptr.cast::<u8>()).expect("Mapping a BAR resulted in a nullptr"),
+                 bar_size,
+-            })
++            }))
++        }
++    }
++
++    pub unsafe fn map_bar(&mut self, bir: u8) -> &MappedBar {
++        match self.try_map_bar(bir) {
++            Ok(bar) => bar,
++            Err(err) => {
++                log::error!("failed to map BAR {bir}: {err}");
++                process::exit(1);
++            }
+         }
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/msi.rs b/drivers/pcid/src/driver_interface/msi.rs
+index 0ca68ec5..6934ad49 100644
+--- a/drivers/pcid/src/driver_interface/msi.rs
++++ b/drivers/pcid/src/driver_interface/msi.rs
+@@ -1,6 +1,7 @@
+ use std::fmt;
+ use std::ptr::NonNull;
+ 
++use crate::driver_interface::bar::PciBarError;
+ use crate::driver_interface::PciBar;
+ use crate::PciFunctionHandle;
+ 
+@@ -33,9 +34,65 @@ pub struct MsixInfo {
+     pub pba_offset: u32,
+ }
+ 
++#[derive(Debug)]
++pub enum MsixMapError {
++    ReservedBir(u8),
++    InvalidBar {
++        which: &'static str,
++        source: PciBarError,
++    },
++    TableOutsideBar {
++        offset: usize,
++        end: usize,
++        bar_size: usize,
++    },
++    PbaOutsideBar {
++        offset: usize,
++        end: usize,
++        bar_size: usize,
++    },
++}
++
++impl fmt::Display for MsixMapError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            MsixMapError::ReservedBir(bir) => {
++                write!(f, "MSI-X BIR contained a reserved value: {bir}")
++            }
++            MsixMapError::InvalidBar { which, source } => {
++                write!(f, "MSI-X {which} BAR is invalid: {source}")
++            }
++            MsixMapError::TableOutsideBar {
++                offset,
++                end,
++                bar_size,
++            } => write!(
++                f,
++                "MSI-X table {offset:#x}:{end:#x} outside BAR with length {bar_size:#x}"
++            ),
++            MsixMapError::PbaOutsideBar {
++                offset,
++                end,
++                bar_size,
++            } => write!(
++                f,
++                "MSI-X PBA {offset:#x}:{end:#x} outside BAR with length {bar_size:#x}"
++            ),
++        }
++    }
++}
++
+ impl MsixInfo {
+     pub unsafe fn map_and_mask_all(self, pcid_handle: &mut PciFunctionHandle) -> MappedMsixRegs {
+-        self.validate(pcid_handle.config().func.bars);
++        self.try_map_and_mask_all(pcid_handle)
++            .unwrap_or_else(|err| panic!("{err}"))
++    }
++
++    pub unsafe fn try_map_and_mask_all(
++        self,
++        pcid_handle: &mut PciFunctionHandle,
++    ) -> Result<MappedMsixRegs, MsixMapError> {
++        self.try_validate(pcid_handle.config().func.bars)?;
+ 
+         let virt_table_base = unsafe {
+             pcid_handle
+@@ -46,7 +103,8 @@ impl MsixInfo {
+         };
+ 
+         let mut info = MappedMsixRegs {
+-            virt_table_base: NonNull::new(virt_table_base.cast::<MsixTableEntry>()).unwrap(),
++            virt_table_base: NonNull::new(virt_table_base.cast::<MsixTableEntry>())
++                .expect("MSI-X BAR mapping resulted in null pointer"),
+             info: self,
+         };
+ 
+@@ -56,21 +114,15 @@ impl MsixInfo {
+             info.table_entry_pointer(i.into()).mask();
+         }
+ 
+-        info
++        Ok(info)
+     }
+ 
+-    fn validate(&self, bars: [PciBar; 6]) {
++    pub fn try_validate(&self, bars: [PciBar; 6]) -> Result<(), MsixMapError> {
+         if self.table_bar > 5 {
+-            panic!(
+-                "MSI-X Table BIR contained a reserved enum value: {}",
+-                self.table_bar
+-            );
++            return Err(MsixMapError::ReservedBir(self.table_bar));
+         }
+         if self.pba_bar > 5 {
+-            panic!(
+-                "MSI-X PBA BIR contained a reserved enum value: {}",
+-                self.pba_bar
+-            );
++            return Err(MsixMapError::ReservedBir(self.pba_bar));
+         }
+ 
+         let table_size = self.table_size;
+@@ -80,28 +132,38 @@ impl MsixInfo {
+         let pba_offset = self.pba_offset as usize;
+         let pba_min_length = table_size.div_ceil(8);
+ 
+-        let (_, table_bar_size) = bars[self.table_bar as usize].expect_mem();
+-        let (_, pba_bar_size) = bars[self.pba_bar as usize].expect_mem();
++        let (_, table_bar_size) = bars[self.table_bar as usize]
++            .try_mem()
++            .map_err(|source| MsixMapError::InvalidBar {
++                which: "table",
++                source,
++            })?;
++        let (_, pba_bar_size) = bars[self.pba_bar as usize]
++            .try_mem()
++            .map_err(|source| MsixMapError::InvalidBar {
++                which: "PBA",
++                source,
++            })?;
+ 
+         // Ensure that the table and PBA are within the BAR.
+ 
+         if !(0..table_bar_size as u64).contains(&(table_offset as u64 + table_min_length as u64)) {
+-            panic!(
+-                "Table {:#x}:{:#x} outside of BAR with length {:#x}",
+-                table_offset,
+-                table_offset + table_min_length as usize,
+-                table_bar_size
+-            );
++            return Err(MsixMapError::TableOutsideBar {
++                offset: table_offset,
++                end: table_offset + table_min_length as usize,
++                bar_size: table_bar_size,
++            });
+         }
+ 
+         if !(0..pba_bar_size as u64).contains(&(pba_offset as u64 + pba_min_length as u64)) {
+-            panic!(
+-                "PBA {:#x}:{:#x} outside of BAR with length {:#x}",
+-                pba_offset,
+-                pba_offset + pba_min_length as usize,
+-                pba_bar_size
+-            );
++            return Err(MsixMapError::PbaOutsideBar {
++                offset: pba_offset,
++                end: pba_offset + pba_min_length as usize,
++                bar_size: pba_bar_size,
++            });
+         }
++
++        Ok(())
+     }
+ }
+ 
+@@ -120,6 +182,68 @@ impl MappedMsixRegs {
+     }
+ }
+ 
++#[cfg(test)]
++mod tests {
++    use super::{MsixInfo, MsixMapError};
++    use crate::driver_interface::PciBar;
++
++    #[test]
++    fn try_validate_accepts_in_range_table_and_pba() {
++        let info = MsixInfo {
++            table_bar: 0,
++            table_offset: 0x100,
++            table_size: 4,
++            pba_bar: 1,
++            pba_offset: 0x80,
++        };
++        let mut bars = [PciBar::None; 6];
++        bars[0] = PciBar::Memory32 {
++            addr: 0x1000,
++            size: 0x400,
++        };
++        bars[1] = PciBar::Memory32 {
++            addr: 0x2000,
++            size: 0x200,
++        };
++
++        assert!(info.try_validate(bars).is_ok());
++    }
++
++    #[test]
++    fn try_validate_rejects_reserved_bir() {
++        let info = MsixInfo {
++            table_bar: 6,
++            table_offset: 0,
++            table_size: 1,
++            pba_bar: 0,
++            pba_offset: 0,
++        };
++
++        assert!(matches!(info.try_validate([PciBar::None; 6]), Err(MsixMapError::ReservedBir(6))));
++    }
++
++    #[test]
++    fn try_validate_rejects_out_of_range_table() {
++        let info = MsixInfo {
++            table_bar: 0,
++            table_offset: 0x100,
++            table_size: 16,
++            pba_bar: 0,
++            pba_offset: 0,
++        };
++        let mut bars = [PciBar::None; 6];
++        bars[0] = PciBar::Memory32 {
++            addr: 0x1000,
++            size: 0x80,
++        };
++
++        assert!(matches!(
++            info.try_validate(bars),
++            Err(MsixMapError::TableOutsideBar { .. })
++        ));
++    }
++}
++
+ #[repr(C, packed)]
+ pub struct MsixTableEntry {
+     pub addr_lo: Mmio<u32>,
+diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
+index bb9f39a3..df026ab4 100644
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -21,6 +21,7 @@ enum Handle {
+     TopLevel { entries: Vec<String> },
+     Access,
+     Device,
++    Config { addr: PciAddress },
+     Channel { addr: PciAddress, st: ChannelState },
+     SchemeRoot,
+ }
+@@ -30,14 +31,20 @@ struct HandleWrapper {
+ }
+ impl Handle {
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+     }
+     // TODO: capability rather than root
+     fn requires_root(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_scheme_root(&self) -> bool {
+         matches!(self, Self::SchemeRoot)
+@@ -132,6 +139,7 @@ impl SchemeSync for PciScheme {
+         let (len, mode) = match handle.inner {
+             Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
+             Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
++            Handle::Config { .. } => (256, MODE_CHR | 0o600),
+             Handle::Access | Handle::Channel { .. } => (0, MODE_CHR | 0o600),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+@@ -156,6 +164,18 @@ impl SchemeSync for PciScheme {
+         match handle.inner {
+             Handle::TopLevel { .. } => Err(Error::new(EISDIR)),
+             Handle::Device => Err(Error::new(EISDIR)),
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_read = buf.len().min(4 - byte_offset);
++
++                let dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let bytes = dword.to_le_bytes();
++                buf[..bytes_to_read]
++                    .copy_from_slice(&bytes[byte_offset..byte_offset + bytes_to_read]);
++                Ok(bytes_to_read)
++            }
+             Handle::Channel {
+                 addr: _,
+                 ref mut st,
+@@ -193,7 +213,9 @@ impl SchemeSync for PciScheme {
+                 return Ok(buf);
+             }
+             Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } => return Err(Error::new(ENOTDIR)),
++            Handle::Access | Handle::Config { .. } | Handle::Channel { .. } => {
++                return Err(Error::new(ENOTDIR));
++            }
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+ 
+@@ -223,6 +245,20 @@ impl SchemeSync for PciScheme {
+         }
+ 
+         match handle.inner {
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_write = buf.len().min(4 - byte_offset);
++
++                let mut dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let mut bytes = dword.to_le_bytes();
++                bytes[byte_offset..byte_offset + bytes_to_write]
++                    .copy_from_slice(&buf[..bytes_to_write]);
++                dword = u32::from_le_bytes(bytes);
++                unsafe { self.pcie.write(addr, dword_offset, dword) };
++                Ok(buf.len())
++            }
+             Handle::Channel { addr, ref mut st } => {
+                 Self::write_channel(&self.pcie, &mut self.tree, addr, st, buf)
+             }
+@@ -316,6 +352,10 @@ impl SchemeSync for PciScheme {
+                     func.enabled = false;
+                 }
+             }
++            Some(HandleWrapper {
++                inner: Handle::Config { .. },
++                ..
++            }) => {}
+             _ => {}
+         }
+     }
+@@ -341,6 +381,7 @@ impl PciScheme {
+             let path = &after[1..];
+ 
+             match path {
++                "config" => Handle::Config { addr },
+                 "channel" => {
+                     if func.enabled {
+                         return Err(Error::new(ENOLCK));
+@@ -387,7 +428,7 @@ impl PciScheme {
+         match *state {
+             ChannelState::AwaitingResponseRead(_) => return Err(Error::new(EINVAL)),
+             ChannelState::AwaitingData => {
+-                let func = tree.get_mut(&addr).unwrap();
++                let func = tree.get_mut(&addr).ok_or(Error::new(ENOENT))?;
+ 
+                 let request = bincode::deserialize_from(buf).map_err(|_| Error::new(EINVAL))?;
+                 let response = crate::driver_handler::DriverHandler::new(
+diff --git a/drivers/storage/ahcid/src/main.rs b/drivers/storage/ahcid/src/main.rs
+index 1f130a29..059cdd4e 100644
+--- a/drivers/storage/ahcid/src/main.rs
++++ b/drivers/storage/ahcid/src/main.rs
+@@ -26,7 +26,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("ahcid: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            error!("ahcid: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     common::setup_logging(
+         "disk",
+@@ -38,6 +41,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     info!("AHCI {}", pci_config.func.display());
+ 
++    if let Err(err) = pci_config.func.bars[5].try_mem() {
++        error!("ahcid: invalid BAR5: {err}");
++        std::process::exit(1);
++    }
+     let address = unsafe { pcid_handle.map_bar(5) }.ptr.as_ptr() as usize;
+     {
+         let (hba_mem, disks) = ahci::disks(address as usize, &name);
+@@ -54,31 +61,58 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             &FuturesExecutor,
+         );
+ 
+-        let mut irq_file = irq.irq_handle("ahcid");
++        let mut irq_file = match irq.try_irq_handle("ahcid") {
++            Ok(file) => file,
++            Err(err) => {
++                error!("ahcid: failed to open IRQ handle: {err}");
++                std::process::exit(1);
++            }
++        };
+         let irq_fd = irq_file.as_raw_fd() as usize;
+ 
+-        let event_queue = RawEventQueue::new().expect("ahcid: failed to create event queue");
++        let event_queue = match RawEventQueue::new() {
++            Ok(queue) => queue,
++            Err(err) => {
++                error!("ahcid: failed to create event queue: {err}");
++                std::process::exit(1);
++            }
++        };
+ 
+-        libredox::call::setrens(0, 0).expect("ahcid: failed to enter null namespace");
++        if let Err(err) = libredox::call::setrens(0, 0) {
++            error!("ahcid: failed to enter null namespace: {err}");
++            std::process::exit(1);
++        }
+ 
+         event_queue
+             .subscribe(scheme.event_handle().raw(), 1, EventFlags::READ)
+-            .expect("ahcid: failed to event scheme socket");
++            .unwrap_or_else(|err| {
++                error!("ahcid: failed to subscribe scheme socket: {err}");
++                std::process::exit(1);
++            });
+         event_queue
+             .subscribe(irq_fd, 1, EventFlags::READ)
+-            .expect("ahcid: failed to event irq scheme");
++            .unwrap_or_else(|err| {
++                error!("ahcid: failed to subscribe IRQ fd: {err}");
++                std::process::exit(1);
++            });
+ 
+         for event in event_queue {
+-            let event = event.unwrap();
++            let event = match event {
++                Ok(event) => event,
++                Err(err) => {
++                    error!("ahcid: failed to read event queue: {err}");
++                    break;
++                }
++            };
+             if event.fd == scheme.event_handle().raw() {
+-                FuturesExecutor.block_on(scheme.tick()).unwrap();
++                if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                    error!("ahcid: failed to handle scheme op: {err}");
++                    break;
++                }
+             } else if event.fd == irq_fd {
+                 let mut irq = [0; 8];
+-                if irq_file
+-                    .read(&mut irq)
+-                    .expect("ahcid: failed to read irq file")
+-                    >= irq.len()
+-                {
++                match irq_file.read(&mut irq) {
++                    Ok(read) if read >= irq.len() => {
+                     let is = hba_mem.is.read();
+                     if is > 0 {
+                         let pi = hba_mem.pi.read();
+@@ -92,11 +126,21 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+                         }
+                         hba_mem.is.write(is);
+ 
+-                        irq_file
+-                            .write(&irq)
+-                            .expect("ahcid: failed to write irq file");
++                        if let Err(err) = irq_file.write(&irq) {
++                            error!("ahcid: failed to acknowledge IRQ: {err}");
++                            break;
++                        }
+ 
+-                        FuturesExecutor.block_on(scheme.tick()).unwrap();
++                        if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                            error!("ahcid: failed to handle IRQ: {err}");
++                            break;
++                        }
++                    }
++                }
++                    Ok(_) => {}
++                    Err(err) => {
++                        error!("ahcid: failed to read IRQ file: {err}");
++                        break;
+                     }
+                 }
+             } else {
+@@ -105,5 +149,5 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    std::process::exit(0);
++    std::process::exit(1);
+ }
+diff --git a/drivers/storage/ided/src/main.rs b/drivers/storage/ided/src/main.rs
+index 4197217d..6983912c 100644
+--- a/drivers/storage/ided/src/main.rs
++++ b/drivers/storage/ided/src/main.rs
+@@ -43,19 +43,42 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+     // Get controller DMA capable
+     let dma = pci_config.func.full_device_id.interface & 0x80 != 0;
+ 
+-    let busmaster_base = pci_config.func.bars[4].expect_port();
++    let busmaster_base = match pci_config.func.bars[4].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            error!("ided: missing/invalid busmaster BAR: {err}");
++            std::process::exit(1);
++        }
++    };
+     let (primary, primary_irq) = if pci_config.func.full_device_id.interface & 1 != 0 {
+-        panic!("TODO: IDE primary channel is PCI native");
++        error!("ided: PCI native primary IDE channel is not supported yet");
++        std::process::exit(1);
+     } else {
+-        (Channel::primary_compat(busmaster_base).unwrap(), 14)
++        match Channel::primary_compat(busmaster_base) {
++            Ok(channel) => (channel, 14),
++            Err(err) => {
++                error!("ided: failed to initialize primary IDE channel: {err}");
++                std::process::exit(1);
++            }
++        }
+     };
+     let (secondary, secondary_irq) = if pci_config.func.full_device_id.interface & 1 != 0 {
+-        panic!("TODO: IDE secondary channel is PCI native");
++        error!("ided: PCI native secondary IDE channel is not supported yet");
++        std::process::exit(1);
+     } else {
+-        (Channel::secondary_compat(busmaster_base + 8).unwrap(), 15)
++        match Channel::secondary_compat(busmaster_base + 8) {
++            Ok(channel) => (channel, 15),
++            Err(err) => {
++                error!("ided: failed to initialize secondary IDE channel: {err}");
++                std::process::exit(1);
++            }
++        }
+     };
+ 
+-    common::acquire_port_io_rights().expect("ided: failed to get I/O privilege");
++    if let Err(err) = common::acquire_port_io_rights() {
++        error!("ided: failed to get I/O privilege: {err}");
++        std::process::exit(1);
++    }
+ 
+     //TODO: move this to ide.rs?
+     let chans = vec![
+diff --git a/drivers/storage/nvmed/src/main.rs b/drivers/storage/nvmed/src/main.rs
+index beb1b689..8c79ba5e 100644
+--- a/drivers/storage/nvmed/src/main.rs
++++ b/drivers/storage/nvmed/src/main.rs
+@@ -75,30 +75,62 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::debug!("NVME PCI CONFIG: {:?}", pci_config);
+ 
++    if let Err(err) = pci_config.func.bars[0].try_mem() {
++        log::error!("nvmed: invalid BAR0: {err}");
++        std::process::exit(1);
++    }
+     let address = unsafe { pcid_handle.map_bar(0).ptr };
+ 
+-    let interrupt_vector = irq_helpers::pci_allocate_interrupt_vector(&mut pcid_handle, "nvmed");
++    let interrupt_vector = match irq_helpers::try_pci_allocate_interrupt_vector(&mut pcid_handle, "nvmed") {
++        Ok(vector) => vector,
++        Err(err) => {
++            log::error!("nvmed: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+     let iv = interrupt_vector.vector();
+-    let irq_handle = interrupt_vector.irq_handle().try_clone().unwrap();
++    let irq_handle = match interrupt_vector.irq_handle().try_clone() {
++        Ok(handle) => handle,
++        Err(err) => {
++            log::error!("nvmed: failed to clone IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let mut nvme = Nvme::new(address.as_ptr() as usize, interrupt_vector, pcid_handle)
+-        .expect("nvmed: failed to allocate driver data");
++    let mut nvme = match Nvme::new(address.as_ptr() as usize, interrupt_vector, pcid_handle) {
++        Ok(nvme) => nvme,
++        Err(err) => {
++            log::error!("nvmed: failed to allocate driver data: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    unsafe { nvme.init().expect("nvmed: failed to init") }
++    if let Err(err) = unsafe { nvme.init() } {
++        log::error!("nvmed: failed to init: {err}");
++        std::process::exit(1);
++    }
+     log::debug!("Finished base initialization");
+     let nvme = Arc::new(nvme);
+ 
+     let executor = nvme::executor::init(Arc::clone(&nvme), iv, false /* FIXME */, irq_handle);
+ 
+-    let mut time_handle = File::open(&format!("/scheme/time/{}", libredox::flag::CLOCK_MONOTONIC))
+-        .expect("failed to open time handle");
++    let mut time_handle = match File::open(&format!("/scheme/time/{}", libredox::flag::CLOCK_MONOTONIC)) {
++        Ok(handle) => handle,
++        Err(err) => {
++            log::error!("nvmed: failed to open time handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut time_events = Box::pin(
+         executor.register_external_event(time_handle.as_raw_fd() as usize, event::EventFlags::READ),
+     );
+ 
+     // Try to init namespaces for 5 seconds
+-    time_arm(&mut time_handle, 5).expect("failed to arm timer");
++    if let Err(err) = time_arm(&mut time_handle, 5) {
++        log::error!("nvmed: failed to arm init timer: {err}");
++        std::process::exit(1);
++    }
+     let namespaces = executor.block_on(async {
+         let namespaces_future = nvme.init_with_queues();
+         let time_future = time_events.as_mut().next();
+@@ -106,7 +138,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         futures::pin_mut!(time_future);
+         match futures::future::select(namespaces_future, time_future).await {
+             futures::future::Either::Left((namespaces, _)) => namespaces,
+-            futures::future::Either::Right(_) => panic!("timeout on init"),
++            futures::future::Either::Right(_) => {
++                log::error!("nvmed: timeout waiting for queue initialization");
++                std::process::exit(1);
++            }
+         }
+     });
+     log::debug!("Initialized!");
+diff --git a/drivers/storage/virtio-blkd/src/main.rs b/drivers/storage/virtio-blkd/src/main.rs
+index d21236b3..f66f725d 100644
+--- a/drivers/storage/virtio-blkd/src/main.rs
++++ b/drivers/storage/virtio-blkd/src/main.rs
+@@ -103,7 +103,10 @@ fn main() {
+ }
+ 
+ fn daemon_runner(redox_daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    daemon(redox_daemon, pcid_handle).unwrap();
++    if let Err(err) = daemon(redox_daemon, pcid_handle) {
++        log::error!("virtio-blkd: startup failed: {err}");
++        std::process::exit(1);
++    }
+     unreachable!();
+ }
+ 
+@@ -121,7 +124,12 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // 0x1001 - virtio-blk
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1001);
++    if pci_config.func.full_device_id.device_id != 0x1001 {
++        return Err(anyhow::anyhow!(
++            "unexpected virtio-blk device id: {:04x}",
++            pci_config.func.full_device_id.device_id
++        ));
++    }
+     log::info!("virtio-blk: initiating startup sequence :^)");
+ 
+     let device = virtio_core::probe_device(&mut pcid_handle)?;
+diff --git a/drivers/vboxd/src/main.rs b/drivers/vboxd/src/main.rs
+index bcb9bb15..b9e42d4a 100644
+--- a/drivers/vboxd/src/main.rs
++++ b/drivers/vboxd/src/main.rs
+@@ -199,16 +199,28 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_vbox");
+ 
+-    let bar0 = pci_config.func.bars[0].expect_port();
++    let bar0 = match pci_config.func.bars[0].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            eprintln!("vboxd: invalid BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("vboxd: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            eprintln!("vboxd: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     println!(" + VirtualBox {}", pci_config.func.display());
+ 
+-    common::acquire_port_io_rights().expect("vboxd: failed to get I/O permission");
++    if let Err(err) = common::acquire_port_io_rights() {
++        eprintln!("vboxd: failed to get I/O permission: {err}");
++        std::process::exit(1);
++    }
+ 
+     let mut width = 0;
+     let mut height = 0;
+@@ -233,25 +245,55 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let mut irq_file = irq.irq_handle("vboxd");
++    let mut irq_file = match irq.try_irq_handle("vboxd") {
++        Ok(file) => file,
++        Err(err) => {
++            eprintln!("vboxd: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let address = unsafe { pcid_handle.map_bar(1) }.ptr.as_ptr();
++    let address = match unsafe { pcid_handle.try_map_bar(1) } {
++        Ok(bar) => bar.ptr.as_ptr(),
++        Err(err) => {
++            eprintln!("vboxd: failed to map BAR1: {err}");
++            std::process::exit(1);
++        }
++    };
+     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+     {
+         let mut port = common::io::Pio::<u32>::new(bar0 as u16);
+ 
+         let vmmdev = unsafe { &mut *(address as *mut VboxVmmDev) };
+ 
+-        let mut guest_info = VboxGuestInfo::new().expect("vboxd: failed to map GuestInfo");
++        let mut guest_info = match VboxGuestInfo::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GuestInfo: {err}");
++                std::process::exit(1);
++            }
++        };
+         guest_info.version.write(VBOX_VMMDEV_VERSION);
+         guest_info.ostype.write(0x100);
+         port.write(guest_info.physical() as u32);
+ 
+-        let mut guest_caps = VboxGuestCaps::new().expect("vboxd: failed to map GuestCaps");
++        let mut guest_caps = match VboxGuestCaps::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GuestCaps: {err}");
++                std::process::exit(1);
++            }
++        };
+         guest_caps.caps.write(1 << 2);
+         port.write(guest_caps.physical() as u32);
+ 
+-        let mut set_mouse = VboxSetMouse::new().expect("vboxd: failed to map SetMouse");
++        let mut set_mouse = match VboxSetMouse::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map SetMouse: {err}");
++                std::process::exit(1);
++            }
++        };
+         set_mouse.features.write(1 << 4 | 1);
+         port.write(set_mouse.physical() as u32);
+ 
+@@ -265,34 +307,71 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             }
+         }
+ 
+-        let event_queue =
+-            EventQueue::<Source>::new().expect("vboxd: Could not create event queue.");
++        let event_queue = match EventQueue::<Source>::new() {
++            Ok(queue) => queue,
++            Err(err) => {
++                eprintln!("vboxd: could not create event queue: {err}");
++                std::process::exit(1);
++            }
++        };
+         event_queue
+             .subscribe(
+                 irq_file.as_raw_fd() as usize,
+                 Source::Irq,
+                 event::EventFlags::READ,
+             )
+-            .unwrap();
++            .unwrap_or_else(|err| {
++                eprintln!("vboxd: failed to subscribe IRQ fd: {err}");
++                std::process::exit(1);
++            });
+ 
+         daemon.ready();
+ 
+-        libredox::call::setrens(0, 0).expect("vboxd: failed to enter null namespace");
++        if let Err(err) = libredox::call::setrens(0, 0) {
++            eprintln!("vboxd: failed to enter null namespace: {err}");
++            std::process::exit(1);
++        }
+ 
+         let mut bga = crate::bga::Bga::new();
+-        let get_mouse = VboxGetMouse::new().expect("vboxd: failed to map GetMouse");
+-        let display_change = VboxDisplayChange::new().expect("vboxd: failed to map DisplayChange");
+-        let ack_events = VboxAckEvents::new().expect("vboxd: failed to map AckEvents");
++        let get_mouse = match VboxGetMouse::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GetMouse: {err}");
++                std::process::exit(1);
++            }
++        };
++        let display_change = match VboxDisplayChange::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map DisplayChange: {err}");
++                std::process::exit(1);
++            }
++        };
++        let ack_events = match VboxAckEvents::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map AckEvents: {err}");
++                std::process::exit(1);
++            }
++        };
+ 
+-        for Source::Irq in iter::once(Source::Irq)
+-            .chain(event_queue.map(|e| e.expect("vboxd: failed to get next event").user_data))
+-        {
++        for Source::Irq in iter::once(Source::Irq).chain(event_queue.map(|e| match e {
++            Ok(event) => event.user_data,
++            Err(err) => {
++                eprintln!("vboxd: failed to get next event: {err}");
++                std::process::exit(1);
++            }
++        })) {
+             let mut irq = [0; 8];
+-            if irq_file.read(&mut irq).unwrap() >= irq.len() {
++            match irq_file.read(&mut irq) {
++                Ok(read) if read >= irq.len() => {
+                 let host_events = vmmdev.host_events.read();
+                 if host_events != 0 {
+                     port.write(ack_events.physical() as u32);
+-                    irq_file.write(&irq).unwrap();
++                    if let Err(err) = irq_file.write(&irq) {
++                        eprintln!("vboxd: failed to acknowledge IRQ: {err}");
++                        std::process::exit(1);
++                    }
+ 
+                     if host_events & VBOX_EVENT_DISPLAY == VBOX_EVENT_DISPLAY {
+                         port.write(display_change.physical() as u32);
+@@ -326,8 +405,14 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+                     }
+                 }
+             }
++                Ok(_) => {}
++                Err(err) => {
++                    eprintln!("vboxd: failed to read IRQ file: {err}");
++                    std::process::exit(1);
++                }
++            }
+         }
+     }
+ 
+-    std::process::exit(0);
++    std::process::exit(1);
+ }
+diff --git a/drivers/virtio-core/src/arch/x86.rs b/drivers/virtio-core/src/arch/x86.rs
+index aea86c4a..d8595645 100644
+--- a/drivers/virtio-core/src/arch/x86.rs
++++ b/drivers/virtio-core/src/arch/x86.rs
+@@ -1,6 +1,8 @@
+ use crate::transport::Error;
+ 
+-use pcid_interface::irq_helpers::{allocate_single_interrupt_vector_for_msi, read_bsp_apic_id};
++use pcid_interface::irq_helpers::{
++    read_bsp_apic_id, try_allocate_single_interrupt_vector_for_msi,
++};
+ use std::fs::File;
+ 
+ use crate::MSIX_PRIMARY_VECTOR;
+@@ -11,9 +13,10 @@ pub fn enable_msix(pcid_handle: &mut PciFunctionHandle) -> Result<File, Error> {
+     // Extended message signaled interrupts.
+     let msix_info = match pcid_handle.feature_info(PciFeature::MsiX) {
+         PciFeatureInfo::MsiX(capability) => capability,
+-        _ => unreachable!(),
++        _ => return Err(Error::MissingMsix),
+     };
+-    let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
++    let mut info = unsafe { msix_info.try_map_and_mask_all(pcid_handle) }
++        .map_err(|err| Error::MsixSetup(format!("failed to map MSI-X registers: {err}")))?;
+ 
+     // Allocate the primary MSI vector.
+     // FIXME allow the driver to register multiple MSI-X vectors
+@@ -21,9 +24,12 @@ pub fn enable_msix(pcid_handle: &mut PciFunctionHandle) -> Result<File, Error> {
+     let interrupt_handle = {
+         let table_entry_pointer = info.table_entry_pointer(MSIX_PRIMARY_VECTOR as usize);
+ 
+-        let destination_id = read_bsp_apic_id().expect("virtio_core: `read_bsp_apic_id()` failed");
+-        let (msg_addr_and_data, interrupt_handle) =
+-            allocate_single_interrupt_vector_for_msi(destination_id);
++        let destination_id = read_bsp_apic_id()
++            .map_err(|err| Error::MsixSetup(format!("failed to read BSP APIC ID: {err}")))?;
++        let (msg_addr_and_data, interrupt_handle) = try_allocate_single_interrupt_vector_for_msi(
++            destination_id,
++        )
++        .map_err(|err| Error::MsixSetup(format!("failed to allocate MSI-X vector: {err}")))?;
+         table_entry_pointer.write_addr_and_data(msg_addr_and_data);
+         table_entry_pointer.unmask();
+ 
+diff --git a/drivers/virtio-core/src/probe.rs b/drivers/virtio-core/src/probe.rs
+index 5631ef67..3367586a 100644
+--- a/drivers/virtio-core/src/probe.rs
++++ b/drivers/virtio-core/src/probe.rs
+@@ -32,21 +32,21 @@ pub const MSIX_PRIMARY_VECTOR: u16 = 0;
+ /// * Finally start the device (via [`StandardTransport::run_device`]). At this point, the device
+ ///   is alive.
+ ///
+-/// ## Panics
+-/// This function panics if the device is not a virtio device.
+ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error> {
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(
+-        pci_config.func.full_device_id.vendor_id, 6900,
+-        "virtio_core::probe_device: not a virtio device"
+-    );
++    if pci_config.func.full_device_id.vendor_id != 6900 {
++        return Err(Error::NotVirtio);
++    }
+ 
+     let mut common_addr = None;
+     let mut notify_addr = None;
+     let mut device_addr = None;
+ 
+-    for raw_capability in pcid_handle.get_vendor_capabilities() {
++    for raw_capability in pcid_handle
++        .try_get_vendor_capabilities()
++        .map_err(|err| Error::MsixSetup(format!("failed to fetch vendor capabilities: {err}")))?
++    {
+         // SAFETY: We have verified that the length of the data is correct.
+         let capability = unsafe { &*(raw_capability.data.as_ptr() as *const PciCapability) };
+ 
+@@ -55,7 +55,9 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+             _ => continue,
+         }
+ 
+-        let (addr, _) = pci_config.func.bars[capability.bar as usize].expect_mem();
++        let (addr, _) = pci_config.func.bars[capability.bar as usize]
++            .try_mem()
++            .map_err(|_| Error::MissingCapability("capability BAR"))?;
+ 
+         let address = unsafe {
+             let addr = addr + capability.offset as usize;
+@@ -100,19 +102,18 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+                 device_addr = Some(address);
+             }
+ 
+-            _ => unreachable!(),
++            _ => continue,
+         }
+     }
+ 
+-    let common_addr = common_addr.expect("virtio common capability missing");
+-    let device_addr = device_addr.expect("virtio device capability missing");
+-    let (notify_addr, notify_multiplier) = notify_addr.expect("virtio notify capability missing");
++    let common_addr = common_addr.ok_or(Error::MissingCapability("common"))?;
++    let device_addr = device_addr.ok_or(Error::MissingCapability("device"))?;
++    let (notify_addr, notify_multiplier) = notify_addr.ok_or(Error::MissingCapability("notify"))?;
+ 
+     // FIXME this is explicitly allowed by the virtio specification to happen
+-    assert!(
+-        notify_multiplier != 0,
+-        "virtio-core::device_probe: device uses the same Queue Notify addresses for all queues"
+-    );
++    if notify_multiplier == 0 {
++        return Err(Error::InvalidNotifyMultiplier);
++    }
+ 
+     let common = unsafe { &mut *(common_addr as *mut CommonCfg) };
+     let device_space = unsafe { &mut *(device_addr as *mut u8) };
+@@ -129,7 +130,9 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+     let has_msix = all_pci_features.iter().any(|feature| feature.is_msix());
+ 
+     // According to the virtio specification, the device REQUIRED to support MSI-X.
+-    assert!(has_msix, "virtio: device does not support MSI-X");
++    if !has_msix {
++        return Err(Error::MissingMsix);
++    }
+     let irq_handle = crate::arch::enable_msix(pcid_handle)?;
+ 
+     log::debug!("virtio: using standard PCI transport");
+@@ -154,5 +157,6 @@ pub fn reinit(device: &Device) -> Result<(), Error> {
+         .insert_status(DeviceStatusFlags::ACKNOWLEDGE);
+ 
+     device.transport.insert_status(DeviceStatusFlags::DRIVER);
++    device.transport.finalize_features();
+     Ok(())
+ }
+diff --git a/drivers/virtio-core/src/transport.rs b/drivers/virtio-core/src/transport.rs
+index d3445d2d..4e116d2e 100644
+--- a/drivers/virtio-core/src/transport.rs
++++ b/drivers/virtio-core/src/transport.rs
+@@ -19,6 +19,20 @@ pub enum Error {
+     SyscallError(#[from] libredox::error::Error),
+     #[error("the device is incapable of {0:?}")]
+     InCapable(CfgType),
++    #[error("device is not a virtio device")]
++    NotVirtio,
++    #[error("virtio capability `{0}` is missing")]
++    MissingCapability(&'static str),
++    #[error("virtio notify capability has an invalid zero multiplier")]
++    InvalidNotifyMultiplier,
++    #[error("device does not support MSI-X")]
++    MissingMsix,
++    #[error("MSI-X setup failed: {0}")]
++    MsixSetup(String),
++    #[error("virtio feature negotiation failed")]
++    FeaturesNotAccepted,
++    #[error("virtio queue operation failed: {0}")]
++    QueueSetup(&'static str),
+ }
+ 
+ /// Returns the queue part sizes in bytes.
+@@ -238,6 +252,26 @@ impl<'a> Queue<'a> {
+     }
+ }
+ 
++fn finalize_features_checked(transport: &StandardTransport<'_>) -> Result<(), Error> {
++    if !transport.check_device_feature(VIRTIO_F_VERSION_1) {
++        return Err(Error::FeaturesNotAccepted);
++    }
++    transport.ack_driver_feature(VIRTIO_F_VERSION_1);
++
++    let mut common = transport.common.lock().unwrap();
++
++    let status = common.device_status.get();
++    common
++        .device_status
++        .set(status | DeviceStatusFlags::FEATURES_OK);
++
++    let confirm = common.device_status.get();
++    if (confirm & DeviceStatusFlags::FEATURES_OK) != DeviceStatusFlags::FEATURES_OK {
++        return Err(Error::FeaturesNotAccepted);
++    }
++    Ok(())
++}
++
+ unsafe impl Sync for Queue<'_> {}
+ unsafe impl Send for Queue<'_> {}
+ 
+@@ -590,21 +624,8 @@ impl Transport for StandardTransport<'_> {
+     }
+ 
+     fn finalize_features(&self) {
+-        // Check VirtIO version 1 compliance.
+-        assert!(self.check_device_feature(VIRTIO_F_VERSION_1));
+-        self.ack_driver_feature(VIRTIO_F_VERSION_1);
+-
+-        let mut common = self.common.lock().unwrap();
+-
+-        let status = common.device_status.get();
+-        common
+-            .device_status
+-            .set(status | DeviceStatusFlags::FEATURES_OK);
+-
+-        // Re-read device status to ensure the `FEATURES_OK` bit is still set: otherwise,
+-        // the device does not support our subset of features and the device is unusable.
+-        let confirm = common.device_status.get();
+-        assert!((confirm & DeviceStatusFlags::FEATURES_OK) == DeviceStatusFlags::FEATURES_OK);
++        finalize_features_checked(self)
++            .unwrap_or_else(|err| panic!("{err}"))
+     }
+ 
+     fn setup_config_notify(&self, vector: u16) {
+@@ -640,7 +661,9 @@ impl Transport for StandardTransport<'_> {
+ 
+         // Set the MSI-X vector.
+         common.queue_msix_vector.set(vector);
+-        assert!(common.queue_msix_vector.get() == vector);
++        if common.queue_msix_vector.get() != vector {
++            return Err(Error::QueueSetup("queue MSI-X vector was not accepted"));
++        }
+ 
+         // Enable the queue.
+         common.queue_enable.set(1);
+@@ -685,7 +708,9 @@ impl Transport for StandardTransport<'_> {
+ 
+         // Set the MSI-X vector.
+         common.queue_msix_vector.set(queue.vector);
+-        assert!(common.queue_msix_vector.get() == queue.vector);
++        if common.queue_msix_vector.get() != queue.vector {
++            panic!("virtio queue MSI-X vector was not accepted during reinit");
++        }
+ 
+         // Enable the queue.
+         common.queue_enable.set(1);

@@ -28,7 +28,7 @@ usage() {
 Usage: test-msix-qemu.sh [config]
 
 Boot a Red Bear image in QEMU and verify a live MSI-X path via virtio-net.
-Defaults to redbear-full.
+Defaults to redbear-mini (mapped to the in-tree redbear-minimal image).
 USAGE
 }
 
@@ -41,7 +41,10 @@ for arg in "$@"; do
     esac
 done
 
-config="${1:-redbear-full}"
+config="${1:-redbear-mini}"
+if [[ "$config" == "redbear-mini" ]]; then
+  config="redbear-minimal"
+fi
 arch="${ARCH:-$(uname -m)}"
 image="build/$arch/$config/harddrive.img"
 extra="build/$arch/$config/extra.img"
@@ -68,7 +71,7 @@ rm -f "$log_file"
 set +e
 timeout 90s qemu-system-x86_64 \
   -name "Red Bear OS x86_64" \
-  -device qemu-xhci \
+  -device qemu-xhci,id=xhci \
   -smp 4 \
   -m 2048 \
   -bios "$firmware" \
@@ -81,17 +84,21 @@ timeout 90s qemu-system-x86_64 \
   -netdev user,id=net0 \
   -object filter-dump,id=f1,netdev=net0,file="build/$arch/$config/network.pcap" \
   -nographic -vga none \
-  -drive file="$image",format=raw,if=none,id=drv0 \
+  -drive file="$image",format=raw,if=none,id=drv0,snapshot=on \
   -device nvme,drive=drv0,serial=NVME_SERIAL \
-  -drive file="$extra",format=raw,if=none,id=drv1 \
+  -drive file="$extra",format=raw,if=none,id=drv1,snapshot=on \
   -device nvme,drive=drv1,serial=NVME_EXTRA \
   -enable-kvm -cpu host \
   > "$log_file" 2>&1
 set -e
 
-if ! grep -q "virtio: using MSI-X" "$log_file"; then
-    echo "ERROR: no live MSI-X evidence found in $log_file" >&2
-    exit 1
+if ! grep -q "virtio-net: using MSI-X interrupt delivery" "$log_file"; then
+  echo "ERROR: no live MSI-X evidence found in $log_file" >&2
+  exit 1
 fi
 
+echo "IRQ_DRIVER=virtio-net"
+echo "IRQ_MODE=msix"
+echo "IRQ_REASON=driver_selected_msix"
+echo "IRQ_LOG=$log_file"
 echo "MSI-X runtime path detected in $log_file"

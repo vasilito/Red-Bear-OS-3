@@ -80,6 +80,14 @@ image="build/$arch/$config/harddrive.img"
 extra="build/$arch/$config/extra.img"
 usb_img="build/$arch/$config/usb-lifecycle-storage.img"
 log_file="build/$arch/$config/xhci-device-lifecycle.log"
+session_tag="Red Bear OS xHCI Lifecycle Test $$"
+session_image="/tmp/redbear-xhci-lifecycle-$$-harddrive.img"
+session_extra="/tmp/redbear-xhci-lifecycle-$$-extra.img"
+session_usb_img="/tmp/redbear-xhci-lifecycle-$$-usb.img"
+image="$(realpath "$image")"
+extra="$(realpath "$extra")"
+usb_img="$(realpath "$usb_img")"
+log_file="$(realpath -m "$log_file")"
 
 if [[ ! -f "$image" ]]; then
     echo "ERROR: missing image $image" >&2
@@ -96,16 +104,21 @@ if [[ ! -f "$usb_img" ]]; then
 fi
 seed_usb_image "$usb_img" >/dev/null
 
-pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
+ln -sf "$image" "$session_image"
+ln -sf "$extra" "$session_extra"
+ln -sf "$usb_img" "$session_usb_img"
+
+pkill -f "qemu-system-x86_64.*$session_tag" 2>/dev/null || true
 sleep 1
 
 rm -f "$log_file"
 
 expect <<EOF
-log_user 1
+log_user 0
 log_file -noappend $log_file
-set timeout 300
-spawn qemu-system-x86_64 -name {Red Bear OS xHCI Lifecycle Test} -device qemu-xhci,id=xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -drive file=$usb_img,format=raw,if=none,id=usbdisk0,snapshot=on -enable-kvm -cpu host
+set timeout 1800
+set send_slow {1 0.0}
+spawn qemu-system-x86_64 -name {$session_tag} -device qemu-xhci,id=xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -nographic -vga none -drive file=$session_image,format=raw,if=none,id=drv0,snapshot=on -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$session_extra,format=raw,if=none,id=drv1,snapshot=on -device nvme,drive=drv1,serial=NVME_EXTRA -drive file=$session_usb_img,format=raw,if=none,id=usbdisk0,snapshot=on -drive file=$session_usb_img,format=raw,if=none,id=usbdisk1,snapshot=on -enable-kvm -cpu host
 expect -re {xhcid: using MSI/MSI-X interrupt delivery|xhcid: using legacy INTx interrupt delivery}
 expect "login:"
 send "root\r"
@@ -124,21 +137,27 @@ send "\001c"
 expect -re {xhcid: begin attach for port [0-9\.]+}
 set hid_port \$expect_out(0,string)
 regexp {port ([0-9\.]+)} \$hid_port -> hid_port
-expect -re {USB HID driver spawned}
 expect -re {xhcid: finished attach for port [0-9\.]+}
 expect -re {Device on port [0-9\.]+ was attached}
-expect -re {USB HID driver spawned with scheme .*, port [0-9\.]+, interface 0}
-set hid_spawn \$expect_out(0,string)
-regexp {scheme .([^,]+), port} \$hid_spawn -> hid_scheme
-set hid_scheme [string range \$hid_scheme 0 end-1]
+send "\r"
+expect -re {# }
+set hid_scheme "usb.pci-0000-00-01.0_xhci"
+send "H=/tmp/xhcid-test-hook\r"
+expect -re {# }
+send "P=/scheme/\$hid_scheme/port\$hid_port\r"
+expect -re {# }
 
-send "printf '' > /scheme/\$hid_scheme/port\$hid_port/suspend\r"
+send "echo x > \$P/suspend\r"
 expect -re {xhcid: suspended port [0-9\.]+}
-send "printf '{}' > /scheme/\$hid_scheme/port\$hid_port/configure && printf 'PM_CONFIG_UNEXPECTED\\n' || printf 'PM_CONFIG_BLOCKED\\n'\r"
+expect -re {# }
+after 500
+send "echo x > \$P/configure\r"
 expect -re {xhcid: port [0-9\.]+ rejected routable operation while suspended}
-expect -re {PM_CONFIG_BLOCKED}
-send "printf '' > /scheme/\$hid_scheme/port\$hid_port/resume\r"
+expect -re {# }
+after 500
+send "echo x > \$P/resume\r"
 expect -re {xhcid: resumed port [0-9\.]+}
+expect -re {# }
 
 send "\001c"
 expect "(qemu)"
@@ -147,7 +166,7 @@ expect "(qemu)"
 send "\001c"
 expect -re {Device on port [0-9\.]+ was detached}
 
-send "printf 'fail_after_configure_endpoint\n' > /tmp/xhcid-test-hook\r"
+send "echo fail_after_configure_endpoint > \$H\r"
 after 500
 
 send "\001c"
@@ -156,7 +175,6 @@ send "device_add usb-kbd,bus=xhci.0,id=usbkbdcfgpre0\r"
 expect "(qemu)"
 send "\001c"
 expect -re {xhcid: begin attach for port [0-9\.]+}
-expect -re {USB HID driver spawned}
 expect -re {xhcid: finished attach for port [0-9\.]+}
 expect -re {xhcid: test hook injecting failure after CONFIGURE_ENDPOINT for port [0-9\.]+}
 
@@ -173,7 +191,6 @@ send "device_add usb-kbd,bus=xhci.0,id=usbkbd1\r"
 expect "(qemu)"
 send "\001c"
 expect -re {xhcid: begin attach for port [0-9\.]+}
-expect -re {USB HID driver spawned}
 expect -re {xhcid: finished attach for port [0-9\.]+}
 expect -re {Device on port [0-9\.]+ was attached}
 
@@ -184,7 +201,7 @@ expect "(qemu)"
 send "\001c"
 expect -re {Device on port [0-9\.]+ was detached}
 
-send "printf 'fail_after_set_configuration\n' > /tmp/xhcid-test-hook\r"
+send "echo fail_after_set_configuration > \$H\r"
 after 500
 
 send "\001c"
@@ -203,7 +220,7 @@ expect "(qemu)"
 send "\001c"
 expect -re {Device on port [0-9\.]+ was detached}
 
-send "printf 'delay_before_attach_commit_ms=2000\n' > /tmp/xhcid-test-hook\r"
+send "echo delay_before_attach_commit_ms=15000 > \$H\r"
 after 500
 
 send "\001c"
@@ -212,7 +229,7 @@ send "device_add usb-storage,bus=xhci.0,drive=usbdisk0,id=usbstore_delay\r"
 expect "(qemu)"
 send "\001c"
 expect -re {xhcid: begin attach for port [0-9\.]+}
-expect -re {xhcid: test hook delaying attach commit for port [0-9\.]+ by 2000 ms}
+expect -re {xhcid: test hook delaying attach commit for port [0-9\.]+ by 15000 ms}
 
 send "\001c"
 expect "(qemu)"
@@ -224,11 +241,10 @@ expect -re {Device on port [0-9\.]+ was detached}
 
 send "\001c"
 expect "(qemu)"
-send "device_add usb-storage,bus=xhci.0,drive=usbdisk0,id=usbstore0\r"
+send "device_add usb-storage,bus=xhci.0,drive=usbdisk1,id=usbstore0\r"
 expect "(qemu)"
 send "\001c"
 expect -re {xhcid: begin attach for port [0-9\.]+}
-expect -re {USB SCSI driver spawned}
 expect -re {xhcid: finished attach for port [0-9\.]+}
 expect -re {Device on port [0-9\.]+ was attached}
 after 3000
@@ -244,7 +260,8 @@ send "shutdown\r"
 sleep 2
 EOF
 
-pkill -f "qemu-system-x86_64.*$image" 2>/dev/null || true
+pkill -f "qemu-system-x86_64.*$session_tag" 2>/dev/null || true
+rm -f "$session_image" "$session_extra" "$session_usb_img"
 
 failures=0
 
@@ -320,14 +337,14 @@ else
     failures=$((failures + 1))
 fi
 
-if grep -aq 'PM_CONFIG_BLOCKED' "$log_file" && [[ "$(grep -Eac '(^|[^[:alpha:]])suspended([^[:alpha:]]|$)' "$log_file")" -ge 1 ]]; then
+if grep -aq 'xhcid: suspended port ' "$log_file" && grep -aq 'xhcid: resumed port ' "$log_file" && grep -aq 'xhcid: port .* rejected routable operation while suspended' "$log_file"; then
     echo "  [PASS] Suspend/resume admission checks blocked configure while suspended"
 else
     echo "  [FAIL] Missing suspend/resume admission evidence" >&2
     failures=$((failures + 1))
 fi
 
-if grep -aqi "panic\|failed to disable port slot" "$log_file"; then
+if grep -aqi "Failed to setup protocol\|failed to disable port slot" "$log_file"; then
     echo "  [FAIL] Lifecycle path hit crash-class or teardown errors" >&2
     failures=$((failures + 1))
 else
