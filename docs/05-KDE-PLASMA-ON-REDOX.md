@@ -13,6 +13,11 @@
 >
 > The phase and step labels below are retained for historical structure. They are not the current
 > planning authority for KDE/desktop sequencing.
+>
+> For the current greeter/login boundary specifically, use
+> `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` together with
+> `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` rather than the launch snippets or phase language in
+> this historical document.
 
 ## Current State Snapshot
 
@@ -21,7 +26,7 @@
 | Qt6 | Built in-tree (`qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland`) |
 | KF6 | All 32/32 built (some still shimmed or stubbed) |
 | `config/redbear-kde.toml` | Present with KDE session launcher |
-| `kwin`, `plasma-workspace`, `plasma-desktop` | Recipes exist, still marked TODO |
+| `kwin`, `plasma-workspace`, `plasma-desktop` | Recipes exist; build/runtime trust is still incomplete and some recipe/source TODO markers remain |
 | `kirigami` | Stub-only package for dependency resolution |
 | `kf6-kio` | Heavy shim-based build recipe |
 | `kf6-kcmutils` | Stripped widget-only build recipe |
@@ -84,9 +89,7 @@ Blocked on: KWin shimmed/stubbed deps resolution, KWin runtime integration, Plas
 
 #### Historical Step 1: Port `qtbase` (6-8 weeks)
 
-> **Historical recipe note:** the `recipes/wip/qt/...` path below is retained as design history.
-> For current Red Bear ownership and shipping decisions, use the WIP ownership policy and current
-> local overlay docs rather than assuming upstream WIP is the preferred final source.
+> **Historical note:** the `recipes/wip/qt/...` path below is retained as design history. For current Red Bear ownership and shipping decisions, use the WIP ownership policy and current local overlay docs.
 
 **Create recipe**: `recipes/wip/qt/qtbase/recipe.toml`
 
@@ -248,9 +251,7 @@ These have minimal dependencies — just Qt and CMake.
 
 **Recipe pattern** (same for all Tier 1):
 
-> **Historical recipe pattern note:** the `recipes/wip/kde/...` examples below show the original
-> upstream-oriented porting pattern. Current Red Bear-owned KDE shipping work should prefer
-> `local/recipes/kde/` while upstream KDE recipes remain WIP.
+> **Historical note:** the `recipes/wip/kde/...` examples below show the original upstream-oriented porting pattern. Current Red Bear-owned KDE shipping work should prefer `local/recipes/kde/`.
 
 ```toml
 # recipes/wip/kde/kcoreaddons/recipe.toml
@@ -480,7 +481,7 @@ dbus-daemon --system &
 eval $(dbus-launch --sh-syntax)
 
 # Start KWin (Wayland compositor + window manager)
-kwin_wayland --replace &
+kwin_wayland_wrapper --drm &
 
 # Start Plasma Shell
 sleep 2

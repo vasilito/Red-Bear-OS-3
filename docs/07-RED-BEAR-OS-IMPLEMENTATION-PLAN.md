@@ -127,7 +127,7 @@ Scope:
 
 ### `redbear-live-mini`
 
-Live/demo/recovery form of the mini baseline.
+Live/demo/recovery form of the mini baseline for real bare metal.
 
 Scope:
 
@@ -137,7 +137,7 @@ Scope:
 
 ### `redbear-live-full`
 
-Live/demo/recovery form of the full desktop target.
+Live/demo/recovery form of the full desktop target for real bare metal.
 
 Scope:
 
@@ -150,6 +150,7 @@ Scope:
 
 - Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
 - Validation work that does not require graphics should prefer `redbear-mini` or `redbear-live-mini`.
+- Live `.iso` outputs are for real bare-metal boot/install workflows, not for VM/QEMU execution; virtualization should use the `harddrive.img`-based target surface.
 
 ## Current State Baseline
 
@@ -166,7 +167,7 @@ The current evidence-backed baseline is:
 - Wayland-facing relibc compatibility surfaces now rebuild from a refreshed upstream relibc source
   tree via local patch carriers,
 - `libwayland` and `qtbase` build successfully from the reconstructed relibc state,
-- KDE session work is in progress but not yet a stable runtime claim,
+- the Red Bear-native greeter/login path now has a bounded passing runtime proof, while broader KDE/KWin session stability is still not yet a general runtime claim,
 - USB, Wi-Fi, Bluetooth, and low-level controller quality remain first-class unfinished workstreams.
 
 ### What is current versus historical
@@ -376,6 +377,7 @@ Canonical references:
 
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path from console to hardware-accelerated KDE Plasma on Wayland
 - `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
+- `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan beneath the desktop path
 - `local/docs/QT6-PORT-STATUS.md`
 - `local/docs/DESKTOP-STACK-CURRENT-STATUS.md`
 - `docs/05-KDE-PLASMA-ON-REDOX.md` — historical KDE implementation rationale
@@ -384,7 +386,7 @@ Acceptance:
 
 - `redbear-wayland` remains the narrow runtime validation slice,
 - `redbear-full` remains the broader desktop/session plumbing slice,
-- `redbear-kde` reaches documented session viability with honest limitations.
+- the active desktop-capable tracked targets keep honest session-viability language tied to `redbear-full` / `redbear-live-full`, not older historical target names.
 
 ### 8. Hardware validation and support labeling
 
@@ -409,6 +411,7 @@ The current subsystem plans to treat as first-class are:
 
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path plan
 - `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan
+- `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - `local/docs/USB-IMPLEMENTATION-PLAN.md`
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`

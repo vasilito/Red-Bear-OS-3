@@ -37,9 +37,9 @@ Key syscalls: `open`, `close`, `read`, `write`, `seek`, `fmap`, `funmap`, `dup`,
 ### Userspace-ification Trend
 
 Redox is actively moving POSIX functionality out of the kernel:
-- **fork/exec** → userspace via `thisproc:` scheme
-- **Signal handling** → userspace with kernel-shared page for low-cost `sigprocmask`
-- **Process manager** → planned userspace daemon
+- fork/exec goes to userspace via `thisproc:` scheme
+- signal handling goes to userspace with a kernel-shared page for low-cost `sigprocmask`
+- process manager is planned as a userspace daemon
 
 This reduces TCB and allows faster iteration without kernel changes.
 
@@ -128,7 +128,10 @@ driven wired setup.
 
 **Display**: vesad (VESA framebuffer), virtio-gpud (VirtIO 2D)
 
-**Other**: pcid (PCI enumeration), acpid (ACPI), usbhidd (USB HID), inputd (input multiplexor)
+**Other**: pcid (PCI enumeration), acpid (ACPI / AML daemon: FADT parsing, shutdown/reboot,
+`kstop` eventing, and provisional `/scheme/acpi/power` exposure; known gaps remain around the
+userspace `RSDP_ADDR` handoff contract, PCI-gated AML readiness, and broader shutdown robustness),
+usbhidd (USB HID), inputd (input multiplexor)
 
 ### GPU Driver Status
 
@@ -192,18 +195,19 @@ Architectures: i586, x86_64, aarch64, riscv64gc.
 ### Known POSIX Gaps (blocking Wayland)
 
 These were the specific missing features originally identified from libwayland's `redox.patch`.
-Today, most exist in-tree in relibc, but downstream Wayland consumers still carry compatibility
-patches, so this table is a current-state summary rather than an untouched historical claim.
+Today, most are provided by the active relibc recipe patch chain rather than by plain upstream-only
+source convergence, and downstream Wayland consumers still carry compatibility patches, so this
+table is a bounded current-state summary rather than an untouched historical claim.
 
 | Missing API | Used By | Status |
 |-------------|---------|--------|
-| `signalfd` / `SFD_CLOEXEC` | libwayland event loop | Implemented in-tree; downstream libwayland still patched around usage |
-| `timerfd` / `TFD_CLOEXEC` / `TFD_TIMER_ABSTIME` | libwayland timers | Implemented in-tree; downstream libwayland still patched around usage |
-| `eventfd` / `EFD_CLOEXEC` | libwayland server | Implemented in-tree; downstream libwayland still patched around usage |
-| `F_DUPFD_CLOEXEC` | libwayland fd management | Implemented in-tree |
-| `MSG_CMSG_CLOEXEC` | libwayland socket recv | Implemented in-tree |
-| `MSG_NOSIGNAL` | libwayland connection | Implemented in-tree; downstream libwayland still omits flag |
-| `open_memstream` | libdrm, libwayland | Implemented in-tree; downstream libwayland still bypasses usage |
+| `signalfd` / `SFD_CLOEXEC` | libwayland event loop | Active relibc recipe-applied surface; downstream libwayland still patched around usage |
+| `timerfd` / `TFD_CLOEXEC` / `TFD_TIMER_ABSTIME` | libwayland timers | Active relibc recipe-applied surface; downstream libwayland still patched around usage |
+| `eventfd` / `EFD_CLOEXEC` | libwayland server | Active relibc recipe-applied surface; downstream libwayland still patched around usage |
+| `F_DUPFD_CLOEXEC` | libwayland fd management | Active relibc recipe-applied surface |
+| `MSG_CMSG_CLOEXEC` | libwayland socket recv | Active relibc recipe-applied surface |
+| `MSG_NOSIGNAL` | libwayland connection | Active relibc recipe-applied surface; downstream libwayland still omits flag |
+| `open_memstream` | libdrm, libwayland | Active relibc recipe-applied surface; downstream libwayland still bypasses usage |
 
 ## 6. Build System (This Repository)
 

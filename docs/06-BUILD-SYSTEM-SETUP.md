@@ -98,18 +98,9 @@ echo 'PODMAN_BUILD?=0' > .config
 
 ### Select Build Configuration
 
-Mainline configs still exist, but tracked Red Bear work should normally be built and validated
-through the four supported `redbear-*` compile targets. For desktop work specifically,
-`redbear-full` is the tracked desktop-capable target.
-
-Available configs (in `config/`):
-
-| Config | Description |
-|---|---|
-| `redbear-mini` | Minimal tracked Red Bear image |
-| `redbear-live-mini` | Live/recovery variant of the minimal target |
-| `redbear-full` | Desktop-capable tracked Red Bear image |
-| `redbear-live-full` | Live/recovery variant of the desktop-capable target |
+Tracked Red Bear work should normally be built and validated through the four supported
+`redbear-*` compile targets. For desktop work specifically, `redbear-full` is the tracked
+desktop-capable target.
 
 ## Building
 
@@ -119,7 +110,7 @@ Available configs (in `config/`):
 make all
 ```
 
-This produces the image for the selected target, such as `build/x86_64/redbear-full/harddrive.img`.
+This produces the image for the selected target, such as `build/x86_64/harddrive.img`.
 
 ### Export External Toolchain
 
@@ -160,8 +151,10 @@ For tracked Red Bear work, prefer these four compile targets over older historic
 
 ```bash
 make live CONFIG_NAME=redbear-live-full
-# Produces: build/x86_64/redbear-live-full/redox-live.iso
+# Produces: build/x86_64/redbear-live.iso
 ```
+
+Live `.iso` outputs are for real bare-metal boot, install, recovery, and demo workflows. They are not the VM/QEMU execution surface; for virtualization, use `make qemu` and the `harddrive.img` path instead.
 
 ### Rebuild After Changes
 
@@ -200,7 +193,7 @@ make virtualbox
 
 ```bash
 # Write image to USB device (replace sdX with your device):
-sudo dd if=build/x86_64/redbear-kde/harddrive.img of=/dev/sdX bs=4M status=progress
+sudo dd if=build/x86_64/harddrive.img of=/dev/sdX bs=4M status=progress
 ```
 
 ## Building Specific Packages (Recipes)
@@ -262,7 +255,7 @@ cp target/release/myapp ${COOKBOOK_STAGE}/usr/bin/
 | Variable | Default | Description |
 |---|---|---|
 | `ARCH` | Host arch | Target architecture (x86_64, aarch64, i586, riscv64gc) |
-| `CONFIG_NAME` | `redbear-kde` | Build config name |
+| `CONFIG_NAME` | `redbear-full` | Build config name |
 | `PODMAN_BUILD` | `1` | Use Podman container |
 | `PREFIX_BINARY` | `1` | Use prebuilt toolchain (faster) |
 | `REPO_BINARY` | `0` | Use prebuilt packages (faster, no compilation) |
@@ -324,11 +317,10 @@ make distclean
 redox-master/
 ├── build/
 │   └── x86_64/
-│       └── redbear-kde/
-│           ├── harddrive.img      # Bootable disk image
-│           ├── redox-live.iso     # Live CD ISO
-│           ├── filesystem/        # Mounted filesystem (during build)
-│           └── repo.tag           # Build completion marker
+│       ├── harddrive.img      # Bootable disk image
+│       ├── redbear-live.iso   # Live CD ISO
+│       ├── filesystem/        # Mounted filesystem (during build)
+│       └── repo.tag           # Build completion marker
 ├── prefix/
 │   └── x86_64-unknown-redox/
 │       └── clang-install/         # Cross-compilation toolchain

@@ -95,15 +95,15 @@ echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 # Supported compile targets: redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
 # Desktop/graphics are available only on redbear-full and redbear-live-full.
 make all CONFIG_NAME=redbear-full         # Desktop/graphics-enabled Red Bear target → harddrive.img
-make live CONFIG_NAME=redbear-live-full   # Desktop/graphics live image
+make live CONFIG_NAME=redbear-live-full   # Desktop/graphics live ISO for real bare metal
 make all CONFIG_NAME=redbear-mini         # Minimal non-desktop Red Bear target
-make live CONFIG_NAME=redbear-live-mini   # Minimal live image
+make live CONFIG_NAME=redbear-live-mini   # Minimal live ISO for real bare metal
 CI=1 make all CONFIG_NAME=redbear-mini    # CI mode (disables TUI, for non-interactive)
 
 # Run
 make qemu                                 # Boot in QEMU
 make qemu QEMUFLAGS="-m 4G"              # With more RAM
-make live                                 # Build live ISO → redbear-live.iso
+make live                                 # Build live ISO for real bare metal → redbear-live.iso
 
 # Single recipe
 ./target/release/repo cook recipes/libs/mesa     # Build one recipe
@@ -253,10 +253,10 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 |-----------|--------|--------|
 | UEFI boot | ✅ | x86_64 bootloader functional |
 | AMD CPUs | ✅ | Ryzen Threadripper 128-thread verified |
-| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership/robustness work |
-| ACPI shutdown | ✅ | PM1a/PM1b S5 via `\_S5` AML |
-| ACPI reboot | ✅ | Reset register + keyboard controller fallback |
-| ACPI power | ✅ | `\_PS0`/`\_PS3`/`\_PPC` AML methods available |
+| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and bounded AML-backed power enumeration are present; the explicit AML bootstrap producer contract and broader robustness still remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
+| ACPI shutdown | 🚧 | PM1a/PM1b S5 via `\_S5` AML exists, but shutdown robustness and bounded validation are still open |
+| ACPI reboot | 🚧 | Reset register + keyboard controller fallback exist, but broader reboot correctness and bounded validation are still open |
+| ACPI power | 🚧 | `\_PS0`/`\_PS3`/`\_PPC` AML methods are available and the runtime power surface performs bounded AML-backed enumeration, but bootstrap preconditions and validation are still too weak for stronger support claims; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | x2APIC/SMP | ✅ | Multi-core works |
 | IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
 | AMD GPU | 🚧 | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
@@ -272,7 +272,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 | ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Materially complete — boots on modern AMD bare metal; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for forward work |
 | ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
 | ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | 🚧 Partial — redox-drm + bounded Red Bear AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; Intel driver compiles, no HW validation |
-| ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — relibc gaps exported to downstream consumers, evdevd/udev-shim/libevdev/libinput/D-Bus build; runtime validation still open |
+| ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — the active relibc recipe patch chain now carries the bounded fd-event, semaphore, and waitid compatibility surface needed by current downstreams, while broader runtime validation and input-stack maturity remain open |
 | P4: Wayland compositor | 4-6 weeks | 🚧 Partial — libwayland/Qt6 Wayland/Mesa EGL+GBM+GLES2/Qt6 OpenGL now build, but compositor/runtime validation is still incomplete |
 | ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 Historical DML2 config work landed, but the current retained AMDGPU build no longer treats imported DML2/TTM as part of the default bounded compile path; libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
 | P6: KDE Plasma | 12-16 weeks | 🚧 In progress — Qt6 ✅, KF6 32/32 ✅, Mesa EGL/GBM/GLES2 ✅, kf6-kcmutils ✅, kf6-kwayland ✅, kdecoration ✅, KWin 🔄 building |
@@ -320,6 +320,15 @@ All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 
 Red Bear OS should treat low-level controllers, USB, Wi-Fi, and Bluetooth as first-class subsystem
 targets.
+
+For PCI interrupt plumbing, IRQ delivery quality, MSI/MSI-X follow-up, low-level controller
+runtime-proof sequencing, and IOMMU/interrupt-remapping quality, the canonical current plan is:
+
+- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
+
+Use that file as the execution authority and current robustness judgment for PCI/IRQ work. Higher-
+level summaries in `README.md`, `docs/README.md`, and this file should stay aligned with its
+validation language rather than acting as competing rollout plans.
 
 Current execution order:
 

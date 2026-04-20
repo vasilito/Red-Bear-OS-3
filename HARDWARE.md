@@ -52,10 +52,14 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
 
 This section contain limitations that apply to any status.
 
-- ACPI bring-up is **materially complete for boot baseline**; implemented: RSDP/RSDT/XSDT/MADT/FADT
-  with typed startup errors, AML mutexes with real tracked state, EC widened accesses via byte
-  transactions, kstop-based shutdown eventing; sleep state transitions are a **known gap**; broader
-  platform validation remains uneven — see `local/docs/ACPI-IMPROVEMENT-PLAN.md`
+- ACPI bring-up is **materially complete for boot baseline**; implemented: kernel
+  RSDP/RSDT/XSDT/MADT/FADT coverage, AML mutexes with real tracked state, EC widened accesses via
+  byte transactions, kstop-based shutdown eventing, explicit `RSDP_ADDR` forwarding into `acpid`,
+  x86 BIOS-search AML fallback, and bounded AML-backed power enumeration. The explicit boot-path
+  producer contract for AML bootstrap is still underdocumented, `acpid` startup hardening remains
+  open, shutdown/power reporting are still provisional, sleep
+  state transitions beyond `\_S5`, DMAR ownership cleanup, and broader platform validation all
+  remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 - Wi-Fi broad support is not available yet; bounded Intel Wi-Fi scaffolding and validation paths now
   cover probe/status/prepare/init/activate plus bounded scan/connect/disconnect/retry surfaces, but
   validated real wireless connectivity support remains incomplete
@@ -117,7 +121,7 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
 | ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
 | Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to graphical session, NVMe driver livelocks |
 | Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to graphical session, NVMe driver livelocks |
-| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | ACPI fix applied (RSDP/SDT checksums, MADT NMI types, FADT parse); **hardware validation still needed**; moved from Broken table |
+| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | Historical ACPI boot-baseline fixes applied (RSDP/SDT checksums, MADT NMI types, FADT parse); moved from Broken table; broader bounded validation still needed |
 | HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, requires I2C HID |
 | HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
 | HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | xAPIC fix applied; **hardware validation still needed**; moved from Broken table |

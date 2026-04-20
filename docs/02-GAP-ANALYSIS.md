@@ -19,13 +19,13 @@ Use the matrix below as the authoritative phase summary before reading the older
 
 | Layer / Phase | Current repo state | Evidence |
 |---|---|---|
-| P0 ACPI / bare-metal boot | **Materially complete for the historical boot baseline, not release-grade complete.** Implemented: kernel RSDP/RSDT/XSDT/MADT/FADT parsing, typed `StartupError` in `acpid`, AML mutex real state (`aml_physmem.rs`), EC widened accesses via byte transactions (`ec.rs`), kstop-based shutdown eventing (kernel registers `/scheme/kernel.acpi/kstop`, `acpid` subscribes, `redbear-sessiond` emits D-Bus `PrepareForShutdown`). Sleep state transitions (`\_Sx` beyond `\_S5`) and sleep eventing are **known gaps**. DMAR module remains present in `acpid` but not wired; ownership is still transitional/orphaned rather than cleanly transferred. Bare-metal validation remains bounded rather than broad. | `local/docs/ACPI-FIXES.md`, `local/docs/ACPI-IMPROVEMENT-PLAN.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch`, `recipes/core/base/source/drivers/acpid/src/main.rs`, `recipes/core/base/source/drivers/acpid/src/aml_physmem.rs`, `recipes/core/base/source/drivers/acpid/src/ec.rs`, `local/recipes/system/redbear-sessiond/source/src/acpi_watcher.rs` |
+| P0 ACPI / bare-metal boot | **Materially complete for the historical boot baseline, not release-grade complete.** Implemented: kernel RSDP/RSDT/XSDT/MADT/FADT parsing, AML mutex real state (`aml_physmem.rs`), EC widened accesses via byte transactions (`ec.rs`), kstop-based shutdown eventing (kernel registers `/scheme/kernel.acpi/kstop`, `acpid` subscribes, `redbear-sessiond` emits D-Bus `PrepareForShutdown`), explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and real-but-provisional AML-backed power enumeration. `acpid` startup hardening is still open in the current tree, the explicit boot-path producer contract for AML bootstrap is still underdocumented, and PCI registration timing still gates AML readiness. Sleep state transitions (`\_Sx` beyond `\_S5`) and sleep eventing are **known gaps**. DMAR module remains present in `acpid` but not wired; ownership is still transitional/orphaned rather than cleanly transferred. Bare-metal validation remains bounded rather than broad. | `local/docs/ACPI-FIXES.md`, `local/docs/ACPI-IMPROVEMENT-PLAN.md`, `local/patches/kernel/redox.patch`, `local/patches/base/redox.patch`, `recipes/core/base/source/drivers/acpid/src/main.rs`, `recipes/core/base/source/drivers/acpid/src/aml_physmem.rs`, `recipes/core/base/source/drivers/acpid/src/ec.rs`, `local/recipes/system/redbear-sessiond/source/src/acpi_watcher.rs` |
 | P1 driver infrastructure | Complete in-tree, compile-oriented | `local/recipes/drivers/redox-driver-sys/`, `local/recipes/drivers/linux-kpi/`, `local/recipes/system/firmware-loader/` |
 | P2 DRM / AMD+Intel display | Partial — redox-drm + bounded AMD display glue build in-tree; imported Linux AMD DC/TTM/core remain under compile triage; hardware validation pending | `local/docs/AMD-FIRST-INTEGRATION.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md`, `local/recipes/gpu/redox-drm/`, `local/recipes/gpu/amdgpu/` |
-| P3 POSIX + input | Implemented in-tree; consumer-visible `signalfd`/`timerfd`/`eventfd`/`open_memstream` header-export path fixed in this repo pass; strict Redox-target relibc runtime proof now exists for the fd-event slice | `local/patches/relibc/`, `recipes/core/relibc/recipe.toml`, `recipes/tests/relibc-tests-bins/recipe.toml`, `local/recipes/system/evdevd/`, `local/recipes/system/udev-shim/` |
+| P3 POSIX + input | The active Red Bear relibc build carries a bounded recipe-applied `signalfd`/`timerfd`/`eventfd`/`waitid()`/semaphore compatibility surface; the live upstream-owned source tree still lags that active build in several areas | `local/patches/relibc/`, `recipes/core/relibc/recipe.toml`, `local/recipes/system/evdevd/`, `local/recipes/system/udev-shim/` |
 | P4 Wayland stack | Partially complete | `recipes/wip/wayland/`, `recipes/wip/libs/other/libinput/`, `recipes/wip/services/seatd/` |
 | P5 AMD acceleration / IOMMU | Partial, but no longer blocked on basic QEMU first-use proof | `local/recipes/gpu/amdgpu/`, `local/recipes/system/iommu/` |
-| P6 KDE Plasma | In progress with mixed real builds and stubs/shims | `config/redbear-kde.toml`, `local/recipes/kde/`, `local/docs/QT6-PORT-STATUS.md` |
+| P6 KDE Plasma | In progress with mixed real builds and stubs/shims | `config/redbear-full.toml`, `local/recipes/kde/`, `local/docs/QT6-PORT-STATUS.md` |
 
 ### Ordered Remaining Gaps
 
@@ -67,19 +67,19 @@ implemented phase with its own config/recipe/doc boundary.
 
 | API | Status | Where to implement | Effort |
 |-----|--------|--------------------|--------|
-| `signalfd`/`signalfd4` | **Implemented and runtime-tested in-tree** | `relibc/src/header/signal/mod.rs` + `signal/signalfd.rs` | Strict Redox-target relibc runtime test now passes; broader consumer semantics still need continued confirmation |
-| `timerfd_create/settime/gettime` | **Implemented and runtime-tested in-tree** | `relibc/src/header/sys_timerfd/` | Strict Redox-target relibc runtime test now passes; broader consumer semantics still need continued confirmation |
-| `eventfd`/`eventfd_read`/`eventfd_write` | **Implemented and runtime-tested in-tree** | `relibc/src/header/sys_eventfd/` | Strict Redox-target relibc runtime test now passes; broader consumer semantics still need continued confirmation |
-| `F_DUPFD_CLOEXEC` | **Implemented in-tree** | `relibc/src/header/fcntl/mod.rs` | Verify against downstream consumers |
-| `MSG_CMSG_CLOEXEC` | **Implemented in-tree** | `relibc/src/header/sys_socket/mod.rs` | Verify against downstream consumers |
-| `MSG_NOSIGNAL` | **Implemented in-tree** | `relibc/src/header/sys_socket/mod.rs` | Verify against downstream consumers |
-| `open_memstream` | **Implemented in-tree** | `relibc/src/header/stdio/open_memstream.rs` | Verify against downstream consumers |
+| `signalfd`/`signalfd4` | **Recipe-applied in the active build** | `local/patches/relibc/P3-signalfd.patch` | The active build carries it |
+| `timerfd_create/settime/gettime` | **Recipe-applied in the active build** | `local/patches/relibc/P3-timerfd.patch` | The active build carries it |
+| `eventfd`/`eventfd_read`/`eventfd_write` | **Recipe-applied in the active build** | `local/patches/relibc/P3-eventfd.patch` | The active build carries it through `/scheme/event/eventfd/...` |
+| `F_DUPFD_CLOEXEC` | **Partly plain-source, partly patch-carried behavior** | `relibc/src/header/fcntl/mod.rs`, `local/patches/relibc/redox.patch` | Keep the support language evidence-qualified |
+| `MSG_CMSG_CLOEXEC` | **Needs evidence-qualified wording** | `relibc/src/header/sys_socket/mod.rs` | Do not overstate broader downstream semantics |
+| `MSG_NOSIGNAL` | **Needs evidence-qualified wording** | `relibc/src/header/sys_socket/mod.rs` | Do not overstate broader downstream semantics |
+| `open_memstream` | **Patch-carried in the active build** | `local/patches/relibc/P3-open-memstream.patch` | Active compatibility surface |
 | UDS + FD passing | **Done** | Already implemented | — |
 | `epoll` (event scheme) | **Done** | Redox `scheme:event` | — |
 | `mmap`/`mprotect` | **Done** | Kernel syscalls | — |
 | `fork`/`exec` | **Done** | Userspace via `thisproc:` scheme | — |
 
-**Current blocker**: The build-side relibc/libwayland bridge is now in place, but downstream Wayland still needs runtime validation and the wider compositor stack (`evdevd`/`seatd`/DRM/GBM) is still incomplete.
+**Current blocker**: The active relibc build now carries the needed bounded compatibility surface, but downstream Wayland still needs runtime validation and the wider compositor stack (`evdevd`/`seatd`/DRM/GBM) is still incomplete.
 
 ### Layer 2: GPU / Display Infrastructure
 
@@ -105,7 +105,7 @@ implemented phase with its own config/recipe/doc boundary.
 | udev shim | **Present in-tree** | `local/recipes/system/udev-shim/` | `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` |
 | libinput | **Present as WIP port** | `recipes/wip/libs/other/libinput/` | `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` |
 | XKB layouts | **Done** | `xkeyboard-config` ported | — |
-| seatd | Builds and is wired into KDE config, runtime unvalidated | `recipes/wip/services/seatd/`, `config/redbear-kde.toml` | — |
+| seatd | Builds and is wired into the desktop-capable config, runtime unvalidated | `recipes/wip/services/seatd/`, `config/redbear-full.toml` | — |
 
 ### Layer 4: Wayland Protocol
 
@@ -141,6 +141,10 @@ implemented phase with its own config/recipe/doc boundary.
 ---
 
 ## Concrete Roadmap with Milestones
+
+> **Historical roadmap note:** the milestone list below is retained for continuity and dependency
+> explanation, not as the current execution authority. For current sequencing and acceptance truth,
+> prefer `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` plus the active plans under `local/docs/`.
 
 ### Milestone M1: "libwayland works natively" (2-4 weeks)
 - Build-side part now substantially complete: relibc exports the needed consumer-visible POSIX headers/symbols and `libwayland` rebuilds with only residual Redox-specific build tweaks

@@ -69,16 +69,27 @@ current local subsystem plan.
 - `../local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` — canonical operator path for the bounded Bluetooth Battery Level QEMU validation slice
 - `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
 - `../local/docs/ACPI-FIXES.md` — historical P0 ACPI bring-up ledger and status record
-- `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — current low-level controller and IRQ blocker plan
+- `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — canonical current plan for PCI/IRQ quality, low-level controller robustness, MSI/MSI-X follow-up, and controller runtime-proof sequencing
 - `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
 - `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
+- `../local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` — canonical relibc quality/completeness/robustness assessment and improvement plan
+- `../local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — IPC-focused companion plan for the active relibc compatibility surface
+- `../local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan for the Red Bear-native login boundary on `redbear-full`
 - PCI vendor/device names in Red Bear runtime tools now come from the shipped `pciids` database; PCI quirk policy still lives in `../local/docs/QUIRKS-SYSTEM.md`
 - `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap and hardware detail only, not the canonical desktop plan
 - `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
 
-These local Red Bear plans should be treated as first-class subsystem references for USB, Wi-Fi,
-Bluetooth, and low-level controller work. They carry blocker detail that the public docs summarize
-at a higher level.
+These local Red Bear plans should be treated as first-class subsystem references for desktop/session,
+USB, Wi-Fi, Bluetooth, and low-level controller work. They carry blocker detail that the public docs
+summarize at a higher level.
+
+For PCI/IRQ language specifically, prefer the local IRQ plan’s distinction between:
+
+- compile-visible infrastructure,
+- bounded QEMU/runtime proof,
+- and broader hardware validation.
+
+Do not flatten those into one “supported” claim in public summaries.
 
 ## Related Red Bear-local governance docs
 
@@ -97,7 +108,8 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
 - **Compile targets**: the supported compile targets are `redbear-mini`, `redbear-live-mini`, `redbear-full`, and `redbear-live-full`
-- **Wayland**: libwayland + wayland-protocols built. Runtime compositor proof remains incomplete.
+- **Live ISO policy**: live `.iso` outputs (`redbear-live-mini`, `redbear-live-full`) are for real bare-metal boot/install/recovery workflows, not the VM/QEMU execution surface.
+- **Wayland**: libwayland + wayland-protocols built. A bounded greeter/compositor-backed login proof now passes, but broader compositor/runtime stability remains incomplete.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
 - **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
@@ -105,10 +117,11 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **GPU drivers**: redox-drm scheme daemon exists; Intel build-oriented path exists; AMD currently has a bounded retained compile path (`redox-drm` + Red Bear glue) while the imported Linux AMD DC/TTM/core trees remain under compile triage. Hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
 - **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
+- **PCI / IRQ quality**: architecturally strong substrate exists, with bounded MSI-X, IOMMU, xHCI IRQ, and low-level-controller proof surfaces; broader hardware robustness is still intentionally tracked as open work in `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
 - **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload now has a packaged in-guest checker plus a host QEMU harness; QEMU validation is still in progress, so broad desktop Bluetooth parity is still incomplete
-- **Desktop direction**: `redbear-full` / `redbear-live-full` carry the desktop-capable target surface, and the runtime stack is still incomplete.
-- **ACPI**: materially complete for the historical boot baseline, not release-grade complete; implemented: typed startup errors in `acpid`, AML mutex real state, EC widened accesses via byte transactions, kstop-based shutdown eventing; **known gaps**: sleep state transitions and sleep eventing; DMAR remains present in `acpid` but not wired, with ownership still transitional/orphaned rather than cleanly transferred; bare-metal validation remains bounded and still outstanding. See `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
+- **Desktop direction**: `redbear-full` / `redbear-live-full` carry the desktop-capable target surface; the bounded greeter/login slice now passes, while the wider desktop runtime stack is still incomplete.
+- **ACPI**: materially complete for the historical boot baseline, not release-grade complete; implemented: AML mutex real state, EC widened accesses via byte transactions, kstop-based shutdown eventing, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and real-but-provisional AML-backed power enumeration. **Known gaps**: the explicit boot-path producer contract for AML bootstrap is still underdocumented, `acpid` startup hardening remains open, shutdown/power reporting are still provisional, sleep state transitions and sleep eventing remain incomplete, DMAR ownership is still transitional, and bare-metal validation is still bounded. See `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 - **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
 - **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.
 - **Phase 5 naming note**: the bounded `redbear-phase5-network-check` / `test-phase5-network-qemu.sh` path proves desktop/network plumbing on `redbear-full` in QEMU; it does **not** mean the Wi-Fi implementation plan's later Phase W5 real-hardware reporting/recovery milestone is complete.

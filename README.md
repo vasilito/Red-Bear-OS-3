@@ -42,7 +42,7 @@ predictably from the Red Bear-owned overlay.
 ## What's New
 
 - KWin Wayland is now treated as the only intended Red Bear desktop direction in the tracked plans, build defaults, live profile wiring, and profile guidance.
-- KDE bring-up moved forward: `config/redbear-kde.toml` exists, the Qt6 stack builds in-tree, and the KDE recipe tree is now populated.
+- KDE bring-up moved forward: the `redbear-full` desktop-capable surface carries the Qt6/KDE stack in-tree, and the KDE recipe tree is now populated.
 - Native Red Bear runtime tooling expanded with `redbear-info`, `redbear-hwutils` (`lspci`, `lsusb`), and a Redox-native `netctl` flow.
 - Build and status docs were refreshed to distinguish current in-tree progress from older historical roadmap text.
 
@@ -54,6 +54,8 @@ The current public roadmap and execution model live in the
 For readers landing on GitHub, the most useful entry points are:
 
 - [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
+- [relibc Assessment and Improvement Plan](./local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md) — canonical relibc quality, completeness, and robustness assessment
+- [relibc IPC Assessment and Improvement Plan](./local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md) — IPC-focused companion plan for bounded relibc compatibility layers
 - [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — canonical path from console boot to hardware-accelerated KDE Plasma on Wayland
 - [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
 - [WIP Migration Ledger](./local/docs/WIP-MIGRATION-LEDGER.md) — how Red Bear currently treats upstream WIP versus local overlays
@@ -64,14 +66,14 @@ Current subsystem-specific plans also include:
 - [USB Implementation Plan](./local/docs/USB-IMPLEMENTATION-PLAN.md)
 - [Wi-Fi Implementation Plan](./local/docs/WIFI-IMPLEMENTATION-PLAN.md)
 - [Bluetooth Implementation Plan](./local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md)
-- [IRQ and Low-Level Controllers Enhancement Plan](./local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md)
+- [IRQ and Low-Level Controllers Enhancement Plan](./local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md) — canonical plan for PCI interrupt plumbing, IRQ delivery quality, MSI/MSI-X follow-up, and low-level controller runtime proof
 
 Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets. Older AMD-first
 language in historical integration notes should be read as earlier sequencing context, not as the
 current platform policy.
 
-The tracked default desktop target is now `redbear-kde` with KWin Wayland, and runtime support
-claims remain evidence-qualified until compositor/session proof is stronger.
+The tracked desktop-capable target surface is now `redbear-full` / `redbear-live-full`, and
+runtime support claims remain evidence-qualified until compositor/session proof is stronger.
 
 ## Historical Phase Snapshot
 
@@ -86,8 +88,8 @@ with the subsystem plans listed above.
 
 | Phase | Status | Notes |
 |---|---|---|
-| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; forward ownership/robustness/validation work lives in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
-| P1 driver infra | ✅ Complete | Compile-oriented infrastructure present |
+| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; remaining work includes the explicit AML bootstrap producer contract, startup hardening, shutdown robustness, and validation closure in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
+| P1 driver infra | ✅ Complete (compile-oriented) | shared driver infrastructure is present, but low-level PCI/IRQ robustness and runtime proof remain governed by `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` |
 | P2 DRM / display | 🚧 Partial | redox-drm + bounded AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; hardware validation still pending |
 | P3 POSIX + input | 🚧 In progress | relibc now has strict Redox-target runtime proof for `signalfd` / `timerfd` / `eventfd` through the repaired test runner; broader desktop/runtime hardening still continues |
 | P4 Wayland runtime | 🚧 In progress | bounded Wayland runtime validation builds to a bootable image and reaches its packaged runtime entrypoint in QEMU/UEFI |
@@ -123,6 +125,15 @@ The current total order is: low-level controllers first, then USB, then Wi-Fi, t
 only after those runtime services are credible should heavier desktop/session compatibility layers
 expand on top of them.
 
+For PCI, IRQ, MSI/MSI-X, and IOMMU quality specifically, the canonical current plan is
+`local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`.
+
+Current validation language should be read this way:
+
+- compile-visible infrastructure is not the same as runtime proof,
+- bounded QEMU/runtime proof is not the same as hardware validation,
+- and PCI/IRQ robustness claims should stay evidence-qualified until broader hardware proof exists.
+
 ## What's Different from Upstream Redox
 
 | Component | Status | Detail |
@@ -130,10 +141,10 @@ expand on top of them.
 | AMD GPU driver (amdgpu) | 🚧 Bounded path builds | redox-drm + Red Bear AMD display glue compile; imported Linux AMD DC/TTM/core remain under compile triage; quirk-aware MSI-X/MSI/legacy IRQ fallback present (no HW validation) |
 | Intel GPU driver | ✅ Compiles | Display pipe modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
 | ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
-| ACPI for AMD bare metal | ✅ Materially complete (historical boot baseline) | x2APIC, MADT, FADT shutdown/reboot, power methods; not release-grade complete; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for remaining ownership, robustness, sleep-state, and validation work |
+| ACPI boot baseline | ✅ Materially complete (historical boot baseline) | x2APIC, MADT, FADT shutdown/reboot, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, power methods, and bounded AML-backed power enumeration exist; the explicit AML bootstrap producer contract, shutdown robustness, sleep-state scope, and validation depth still remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | Wired networking | 🚧 Improved | native net stack present, Redox-native `netctl` shipped, RTL8125 autoload wired through the existing Realtek path |
 | Custom branding | ✅ | Boot identity, hostname, os-release |
-| POSIX gaps (relibc) | 🚧 In progress | implementations exist in-tree; runtime validation against Wayland stack is still ongoing |
+| POSIX gaps (relibc) | 🚧 In progress | the active relibc recipe patch chain provides bounded Wayland-facing and IPC-facing compatibility layers, but broad runtime trust and several completeness gaps remain open |
 
 ## Project Structure
 
@@ -158,16 +169,15 @@ expand on top of them.
 Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. See the [Redox Build Instructions](https://doc.redox-os.org/book/podman-build.html) for full prerequisites.
 
 ```bash
-make all                                # Default tracked KWin Wayland desktop target
-make all CONFIG_NAME=redbear-kde         # Explicit KWin Wayland desktop target
-make all CONFIG_NAME=redbear-full        # Broader integration slice + custom drivers
-make all CONFIG_NAME=redbear-minimal     # Minimal server
+make all CONFIG_NAME=redbear-full        # Tracked desktop-capable target
+make all CONFIG_NAME=redbear-mini        # Tracked minimal non-desktop target
 make all CONFIG_NAME=redbear-full-grub   # Broader integration slice with GRUB boot manager
-make live CONFIG_NAME=redbear-live       # Live install ISO (redbear-live.iso)
-make live CONFIG_NAME=redbear-live-mini  # Tiny boot-test live ISO (~256 MiB image)
-make qemu                                # Boot the default tracked KWin Wayland desktop target in QEMU
-make qemu CONFIG_NAME=redbear-kde        # Explicit KWin Wayland desktop target in QEMU
+make live CONFIG_NAME=redbear-live-full  # Live install ISO for real bare metal (redbear-live.iso)
+make live CONFIG_NAME=redbear-live-mini  # Tiny bare-metal live ISO for minimal/recovery use (~256 MiB image)
+make qemu CONFIG_NAME=redbear-full       # Boot the tracked desktop-capable target in QEMU
 ```
+
+Live `.iso` outputs are for real bare-metal boot and install workflows. They are not the virtual/QEMU target surface; use `make qemu` and `harddrive.img`-based flows for virtualization.
 
 ### GRUB Boot Manager (optional)
 
