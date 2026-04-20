@@ -133,7 +133,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
             Ok(connection) => {
                 eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
                 control::start_control_socket(runtime.clone());
-                tokio::spawn(acpi_watcher::watch_and_emit(connection.clone()));
+                tokio::spawn(acpi_watcher::watch_and_emit(connection.clone(), runtime.clone()));
                 wait_for_shutdown().await?;
                 drop(connection);
                 return Ok(());

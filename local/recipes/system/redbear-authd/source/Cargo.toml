@@ -8,6 +8,8 @@ name = "redbear-authd"
 path = "src/main.rs"
 
 [dependencies]
+redbear-login-protocol = { path = "../../redbear-login-protocol/source" }
+rust-argon2 = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Pure-Rust SHA-256/SHA-512 crypt verifier for /etc/shadow entries.

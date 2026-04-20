@@ -31,7 +31,7 @@ impl LoginManager {
             .runtime
             .read()
             .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))?;
-        if id == runtime.session_id {
+        if id == runtime.session_id || id == "auto" {
             return Ok(self.session_path.clone());
         }
 
@@ -111,7 +111,10 @@ impl LoginManager {
 
     #[zbus(property(emits_changed_signal = "const"), name = "PreparingForShutdown")]
     fn preparing_for_shutdown(&self) -> bool {
-        false
+        self.runtime
+            .read()
+            .map(|runtime| runtime.preparing_for_shutdown)
+            .unwrap_or(false)
     }
 
     #[zbus(signal, name = "PrepareForSleep")]
@@ -122,4 +125,61 @@ impl LoginManager {
         signal_emitter: &SignalEmitter<'_>,
         before: bool,
     ) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime_state::shared_runtime;
+
+    #[test]
+    fn get_session_accepts_runtime_session_id() {
+        let manager = LoginManager::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/session/c1"))
+                .expect("session path should parse"),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0"))
+                .expect("seat path should parse"),
+            shared_runtime(),
+        );
+
+        let path = manager
+            .get_session("c1")
+            .expect("runtime session id should resolve");
+        assert_eq!(path.as_str(), "/org/freedesktop/login1/session/c1");
+    }
+
+    #[test]
+    fn get_session_accepts_auto_alias() {
+        let manager = LoginManager::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/session/c1"))
+                .expect("session path should parse"),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0"))
+                .expect("seat path should parse"),
+            shared_runtime(),
+        );
+
+        let path = manager
+            .get_session("auto")
+            .expect("auto alias should resolve to current session");
+        assert_eq!(path.as_str(), "/org/freedesktop/login1/session/c1");
+    }
+
+    #[test]
+    fn preparing_for_shutdown_reflects_runtime_state() {
+        let runtime = shared_runtime();
+        runtime
+            .write()
+            .expect("runtime lock should be writable")
+            .preparing_for_shutdown = true;
+
+        let manager = LoginManager::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/session/c1"))
+                .expect("session path should parse"),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0"))
+                .expect("seat path should parse"),
+            runtime,
+        );
+
+        assert!(manager.preparing_for_shutdown());
+    }
 }

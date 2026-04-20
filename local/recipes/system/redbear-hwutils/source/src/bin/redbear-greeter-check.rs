@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::{Deserialize, Serialize};
+use redbear_login_protocol::{GreeterRequest as Request, GreeterResponse};
 
 const PROGRAM: &str = "redbear-greeter-check";
 const USAGE: &str = "Usage: redbear-greeter-check [--invalid USER PASSWORD | --valid USER PASSWORD]\n\nQuery the installed Red Bear greeter surface inside the guest.";
@@ -28,40 +28,26 @@ const DEBUG_CONSOLE_SERVICE: &str = "/usr/lib/init.d/31_debug_console.service";
 const VALIDATION_REQUEST: &str = "/run/redbear-kde-session.validation-request";
 const VALIDATION_SUCCESS: &str = "/run/redbear-kde-session.validation-success";
 
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Request<'a> {
-    Hello { version: u32 },
-    SubmitLogin { username: &'a str, password: &'a str },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Response {
-    HelloOk {
-        background: String,
-        icon: String,
-        session_name: String,
-        state: String,
-        message: String,
-    },
-    LoginResult {
-        ok: bool,
-        state: String,
-        message: String,
-    },
-    Error {
-        message: String,
-    },
-    #[serde(other)]
-    Other,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Status,
     Invalid { username: String, password: String },
     Valid { username: String, password: String },
+}
+
+fn parse_credentials(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<(String, String), String> {
+    let username = args
+        .next()
+        .ok_or_else(|| format!("missing username after {flag}"))?;
+    let password = args
+        .next()
+        .ok_or_else(|| format!("missing password after {flag}"))?;
+    if args.next().is_some() {
+        return Err(format!(
+            "unexpected extra arguments after {flag} USER PASSWORD"
+        ));
+    }
+    Ok((username, password))
 }
 
 fn parse_mode_from_args<I>(args: I) -> Result<Mode, String>
@@ -73,19 +59,11 @@ where
         None => Ok(Mode::Status),
         Some(flag) if flag == "--help" || flag == "-h" => Err(String::new()),
         Some(flag) if flag == "--invalid" => {
-            let username = args.next().ok_or_else(|| String::from("missing username after --invalid"))?;
-            let password = args.next().ok_or_else(|| String::from("missing password after --invalid"))?;
-            if args.next().is_some() {
-                return Err(String::from("unexpected extra arguments after --invalid USER PASSWORD"));
-            }
+            let (username, password) = parse_credentials(&mut args, &flag)?;
             Ok(Mode::Invalid { username, password })
         }
         Some(flag) if flag == "--valid" => {
-            let username = args.next().ok_or_else(|| String::from("missing username after --valid"))?;
-            let password = args.next().ok_or_else(|| String::from("missing password after --valid"))?;
-            if args.next().is_some() {
-                return Err(String::from("unexpected extra arguments after --valid USER PASSWORD"));
-            }
+            let (username, password) = parse_credentials(&mut args, &flag)?;
             Ok(Mode::Valid { username, password })
         }
         Some(other) => Err(format!("unsupported argument '{other}'")),
@@ -96,7 +74,7 @@ fn parse_mode() -> Result<Mode, String> {
     parse_mode_from_args(std::env::args().skip(1))
 }
 
-fn send_request(request: &Request<'_>) -> Result<Response, String> {
+fn send_request(request: &Request) -> Result<GreeterResponse, String> {
     let mut stream = UnixStream::connect(GREETER_SOCKET)
         .map_err(|err| format!("failed to connect to {GREETER_SOCKET}: {err}"))?;
     let payload = serde_json::to_string(request)
@@ -139,7 +117,7 @@ fn wait_for_greeter_ready(timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
     while start.elapsed() <= timeout {
         match send_request(&Request::Hello { version: 1 }) {
-            Ok(Response::HelloOk { state, message, .. }) if state == "greeter_ready" => {
+            Ok(GreeterResponse::HelloOk { state, message, .. }) if state == "greeter_ready" => {
                 println!("GREETER_VALID_READY_MESSAGE={message}");
                 return Ok(());
             }
@@ -169,7 +147,7 @@ fn run_status() -> Result<(), String> {
     require_path(GREETER_SOCKET)?;
 
     match send_request(&Request::Hello { version: 1 })? {
-        Response::HelloOk {
+        GreeterResponse::HelloOk {
             background,
             icon,
             session_name,
@@ -184,15 +162,18 @@ fn run_status() -> Result<(), String> {
             println!("GREETER_HELLO=ok");
             Ok(())
         }
-        Response::Error { message } => Err(format!("greeter hello failed: {message}")),
-        Response::Other => Err(String::from("unexpected greeter hello response")),
-        Response::LoginResult { .. } => Err(String::from("unexpected login result when greeting greeter")),
+        GreeterResponse::Error { message } => Err(format!("greeter hello failed: {message}")),
+        GreeterResponse::ActionResult { .. } => Err(String::from("unexpected power response when greeting greeter")),
+        GreeterResponse::LoginResult { .. } => Err(String::from("unexpected login result when greeting greeter")),
     }
 }
 
 fn run_invalid(username: &str, password: &str) -> Result<(), String> {
-    match send_request(&Request::SubmitLogin { username, password })? {
-        Response::LoginResult { ok, state, message } => {
+    match send_request(&Request::SubmitLogin {
+        username: username.to_string(),
+        password: password.to_string(),
+    })? {
+        GreeterResponse::LoginResult { ok, state, message } => {
             println!("GREETER_INVALID_STATE={state}");
             println!("GREETER_INVALID_MESSAGE={message}");
             if ok {
@@ -202,9 +183,9 @@ fn run_invalid(username: &str, password: &str) -> Result<(), String> {
                 Ok(())
             }
         }
-        Response::Error { message } => Err(format!("invalid-login request failed: {message}")),
-        Response::Other => Err(String::from("unexpected greeter response for invalid login")),
-        Response::HelloOk { .. } => Err(String::from("unexpected hello response for invalid login")),
+        GreeterResponse::Error { message } => Err(format!("invalid-login request failed: {message}")),
+        GreeterResponse::ActionResult { .. } => Err(String::from("unexpected power response for invalid login")),
+        GreeterResponse::HelloOk { .. } => Err(String::from("unexpected hello response for invalid login")),
     }
 }
 
@@ -214,8 +195,11 @@ fn run_valid(username: &str, password: &str) -> Result<(), String> {
     fs::write(VALIDATION_REQUEST, b"bounded-session\n")
         .map_err(|err| format!("failed to create validation request: {err}"))?;
 
-    match send_request(&Request::SubmitLogin { username, password })? {
-        Response::LoginResult { ok, state, message } => {
+    match send_request(&Request::SubmitLogin {
+        username: username.to_string(),
+        password: password.to_string(),
+    })? {
+        GreeterResponse::LoginResult { ok, state, message } => {
             println!("GREETER_VALID_STATE={state}");
             println!("GREETER_VALID_MESSAGE={message}");
             if !ok {
@@ -223,15 +207,15 @@ fn run_valid(username: &str, password: &str) -> Result<(), String> {
                 return Err(String::from("valid login unexpectedly failed"));
             }
         }
-        Response::Error { message } => {
+        GreeterResponse::Error { message } => {
             let _ = fs::remove_file(VALIDATION_REQUEST);
             return Err(format!("valid-login request failed: {message}"));
         }
-        Response::Other => {
+        GreeterResponse::ActionResult { .. } => {
             let _ = fs::remove_file(VALIDATION_REQUEST);
-            return Err(String::from("unexpected greeter response for valid login"));
+            return Err(String::from("unexpected power response for valid login"));
         }
-        Response::HelloOk { .. } => {
+        GreeterResponse::HelloOk { .. } => {
             let _ = fs::remove_file(VALIDATION_REQUEST);
             return Err(String::from("unexpected hello response for valid login"));
         }

@@ -251,11 +251,19 @@ fn env_value(keys: &[&str]) -> Option<String> {
 
 fn build_environment(account: &Account, args: &Args, runtime_dir: &Path) -> BTreeMap<String, String> {
     let mut values = BTreeMap::new();
-    values.insert(String::from("HOME"), account.home.clone());
+    let home = match args.mode {
+        LaunchMode::Command { .. } if account.home == "/nonexistent" => runtime_dir.display().to_string(),
+        _ => account.home.clone(),
+    };
+
+    values.insert(String::from("HOME"), home.clone());
     values.insert(String::from("USER"), account.username.clone());
     values.insert(String::from("LOGNAME"), account.username.clone());
     values.insert(String::from("SHELL"), account.shell.clone());
     values.insert(String::from("PATH"), String::from("/usr/bin:/bin"));
+    values.insert(String::from("XDG_CONFIG_HOME"), format!("{home}/.config"));
+    values.insert(String::from("XDG_CACHE_HOME"), format!("{home}/.cache"));
+    values.insert(String::from("XDG_STATE_HOME"), format!("{home}/.local/state"));
     values.insert(String::from("XDG_RUNTIME_DIR"), runtime_dir.display().to_string());
     values.insert(String::from("WAYLAND_DISPLAY"), args.wayland_display.clone());
     values.insert(String::from("XDG_SEAT"), String::from("seat0"));
@@ -264,6 +272,18 @@ fn build_environment(account: &Account, args: &Args, runtime_dir: &Path) -> BTre
     values.insert(String::from("SEATD_SOCK"), String::from("/run/seatd.sock"));
     values.insert(String::from("DISPLAY"), String::new());
     values.insert(String::from("XDG_SESSION_TYPE"), String::from("wayland"));
+
+    if let Some(locale) = env_value(&["LC_ALL"]) {
+        values.insert(String::from("LC_ALL"), locale.clone());
+        values.insert(String::from("LANG"), locale);
+    } else if let Some(locale) = env_value(&["LC_CTYPE"]) {
+        values.insert(String::from("LC_CTYPE"), locale.clone());
+        values.insert(String::from("LANG"), locale);
+    } else if let Some(locale) = env_value(&["LANG"]) {
+        values.insert(String::from("LANG"), locale);
+    } else {
+        values.insert(String::from("LANG"), String::from("en_US.UTF-8"));
+    }
 
     if let Some(theme) = env_value(&["XCURSOR_THEME"]) {
         values.insert(String::from("XCURSOR_THEME"), theme);
@@ -285,6 +305,7 @@ fn build_environment(account: &Account, args: &Args, runtime_dir: &Path) -> BTre
         LaunchMode::Session => {
             values.insert(String::from("XDG_CURRENT_DESKTOP"), String::from("KDE"));
             values.insert(String::from("KDE_FULL_SESSION"), String::from("true"));
+            values.insert(String::from("XDG_SESSION_ID"), String::from("c1"));
         }
         LaunchMode::Command { .. } => {}
     }
@@ -485,9 +506,15 @@ mod tests {
         };
 
         let envs = build_environment(&account, &args, Path::new("/run/user/1000"));
+        assert_eq!(envs["HOME"], "/home/user");
         assert_eq!(envs["XDG_CURRENT_DESKTOP"], "KDE");
+        assert_eq!(envs["XDG_CONFIG_HOME"], "/home/user/.config");
+        assert_eq!(envs["XDG_CACHE_HOME"], "/home/user/.cache");
+        assert_eq!(envs["XDG_STATE_HOME"], "/home/user/.local/state");
         assert_eq!(envs["KDE_FULL_SESSION"], "true");
+        assert_eq!(envs["XDG_SESSION_ID"], "c1");
         assert_eq!(envs["XDG_VTNR"], "3");
+        assert!(envs.contains_key("LANG"));
     }
 
     #[test]
@@ -512,8 +539,13 @@ mod tests {
         };
 
         let envs = build_environment(&account, &args, Path::new("/tmp/run/greeter"));
+        assert_eq!(envs["HOME"], "/tmp/run/greeter");
+        assert_eq!(envs["XDG_CONFIG_HOME"], "/tmp/run/greeter/.config");
+        assert_eq!(envs["XDG_CACHE_HOME"], "/tmp/run/greeter/.cache");
+        assert_eq!(envs["XDG_STATE_HOME"], "/tmp/run/greeter/.local/state");
         assert!(!envs.contains_key("XDG_CURRENT_DESKTOP"));
         assert!(!envs.contains_key("KDE_FULL_SESSION"));
+        assert!(!envs.contains_key("XDG_SESSION_ID"));
         assert_eq!(envs["XDG_SESSION_TYPE"], "wayland");
     }
 

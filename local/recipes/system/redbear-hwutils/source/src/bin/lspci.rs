@@ -4,12 +4,12 @@ use std::process;
 use redbear_hwutils::{
     lookup_pci_device_name, lookup_pci_vendor_name, parse_args, parse_pci_location, PciLocation,
 };
-use redox_driver_sys::pci::PciDeviceInfo;
+use redox_driver_sys::pci::{parse_device_info_from_config_space, InterruptSupport, PciDeviceInfo};
 use redox_driver_sys::quirks::{lookup_pci_quirks, PciQuirkFlags};
 
 const USAGE: &str = "Usage: lspci\nList PCI devices exposed by /scheme/pci.";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct PciDeviceSummary {
     location: PciLocation,
     vendor_id: u16,
@@ -20,6 +20,9 @@ struct PciDeviceSummary {
     revision: u8,
     subvendor_id: u16,
     subdevice_id: u16,
+    irq: Option<u32>,
+    interrupt_support: InterruptSupport,
+    irq_reason: Option<String>,
     quirk_flags: PciQuirkFlags,
 }
 
@@ -36,71 +39,33 @@ fn main() {
 
 fn format_quirk_flags(flags: PciQuirkFlags) -> String {
     let mut names = Vec::new();
-    if flags.contains(PciQuirkFlags::NO_MSI) {
-        names.push("no_msi");
-    }
-    if flags.contains(PciQuirkFlags::NO_MSIX) {
-        names.push("no_msix");
-    }
-    if flags.contains(PciQuirkFlags::FORCE_LEGACY_IRQ) {
-        names.push("force_legacy_irq");
-    }
-    if flags.contains(PciQuirkFlags::NO_PM) {
-        names.push("no_pm");
-    }
-    if flags.contains(PciQuirkFlags::NO_D3COLD) {
-        names.push("no_d3cold");
-    }
-    if flags.contains(PciQuirkFlags::NO_ASPM) {
-        names.push("no_aspm");
-    }
-    if flags.contains(PciQuirkFlags::NEED_IOMMU) {
-        names.push("need_iommu");
-    }
-    if flags.contains(PciQuirkFlags::NO_IOMMU) {
-        names.push("no_iommu");
-    }
-    if flags.contains(PciQuirkFlags::DMA_32BIT_ONLY) {
-        names.push("dma_32bit_only");
-    }
-    if flags.contains(PciQuirkFlags::RESIZE_BAR) {
-        names.push("resize_bar");
-    }
-    if flags.contains(PciQuirkFlags::DISABLE_BAR_SIZING) {
-        names.push("disable_bar_sizing");
-    }
-    if flags.contains(PciQuirkFlags::NEED_FIRMWARE) {
-        names.push("need_firmware");
-    }
-    if flags.contains(PciQuirkFlags::DISABLE_ACCEL) {
-        names.push("disable_accel");
-    }
-    if flags.contains(PciQuirkFlags::FORCE_VRAM_ONLY) {
-        names.push("force_vram_only");
-    }
-    if flags.contains(PciQuirkFlags::NO_USB3) {
-        names.push("no_usb3");
-    }
-    if flags.contains(PciQuirkFlags::RESET_DELAY_MS) {
-        names.push("reset_delay_ms");
-    }
-    if flags.contains(PciQuirkFlags::NO_STRING_FETCH) {
-        names.push("no_string_fetch");
-    }
-    if flags.contains(PciQuirkFlags::BAD_EEPROM) {
-        names.push("bad_eeprom");
-    }
-    if flags.contains(PciQuirkFlags::BUS_MASTER_DELAY) {
-        names.push("bus_master_delay");
-    }
-    if flags.contains(PciQuirkFlags::WRONG_CLASS) {
-        names.push("wrong_class");
-    }
-    if flags.contains(PciQuirkFlags::BROKEN_BRIDGE) {
-        names.push("broken_bridge");
-    }
-    if flags.contains(PciQuirkFlags::NO_RESOURCE_RELOC) {
-        names.push("no_resource_reloc");
+    for (flag, name) in [
+        (PciQuirkFlags::NO_MSI, "no_msi"),
+        (PciQuirkFlags::NO_MSIX, "no_msix"),
+        (PciQuirkFlags::FORCE_LEGACY_IRQ, "force_legacy_irq"),
+        (PciQuirkFlags::NO_PM, "no_pm"),
+        (PciQuirkFlags::NO_D3COLD, "no_d3cold"),
+        (PciQuirkFlags::NO_ASPM, "no_aspm"),
+        (PciQuirkFlags::NEED_IOMMU, "need_iommu"),
+        (PciQuirkFlags::NO_IOMMU, "no_iommu"),
+        (PciQuirkFlags::DMA_32BIT_ONLY, "dma_32bit_only"),
+        (PciQuirkFlags::RESIZE_BAR, "resize_bar"),
+        (PciQuirkFlags::DISABLE_BAR_SIZING, "disable_bar_sizing"),
+        (PciQuirkFlags::NEED_FIRMWARE, "need_firmware"),
+        (PciQuirkFlags::DISABLE_ACCEL, "disable_accel"),
+        (PciQuirkFlags::FORCE_VRAM_ONLY, "force_vram_only"),
+        (PciQuirkFlags::NO_USB3, "no_usb3"),
+        (PciQuirkFlags::RESET_DELAY_MS, "reset_delay_ms"),
+        (PciQuirkFlags::NO_STRING_FETCH, "no_string_fetch"),
+        (PciQuirkFlags::BAD_EEPROM, "bad_eeprom"),
+        (PciQuirkFlags::BUS_MASTER_DELAY, "bus_master_delay"),
+        (PciQuirkFlags::WRONG_CLASS, "wrong_class"),
+        (PciQuirkFlags::BROKEN_BRIDGE, "broken_bridge"),
+        (PciQuirkFlags::NO_RESOURCE_RELOC, "no_resource_reloc"),
+    ] {
+        if flags.contains(flag) {
+            names.push(name);
+        }
     }
     names.join(",")
 }
@@ -163,6 +128,13 @@ fn run() -> Result<(), String> {
         if !device.quirk_flags.is_empty() {
             print!(" quirks: {}", format_quirk_flags(device.quirk_flags));
         }
+        print!(" irq-support: {}", device.interrupt_support.as_str());
+        if let Some(line) = device.irq {
+            print!(" line={line}");
+        }
+        if let Some(reason) = &device.irq_reason {
+            print!(" reason={reason}");
+        }
         println!();
     }
 
@@ -195,47 +167,56 @@ fn collect_devices() -> Result<Vec<PciDeviceSummary>, String> {
             Err(_) => continue,
         };
 
-        if config.len() < 16 {
+        if config.len() < 64 {
             continue;
         }
 
-        let vendor_id = u16::from_le_bytes([config[0x00], config[0x01]]);
-        let device_id = u16::from_le_bytes([config[0x02], config[0x03]]);
-        let revision = config[0x08];
-        let prog_if = config[0x09];
-        let subclass = config[0x0A];
-        let class_code = config[0x0B];
-
-        let (subvendor_id, subdevice_id) = if config.len() >= 0x30 {
-            (
-                u16::from_le_bytes([config[0x2C], config[0x2D]]),
-                u16::from_le_bytes([config[0x2E], config[0x2F]]),
-            )
-        } else {
-            (0xFFFF, 0xFFFF)
+        let info = match parse_device_info_from_config_space(
+            redox_driver_sys::pci::PciLocation {
+                segment: location.segment,
+                bus: location.bus,
+                device: location.device,
+                function: location.function,
+            },
+            &config,
+        ) {
+            Some(info) => info,
+            None => continue,
         };
 
         let quirk_flags = lookup_quirks(
-            vendor_id,
-            device_id,
-            revision,
-            class_code,
-            subclass,
-            prog_if,
-            subvendor_id,
-            subdevice_id,
+            info.vendor_id,
+            info.device_id,
+            info.revision,
+            info.class_code,
+            info.subclass,
+            info.prog_if,
+            info.subsystem_vendor_id,
+            info.subsystem_device_id,
         );
+        let irq_reason = if quirk_flags.contains(PciQuirkFlags::FORCE_LEGACY_IRQ) {
+            Some("quirk_force_legacy_irq".to_string())
+        } else if quirk_flags.contains(PciQuirkFlags::NO_MSIX) {
+            Some("quirk_disable_msix".to_string())
+        } else if quirk_flags.contains(PciQuirkFlags::NO_MSI) {
+            Some("quirk_disable_msi".to_string())
+        } else {
+            None
+        };
 
         devices.push(PciDeviceSummary {
             location,
-            vendor_id,
-            device_id,
-            revision,
-            prog_if,
-            subclass,
-            class_code,
-            subvendor_id,
-            subdevice_id,
+            vendor_id: info.vendor_id,
+            device_id: info.device_id,
+            revision: info.revision,
+            prog_if: info.prog_if,
+            subclass: info.subclass,
+            class_code: info.class_code,
+            subvendor_id: info.subsystem_vendor_id,
+            subdevice_id: info.subsystem_device_id,
+            irq: info.irq,
+            interrupt_support: info.interrupt_support(),
+            irq_reason,
             quirk_flags,
         });
     }

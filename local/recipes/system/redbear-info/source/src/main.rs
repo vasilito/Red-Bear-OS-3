@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use redox_driver_sys::pci::{parse_device_info_from_config_space, InterruptSupport};
+use redox_driver_sys::quirks::{lookup_pci_quirks, PciQuirkFlags};
 use toml::Value;
 
 #[cfg(test)]
@@ -92,10 +94,27 @@ struct NetworkReport {
 
 struct HardwareReport {
     pci_devices: usize,
+    pci_irq_none: usize,
+    pci_irq_legacy: usize,
+    pci_irq_msi: usize,
+    pci_irq_msix: usize,
+    pci_irq_forced_legacy: usize,
+    pci_irq_msix_disabled_by_quirk: usize,
+    pci_irq_msi_disabled_by_quirk: usize,
+    runtime_irq_reports: Vec<IrqRuntimeReport>,
     usb_controllers: usize,
     drm_cards: usize,
+    acpi_power_surface_present: bool,
     rtl8125_present: bool,
     virtio_net_present: bool,
+}
+
+struct IrqRuntimeReport {
+    driver: String,
+    pid: u32,
+    device: String,
+    mode: String,
+    reason: String,
 }
 
 struct QuirkFile {
@@ -332,6 +351,16 @@ const INTEGRATIONS: &[IntegrationCheck] = &[
         test_hint: "ls /scheme/firmware/",
         note: "Functional when the firmware scheme is enumerable.",
         functional_probe: Some(probe_firmware_scheme),
+    },
+    IntegrationCheck {
+        name: "redbear-upower",
+        category: "Power",
+        description: "Bounded UPower-compatible power reporting daemon",
+        artifact_path: Some("/usr/bin/redbear-upower"),
+        control_path: Some("/scheme/acpi/power"),
+        test_hint: "redbear-phase5-network-check",
+        note: "Binary presence proves the daemon is installed; a live /scheme/acpi/power surface proves bounded ACPI-backed power reporting is actually available.",
+        functional_probe: Some(probe_acpi_power_surface),
     },
     IntegrationCheck {
         name: "iommu",
@@ -855,6 +884,14 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
         .iter()
         .filter(|entry| entry.contains("--") && entry.contains('.'))
         .count();
+    let mut pci_irq_none = 0;
+    let mut pci_irq_legacy = 0;
+    let mut pci_irq_msi = 0;
+    let mut pci_irq_msix = 0;
+    let mut pci_irq_forced_legacy = 0;
+    let mut pci_irq_msix_disabled_by_quirk = 0;
+    let mut pci_irq_msi_disabled_by_quirk = 0;
+    let mut rtl8125_present_from_pci = false;
 
     let usb_controllers = runtime
         .read_dir_names("/scheme")
@@ -869,19 +906,42 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
         .into_iter()
         .filter(|name| name.starts_with("card"))
         .count();
+    let runtime_irq_reports = collect_irq_runtime_reports(runtime);
+    let acpi_power_surface_present = runtime.exists("/scheme/acpi/power");
 
-    let rtl8125_present = pci_entries.into_iter().any(|entry| {
+    for entry in &pci_entries {
         let config_path = format!("/scheme/pci/{entry}/config");
-        let Some(bytes) = read_prefix_bytes(runtime, &config_path, 4) else {
-            return false;
+        let Some(bytes) = read_prefix_bytes(runtime, &config_path, 64) else {
+            continue;
         };
-        if bytes.len() < 4 {
-            return false;
+        if bytes.len() < 64 {
+            continue;
         }
-        let vendor = u16::from_le_bytes([bytes[0], bytes[1]]);
-        let device = u16::from_le_bytes([bytes[2], bytes[3]]);
-        vendor == RTL8125_VENDOR_ID && device == RTL8125_DEVICE_ID
-    }) || network
+        if let Some(location) = parse_scheme_pci_location(entry) {
+            if let Some(info) = parse_device_info_from_config_space(location, &bytes) {
+                match info.interrupt_support() {
+                    InterruptSupport::None => pci_irq_none += 1,
+                    InterruptSupport::LegacyOnly => pci_irq_legacy += 1,
+                    InterruptSupport::Msi => pci_irq_msi += 1,
+                    InterruptSupport::MsiX => pci_irq_msix += 1,
+                }
+                let quirk_flags = lookup_pci_quirks(&info);
+                if quirk_flags.contains(PciQuirkFlags::FORCE_LEGACY_IRQ) {
+                    pci_irq_forced_legacy += 1;
+                }
+                if quirk_flags.contains(PciQuirkFlags::NO_MSIX) {
+                    pci_irq_msix_disabled_by_quirk += 1;
+                }
+                if quirk_flags.contains(PciQuirkFlags::NO_MSI) {
+                    pci_irq_msi_disabled_by_quirk += 1;
+                }
+                rtl8125_present_from_pci |=
+                    info.vendor_id == RTL8125_VENDOR_ID && info.device_id == RTL8125_DEVICE_ID;
+            }
+        }
+    }
+
+    let rtl8125_present = rtl8125_present_from_pci || network
         .network_schemes
         .iter()
         .any(|name| name.contains("rtl8125"));
@@ -909,11 +969,97 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
 
     HardwareReport {
         pci_devices,
+        pci_irq_none,
+        pci_irq_legacy,
+        pci_irq_msi,
+        pci_irq_msix,
+        pci_irq_forced_legacy,
+        pci_irq_msix_disabled_by_quirk,
+        pci_irq_msi_disabled_by_quirk,
+        runtime_irq_reports,
         usb_controllers,
         drm_cards,
+        acpi_power_surface_present,
         rtl8125_present,
         virtio_net_present,
     }
+}
+
+fn parse_scheme_pci_location(entry: &str) -> Option<redox_driver_sys::pci::PciLocation> {
+    let (segment, rest) = entry.split_once("--")?;
+    let (bus, rest) = rest.split_once("--")?;
+    let (device, function) = rest.split_once('.')?;
+    Some(redox_driver_sys::pci::PciLocation {
+        segment: u16::from_str_radix(segment, 16).ok()?,
+        bus: u8::from_str_radix(bus, 16).ok()?,
+        device: u8::from_str_radix(device, 16).ok()?,
+        function: function.parse().ok()?,
+    })
+}
+
+fn collect_irq_runtime_reports(runtime: &Runtime) -> Vec<IrqRuntimeReport> {
+    let mut reports = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for dir in [
+        "/tmp/redbear-irq-report",
+        "/tmp/run/redbear-irq-report",
+        "/run/redbear-irq-report",
+        "/var/run/redbear-irq-report",
+        "/scheme/initfs/tmp/redbear-irq-report",
+        "/scheme/initfs/tmp/run/redbear-irq-report",
+        "/scheme/initfs/run/redbear-irq-report",
+        "/scheme/initfs/var/run/redbear-irq-report",
+    ] {
+        let entries = runtime.read_dir_names(dir).unwrap_or_default();
+
+        for name in entries.into_iter().filter(|name| name.ends_with(".env")) {
+            let path = format!("{dir}/{name}");
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let Some(content) = runtime.read_to_string(&path) else {
+                continue;
+            };
+
+            let mut driver = None;
+            let mut pid = None;
+            let mut device = None;
+            let mut mode = None;
+            let mut reason = None;
+            for line in content.lines() {
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                match key.trim() {
+                    "driver" => driver = Some(value.trim().to_string()),
+                    "pid" => pid = value.trim().parse::<u32>().ok(),
+                    "device" => device = Some(value.trim().to_string()),
+                    "mode" => mode = Some(value.trim().to_string()),
+                    "reason" => reason = Some(value.trim().to_string()),
+                    _ => {}
+                }
+            }
+
+            if let (Some(driver), Some(pid), Some(device), Some(mode), Some(reason)) =
+                (driver, pid, device, mode, reason)
+            {
+                if !runtime.exists(&format!("/proc/{pid}")) {
+                    continue;
+                }
+                reports.push(IrqRuntimeReport {
+                    driver,
+                    pid,
+                    device,
+                    mode,
+                    reason,
+                });
+            }
+        }
+    }
+
+    reports.sort_by(|left, right| left.driver.cmp(&right.driver).then(left.device.cmp(&right.device)));
+    reports
 }
 
 fn collect_quirks(runtime: &Runtime) -> QuirksReport {
@@ -1359,8 +1505,38 @@ fn print_table(report: &Report<'_>, verbose: bool) {
 
     print_section_header("Hardware");
     println!("  PCI devices: {}", report.hardware.pci_devices);
+    println!(
+        "  PCI IRQ support: none={} legacy={} msi={} msix={}",
+        report.hardware.pci_irq_none,
+        report.hardware.pci_irq_legacy,
+        report.hardware.pci_irq_msi,
+        report.hardware.pci_irq_msix,
+    );
+    println!(
+        "  PCI IRQ quirk pressure: force_legacy={} no_msix={} no_msi={}",
+        report.hardware.pci_irq_forced_legacy,
+        report.hardware.pci_irq_msix_disabled_by_quirk,
+        report.hardware.pci_irq_msi_disabled_by_quirk,
+    );
+    if !report.hardware.runtime_irq_reports.is_empty() {
+        println!("  PCI IRQ runtime modes:");
+        for item in &report.hardware.runtime_irq_reports {
+            println!(
+                "    {} pid={} {} mode={} reason={}",
+                item.driver, item.pid, item.device, item.mode, item.reason
+            );
+        }
+    }
     println!("  USB controllers: {}", report.hardware.usb_controllers);
     println!("  DRM cards: {}", report.hardware.drm_cards);
+    println!(
+        "  ACPI power surface: {}",
+        if report.hardware.acpi_power_surface_present {
+            "present"
+        } else {
+            "unavailable"
+        }
+    );
     println!(
         "  RTL8125 device seen: {}",
         if report.hardware.rtl8125_present {
@@ -1760,12 +1936,83 @@ fn print_json(report: &Report<'_>) {
     );
     push_json_number_field(
         &mut out,
+        "pci_irq_none",
+        report.hardware.pci_irq_none,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_legacy",
+        report.hardware.pci_irq_legacy,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_msi",
+        report.hardware.pci_irq_msi,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_msix",
+        report.hardware.pci_irq_msix,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_forced_legacy",
+        report.hardware.pci_irq_forced_legacy,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_msix_disabled_by_quirk",
+        report.hardware.pci_irq_msix_disabled_by_quirk,
+        true,
+        4,
+    );
+    push_json_number_field(
+        &mut out,
+        "pci_irq_msi_disabled_by_quirk",
+        report.hardware.pci_irq_msi_disabled_by_quirk,
+        true,
+        4,
+    );
+    out.push_str("    \"runtime_irq_reports\": [\n");
+    for (index, item) in report.hardware.runtime_irq_reports.iter().enumerate() {
+        out.push_str("      {\n");
+        push_json_string_field(&mut out, "driver", &item.driver, true, 8);
+        push_json_number_field(&mut out, "pid", item.pid as usize, true, 8);
+        push_json_string_field(&mut out, "device", &item.device, true, 8);
+        push_json_string_field(&mut out, "mode", &item.mode, true, 8);
+        push_json_string_field(&mut out, "reason", &item.reason, false, 8);
+        out.push_str("      }");
+        if index + 1 != report.hardware.runtime_irq_reports.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("    ],\n");
+    push_json_number_field(
+        &mut out,
         "usb_controllers",
         report.hardware.usb_controllers,
         true,
         4,
     );
     push_json_number_field(&mut out, "drm_cards", report.hardware.drm_cards, true, 4);
+    push_json_bool_field(
+        &mut out,
+        "acpi_power_surface_present",
+        report.hardware.acpi_power_surface_present,
+        true,
+        4,
+    );
     push_json_bool_field(
         &mut out,
         "rtl8125_present",
@@ -2158,6 +2405,23 @@ fn probe_iommu_scheme(
     _check: &IntegrationCheck,
 ) -> Option<String> {
     probe_named_scheme(runtime, "iommu")
+}
+
+fn probe_acpi_power_surface(
+    runtime: &Runtime,
+    _network: &NetworkReport,
+    _hardware: &HardwareReport,
+    _check: &IntegrationCheck,
+) -> Option<String> {
+    let adapters = runtime.read_dir_names("/scheme/acpi/power/adapters");
+    let batteries = runtime.read_dir_names("/scheme/acpi/power/batteries");
+    runtime.exists("/scheme/acpi/power").then(|| {
+        format!(
+            "acpi power surface visible (adapters={}, batteries={})",
+            adapters.as_ref().map(|items| items.len()).unwrap_or(0),
+            batteries.as_ref().map(|items| items.len()).unwrap_or(0)
+        )
+    })
 }
 
 fn probe_serio_surface(
@@ -2927,16 +3191,12 @@ mod tests {
     fn rtl8125_hardware_detection_parses_pci_config() {
         let root = temp_root();
         create_dir(&root, "/scheme/pci/0000--02--00.0");
-        let config = [
-            (RTL8125_VENDOR_ID & 0xff) as u8,
-            (RTL8125_VENDOR_ID >> 8) as u8,
-            (RTL8125_DEVICE_ID & 0xff) as u8,
-            (RTL8125_DEVICE_ID >> 8) as u8,
-            0,
-            0,
-            0,
-            0,
-        ];
+        let mut config = [0u8; 64];
+        config[0x00] = (RTL8125_VENDOR_ID & 0xff) as u8;
+        config[0x01] = (RTL8125_VENDOR_ID >> 8) as u8;
+        config[0x02] = (RTL8125_DEVICE_ID & 0xff) as u8;
+        config[0x03] = (RTL8125_DEVICE_ID >> 8) as u8;
+        config[0x0e] = 0x00;
         let path = root.join("scheme/pci/0000--02--00.0/config");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
@@ -2954,16 +3214,12 @@ mod tests {
     fn virtio_net_hardware_detection_parses_pci_config() {
         let root = temp_root();
         create_dir(&root, "/scheme/pci/0000--00--03.0");
-        let config = [
-            (VIRTIO_NET_VENDOR_ID & 0xff) as u8,
-            (VIRTIO_NET_VENDOR_ID >> 8) as u8,
-            (VIRTIO_NET_DEVICE_ID & 0xff) as u8,
-            (VIRTIO_NET_DEVICE_ID >> 8) as u8,
-            0,
-            0,
-            0,
-            0,
-        ];
+        let mut config = [0u8; 64];
+        config[0x00] = (VIRTIO_NET_VENDOR_ID & 0xff) as u8;
+        config[0x01] = (VIRTIO_NET_VENDOR_ID >> 8) as u8;
+        config[0x02] = (VIRTIO_NET_DEVICE_ID & 0xff) as u8;
+        config[0x03] = (VIRTIO_NET_DEVICE_ID >> 8) as u8;
+        config[0x0e] = 0x00;
         let path = root.join("scheme/pci/0000--00--03.0/config");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
@@ -2973,6 +3229,127 @@ mod tests {
         let network = collect_network(&Runtime::from_root(root.clone()));
         let hardware = collect_hardware(&Runtime::from_root(root.clone()), &network);
         assert!(hardware.virtio_net_present);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn hardware_report_counts_pci_interrupt_support_modes() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/pci/0000--00--01.0");
+        create_dir(&root, "/scheme/pci/0000--00--02.0");
+        create_dir(&root, "/scheme/pci/0000--00--03.0");
+
+        let mut legacy = [0u8; 68];
+        legacy[0x00] = 0x34;
+        legacy[0x01] = 0x12;
+        legacy[0x02] = 0x78;
+        legacy[0x03] = 0x56;
+        legacy[0x06] = 0x10; // capabilities present
+        legacy[0x0e] = 0x00;
+        legacy[0x34] = 0x40;
+        legacy[0x3c] = 11;
+        legacy[0x40] = 0x01; // power capability only
+        legacy[0x41] = 0x00;
+
+        let mut msi = legacy;
+        msi[0x02] = 0x79;
+        msi[0x40] = 0x05; // MSI capability
+
+        let mut msix = legacy;
+        msix[0x02] = 0x7a;
+        msix[0x40] = 0x11; // MSI-X capability
+
+        fs::write(root.join("scheme/pci/0000--00--01.0/config"), legacy).unwrap();
+        fs::write(root.join("scheme/pci/0000--00--02.0/config"), msi).unwrap();
+        fs::write(root.join("scheme/pci/0000--00--03.0/config"), msix).unwrap();
+
+        let network = collect_network(&Runtime::from_root(root.clone()));
+        let hardware = collect_hardware(&Runtime::from_root(root.clone()), &network);
+        assert_eq!(hardware.pci_devices, 3);
+        assert_eq!(hardware.pci_irq_none, 0);
+        assert!(hardware.pci_irq_legacy >= 1);
+        assert_eq!(
+            hardware.pci_irq_legacy + hardware.pci_irq_msi + hardware.pci_irq_msix,
+            hardware.pci_devices
+        );
+        assert_eq!(
+            hardware.pci_irq_forced_legacy
+                + hardware.pci_irq_msix_disabled_by_quirk
+                + hardware.pci_irq_msi_disabled_by_quirk,
+            0
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn hardware_report_detects_acpi_power_surface() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/acpi/power");
+
+        let network = collect_network(&Runtime::from_root(root.clone()));
+        let hardware = collect_hardware(&Runtime::from_root(root.clone()), &network);
+        assert!(hardware.acpi_power_surface_present);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_irq_runtime_reports_reads_driver_mode_files() {
+        let root = temp_root();
+        create_dir(&root, "/proc/123");
+        write_file(
+            &root,
+            "/tmp/redbear-irq-report/xhcid.env",
+            "driver=xhcid\npid=123\ndevice=0000:00:14.0\nmode=msi_or_msix\nreason=driver_selected_interrupt_delivery\n",
+        );
+
+        let reports = collect_irq_runtime_reports(&Runtime::from_root(root.clone()));
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].driver, "xhcid");
+        assert_eq!(reports[0].pid, 123);
+        assert_eq!(reports[0].mode, "msi_or_msix");
+        assert_eq!(reports[0].reason, "driver_selected_interrupt_delivery");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_irq_runtime_reports_ignores_stale_pid_entries() {
+        let root = temp_root();
+        write_file(
+            &root,
+            "/tmp/redbear-irq-report/xhcid.env",
+            "driver=xhcid\npid=999\ndevice=0000:00:14.0\nmode=msi_or_msix\nreason=driver_selected_interrupt_delivery\n",
+        );
+
+        let reports = collect_irq_runtime_reports(&Runtime::from_root(root.clone()));
+        assert!(reports.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn redbear_upower_integration_is_present_without_live_power_surface() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-upower", "");
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(integration_state(&report, "redbear-upower"), ProbeState::Present);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn redbear_upower_integration_is_functional_with_live_power_surface() {
+        let root = temp_root();
+        write_file(&root, "/usr/bin/redbear-upower", "");
+        create_dir(&root, "/scheme/acpi/power/adapters/AC");
+        create_dir(&root, "/scheme/acpi/power/batteries");
+
+        let report = collect_report(&Runtime::from_root(root.clone()));
+        assert_eq!(integration_state(&report, "redbear-upower"), ProbeState::Functional);
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2997,6 +3374,7 @@ mod tests {
 
         let report = collect_report(&Runtime::from_root(root.clone()));
         assert!(!report.hardware.virtio_net_present);
+        assert!(!report.hardware.acpi_power_surface_present);
         let mut output = String::new();
         output.push_str("{");
         push_json_string_field(
@@ -3030,6 +3408,12 @@ mod tests {
                 .integrations
                 .iter()
                 .any(|item| item.check.name == "redbear-btctl")
+        );
+        assert!(
+            report
+                .integrations
+                .iter()
+                .any(|item| item.check.name == "redbear-upower")
         );
         assert!(
             report

@@ -12,7 +12,7 @@ export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
 export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
 
 if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
-    export XDG_RUNTIME_DIR="/tmp/run/greeter"
+    export XDG_RUNTIME_DIR="/tmp/run/redbear-greeter"
 fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
@@ -21,4 +21,9 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/scheme/nul
     eval "$(dbus-launch --sh-syntax)"
 fi
 
-exec kwin_wayland --replace
+if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
+    exec kwin_wayland_wrapper --drm
+else
+    echo "redbear-greeter-compositor: using virtual KWin backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
+    exec kwin_wayland_wrapper --virtual
+fi

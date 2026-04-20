@@ -4,7 +4,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process,
-    thread,
     time::Duration,
 };
 
@@ -178,6 +177,14 @@ fn battery_state_to_upower(state_bits: u64, percentage: Option<f64>) -> u32 {
     DEVICE_STATE_UNKNOWN
 }
 
+fn adapter_object_path(id: &str) -> String {
+    format!("/org/freedesktop/UPower/devices/line_power_{id}")
+}
+
+fn battery_object_path(id: &str) -> String {
+    format!("/org/freedesktop/UPower/devices/battery_{id}")
+}
+
 impl PowerRuntime {
     fn discover() -> Result<Self, Box<dyn Error>> {
         let root = PathBuf::from(ACPI_POWER_ROOT);
@@ -186,14 +193,10 @@ impl PowerRuntime {
 
         let mut object_paths = Vec::with_capacity(adapter_ids.len() + battery_ids.len());
         for adapter_id in &adapter_ids {
-            object_paths.push(parse_object_path(&format!(
-                "/org/freedesktop/UPower/devices/line_power_{adapter_id}"
-            ))?);
+            object_paths.push(parse_object_path(&adapter_object_path(adapter_id))?);
         }
         for battery_id in &battery_ids {
-            object_paths.push(parse_object_path(&format!(
-                "/org/freedesktop/UPower/devices/battery_{battery_id}"
-            ))?);
+            object_paths.push(parse_object_path(&battery_object_path(battery_id))?);
         }
 
         Ok(Self {
@@ -202,6 +205,10 @@ impl PowerRuntime {
             battery_ids,
             object_paths,
         })
+    }
+
+    fn available(&self) -> bool {
+        self.root.exists()
     }
 
     fn adapter_dir(&self, id: &str) -> PathBuf {
@@ -472,6 +479,11 @@ impl PowerDevice {
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
     wait_for_dbus_socket().await;
     let runtime = PowerRuntime::discover()?;
+    if !runtime.available() {
+        eprintln!(
+            "redbear-upower: /scheme/acpi/power unavailable; serving empty provisional UPower surface"
+        );
+    }
     let _display_device_path = parse_object_path(DISPLAY_DEVICE_PATH)?;
 
     let mut last_err = None;
@@ -492,7 +504,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
             )?;
 
         for adapter_id in &runtime.adapter_ids {
-            let path = format!("/org/freedesktop/UPower/devices/line_power_{adapter_id}");
+            let path = adapter_object_path(adapter_id);
             builder = builder.serve_at(
                 path,
                 PowerDevice {
@@ -502,7 +514,7 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
             )?;
         }
         for battery_id in &runtime.battery_ids {
-            let path = format!("/org/freedesktop/UPower/devices/battery_{battery_id}");
+            let path = battery_object_path(battery_id);
             builder = builder.serve_at(
                 path,
                 PowerDevice {
@@ -555,5 +567,22 @@ fn main() {
             eprintln!("{}", usage());
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn battery_state_prefers_charging_and_discharging_bits() {
+        assert_eq!(battery_state_to_upower(0x2, Some(50.0)), DEVICE_STATE_CHARGING);
+        assert_eq!(battery_state_to_upower(0x1, Some(50.0)), DEVICE_STATE_DISCHARGING);
+    }
+
+    #[test]
+    fn battery_state_reports_full_when_percentage_is_high() {
+        assert_eq!(battery_state_to_upower(0, Some(99.5)), DEVICE_STATE_FULLY_CHARGED);
+        assert_eq!(battery_state_to_upower(0, None), DEVICE_STATE_UNKNOWN);
     }
 }

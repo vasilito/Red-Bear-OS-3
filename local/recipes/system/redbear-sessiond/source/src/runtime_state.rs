@@ -10,6 +10,7 @@ pub struct SessionRuntime {
     pub leader: u32,
     pub state: String,
     pub active: bool,
+    pub preparing_for_shutdown: bool,
 }
 
 impl Default for SessionRuntime {
@@ -23,6 +24,7 @@ impl Default for SessionRuntime {
             leader: std::process::id(),
             state: String::from("online"),
             active: true,
+            preparing_for_shutdown: false,
         }
     }
 }

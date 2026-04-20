@@ -274,6 +274,10 @@ impl PowerRuntime {
         }
     }
 
+    fn available(&self) -> bool {
+        Path::new(POWER_ROOT).exists()
+    }
+
     fn expected_device_paths(&self) -> BTreeSet<String> {
         let mut paths = BTreeSet::new();
         for adapter_id in &self.adapter_ids {
@@ -289,8 +293,13 @@ impl PowerRuntime {
 fn validate_upower(list_names_output: &str) -> Result<(), String> {
     let runtime = PowerRuntime::discover();
     let expected_device_paths = runtime.expected_device_paths();
+    let power_surface_available = runtime.available();
     println!("UPOWER_RUNTIME_ADAPTERS={}", runtime.adapter_ids.len());
     println!("UPOWER_RUNTIME_BATTERIES={}", runtime.battery_ids.len());
+    println!(
+        "UPOWER_POWER_SURFACE={}",
+        if power_surface_available { "available" } else { "unavailable" }
+    );
 
     let enumerate_output = run_command_with_retry(
         DBUS_SEND,
@@ -313,6 +322,18 @@ fn validate_upower(list_names_output: &str) -> Result<(), String> {
         enumerated_device_paths.len()
     );
     note_bus_name_registered(list_names_output, UPOWER_DESTINATION, "UPOWER_BUS_NAME");
+
+    if !power_surface_available {
+        if !enumerated_device_paths.is_empty() {
+            return Err(format!(
+                "UPower enumerated devices even though /scheme/acpi/power is unavailable: {}",
+                summarize_set(&enumerated_device_paths)
+            ));
+        }
+
+        println!("UPOWER_NATIVE_PATHS=skipped (power surface unavailable)");
+        return Ok(());
+    }
 
     let missing_device_paths = expected_device_paths
         .difference(&enumerated_device_paths)
@@ -734,6 +755,13 @@ mod tests {
 
         let disk_paths = quoted_values_with_prefix(output, UDISKS_BLOCK_PREFIX);
         assert!(disk_paths.contains("/org/freedesktop/UDisks2/block_devices/disk_2e_nvme_0"));
+    }
+
+    #[test]
+    fn power_runtime_without_surface_is_marked_unavailable() {
+        let runtime = PowerRuntime::default();
+        assert!(!runtime.available());
+        assert!(runtime.expected_device_paths().is_empty());
     }
 
     #[test]

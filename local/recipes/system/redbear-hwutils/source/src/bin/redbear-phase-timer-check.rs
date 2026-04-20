@@ -19,6 +19,20 @@ fn require_path(path: &str) -> Result<(), String> {
     }
 }
 
+fn monotonic_path() -> Result<String, String> {
+    let numeric = format!("/scheme/time/{}", flag::CLOCK_MONOTONIC);
+    if require_path(&numeric).is_ok() {
+        return Ok(numeric);
+    }
+
+    let symbolic = "/scheme/time/CLOCK_MONOTONIC".to_string();
+    if require_path(&symbolic).is_ok() {
+        return Ok(symbolic);
+    }
+
+    Err(format!("missing {numeric} and {symbolic}"))
+}
+
 fn read_timespec(fd: &Fd) -> Result<TimeSpec, String> {
     let mut time = TimeSpec::default();
     let bytes = libredox::call::read(fd.raw(), &mut time)
@@ -43,8 +57,7 @@ fn run() -> Result<(), String> {
 
     println!("=== Red Bear OS Timer Runtime Check ===");
 
-    let time_path = format!("/scheme/time/{}", flag::CLOCK_MONOTONIC);
-    require_path(&time_path)?;
+    let time_path = monotonic_path()?;
 
     let time_fd = Fd::open(&time_path, flag::O_RDWR, 0)
         .map_err(|err| format!("failed to open {time_path}: {err}"))?;

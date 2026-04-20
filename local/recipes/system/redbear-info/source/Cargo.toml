@@ -8,4 +8,5 @@ name = "redbear-info"
 path = "src/main.rs"
 
 [dependencies]
+redox-driver-sys = { path = "../../../../recipes/drivers/redox-driver-sys/source" }
 toml = "0.8"

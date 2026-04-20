@@ -10,7 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::{Deserialize, Serialize};
+use argon2::{self, verify_encoded};
+use redbear_login_protocol::{AuthRequest, AuthResponse};
+use serde::Serialize;
 use sha_crypt::{PasswordVerifier, ShaCrypt};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -47,51 +49,6 @@ struct FailureState {
 struct RuntimeState {
     approvals: Arc<Mutex<HashMap<String, Approval>>>,
     failures: Arc<Mutex<HashMap<String, FailureState>>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AuthRequest {
-    Authenticate {
-        request_id: u64,
-        username: String,
-        password: String,
-        vt: u32,
-    },
-    StartSession {
-        request_id: u64,
-        username: String,
-        session: String,
-        vt: u32,
-    },
-    PowerAction {
-        request_id: u64,
-        action: String,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AuthResponse {
-    AuthenticateResult {
-        request_id: u64,
-        ok: bool,
-        message: String,
-    },
-    SessionResult {
-        request_id: u64,
-        ok: bool,
-        exit_code: Option<i32>,
-        message: String,
-    },
-    PowerResult {
-        request_id: u64,
-        ok: bool,
-        message: String,
-    },
-    Error {
-        message: String,
-    },
 }
 
 #[derive(Debug, Serialize)]
@@ -228,6 +185,9 @@ fn verify_shadow_password(password: &str, shadow_hash: &str) -> Result<bool, Ver
         return Ok(ShaCrypt::default()
             .verify_password(password.as_bytes(), shadow_hash)
             .is_ok());
+    }
+    if shadow_hash.starts_with("$argon2") {
+        return Ok(verify_encoded(shadow_hash, password.as_bytes()).unwrap_or(false));
     }
     Err(VerifyError::UnsupportedHashFormat)
 }
@@ -587,6 +547,15 @@ mod tests {
         let hash = "$5$saltstring$OH4IDuTlsuTYPdED1gsuiRMyTAwNlRWyA6Xr3I4/dQ5";
         assert_eq!(verify_shadow_password("password", hash), Ok(true));
         assert_eq!(verify_shadow_password("wrong", hash), Ok(false));
+    }
+
+    #[test]
+    fn verify_shadow_password_accepts_argon2_hashes() {
+        let config = argon2::Config::default();
+        let hash = argon2::hash_encoded(b"password", b"testsalt", &config)
+            .expect("argon2 hash should encode");
+        assert_eq!(verify_shadow_password("password", &hash), Ok(true));
+        assert_eq!(verify_shadow_password("wrong", &hash), Ok(false));
     }
 
     #[test]

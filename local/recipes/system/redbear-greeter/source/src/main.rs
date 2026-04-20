@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::{Deserialize, Serialize};
+use redbear_login_protocol::{AuthRequest, AuthResponse, GreeterRequest, GreeterResponse};
 
 const GREETER_SOCKET_PATH: &str = "/run/redbear-greeterd.sock";
 const AUTH_SOCKET_PATH: &str = "/run/redbear-authd.sock";
@@ -55,88 +55,6 @@ struct GreeterDaemon {
     compositor: Option<Child>,
     ui: Option<Child>,
     restart_attempts: Vec<Instant>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum GreeterRequest {
-    Hello { version: u32 },
-    SubmitLogin { username: String, password: String },
-    RequestShutdown,
-    RequestReboot,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum GreeterResponse {
-    HelloOk {
-        background: String,
-        icon: String,
-        session_name: String,
-        state: String,
-        message: String,
-    },
-    LoginResult {
-        ok: bool,
-        state: String,
-        message: String,
-    },
-    ActionResult {
-        ok: bool,
-        message: String,
-    },
-    Error {
-        message: String,
-    },
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AuthRequest<'a> {
-    Authenticate {
-        request_id: u64,
-        username: &'a str,
-        password: &'a str,
-        vt: u32,
-    },
-    StartSession {
-        request_id: u64,
-        username: &'a str,
-        session: &'a str,
-        vt: u32,
-    },
-    PowerAction {
-        request_id: u64,
-        action: &'a str,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AuthResponse {
-    AuthenticateResult {
-        ok: bool,
-        message: String,
-        #[allow(dead_code)]
-        request_id: u64,
-    },
-    SessionResult {
-        ok: bool,
-        message: String,
-        #[allow(dead_code)]
-        request_id: u64,
-        #[allow(dead_code)]
-        exit_code: Option<i32>,
-    },
-    PowerResult {
-        ok: bool,
-        message: String,
-        #[allow(dead_code)]
-        request_id: u64,
-    },
-    Error {
-        message: String,
-    },
 }
 
 fn usage() -> &'static str {
@@ -212,7 +130,7 @@ fn change_socket_ownership(path: &Path, uid: u32, gid: u32) -> Result<(), String
     }
 }
 
-fn send_auth_request(request: &AuthRequest<'_>) -> Result<AuthResponse, String> {
+fn send_auth_request(request: &AuthRequest) -> Result<AuthResponse, String> {
     let mut stream = UnixStream::connect(AUTH_SOCKET_PATH)
         .map_err(|err| format!("failed to connect to {AUTH_SOCKET_PATH}: {err}"))?;
     let payload = serde_json::to_string(request).map_err(|err| format!("failed to serialize auth request: {err}"))?;
@@ -370,8 +288,8 @@ impl GreeterDaemon {
 
         let response = send_auth_request(&AuthRequest::StartSession {
             request_id: 2,
-            username,
-            session: "kde-wayland",
+            username: username.to_string(),
+            session: String::from("kde-wayland"),
             vt: self.vt,
         })?;
 
@@ -390,6 +308,9 @@ impl GreeterDaemon {
     }
 
     fn handle_connection(&mut self, stream: UnixStream) -> Result<(), String> {
+        stream
+            .set_nonblocking(false)
+            .map_err(|err| format!("failed to set blocking greeter stream mode: {err}"))?;
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         reader
@@ -413,8 +334,8 @@ impl GreeterDaemon {
                 self.set_state(GreeterState::Authenticating, "Authenticating");
                 match send_auth_request(&AuthRequest::Authenticate {
                     request_id: 1,
-                    username: &username,
-                    password: &password,
+                    username: username.clone(),
+                    password: password.clone(),
                     vt: self.vt,
                 })? {
                     AuthResponse::AuthenticateResult { ok, message, .. } => {
@@ -443,7 +364,7 @@ impl GreeterDaemon {
                 self.set_state(GreeterState::PowerAction, "Requesting shutdown");
                 match send_auth_request(&AuthRequest::PowerAction {
                     request_id: 3,
-                    action: "shutdown",
+                    action: String::from("shutdown"),
                 })? {
                     AuthResponse::PowerResult { ok, message, .. } => GreeterResponse::ActionResult { ok, message },
                     AuthResponse::Error { message } => GreeterResponse::Error { message },
@@ -456,7 +377,7 @@ impl GreeterDaemon {
                 self.set_state(GreeterState::PowerAction, "Requesting reboot");
                 match send_auth_request(&AuthRequest::PowerAction {
                     request_id: 4,
-                    action: "reboot",
+                    action: String::from("reboot"),
                 })? {
                     AuthResponse::PowerResult { ok, message, .. } => GreeterResponse::ActionResult { ok, message },
                     AuthResponse::Error { message } => GreeterResponse::Error { message },
