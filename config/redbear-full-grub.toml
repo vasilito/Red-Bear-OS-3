@@ -7,13 +7,4 @@
 # GRUB presents a menu and chainloads the Redox bootloader.
 # Requires: efi_partition_size >= 8 (16 recommended for GRUB + Redox bootloader + margin)
 
-include = ["redbear-full.toml"]
-
-[general]
-bootloader = "grub"
-efi_partition_size = 16
-
-# GRUB recipe must be built before the installer runs.
-# Including it here ensures `make all` builds it as part of the normal package set.
-[packages]
-grub = {}
+include = ["redbear-full.toml", "redbear-grub.toml"]

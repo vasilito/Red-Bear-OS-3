@@ -1,0 +1,11 @@
+# Red Bear OS shared GRUB policy fragment
+# Use with any redbear-* profile to make GRUB first-class in installer flows.
+
+[general]
+bootloader = "grub"
+# Keep ESP large enough for GRUB EFI image + Red Bear bootloader + future growth.
+efi_partition_size = 16
+
+[packages]
+# Ensure GRUB artifacts are present for installer-native chainload layout.
+grub = {}
