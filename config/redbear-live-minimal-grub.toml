@@ -1,0 +1,6 @@
+# Red Bear OS Live Minimal Configuration with GRUB Boot Manager
+# Live ISO for minimal console target with installer-native GRUB chainload.
+#
+# Build: make live CONFIG_NAME=redbear-live-minimal-grub
+
+include = ["redbear-live-minimal.toml", "redbear-grub.toml"]

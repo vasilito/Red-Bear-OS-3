@@ -1,0 +1,6 @@
+# Red Bear OS Live Full Configuration with GRUB Boot Manager
+# Live ISO for full desktop/session target with installer-native GRUB chainload.
+#
+# Build: make live CONFIG_NAME=redbear-live-full-grub
+
+include = ["redbear-live-full.toml", "redbear-grub.toml"]
