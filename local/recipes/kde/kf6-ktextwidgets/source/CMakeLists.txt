@@ -39,6 +39,9 @@ option(WITH_TEXT_TO_SPEECH "Build text-to-speech support" ON)
 
 find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED Widgets)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 
 if (WITH_TEXT_TO_SPEECH)
     find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED TextToSpeech)

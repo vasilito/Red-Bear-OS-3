@@ -37,6 +37,9 @@ endif()
 set(REQUIRED_QT_VERSION 6.6.0)
 find_package(Qt6 ${REQUIRED_QT_VERSION} NO_MODULE REQUIRED Widgets)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 
 # shall we use DBus?
 # enabled per default on Linux & BSD systems

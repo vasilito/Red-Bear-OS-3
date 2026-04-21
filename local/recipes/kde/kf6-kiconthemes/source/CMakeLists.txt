@@ -46,6 +46,9 @@ ecm_setup_version(PROJECT
 set(REQUIRED_QT_VERSION 6.6.0)
 find_package(Qt6Widgets ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6Svg ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
 
 # shall we use DBus?
