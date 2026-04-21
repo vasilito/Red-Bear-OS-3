@@ -5,6 +5,7 @@
 # The resulting grub.efi chainloads the Redox bootloader.
 #
 # Output: /usr/lib/boot/grub.efi, /usr/lib/boot/grub.cfg
+# Required local module: local/recipes/core/grub/modules/redoxfs.mod
 #
 # Build: make r.grub
 # Install into image (Phase 1):  ./local/scripts/install-grub.sh build/x86_64/harddrive.img
@@ -85,32 +86,80 @@ fi
 
 echo "Found GRUB modules in: ${MOD_DIR}"
 
-# Build standalone EFI image with curated module set.
+# Build standalone EFI image with a broad module set.
 # -O x86_64-efi: output format
 # -d MOD_DIR: module search directory
 # -p /EFI/BOOT: prefix for GRUB config search path
 # The resulting image is self-contained (no external module files needed).
+
+has_mod() {
+    local name="$1"
+    [ -f "${MOD_DIR}/${name}.mod" ]
+}
+
+add_mod() {
+    local name="$1"
+    if has_mod "${name}"; then
+        SELECTED_MODULES+=("${name}")
+    else
+        echo "WARN: GRUB module not found, skipping: ${name}" >&2
+    fi
+}
+
+# Keep this list broad for first-class multi-filesystem support.
+# Missing modules are skipped with a warning so builds stay resilient.
+SELECTED_MODULES=()
+for m in \
+    part_gpt part_msdos \
+    normal configfile search search_fs_uuid search_label \
+    echo test ls cat halt reboot chain \
+    fat ext2 btrfs xfs jfs reiserfs udf iso9660 ntfs ntfscomp hfs hfsplus zfs \
+    gzio xzio lzopio lzma; do
+    add_mod "${m}"
+done
+
+# RedoxFS module is mandatory for Red Bear GRUB first-class support.
+# Prefer local tree artifact, then fall back to staged sysroot copy.
+REDOXFS_MOD_CANDIDATES=(
+    "${COOKBOOK_RECIPE}/modules/redoxfs.mod"
+    "${COOKBOOK_SYSROOT}/usr/lib/grub/x86_64-efi/redoxfs.mod"
+)
+
+REDOXFS_MOD=""
+for cand in "${REDOXFS_MOD_CANDIDATES[@]}"; do
+    if [ -f "${cand}" ]; then
+        REDOXFS_MOD="${cand}"
+        break
+    fi
+done
+
+if [ -z "${REDOXFS_MOD}" ]; then
+    echo "ERROR: redoxfs.mod not found." >&2
+    echo "Expected one of:" >&2
+    for cand in "${REDOXFS_MOD_CANDIDATES[@]}"; do
+        echo "  - ${cand}" >&2
+    done
+    exit 1
+fi
+
+cp "${REDOXFS_MOD}" "${MOD_DIR}/redoxfs.mod"
+echo "Using mandatory RedoxFS GRUB module: ${REDOXFS_MOD}"
+if ! printf '%s\n' "${SELECTED_MODULES[@]}" | grep -qx "redoxfs"; then
+    SELECTED_MODULES+=("redoxfs")
+fi
+
+if [ "${#SELECTED_MODULES[@]}" -eq 0 ]; then
+    echo "ERROR: No GRUB modules selected for grub-mkimage" >&2
+    exit 1
+fi
+
 echo "Creating standalone GRUB EFI image..."
 ./grub-mkimage \
     -O x86_64-efi \
     -d "${MOD_DIR}" \
     -o "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" \
     -p /EFI/BOOT \
-    part_gpt \
-    part_msdos \
-    fat \
-    ext2 \
-    normal \
-    configfile \
-    search \
-    search_fs_uuid \
-    search_label \
-    echo \
-    test \
-    ls \
-    cat \
-    halt \
-    reboot || exit 1
+    "${SELECTED_MODULES[@]}" || exit 1
 
 # Verify output
 if [ ! -f "${COOKBOOK_STAGE}/usr/lib/boot/grub.efi" ]; then

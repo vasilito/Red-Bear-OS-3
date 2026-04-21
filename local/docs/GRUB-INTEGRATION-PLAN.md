@@ -84,7 +84,12 @@ The standalone EFI image includes these modules:
 
 Note: `chainloader` is a built-in command in GRUB 2.12 (no separate module needed).
 
-No RedoxFS module is needed — GRUB chainloads the Redox bootloader instead.
+Red Bear policy now requires a local `redoxfs.mod` artifact for GRUB builds.
+The GRUB recipe resolves it in this order:
+1. `local/recipes/core/grub/modules/redoxfs.mod`
+2. `${COOKBOOK_SYSROOT}/usr/lib/grub/x86_64-efi/redoxfs.mod`
+
+If neither exists, the GRUB recipe fails fast.
 
 ## GRUB Configuration
 
@@ -188,6 +193,7 @@ This approach requires **no changes to the installer** and works immediately.
 |------|---------|
 | `local/recipes/core/grub/recipe.toml` | Build GRUB from source, produce `grub.efi` |
 | `local/recipes/core/grub/grub.cfg` | Default GRUB configuration |
+| `local/recipes/core/grub/modules/redoxfs.mod` | Mandatory local GRUB RedoxFS module artifact |
 | `local/scripts/install-grub.sh` | Post-build ESP modification script |
 | `local/scripts/fat_tool.py` | Python FAT32 tool (no mtools dependency) |
 | `recipes/core/grub → local/recipes/core/grub` | Symlink for recipe discovery |
