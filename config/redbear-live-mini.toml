@@ -1,15 +1,73 @@
-# Red Bear OS Mini Live Configuration
-# Minimal boot-test live ISO variant for real bare metal.
+# Red Bear OS Live Mini Configuration
+# Live ISO variant for console/recovery/install on bare metal.
 #
 # Build: make live CONFIG_NAME=redbear-live-mini
-# This ISO is for real bare-metal boot/recovery, not VM/QEMU use.
+#
+# Target contract:
+# - keep full non-graphics system surface from redbear-full
+# - strip graphics/desktop session stack
+# - strip network firmware payload
 
-include = ["minimal.toml", "redbear-legacy-base.toml"]
+include = ["redbear-full.toml"]
 
 [general]
-# Keep this image tiny for boot smoke tests only.
-filesystem_size = 256
+filesystem_size = 3072
 
 [packages]
-mc = {}
-redbear-info = {}
+# Strip firmware payload from mini live image.
+redbear-firmware = "ignore"
+firmware-loader = "ignore"
+
+# Strip graphics/session surface.
+installer-gui = "ignore"
+redbear-authd = "ignore"
+redbear-session-launch = "ignore"
+redbear-greeter = "ignore"
+libwayland = "ignore"
+wayland-protocols = "ignore"
+libxkbcommon = "ignore"
+xkeyboard-config = "ignore"
+libevdev = "ignore"
+libinput = "ignore"
+seatd = "ignore"
+qtbase = "ignore"
+qtdeclarative = "ignore"
+qtsvg = "ignore"
+qtwayland = "ignore"
+qt6-wayland-smoke = "ignore"
+kf6-extra-cmake-modules = "ignore"
+kf6-kcoreaddons = "ignore"
+kf6-kconfig = "ignore"
+kf6-ki18n = "ignore"
+kf6-kcolorscheme = "ignore"
+kf6-kauth = "ignore"
+kf6-kwindowsystem = "ignore"
+kf6-knotifications = "ignore"
+kf6-kconfigwidgets = "ignore"
+kf6-kcrash = "ignore"
+kf6-kdbusaddons = "ignore"
+kf6-kglobalaccel = "ignore"
+kf6-kservice = "ignore"
+kf6-kpackage = "ignore"
+kf6-kiconthemes = "ignore"
+kirigami = "ignore"
+kf6-kio = "ignore"
+kf6-kdeclarative = "ignore"
+kf6-kcmutils = "ignore"
+kf6-kwayland = "ignore"
+kdecoration = "ignore"
+kwin = "ignore"
+redox-drm = "ignore"
+mesa = "ignore"
+libdrm = "ignore"
+
+# Keep package builder utility in live environment.
+cub = {}
+
+[[files]]
+path = "/usr/lib/init.d/20_display.service"
+data = ""
+
+[[files]]
+path = "/usr/lib/init.d/20_greeter.service"
+data = ""
