@@ -64,6 +64,17 @@ repo already contains `prefix/x86_64-unknown-redox/sysroot/bin/x86_64-unknown-re
 
 ## Policy Mapping
 
+### Resilience / offline-first package sourcing
+
+Default Red Bear behavior is local-first:
+
+- use locally available package/source trees and overlay state for normal builds,
+- treat upstream refresh as an explicit operator action only (`--upstream`, dedicated fetch/sync),
+- do not fail policy-level expectations just because upstream network access is temporarily broken.
+
+This is required so builds and recovery workflows remain operable during upstream outages or
+connectivity failures.
+
 ### Upstream sync
 
 Use `local/scripts/sync-upstream.sh` when the goal is to refresh the top-level upstream Redox base.

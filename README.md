@@ -27,6 +27,12 @@ relates to Debian:
 - durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
   Red Bear configs
 
+Operational resilience policy:
+
+- package/source usage is local-first by default,
+- local copies are used continuously for builds and recovery workflows,
+- upstream package refresh is performed only when explicitly requested.
+
 For **upstream WIP recipes specifically**, Red Bear uses a stricter rule:
 
 1. once an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project

@@ -50,6 +50,16 @@ Do not describe compile-only work as supported hardware or a working desktop pat
 If a profile is tracked in git, helper scripts and docs should either support it directly or state
 why it is intentionally excluded.
 
+### 6. Resilience policy: local-first package sources
+
+- Red Bear builds must remain resilient when access to upstream Redox infrastructure is degraded or
+  unavailable.
+- Local package/source copies are the default operational source of truth for builds.
+- Upstream fetch/refresh is opt-in and must be explicitly requested by the operator (for example via
+  an explicit `--upstream` workflow).
+- After an explicit upstream refresh, local durable overlays (`local/patches`, `local/recipes`) stay
+  authoritative until a conscious reevaluation/promotion decision is made.
+
 ## Profile Intent
 
 ### `redbear-minimal`

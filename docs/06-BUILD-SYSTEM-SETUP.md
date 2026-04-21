@@ -16,6 +16,13 @@ Build this repository using the Red Bear overlay model:
 - upstream WIP recipes are useful inputs, but should not automatically be treated as the durable
   shipping source of truth for Red Bear.
 
+Resilience policy for package/source inputs:
+
+- default build posture is local-first/offline-capable,
+- local copies are used continuously unless upstream refresh is explicitly requested,
+- upstream refresh is an explicit operation, not an implicit background requirement for normal
+  builds.
+
 ## Prerequisites
 
 ### System Requirements
@@ -260,7 +267,7 @@ cp target/release/myapp ${COOKBOOK_STAGE}/usr/bin/
 | `PREFIX_BINARY` | `1` | Use prebuilt toolchain (faster) |
 | `REPO_BINARY` | `0` | Use prebuilt packages (faster, no compilation) |
 | `REPO_NONSTOP` | `0` | Continue on build errors |
-| `REPO_OFFLINE` | `0` | Don't update source repos |
+| `REPO_OFFLINE` | `0` | Don't update source repos; Red Bear policy treats local-first sourcing as the normal operating mode and upstream refresh as explicit opt-in |
 
 ### Environment Variables for Recipes
 
