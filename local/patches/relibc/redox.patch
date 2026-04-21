@@ -17,18 +17,18 @@ index 62e98108..a9c72392 100644
      return (double)(*val);
  }
 diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
-index 6a4db2fa..82484375 100644
+index ec37906c..95604e06 100644
 --- a/src/header/fcntl/mod.rs
 +++ b/src/header/fcntl/mod.rs
-@@ -7,6 +7,7 @@ use core::num::NonZeroU64;
- use crate::{
+@@ -8,6 +8,7 @@ use crate::{
      c_str::CStr,
-     error::ResultExt,
+     error::{Errno, ResultExt},
+     header::errno::ENAMETOOLONG,
 +    header::unistd::close,
      platform::{
          Pal, Sys,
-         types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
-@@ -74,5 +75,22 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
+         types::{
+@@ -78,6 +79,23 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
          _ => 0,
      };
  
@@ -51,17 +51,3 @@ index 6a4db2fa..82484375 100644
 +
      Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
  }
-diff --git a/src/header/fcntl/linux.rs b/src/header/fcntl/linux.rs
-index 9a3978dc..906ad525 100644
---- a/src/header/fcntl/linux.rs
-+++ b/src/header/fcntl/linux.rs
-@@ -15,7 +15,7 @@ pub const O_DIRECTORY: c_int = 0x1_0000;
- pub const O_NOFOLLOW: c_int = 0x2_0000;
- pub const O_CLOEXEC: c_int = 0x8_0000;
- pub const O_PATH: c_int = 0x20_0000;
- 
--pub const FD_CLOEXEC: c_int = 0x8_0000;
-+pub const FD_CLOEXEC: c_int = 1;
- 
- // Defined for compatibility
- pub const O_NDELAY: c_int = O_NONBLOCK;

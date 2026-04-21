@@ -1,25 +1,29 @@
 diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
 --- a/src/header/fcntl/mod.rs
 +++ b/src/header/fcntl/mod.rs
-@@ -8,7 +8,8 @@
+@@ -8,6 +8,7 @@ use crate::{
      c_str::CStr,
-     error::ResultExt,
-+    header::unistd::{close, dup},
+     error::{Errno, ResultExt},
+     header::errno::ENAMETOOLONG,
++    header::unistd::close,
      platform::{
          Pal, Sys,
-         types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
-     },
- };
-@@ -74,5 +75,17 @@
+         types::{
+@@ -78,6 +79,23 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
          _ => 0,
      };
  
 +    if cmd == F_DUPFD_CLOEXEC {
-+        let new_fd = dup(fildes);
++        let new_fd = Sys::fcntl(fildes, F_DUPFD_CLOEXEC, arg).or_minus_one_errno();
++        if new_fd >= 0 {
++            return new_fd;
++        }
++
++        let new_fd = Sys::fcntl(fildes, F_DUPFD, arg).or_minus_one_errno();
 +        if new_fd < 0 {
 +            return -1;
 +        }
-+        if unsafe { fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong) } < 0 {
++        if Sys::fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong).or_minus_one_errno() < 0 {
 +            let _ = close(new_fd);
 +            return -1;
 +        }
