@@ -158,6 +158,7 @@ data = """
 [unit]
 description = "IOMMU DMA remapping daemon"
 requires_weak = [
+    "12_boot-late.target",
     "00_pcid-spawner.service",
 ]
 
@@ -172,7 +173,7 @@ data = """
 [unit]
 description = "D-Bus system bus"
 requires_weak = [
-    "10_net.target",
+    "12_boot-late.target",
 ]
 
 [service]
