@@ -1558,19 +1558,19 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
                 if start >= end || log_text.is_empty() {
                     vec![Line::from("No logs yet")]
                 } else {
-                log_text[start..end]
-                    .iter()
-                    .map(|s| {
-                        let text_with_colors = s
-                            .into_text()
-                            .unwrap_or_else(|_| Text::raw("--unrenderable line--"));
-                        text_with_colors
-                            .lines
-                            .into_iter()
-                            .next()
-                            .unwrap_or_else(|| Line::raw("--unrenderable line--"))
-                    })
-                    .collect()
+                    log_text[start..end]
+                        .iter()
+                        .map(|s| {
+                            let text_with_colors = s
+                                .into_text()
+                                .unwrap_or_else(|_| Text::raw("--unrenderable line--"));
+                            text_with_colors
+                                .lines
+                                .into_iter()
+                                .next()
+                                .unwrap_or_else(|| Line::raw("--unrenderable line--"))
+                        })
+                        .collect()
                 }
             } else {
                 vec![Line::from("No logs yet")]
