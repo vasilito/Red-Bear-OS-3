@@ -75,8 +75,9 @@ path = "/usr/lib/init.d/30_console.service"
 data = """
 [unit]
 description = "Console terminals"
+boot_essential = true
 requires_weak = [
-    "20_greeter.service",
+    "29_activate_console.service",
 ]
 
 [service]
@@ -89,15 +90,16 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate display VT"
+description = "Activate fallback console VT"
+boot_essential = true
 requires_weak = [
-    "20_greeter.service",
+    "05_boot-essential.target",
 ]
 
 [service]
 cmd = "inputd"
-args = ["-A", "3"]
-type = "oneshot"
+args = ["-A", "2"]
+type = "oneshot_async"
 """
 
 [[files]]
@@ -105,8 +107,9 @@ path = "/usr/lib/init.d/31_debug_console.service"
 data = """
 [unit]
 description = "Debug console"
+boot_essential = true
 requires_weak = [
-    "20_greeter.service",
+    "29_activate_console.service",
 ]
 
 [service]

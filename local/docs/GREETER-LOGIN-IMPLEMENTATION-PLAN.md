@@ -119,7 +119,7 @@ Rules:
 | authentication daemon | `local/recipes/system/redbear-authd/` | ✅ builds, experimental | Local-user auth boundary with `/etc/passwd` / `/etc/shadow` / `/etc/group` parsing plus SHA-crypt and Argon2 verification |
 | session launcher boundary | `local/recipes/system/redbear-session-launch/` | ✅ builds, experimental | User-session bootstrap with bounded environment/runtime-dir setup |
 | greeter daemon scaffold | `local/recipes/system/redbear-greeter/` | ✅ builds, experimental | Root-owned greeter orchestrator, socket protocol, bounded restart policy |
-| greeter config fragment | `config/redbear-greeter-services.toml` | ✅ builds, experimental | Adds `19_redbear-authd.service`, `20_greeter.service`, compatibility `20_display.service`, and fallback console dependencies |
+| greeter config fragment | `config/redbear-greeter-services.toml` | ✅ builds, experimental | Adds `19_redbear-authd.service`, `20_greeter.service`, compatibility `20_display.service`, and fallback console services that are no longer tied to greeter success |
 | bounded validation launcher | `/usr/bin/redbear-validation-session` | ✅ retained helper | Still available for older bounded validation flows, but no longer the primary `redbear-full` display-service path |
 | branding assets | `local/Assets/images/` | ✅ present | `Red Bear OS loading background.png`, `Red Bear OS icon.png` |
 
@@ -147,6 +147,20 @@ The remaining blocker to a stronger desktop-runtime claim is now evidence-backed
 greeter slice**: the old `kwin_wayland` crash path has been eliminated, and current QEMU now reaches
 clean `No suitable DRM devices have been found` exits instead. That means the follow-on work has
 shifted to the parent desktop/Wayland/runtime plans rather than to missing core greeter/auth/session-boundary pieces here.
+
+### 4.5 TUI Prompt Reliability Correction
+
+The non-appearance of TUI fallback prompts in some boot paths was traced to startup graph coupling:
+
+- `29_activate_console.service` was configured as `oneshot` in desktop/graphics variants, which adds unnecessary synchronization pressure on startup.
+- `30_console.service` and `31_debug_console.service` depended on `20_greeter.service`, so greeter/auth startup risk could suppress fallback consoles.
+- `minimal` variants had `30_console` and `31_debug_console` as separate graph roots, which could start before VT activation and race console ownership.
+
+Mitigations now in place:
+
+- `29_activate_console.service` in the affected graphics variants was moved to `oneshot_async` (it executes quickly and returns after VT switch).
+- `30_console.service` and `31_debug_console.service` now depend on `29_activate_console.service` where they are explicit console units (instead of being tied to greeter/auth flow).
+- The VT3 activation path is now the graph root: `20_display.service` → `29_activate_console.service` (TUI fallback units). Greeter startup remains independent of fallback text console availability.
 
 Future work beyond this plan should continue **without** replacing the current seat/session substrate
 and without removing existing console recovery paths.
@@ -298,10 +312,11 @@ boot
   → 12_dbus.service               (system D-Bus)
   → 13_redbear-sessiond.service   (login1 subset)
   → 13_seatd.service              (seat backend)
-  → 20_greeter.service            (start redbear-greeterd on VT3)
+  → 20_display.service            (VT3 session compatibility layer)
   → 29_activate_console.service   (inputd -A 3)
-  → 30_console.service            (fallback getty 2 on VT2)
-  → 31_debug_console.service      (debug getty)
+  → 30_console.service            (fallback getty on VT2)
+  → 31_debug_console.service      (fallback debug getty)
+  → 20_greeter.service            (start redbear-greeterd on VT3)
   → redbear-greeter-ui shows login surface on VT3
   → successful login
   → redbear-session-launch

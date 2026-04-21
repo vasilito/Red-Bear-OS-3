@@ -264,7 +264,7 @@ data = """
 [unit]
 description = "Console terminals"
 requires_weak = [
-    "20_display.service",
+    "29_activate_console.service",
 ]
 
 [service]
@@ -285,7 +285,7 @@ requires_weak = [
 [service]
 cmd = "inputd"
 args = ["-A", "3"]
-type = "oneshot"
+type = "oneshot_async"
 """
 
 [[files]]
@@ -294,7 +294,7 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "20_display.service",
+    "29_activate_console.service",
 ]
 
 [service]

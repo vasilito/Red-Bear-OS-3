@@ -57,6 +57,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | redbear-session-launch | **builds** | User-session bootstrap tool; runtime-dir/env setup, uid/gid handoff, dbus-run-session → `redbear-kde-session`, target-side recipe build proven |
 | redbear-greeterd | **builds, experimental** | Root-owned greeter orchestrator; UI/auth socket protocol, bounded restart policy, return-to-greeter daemon logic, crate tests pass; end-to-end runtime proof still pending |
 | redbear-greeter UI | **builds, experimental** | Qt6/QML unprivileged login surface now ships in-tree; bounded runtime proof remains narrower than a full trusted KDE desktop-login claim |
+| TUI login fallback | **builds, boots** | `29_activate_console.service` now owns VT3 activation for `30_console.service` and `31_debug_console.service`, keeping VT2/ debug fallback consoles independent of `20_greeter.service` success |
 | redbear-validation-session | **builds, bounded helper** | Still staged as a validation launcher/helper, but no longer the primary `redbear-full` display-service owner |
 | Greeter runtime checker | ✅ implemented (bounded checker) | `redbear-greeter-check` asserts greeter binaries, assets, service files, socket reachability, hello protocol, invalid-login handling, and a validation-only successful-login/session-return loop inside the guest |
 | Greeter QEMU harness | ✅ implemented (bounded harness) | `test-greeter-qemu.sh` boots `redbear-full`, logs in on the fallback console, and now passes the in-guest greeter checker for hello, invalid-login, and bounded successful-login return-to-greeter proof |
@@ -81,7 +82,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 ### `redbear-full`
 
 - **Role:** Active desktop/graphics compile target and current greeter-integration surface
-- **Current truth:** Carries D-Bus, sessiond, broader integration pieces, and the experimental Red Bear-native greeter/auth/session-launch stack; VirtIO networking works in QEMU, the bounded Phase 5 network/session checker is evidence-backed there, and the repo now includes a bounded greeter checker/harness for the login surface. `redbear-validation-session` remains staged only as a bounded helper, not the active `20_display.service` owner on this target.
+- **Current truth:** Carries D-Bus, sessiond, broader integration pieces, and the experimental Red Bear-native greeter/auth/session-launch stack; VirtIO networking works in QEMU, the bounded Phase 5 network/session checker is evidence-backed there, and the repo now includes a bounded greeter checker/harness for the login surface. `redbear-validation-session` remains staged only as a bounded helper, not the active `20_display.service` owner on this target. TUI fallback (`30_console.service`/`31_debug_console.service`) is now triggered through `29_activate_console.service` and is decoupled from greeter success.
 - **Use for:** Desktop integration testing, greeter/login bring-up, and bounded desktop/network plumbing validation
 - **Do not overclaim:** This profile proves bounded QEMU desktop/network plumbing only. It does not by itself close the Wi-Fi implementation plan's later real-hardware Phase W5 reporting/recovery gate.
 
@@ -94,7 +95,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 ### `redbear-mini`
 
 - **Role:** Minimal non-desktop target
-- **Current truth:** No desktop/graphics path; recovery and non-desktop integration surface only
+- **Current truth:** No desktop/graphics path; recovery and non-desktop integration surface only. TUI recovery is bound to VT activation through `29_activate_console.service` followed by `30_console.service`/`31_debug_console.service`.
 - **Use for:** Minimal runtime bring-up, subsystem validation, and non-desktop packaging checks
 
 ### `redbear-live-mini`
