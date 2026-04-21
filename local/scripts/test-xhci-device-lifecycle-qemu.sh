@@ -114,7 +114,7 @@ sleep 1
 rm -f "$log_file"
 
 expect <<EOF
-log_user 0
+log_user 1
 log_file -noappend $log_file
 set timeout 1800
 set send_slow {1 0.0}
@@ -125,6 +125,7 @@ send "root\r"
 expect "assword:"
 send "password\r"
 expect -re {Type 'help' for available commands\.}
+expect -re {# }
 
 send "rm -f /tmp/xhcid-test-hook\r"
 after 500
@@ -142,10 +143,8 @@ expect -re {Device on port [0-9\.]+ was attached}
 send "\r"
 expect -re {# }
 set hid_scheme "usb.pci-0000-00-01.0_xhci"
-send "H=/tmp/xhcid-test-hook\r"
-expect -re {# }
-send "P=/scheme/\$hid_scheme/port\$hid_port\r"
-expect -re {# }
+set H "/tmp/xhcid-test-hook"
+set P "/scheme/\$hid_scheme/port\$hid_port"
 
 send "echo x > \$P/suspend\r"
 expect -re {xhcid: suspended port [0-9\.]+}

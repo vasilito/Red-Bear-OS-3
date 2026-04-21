@@ -21,7 +21,10 @@ done
     --target "${TARGET}" \
     ${build_flags}
 cp -v \
-    "target/${TARGET}/${build_type}/smolnetd" \
+    "target/${TARGET}/${build_type}/netstack" \
+    "${COOKBOOK_STAGE}/usr/bin/netstack"
+cp -v \
+    "target/${TARGET}/${build_type}/netstack" \
     "${COOKBOOK_STAGE}/usr/bin/smolnetd"
 
 # Drivers that are built on all architectures, and NOT in drivers-initfs
@@ -34,6 +37,9 @@ BINS=(
     pcid-spawner
     rtl8139d
     rtl8168d
+    ehcid
+    ohcid
+    uhcid
     usbctl
     usbhidd
     usbhubd
