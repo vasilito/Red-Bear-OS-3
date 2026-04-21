@@ -207,6 +207,20 @@ impl GreeterDaemon {
         command.env("WAYLAND_DISPLAY", &self.wayland_display);
     }
 
+    fn activate_vt(&self, vt: u32) -> Result<(), String> {
+        let status = Command::new("/usr/bin/inputd")
+            .arg("-A")
+            .arg(vt.to_string())
+            .status()
+            .map_err(|err| format!("failed to invoke inputd for VT {vt}: {err}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("inputd failed to activate VT {vt}: {status}"))
+        }
+    }
+
     fn spawn_as_greeter(&self, program: &str) -> Result<Child, String> {
         let mut command = Command::new("/usr/bin/redbear-session-launch");
         command
@@ -244,6 +258,7 @@ impl GreeterDaemon {
         self.compositor = Some(self.spawn_as_greeter("/usr/bin/redbear-greeter-compositor")?);
         self.wait_for_wayland_socket()?;
         self.ui = Some(self.spawn_as_greeter("/usr/bin/redbear-greeter-ui")?);
+        self.activate_vt(self.vt)?;
         self.set_state(GreeterState::GreeterReady, "Ready");
         Ok(())
     }
