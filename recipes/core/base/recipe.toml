@@ -1,5 +1,6 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/base.git"
+rev = "463f76b9"
 patches = ["redox.patch", "P2-boot-runtime-fixes.patch", "P2-acpi-i2c-resources.patch"]
 
 [build]
@@ -45,9 +46,6 @@ BINS=(
     pcid-spawner
     rtl8139d
     rtl8168d
-    ehcid
-    ohcid
-    uhcid
     usbctl
     usbhidd
     usbhubd
