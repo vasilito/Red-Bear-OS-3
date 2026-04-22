@@ -1,6 +1,6 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/base.git"
-patches = ["redox.patch"]
+patches = ["redox.patch", "P2-boot-runtime-fixes.patch"]
 
 [build]
 template = "custom"
@@ -30,12 +30,15 @@ cp -v \
 # Drivers that are built on all architectures, and NOT in drivers-initfs
 BINS=(
     gpiod
+    i2c-gpio-expanderd
     intel-gpiod
     amd-mp2-i2cd
+    dw-acpi-i2cd
     e1000d
     ihdad
     ihdgd
     i2c-hidd
+    intel-thc-hidd
     intel-lpss-i2cd
     ixgbed
     pcid
@@ -48,6 +51,7 @@ BINS=(
     usbctl
     usbhidd
     usbhubd
+    ucsid
     usbscsid
     virtio-gpud
     virtio-netd
@@ -77,7 +81,7 @@ export CARGO_PROFILE_RELEASE_PANIC=abort
     $(for bin in "${BINS[@]}"; do echo "-p" "${bin}"; done)
 for bin in "${BINS[@]}"
 do
-    if [[ "${bin}" == "gpiod" || "${bin}" == "intel-gpiod" || "${bin}" == "i2cd" || "${bin}" == "inputd" || "${bin}" == "pcid" || "${bin}" == "pcid-spawner" || "${bin}" == "redoxerd" ]]; then
+    if [[ "${bin}" == "gpiod" || "${bin}" == "i2c-gpio-expanderd" || "${bin}" == "intel-gpiod" || "${bin}" == "i2cd" || "${bin}" == "dw-acpi-i2cd" || "${bin}" == "i2c-hidd" || "${bin}" == "inputd" || "${bin}" == "pcid" || "${bin}" == "pcid-spawner" || "${bin}" == "redoxerd" || "${bin}" == "ucsid" ]]; then
         cp -v "target/${TARGET}/${build_type}/${bin}" "${COOKBOOK_STAGE}/usr/bin"
     else
         cp -v "target/${TARGET}/${build_type}/${bin}" "${COOKBOOK_STAGE}/usr/lib/drivers"

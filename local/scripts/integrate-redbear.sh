@@ -215,6 +215,7 @@ echo ""
 section "Ensuring recipe patch symlinks..."
 symlink "../../../local/patches/kernel/redox.patch" "recipes/core/kernel/redox.patch"
 symlink "../../../local/patches/base/redox.patch" "recipes/core/base/redox.patch"
+symlink "../../../local/patches/base/P2-boot-runtime-fixes.patch" "recipes/core/base/P2-boot-runtime-fixes.patch"
 if [ -d "recipes/core/installer" ]; then
     symlink "../../../local/patches/installer/redox.patch" "recipes/core/installer/redox.patch"
 else

@@ -11,7 +11,7 @@
 include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml"]
 
 [general]
-filesystem_size = 768
+filesystem_size = 384
 
 [packages]
 # Red Bear OS branding and host utilities.
@@ -40,19 +40,25 @@ data = "wired-dhcp\n"
 
 [[files]]
 path = "/usr/lib/init.d/30_console"
-data = ""
+data = """
+requires_weak 10_net
+inputd -A 2
+nowait getty 2
+nowait getty /scheme/debug/no-preserve -J
+"""
 
 [[files]]
 path = "/usr/lib/init.d/29_activate_console.service"
 data = """
 [unit]
-description = "Activate console (text-only no-op)"
+description = "Activate console VT"
 requires_weak = [
-    "00_base.target",
+    "10_net.target",
 ]
 
 [service]
-cmd = "true"
+cmd = "inputd"
+args = ["-A", "2"]
 type = "oneshot"
 """
 
@@ -67,7 +73,7 @@ requires_weak = [
 
 [service]
 cmd = "getty"
-args = ["/scheme/tty"]
+args = ["2"]
 type = "oneshot_async"
 """
 
@@ -77,12 +83,131 @@ data = """
 [unit]
 description = "Debug console"
 requires_weak = [
-    "00_base.target",
+    "10_net.target",
 ]
 
 [service]
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/10_smolnetd.service"
+data = """
+[unit]
+description = "Network stack (non-blocking on live-mini)"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "netstack"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/10_dhcpd.service"
+data = """
+[unit]
+description = "DHCP client daemon (non-blocking on live-mini)"
+requires_weak = [
+    "10_smolnetd.service",
+]
+
+[service]
+cmd = "dhcpd"
+args = ["-f"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2cd.service"
+data = """
+[unit]
+description = "I2C adapter registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "i2cd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-hidd.service"
+data = """
+[unit]
+description = "ACPI I2C HID bring-up daemon (non-blocking on live-mini)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_i2c-dw-acpi.service",
+    "00_intel-gpiod.service",
+    "00_i2c-gpio-expanderd.service",
+]
+
+[service]
+cmd = "i2c-hidd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-gpio-expanderd.service"
+data = """
+[unit]
+description = "I2C GPIO expander companion bridge (non-blocking on live-mini)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_gpiod.service",
+]
+
+[service]
+cmd = "i2c-gpio-expanderd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_ucsid.service"
+data = """
+[unit]
+description = "USB-C UCSI topology detector (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "ucsid"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_gpiod.service"
+data = """
+[unit]
+description = "GPIO controller registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "gpiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_intel-gpiod.service"
+data = """
+[unit]
+description = "Intel ACPI GPIO registrar (non-blocking on live-mini)"
+requires_weak = [
+    "00_gpiod.service",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "intel-gpiod"
 type = "oneshot_async"
 """
 
@@ -97,25 +222,68 @@ data = """
 """
 
 [[files]]
+path = "/etc/init.d/20_audiod.service"
+data = """
+[unit]
+description = "Audio multiplexer (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "audiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/01_debug_console.service"
+data = """
+[unit]
+description = "Debug serial login"
+requires_weak = [
+    "00_ptyd.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/02_serial_probe.service"
+data = """
+[unit]
+description = "Serial boot probe marker"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "ion"
+args = ["-c", "echo RB_SERIAL_PROBE_OK"]
+type = "oneshot"
+"""
+
+[[files]]
 path = "/etc/pcid.d/ihdgd.toml"
 data = """
-# redbear-live-mini: text-only image, disable Intel HD graphics auto-spawn
-[[drivers]]
-name = "disabled ihdgd sentinel"
-class = 0xFF
-vendor = 0xFFFF
-device = 0xFFFF
-command = ["ihdgd"]
+# redbear-live-mini: text-only image; override upstream ihdgd config with empty file
 """
 
 [[files]]
 path = "/etc/pcid.d/virtio-gpud.toml"
 data = """
-# redbear-live-mini: text-only image, disable virtio GPU auto-spawn
+# redbear-live-mini: text-only image; override upstream virtio-gpud config with empty file
+"""
+
+[[files]]
+path = "/etc/pcid.d/00_text_mode_gpu_mask.toml"
+data = """
+# redbear-live-mini: force text-only mode by consuming all display-class PCI devices
+# with a no-op command, before any graphics-capable driver rules are evaluated.
 [[drivers]]
-name = "disabled virtio-gpud sentinel"
-class = 0xFF
-vendor = 0xFFFF
-device = 0xFFFF
-command = ["virtio-gpud"]
+name = "Text-only live-mini display mask"
+class = 0x03
+command = ["/bin/true"]
 """

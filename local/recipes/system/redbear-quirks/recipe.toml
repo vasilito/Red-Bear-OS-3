@@ -13,4 +13,5 @@ cp "${COOKBOOK_SOURCE}/quirks.d/30-net.toml" "${COOKBOOK_STAGE}/etc/quirks.d/30-
 cp "${COOKBOOK_SOURCE}/quirks.d/40-storage.toml" "${COOKBOOK_STAGE}/etc/quirks.d/40-storage.toml"
 cp "${COOKBOOK_SOURCE}/quirks.d/50-system.toml" "${COOKBOOK_STAGE}/etc/quirks.d/50-system.toml"
 cp "${COOKBOOK_SOURCE}/quirks.d/60-i2c-hid.toml" "${COOKBOOK_STAGE}/etc/quirks.d/60-i2c-hid.toml"
+cp "${COOKBOOK_SOURCE}/quirks.d/70-ucsi.toml" "${COOKBOOK_STAGE}/etc/quirks.d/70-ucsi.toml"
 """

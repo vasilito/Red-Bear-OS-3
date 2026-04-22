@@ -195,19 +195,26 @@ Grounded in:
 - `recipes/core/base/source/drivers/hwd/src/backend/acpi.rs`
 - `recipes/core/base/source/drivers/hwd/src/main.rs`
 - `recipes/core/base/source/drivers/acpid/src/acpi.rs`
+- `recipes/core/base/source/init.initfs.d/40_pcid.service`
+- `recipes/core/base/source/init.initfs.d/41_acpid.service`
+- `recipes/core/base/source/init.initfs.d/40_hwd.service`
+- `recipes/core/base/source/init.initfs.d/40_pcid-spawner-initfs.service`
 
 Strict order:
 1. kernel bootstrap / memory / early ACPI / IRQ / serio baseline
 2. userspace bootstrap
-3. `hwd` starts
-4. `hwd` ACPI backend spawns `acpid`
-5. `hwd` main spawns `pcid`
-6. `acpid` waits for PCI registration before AML-symbol readiness
+3. `pcid` starts in initfs (`40_pcid.service`)
+4. `acpid` starts in initfs (`41_acpid.service`)
+5. `hwd` starts (`40_hwd.service`) and probes only after `pcid` + `acpid`
+6. `pcid-spawner` runs (`40_pcid-spawner-initfs.service`)
+7. `acpid` waits for PCI registration before AML-symbol readiness
 
 ### Shared initfs target membership (not strict serialization)
 
 Grounded in:
+- `recipes/core/base/source/init.initfs.d/40_pcid.service`
 - `recipes/core/base/source/init.initfs.d/40_hwd.service`
+- `recipes/core/base/source/init.initfs.d/41_acpid.service`
 - `recipes/core/base/source/init.initfs.d/40_pcid-spawner-initfs.service`
 - `recipes/core/base/source/init.initfs.d/40_ps2d.service`
 - `recipes/core/base/source/init.initfs.d/40_drivers.target`
@@ -216,7 +223,7 @@ Grounded in:
 - `recipes/core/base/source/init.initfs.d/20_graphics.target`
 
 Important nuance:
-- `ps2d`, `hwd`, and `pcid-spawner-initfs` all participate in early initfs driver bring-up.
+- `ps2d`, `pcid`, `acpid`, `hwd`, and `pcid-spawner-initfs` all participate in early initfs driver bring-up.
 - They are grouped by `40_drivers.target`, but they are **not** one single strict serial chain.
 
 ## 3. What Linux material Red Bear should borrow into Rust

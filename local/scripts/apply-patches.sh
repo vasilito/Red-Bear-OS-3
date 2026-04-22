@@ -69,6 +69,7 @@ done
 echo "==> Linking recipe patches from local/patches/..."
 symlink "../../../local/patches/kernel/redox.patch" "recipes/core/kernel/redox.patch"
 symlink "../../../local/patches/base/redox.patch"   "recipes/core/base/redox.patch"
+symlink "../../../local/patches/base/P2-boot-runtime-fixes.patch" "recipes/core/base/P2-boot-runtime-fixes.patch"
 
 # ── 3. Custom recipe symlinks ──────────────────────────────────────
 echo "==> Linking custom recipes from local/recipes/..."

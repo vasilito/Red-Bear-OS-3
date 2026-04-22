@@ -24,7 +24,8 @@ What is still open:
 - userspace AML bootstrap no longer depends solely on `RSDP_ADDR` on x86, but the explicit boot-path handoff contract is still underdocumented and non-BIOS paths remain unresolved,
 - normal service ownership is still transitional: `hwd` and `acpid` live on the initfs boot path rather than under a stable long-lived rootfs service contract,
 - AML readiness is still coupled to PCI registration timing,
-- `hwd` still spawns `acpid` ad hoc and the non-ACPI `LegacyBackend` fallback is effectively a TODO no-op,
+- initfs boot order now starts `pcid` and `acpid` explicitly before `hwd`, and `hwd` no longer spawns `acpid` ad hoc,
+- the non-ACPI `LegacyBackend` fallback is still effectively a TODO no-op,
 - failed `/scheme/acpi/register_pci` handoff now uses a bounded retry path before degrading, but the degraded contract is still not strong enough to call Wave 1 closed,
 - the `\_S5` / shutdown path is not yet trustworthy enough to call robust,
 - `/scheme/acpi/power` is still not a trustworthy runtime power surface,
@@ -122,9 +123,9 @@ bounded-hardware, or release-grade completeness.
 
 - `acpid` startup still contains active panic-grade `expect` paths.
 - userspace AML bootstrap now has an explicit handoff path plus x86 BIOS fallback, but the producer side of that contract is still underdocumented and non-BIOS fallback remains unresolved.
-- service lifecycle is still transitional: `hwd` and `acpid` are primarily initfs-owned and `acpid` is still spawned ad hoc rather than by an explicit long-lived rootfs unit.
+- service lifecycle is still transitional: `hwd` and `acpid` are primarily initfs-owned rather than by an explicit long-lived rootfs unit.
 - `\_S5` derivation currently depends on AML readiness that is still gated on PCI registration.
-- `hwd` owns an ad hoc `acpid` spawn path, while `LegacyBackend` fallback is still a TODO no-op rather than a meaningful degraded probe path.
+- `hwd` no longer owns an ad hoc `acpid` spawn path; `LegacyBackend` fallback is still a TODO no-op rather than a meaningful degraded probe path.
 - `pcid` can continue without ACPI integration after a bounded retry window, so AML readiness still transitions from transient-not-ready to durable degraded mode without a stronger recovery contract.
 - post-PCI AML bootstrap failure is now surfaced as an explicit error instead of a quietly empty symbol surface, but that path still needs broader boot-path proof.
 - `set_global_s_state()` is effectively `S5`-only.
@@ -198,7 +199,7 @@ These rules govern all work from this plan:
 | Wave | Theme | Current status | Main blocker | Primary closure signal |
 |---|---|---|---|---|
 | Wave 0 | Contracts / truthfulness | partially complete | doc drift across adjacent ACPI-facing docs | one canonical vocabulary and ownership story across the repo |
-| Wave 1 | Startup hardening / parser policy | partially complete | boot-path contract gaps (explicit `RSDP_ADDR` producer ownership, ad hoc `acpid` spawn) plus remaining panic-grade startup and fault paths | firmware-origin startup failures are bounded and typed and AML bootstrap preconditions are explicit |
+| Wave 1 | Startup hardening / parser policy | partially complete | boot-path contract gaps (explicit `RSDP_ADDR` producer ownership and still-transitional initfs lifecycle) plus remaining panic-grade startup and fault paths | firmware-origin startup failures are bounded and typed and AML bootstrap preconditions are explicit |
 | Wave 2 | AML ordering / shutdown / sleep scope | partially complete | shutdown/reboot result semantics and broader runtime proof still remain incomplete | deterministic `\_S5` derivation and bounded shutdown behavior |
 | Wave 3 | Honest ACPI power surface | open | current power reporting is real but still provisional and under-validated | `/scheme/acpi/power` exposes only behavior that the runtime evidence can honestly support |
 | Wave 4 | AML physmem / EC / runtime fault handling | partially complete | placeholder-like runtime error behavior remains in places | no correctness-critical fabricated runtime values |

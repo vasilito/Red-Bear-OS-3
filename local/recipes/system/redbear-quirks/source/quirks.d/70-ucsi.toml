@@ -1,0 +1,38 @@
+# ACPI UCSI policy overrides.
+#
+# ucsid discovers ACPI UCSI devices and tracks I2C-backed ports. This file
+# provides platform-specific overrides for boot-policy classification and
+# bounded I2C probing.
+#
+# Matching is exact. At least one match field must be present.
+# Multiple matching rules are applied in file order; later rules override
+# earlier values for the same key.
+#
+# Supported match keys:
+#   sys_vendor, board_vendor, board_name, board_version,
+#   product_name, product_version, bios_version,
+#   acpi_path, ucsi_id
+#
+# Supported action keys:
+#   input_critical   mark this UCSI node as input-critical for boot diagnostics
+#   probe_i2c        override bounded UCSI I2C probing for this node
+#   probe_dsm_read   override bounded ACPI UCSI _DSM function-2 read probe
+#
+# Global probe default comes from REDBEAR_UCSI_I2C_PROBE.
+# Global DSM-read probe default comes from REDBEAR_UCSI_DSM_READ_PROBE.
+# Use per-platform rules here to force enable or disable probing.
+#
+# When `probe_dsm_read` is enabled and succeeds, ucsid records a bounded
+# snapshot (`version_bcd`, `cci`) from returned UCSI header bytes when present.
+# ucsid also emits per-device `transport_ready` and `transport_readiness_reason`
+# so boot consumers can use a single readiness signal instead of recomputing
+# policy/capability/probe outcomes.
+#
+# Example:
+#
+# [[ucsi_policy]]
+# match.sys_vendor = "AMD"
+# match.product_name = "Example Laptop 14"
+# match.ucsi_id = "AMDI0042"
+# input_critical = true
+# probe_i2c = true
