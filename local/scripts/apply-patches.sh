@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # apply-patches.sh — Apply all Red Bear OS overlays on top of upstream Redox build system.
 #
-# Usage: ./local/scripts/apply-patches.sh [--force]
+# Usage: ./local/scripts/apply-patches.sh [--force] [--dry-run]
 #
 # This script:
 #   1. Applies build-system patches (rebranding, cookbook fixes, config, docs)
@@ -13,6 +13,7 @@
 #   instead. This script therefore treats the local overlay as the durable source of truth.
 #
 # With --force: reapplies even if patches appear already applied.
+# With --dry-run: shows what would change without making changes.
 #
 # SAFE: does not touch local/ directory. Only modifies upstream files.
 
@@ -21,11 +22,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PATCHES_DIR="$REPO_ROOT/local/patches"
-FORCE="${1:-}"
+FORCE=""
+DRY_RUN=0
 
 cd "$REPO_ROOT"
 
 # ── Helper ──────────────────────────────────────────────────────────
+usage() {
+    cat <<'EOF'
+Usage: ./local/scripts/apply-patches.sh [--force] [--dry-run]
+
+Options:
+  --force    attempt re-application even when checks fail
+  --dry-run  show what would change without modifying files
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --force)    FORCE="--force" ;;
+        --dry-run)  DRY_RUN=1 ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
 symlink() {
     local target="$1" link="$2"
     if [ -L "$link" ]; then
@@ -34,9 +61,19 @@ symlink() {
             return 0  # already correct
         fi
     fi
+    if [ "$DRY_RUN" = "1" ]; then
+        dry_run_msg "would remove and relink $link -> $target"
+        return 0
+    fi
     rm -f "$link"
     ln -s "$target" "$link"
     echo "  linked $link -> $target"
+}
+
+dry_run_msg() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] $*"
+    fi
 }
 
 # ── 1. Build-system patches ─────────────────────────────────────────
@@ -45,21 +82,35 @@ for patch_file in "$PATCHES_DIR"/build-system/[0-9]*.patch; do
     [ -f "$patch_file" ] || continue
     patch_name="$(basename "$patch_file")"
 
-    # Check if already applied (skip unless --force)
-    if [ "$FORCE" != "--force" ]; then
-        if git apply --check "$patch_file" 2>/dev/null; then
-            : # patch applies cleanly, apply it
-        else
-            echo "  SKIP $patch_name (already applied or conflicts)"
-            echo "       Use --force to attempt re-application"
+    # Check if patch applies cleanly
+    if ! git apply --check "$patch_file" 2>/dev/null; then
+        # Patch does NOT apply cleanly — check if it's already applied
+        if git apply --reverse --check "$patch_file" 2>/dev/null; then
+            echo "  SKIP $patch_name (already applied)"
             continue
         fi
+        # Patch conflicts and is NOT already applied — this is a real problem
+        echo "  FAIL $patch_name — conflicts with current tree"
+        echo "       This likely means upstream has changed the target files."
+        echo "       Patch file: $patch_file"
+        echo "       Options:"
+        echo "         1. Resolve conflicts: edit the patch file to match new upstream"
+        echo "         2. Use --force to attempt re-application (may fail)"
+        if [ "$FORCE" != "--force" ]; then
+            echo "  ABORT: unresolved patch conflict (use --force to override)"
+            exit 1
+        fi
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        dry_run_msg "would apply $patch_name"
+        continue
     fi
 
     if git apply --whitespace=nowarn "$patch_file"; then
         echo "  OK   $patch_name"
     else
-        echo "  FAIL $patch_name — resolve conflicts manually"
+        echo "  FAIL $patch_name — apply failed (check conflicts above)"
         echo "       Patch file: $patch_file"
         exit 1
     fi
@@ -138,7 +189,13 @@ symlink "../../local/recipes/core/grub"  "recipes/core/grub"
 # so redirect the entire directory to our local overlay to ensure
 # COOKBOOK_RECIPE resolves to a directory that contains grub.cfg
 if [ -d "recipes/wip/services/grub" ] && [ ! -L "recipes/wip/services/grub" ]; then
-    rm -rf "recipes/wip/services/grub"
+    backup_name="recipes/wip/services/grub.upstream-backup-$(date +%Y%m%d-%H%M%S)"
+    if [ "$DRY_RUN" = "1" ]; then
+        dry_run_msg "would backup recipes/wip/services/grub to $backup_name and replace with symlink"
+    else
+        echo "  backing up upstream recipes/wip/services/grub -> $backup_name"
+        mv "recipes/wip/services/grub" "$backup_name"
+    fi
 fi
 if [ ! -e "recipes/wip/services/grub" ]; then
     symlink "../../../local/recipes/core/grub" "recipes/wip/services/grub"
@@ -200,24 +257,31 @@ echo "==> Ensuring Red Bear OS-specific files exist..."
 
 # redbear.ipxe (network boot)
 if [ ! -f redbear.ipxe ] && [ ! -L redbear.ipxe ]; then
-    cat > redbear.ipxe <<'IPXE'
+    if [ "$DRY_RUN" = "1" ]; then
+        dry_run_msg "would create redbear.ipxe"
+    else
+        cat > redbear.ipxe <<'IPXE'
 #!ipxe
 
 kernel bootloader-live.efi
 initrd http://${next-server}:8080/redbear-live.iso
 boot
 IPXE
-    echo "  created redbear.ipxe"
+        echo "  created redbear.ipxe"
+    fi
 fi
 
 # redbear-full config (not in upstream)
 if [ ! -f config/redbear-full.toml ] && [ ! -L config/redbear-full.toml ]; then
-    cat > config/redbear-full.toml <<'TOML'
+    if [ "$DRY_RUN" = "1" ]; then
+        dry_run_msg "would create config/redbear-full.toml"
+    else
+        cat > config/redbear-full.toml <<'TOML'
 # Red Bear OS Full Configuration
 # Complete desktop + all Red Bear OS custom drivers and tools
 #
 # Build: make all CONFIG_NAME=redbear-full
-# Live:  make live CONFIG_NAME=redbear-full
+# Live:  make live CONFIG_NAME=redbear-live-full
 
 include = ["desktop.toml"]
 
@@ -249,9 +313,15 @@ amdgpu = {}
 # Red Bear OS meta-package (dependencies, default config)
 redbear-meta = {}
 TOML
-    echo "  created config/redbear-full.toml"
+        echo "  created config/redbear-full.toml"
+    fi
+else
+    echo "  config/redbear-full.toml already exists — not overwriting"
 fi
 
 echo ""
 echo "==> All Red Bear OS patches applied. Ready to build."
+if [ "$DRY_RUN" = "1" ]; then
+    echo "    [dry-run mode — no changes were made]"
+fi
 echo "    make all CONFIG_NAME=redbear-full"

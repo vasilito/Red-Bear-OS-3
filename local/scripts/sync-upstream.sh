@@ -23,17 +23,20 @@ UPSTREAM_REMOTE="upstream-redox"
 UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-master}"
 DRY_RUN=0
 NO_MERGE=0
+FORCE=0
 
 usage() {
-    echo "Usage: $0 [--dry-run] [--no-merge]"
+    echo "Usage: $0 [--dry-run] [--no-merge] [--force]"
     echo "  --dry-run    Show what would happen without making changes"
     echo "  --no-merge   Only fetch and check patch conflicts"
+    echo "  --force      Skip safety checks (uncommitted local/ changes)"
 }
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run)   DRY_RUN=1 ;;
         --no-merge)  NO_MERGE=1 ;;
+        --force)     FORCE=1 ;;
         --help|-h)
             usage
             exit 0
@@ -112,15 +115,87 @@ if [ "$DRY_RUN" = "1" ]; then
     exit 0
 fi
 
+# ── 3.5. Check for uncommitted local/ changes ──────────────────────
+if [ "$NO_MERGE" = "0" ] && [ "$DRY_RUN" = "0" ]; then
+    LOCAL_CHANGES=""
+    LOCAL_UNTRACKED=""
+    if [ -d "local" ]; then
+        LOCAL_CHANGES=$(cd local && git diff --name-only HEAD 2>/dev/null || true)
+        LOCAL_UNTRACKED=$(cd local && git ls-files --others --exclude-standard 2>/dev/null || true)
+    fi
+
+    # Also check for uncommitted changes to tracked local/ files from repo root
+    ROOT_LOCAL_CHANGES=$(git diff --name-only HEAD -- local/ 2>/dev/null || true)
+
+    if [ -n "$LOCAL_CHANGES" ] || [ -n "$LOCAL_UNTRACKED" ] || [ -n "$ROOT_LOCAL_CHANGES" ]; then
+        echo ""
+        echo "!! WARNING: Uncommitted changes detected in local/"
+        if [ -n "$ROOT_LOCAL_CHANGES" ]; then
+            echo "   Modified files:"
+            echo "$ROOT_LOCAL_CHANGES" | head -10 | while read -r f; do echo "     $f"; done
+            TOTAL=$(echo "$ROOT_LOCAL_CHANGES" | grep -c .)
+            [ "$TOTAL" -gt 10 ] && echo "     ... and $((TOTAL - 10)) more"
+        fi
+        if [ -n "$LOCAL_UNTRACKED" ]; then
+            echo "   Untracked files (NOT protected by stash):"
+            echo "$LOCAL_UNTRACKED" | head -5 | while read -r f; do echo "     $f"; done
+            TOTAL=$(echo "$LOCAL_UNTRACKED" | grep -c .)
+            [ "$TOTAL" -gt 5 ] && echo "     ... and $((TOTAL - 5)) more"
+        fi
+        echo ""
+        echo "   git stash does NOT protect untracked files."
+        echo "   Commit your local/ changes before syncing, or use --force to proceed anyway."
+
+        if [ "$FORCE" = "0" ]; then
+            echo ""
+            echo "   ABORT: Uncommitted local/ changes detected. Use --force to override."
+            exit 1
+        else
+            echo "   --force specified, proceeding anyway..."
+        fi
+    fi
+fi
+
 # ── 4. Stash uncommitted changes ────────────────────────────────────
 STASHED=0
 if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
     echo "==> Stashing uncommitted changes..."
-    git stash push -m "redbear-sync-$(date +%Y%m%d-%H%M%S)"
+    git stash push -u -m "redbear-sync-$(date +%Y%m%d-%H%M%S)"
     STASHED=1
 fi
 
 PREV_HEAD=$(git rev-parse HEAD)
+
+# ── 4.5. Verify overlay integrity before rebase ────────────────────
+echo "==> Verifying Red Bear overlay integrity before rebase..."
+BROKEN_SYMLINKS=""
+while IFS= read -r link; do
+    if [ ! -e "$link" ]; then
+        BROKEN_SYMLINKS="$BROKEN_SYMLINKS
+  $link -> $(readlink "$link")"
+    fi
+done < <(find recipes -maxdepth 3 -type l 2>/dev/null)
+
+if [ -n "$BROKEN_SYMLINKS" ]; then
+    echo "!! WARNING: Broken symlinks detected in recipes/:"
+    echo "$BROKEN_SYMLINKS" | head -20
+    TOTAL=$(echo "$BROKEN_SYMLINKS" | grep -c .)
+    [ "$TOTAL" -gt 20 ] && echo "  ... and $((TOTAL - 20)) more"
+    echo ""
+    echo "   These symlinks may break further during rebase."
+    echo "   Run ./local/scripts/apply-patches.sh after rebase to recreate them."
+fi
+
+# Check that key local/patches exist
+for patch_file in local/patches/kernel/redox.patch local/patches/base/redox.patch local/patches/relibc/redox.patch; do
+    if [ ! -f "$patch_file" ]; then
+        echo "!! CRITICAL: Missing patch file: $patch_file"
+        echo "   Cannot recover from rebase failure without this patch."
+        if [ "$FORCE" = "0" ]; then
+            exit 1
+        fi
+    fi
+done
 
 # ── 5. Rebase ───────────────────────────────────────────────────────
 echo ""
@@ -135,20 +210,34 @@ else
     echo "!! Rebase conflict. Options:"
     echo "   1. Resolve conflicts:  edit files, git add, git rebase --continue"
     echo "   2. Abort:              git rebase --abort"
-    echo "   3. Nuclear option:"
+    echo "   3. Nuclear option (DESTRUCTIVE — loses uncommitted work):"
     echo "      git rebase --abort"
     echo "      git reset --hard $UPSTREAM_REF"
     echo "      ./local/scripts/apply-patches.sh --force"
     echo ""
     echo "   Patches for recovery: local/patches/build-system/"
     echo "   Previous HEAD:        $PREV_HEAD"
+    echo ""
+    echo "   IMPORTANT: Before using the nuclear option, ensure all local/ changes"
+    echo "   are committed. The nuclear option does NOT preserve uncommitted work."
+    echo "   To recover to previous state: git reset --hard $PREV_HEAD"
     exit 1
 fi
 
 # ── 6. Restore stash ────────────────────────────────────────────────
 if [ "$STASHED" = 1 ]; then
     echo "==> Restoring stashed changes..."
-    git stash pop || echo "    (stash pop had conflicts — resolve manually)"
+    if git stash pop; then
+        echo "    Stash restored successfully."
+    else
+        echo "!! Stash pop had conflicts."
+        echo "   Your changes are preserved in the stash."
+        echo "   Options:"
+        echo "     1. Resolve conflicts in the working tree"
+        echo "     2. git checkout --theirs . && git stash drop"
+        echo "     3. git reset --hard && git stash pop  (try again on clean tree)"
+        echo "   List stashes: git stash list"
+    fi
 fi
 
 # ── 7. Verify symlinks ─────────────────────────────────────────────
