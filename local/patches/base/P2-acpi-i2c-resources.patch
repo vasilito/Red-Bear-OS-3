@@ -1,15 +1,290 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index a123cb91..71eeea7d 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -31,11 +31,20 @@ dependencies = [
+  "spinning_top",
+ ]
+ 
++[[package]]
++name = "acpi-resource"
++version = "0.0.1"
++dependencies = [
++ "serde",
++ "thiserror 2.0.18",
++]
++
+ [[package]]
+ name = "acpid"
+ version = "0.1.0"
+ dependencies = [
+  "acpi",
++ "acpi-resource",
+  "amlserde",
+  "arrayvec",
+  "common",
+@@ -81,6 +90,23 @@ dependencies = [
+  "memchr 2.8.0",
+ ]
+ 
++[[package]]
++name = "amd-mp2-i2cd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "pcid",
++ "redox_syscall 0.7.4",
++ "ron",
++ "serde",
++]
++
+ [[package]]
+ name = "amlserde"
+ version = "0.0.1"
+@@ -643,6 +669,22 @@ dependencies = [
+  "linux-raw-sys 0.9.4",
+ ]
+ 
++[[package]]
++name = "dw-acpi-i2cd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "redox_syscall 0.7.4",
++ "ron",
++ "serde",
++]
++
+ [[package]]
+ name = "e1000d"
+ version = "0.1.0"
+@@ -910,6 +952,22 @@ dependencies = [
+  "wasip3",
+ ]
+ 
++[[package]]
++name = "gpiod"
++version = "0.1.0"
++dependencies = [
++ "anyhow",
++ "common",
++ "daemon",
++ "libredox",
++ "log",
++ "redox-scheme",
++ "redox_syscall 0.7.4",
++ "ron",
++ "scheme-utils",
++ "serde",
++]
++
+ [[package]]
+ name = "gpt"
+ version = "3.1.0"
+@@ -1005,6 +1063,68 @@ dependencies = [
+  "ron",
+ ]
+ 
++[[package]]
++name = "i2c-gpio-expanderd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "redox_syscall 0.7.4",
++ "ron",
++ "serde",
++]
++
++[[package]]
++name = "i2c-hidd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "amlserde",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "inputd",
++ "libredox",
++ "log",
++ "orbclient",
++ "redox-scheme",
++ "redox_syscall 0.7.4",
++ "ron",
++ "scheme-utils",
++ "serde",
++]
++
++[[package]]
++name = "i2c-interface"
++version = "0.1.0"
++dependencies = [
++ "redox_syscall 0.7.4",
++ "serde",
++]
++
++[[package]]
++name = "i2cd"
++version = "0.1.0"
++dependencies = [
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "redox-scheme",
++ "redox_syscall 0.7.4",
++ "ron",
++ "scheme-utils",
++ "serde",
++]
++
+ [[package]]
+ name = "iana-time-zone"
+ version = "0.1.65"
+@@ -1129,6 +1249,58 @@ dependencies = [
+  "scheme-utils",
+ ]
+ 
++[[package]]
++name = "intel-gpiod"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "libredox",
++ "log",
++ "redox_syscall 0.7.4",
++ "ron",
++ "serde",
++]
++
++[[package]]
++name = "intel-lpss-i2cd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "redox_syscall 0.7.4",
++ "ron",
++ "serde",
++]
++
++[[package]]
++name = "intel-thc-hidd"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "amlserde",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "pci_types",
++ "pcid",
++ "redox-scheme",
++ "redox_syscall 0.7.4",
++ "ron",
++ "scheme-utils",
++ "serde",
++]
++
+ [[package]]
+ name = "ioslice"
+ version = "0.6.0"
+@@ -2391,6 +2563,24 @@ version = "1.19.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+ 
++[[package]]
++name = "ucsid"
++version = "0.1.0"
++dependencies = [
++ "acpi-resource",
++ "anyhow",
++ "common",
++ "daemon",
++ "i2c-interface",
++ "libredox",
++ "log",
++ "redox-scheme",
++ "redox_syscall 0.7.4",
++ "ron",
++ "scheme-utils",
++ "serde",
++]
++
+ [[package]]
+ name = "unicode-ident"
+ version = "1.0.24"
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e776232..d4d108ee 100644
+index 9e776232..8cecf423 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -20,6 +20,7 @@ members = [
+@@ -20,8 +20,17 @@ members = [
      "drivers/common",
      "drivers/executor",
  
 +    "drivers/acpi-resource",
      "drivers/acpid",
++    "drivers/gpio/gpiod",
++    "drivers/gpio/i2c-gpio-expanderd",
++    "drivers/gpio/intel-gpiod",
      "drivers/hwd",
++    "drivers/i2c/amd-mp2-i2cd",
++    "drivers/i2c/dw-acpi-i2cd",
++    "drivers/i2c/i2c-interface",
++    "drivers/i2c/i2cd",
++    "drivers/i2c/intel-lpss-i2cd",
      "drivers/pcid",
+     "drivers/pcid-spawner",
+     "drivers/rtcd",
+@@ -43,6 +52,8 @@ members = [
+     "drivers/graphics/virtio-gpud",
+ 
+     "drivers/input/ps2d",
++    "drivers/input/i2c-hidd",
++    "drivers/input/intel-thc-hidd",
+     "drivers/input/usbhidd",
+ 
+     "drivers/net/driver-network",
+@@ -63,6 +74,7 @@ members = [
+     "drivers/storage/usbscsid",
+     "drivers/storage/virtio-blkd",
+ 
++    "drivers/usb/ucsid",
+     "drivers/usb/xhcid",
+     "drivers/usb/usbctl",
+     "drivers/usb/usbhubd",
 diff --git a/drivers/acpi-resource/Cargo.toml b/drivers/acpi-resource/Cargo.toml
 new file mode 100644
 index 00000000..f30c6d02
@@ -1262,4 +1537,5190 @@ index 00000000..e5d6ab22
 +            _ => Err(()),
 +        }
 +    }
++}
+diff --git a/drivers/gpio/gpiod/Cargo.toml b/drivers/gpio/gpiod/Cargo.toml
+new file mode 100644
+index 00000000..7e087bd7
+--- /dev/null
++++ b/drivers/gpio/gpiod/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "gpiod"
++description = "GPIO controller registry daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++redox-scheme.workspace = true
++ron.workspace = true
++serde.workspace = true
++
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++scheme-utils = { path = "../../../scheme-utils" }
++
++[lints]
++workspace = true
+diff --git a/drivers/gpio/gpiod/src/main.rs b/drivers/gpio/gpiod/src/main.rs
+new file mode 100644
+index 00000000..41618ba1
+--- /dev/null
++++ b/drivers/gpio/gpiod/src/main.rs
+@@ -0,0 +1,496 @@
++use std::collections::BTreeMap;
++use std::process;
++
++use anyhow::{Context, Result};
++use redox_scheme::scheme::SchemeSync;
++use redox_scheme::{CallerCtx, OpenResult, Socket};
++use scheme_utils::{Blocking, HandleMap};
++use serde::{Deserialize, Serialize};
++use syscall::schemev2::NewFdFlags;
++use syscall::{Error as SysError, EACCES, EBADF, EINVAL, ENOENT};
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct GpioControllerInfo {
++    pub id: u32,
++    pub name: String,
++    pub pin_count: usize,
++    pub supports_interrupt: bool,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum GpioControlRequest {
++    RegisterController { info: GpioControllerInfo },
++    ReadPin { controller_id: u32, pin: u32 },
++    WritePin { controller_id: u32, pin: u32, value: bool },
++    ConfigurePin { controller_id: u32, pin: u32, config: PinConfig },
++    ListControllers,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct PinConfig {
++    pub direction: PinDirection,
++    pub pull: PullMode,
++    pub interrupt_mode: Option<InterruptMode>,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum PinDirection {
++    Input,
++    Output,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum PullMode {
++    None,
++    Up,
++    Down,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum InterruptMode {
++    EdgeRising,
++    EdgeFalling,
++    EdgeBoth,
++    LevelHigh,
++    LevelLow,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++enum GpioControlResponse {
++    ControllerRegistered { id: u32 },
++    Controllers(Vec<GpioControllerInfo>),
++    Controller(GpioControllerInfo),
++    PinValue(bool),
++    Ack,
++    Error(String),
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum PinOpKind {
++    Read,
++    Write,
++    Configure,
++}
++
++enum Handle {
++    SchemeRoot,
++    Register { pending: Vec<u8> },
++    Provider { controller_id: u32, pending: Vec<u8> },
++    ControllersDir { pending: Vec<u8> },
++    ControllerDetail { id: u32, pending: Vec<u8> },
++    PinOp { kind: PinOpKind, pending: Vec<u8> },
++}
++
++struct ControllerEntry {
++    info: GpioControllerInfo,
++    provider_handle: usize,
++}
++
++struct GpioDaemon {
++    handles: HandleMap<Handle>,
++    controllers: BTreeMap<u32, ControllerEntry>,
++    next_id: u32,
++}
++
++impl GpioDaemon {
++    fn new() -> Self {
++        Self {
++            handles: HandleMap::new(),
++            controllers: BTreeMap::new(),
++            next_id: 0,
++        }
++    }
++
++    fn controller_list(&self) -> Vec<GpioControllerInfo> {
++        self.controllers
++            .values()
++            .map(|entry| entry.info.clone())
++            .collect()
++    }
++
++    fn serialize_response(response: &GpioControlResponse) -> syscall::Result<Vec<u8>> {
++        ron::ser::to_string(response)
++            .map(|text| text.into_bytes())
++            .map_err(|err| {
++                log::error!("gpiod: failed to serialize control response: {err}");
++                SysError::new(EINVAL)
++            })
++    }
++
++    fn deserialize_request(buf: &[u8]) -> syscall::Result<GpioControlRequest> {
++        let text = std::str::from_utf8(buf).map_err(|err| {
++            log::warn!("gpiod: invalid UTF-8 request payload: {err}");
++            SysError::new(EINVAL)
++        })?;
++
++        ron::from_str(text).map_err(|err| {
++            log::warn!("gpiod: failed to decode control request: {err}");
++            SysError::new(EINVAL)
++        })
++    }
++
++    fn set_pending_response(handle: &mut Handle, response: GpioControlResponse) -> syscall::Result<()> {
++        let pending = Self::serialize_response(&response)?;
++        Self::set_pending_bytes(handle, pending)
++    }
++
++    fn set_pending_bytes(handle: &mut Handle, pending: Vec<u8>) -> syscall::Result<()> {
++        match handle {
++            Handle::Register { pending: slot }
++            | Handle::Provider { pending: slot, .. }
++            | Handle::ControllersDir { pending: slot }
++            | Handle::ControllerDetail { pending: slot, .. }
++            | Handle::PinOp { pending: slot, .. } => {
++                *slot = pending;
++                Ok(())
++            }
++            Handle::SchemeRoot => Err(SysError::new(EBADF)),
++        }
++    }
++
++    fn copy_pending(handle: &mut Handle, buf: &mut [u8], offset: u64) -> syscall::Result<usize> {
++        let pending = match handle {
++            Handle::Register { pending }
++            | Handle::Provider { pending, .. }
++            | Handle::ControllersDir { pending }
++            | Handle::ControllerDetail { pending, .. }
++            | Handle::PinOp { pending, .. } => pending,
++            Handle::SchemeRoot => return Err(SysError::new(EBADF)),
++        };
++
++        let offset = usize::try_from(offset).map_err(|_| SysError::new(EINVAL))?;
++        if offset >= pending.len() {
++            return Ok(0);
++        }
++
++        let copy_len = buf.len().min(pending.len() - offset);
++        buf[..copy_len].copy_from_slice(&pending[offset..offset + copy_len]);
++        Ok(copy_len)
++    }
++
++    fn validate_pin_target(
++        &self,
++        controller_id: u32,
++        pin: u32,
++    ) -> std::result::Result<GpioControllerInfo, String> {
++        let entry = self
++            .controllers
++            .get(&controller_id)
++            .ok_or_else(|| format!("unknown controller {controller_id}"))?;
++        if usize::try_from(pin)
++            .ok()
++            .filter(|pin| *pin < entry.info.pin_count)
++            .is_none()
++        {
++            return Err(format!(
++                "pin {pin} is out of range for controller {} (pin_count={})",
++                entry.info.name, entry.info.pin_count
++            ));
++        }
++        Ok(entry.info.clone())
++    }
++}
++
++impl SchemeSync for GpioDaemon {
++    fn scheme_root(&mut self) -> syscall::Result<usize> {
++        Ok(self.handles.insert(Handle::SchemeRoot))
++    }
++
++    fn openat(
++        &mut self,
++        dirfd: usize,
++        path: &str,
++        _flags: usize,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<OpenResult> {
++        let handle = self.handles.get(dirfd)?;
++        let segments = path.trim_matches('/');
++
++        let new_handle = match handle {
++            Handle::SchemeRoot => {
++                if segments.is_empty() {
++                    return Err(SysError::new(EINVAL));
++                }
++
++                let mut parts = segments.split('/');
++                match parts.next() {
++                    Some("register") if parts.next().is_none() => Handle::Register {
++                        pending: Vec::new(),
++                    },
++                    Some("controllers") => match parts.next() {
++                        None => Handle::ControllersDir {
++                            pending: Vec::new(),
++                        },
++                        Some(id) if parts.next().is_none() => Handle::ControllerDetail {
++                            id: id.parse::<u32>().map_err(|_| SysError::new(EINVAL))?,
++                            pending: Vec::new(),
++                        },
++                        _ => return Err(SysError::new(EINVAL)),
++                    },
++                    Some("read_pin") if parts.next().is_none() => Handle::PinOp {
++                        kind: PinOpKind::Read,
++                        pending: Vec::new(),
++                    },
++                    Some("write_pin") if parts.next().is_none() => Handle::PinOp {
++                        kind: PinOpKind::Write,
++                        pending: Vec::new(),
++                    },
++                    Some("configure_pin") if parts.next().is_none() => Handle::PinOp {
++                        kind: PinOpKind::Configure,
++                        pending: Vec::new(),
++                    },
++                    _ => return Err(SysError::new(ENOENT)),
++                }
++            }
++            Handle::ControllersDir { .. } => {
++                if segments.is_empty() {
++                    return Err(SysError::new(EINVAL));
++                }
++
++                Handle::ControllerDetail {
++                    id: segments.parse::<u32>().map_err(|_| SysError::new(EINVAL))?,
++                    pending: Vec::new(),
++                }
++            }
++            _ => return Err(SysError::new(EACCES)),
++        };
++
++        let fd = self.handles.insert(new_handle);
++        Ok(OpenResult::ThisScheme {
++            number: fd,
++            flags: NewFdFlags::empty(),
++        })
++    }
++
++    fn read(
++        &mut self,
++        id: usize,
++        buf: &mut [u8],
++        offset: u64,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<usize> {
++        let controllers = self.controller_list();
++        let detail = match self.handles.get(id)? {
++            Handle::ControllerDetail { id, .. } => self.controllers.get(id).map(|entry| entry.info.clone()),
++            _ => None,
++        };
++
++        let handle = self.handles.get_mut(id)?;
++        match handle {
++            Handle::ControllersDir { pending } if pending.is_empty() => {
++                *pending = Self::serialize_response(&GpioControlResponse::Controllers(controllers))?;
++            }
++            Handle::ControllerDetail { id, pending } if pending.is_empty() => {
++                let info = detail.ok_or(SysError::new(ENOENT))?;
++                *pending = Self::serialize_response(&GpioControlResponse::Controller(info))?;
++                log::debug!("gpiod: served controller detail for id={id}");
++            }
++            _ => {}
++        }
++
++        Self::copy_pending(handle, buf, offset)
++    }
++
++    fn write(
++        &mut self,
++        id: usize,
++        buf: &[u8],
++        _offset: u64,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<usize> {
++        let request = Self::deserialize_request(buf)?;
++
++        match request {
++            GpioControlRequest::RegisterController { mut info } => {
++                if !matches!(self.handles.get(id)?, Handle::Register { .. }) {
++                    return Err(SysError::new(EINVAL));
++                }
++
++                let controller_id = self.next_id;
++                self.next_id = self.next_id.checked_add(1).ok_or(SysError::new(EINVAL))?;
++                info.id = controller_id;
++                self.controllers.insert(
++                    controller_id,
++                    ControllerEntry {
++                        info: info.clone(),
++                        provider_handle: id,
++                    },
++                );
++
++                let handle = self.handles.get_mut(id)?;
++                *handle = Handle::Provider {
++                    controller_id,
++                    pending: Self::serialize_response(&GpioControlResponse::ControllerRegistered {
++                        id: controller_id,
++                    })?,
++                };
++
++                log::info!(
++                    "RB_GPIOD_CONTROLLER_REGISTERED id={} name={} pin_count={} supports_interrupt={}",
++                    info.id,
++                    info.name,
++                    info.pin_count,
++                    info.supports_interrupt,
++                );
++                Ok(buf.len())
++            }
++            GpioControlRequest::ListControllers => {
++                let controllers = self.controller_list();
++                let handle = self.handles.get_mut(id)?;
++                Self::set_pending_response(handle, GpioControlResponse::Controllers(controllers))?;
++                Ok(buf.len())
++            }
++            GpioControlRequest::ReadPin { controller_id, pin } => {
++                let validation = self.validate_pin_target(controller_id, pin);
++                let handle = self.handles.get_mut(id)?;
++                match handle {
++                    Handle::PinOp {
++                        kind: PinOpKind::Read,
++                        ..
++                    } => {
++                        match validation {
++                            Ok(info) => {
++                                log::info!(
++                                    "RB_GPIOD_PIN_READ controller_id={} name={} pin={} routed=stub",
++                                    controller_id,
++                                    info.name,
++                                    pin,
++                                );
++                                Self::set_pending_response(handle, GpioControlResponse::PinValue(false))?;
++                            }
++                            Err(message) => {
++                                Self::set_pending_response(handle, GpioControlResponse::Error(message))?;
++                            }
++                        }
++                        Ok(buf.len())
++                    }
++                    _ => Err(SysError::new(EINVAL)),
++                }
++            }
++            GpioControlRequest::WritePin {
++                controller_id,
++                pin,
++                value,
++            } => {
++                let validation = self.validate_pin_target(controller_id, pin);
++                let handle = self.handles.get_mut(id)?;
++                match handle {
++                    Handle::PinOp {
++                        kind: PinOpKind::Write,
++                        ..
++                    } => {
++                        match validation {
++                            Ok(info) => {
++                                log::info!(
++                                    "RB_GPIOD_PIN_WRITE controller_id={} name={} pin={} value={} routed=stub",
++                                    controller_id,
++                                    info.name,
++                                    pin,
++                                    value,
++                                );
++                                Self::set_pending_response(handle, GpioControlResponse::Ack)?;
++                            }
++                            Err(message) => {
++                                Self::set_pending_response(handle, GpioControlResponse::Error(message))?;
++                            }
++                        }
++                        Ok(buf.len())
++                    }
++                    _ => Err(SysError::new(EINVAL)),
++                }
++            }
++            GpioControlRequest::ConfigurePin {
++                controller_id,
++                pin,
++                config,
++            } => {
++                let validation = self.validate_pin_target(controller_id, pin);
++                let handle = self.handles.get_mut(id)?;
++                match handle {
++                    Handle::PinOp {
++                        kind: PinOpKind::Configure,
++                        ..
++                    } => {
++                        match validation {
++                            Ok(info) => {
++                                log::info!(
++                                    "RB_GPIOD_PIN_CONFIG controller_id={} name={} pin={} direction={:?} pull={:?} interrupt={:?} routed=stub",
++                                    controller_id,
++                                    info.name,
++                                    pin,
++                                    config.direction,
++                                    config.pull,
++                                    config.interrupt_mode,
++                                );
++                                Self::set_pending_response(handle, GpioControlResponse::Ack)?;
++                            }
++                            Err(message) => {
++                                Self::set_pending_response(handle, GpioControlResponse::Error(message))?;
++                            }
++                        }
++                        Ok(buf.len())
++                    }
++                    _ => Err(SysError::new(EINVAL)),
++                }
++            }
++        }
++    }
++
++    fn on_close(&mut self, id: usize) {
++        let Some(handle) = self.handles.remove(id) else {
++            return;
++        };
++        if let Handle::Provider { controller_id, .. } = handle {
++            if let Some(entry) = self.controllers.remove(&controller_id) {
++                log::info!(
++                    "RB_GPIOD_CONTROLLER_REMOVED id={} name={} provider_handle={}",
++                    controller_id,
++                    entry.info.name,
++                    entry.provider_handle,
++                );
++            }
++        }
++    }
++}
++
++fn run_daemon(daemon: daemon::SchemeDaemon) -> Result<()> {
++    let socket = Socket::create().context("failed to create gpio scheme socket")?;
++    let mut scheme = GpioDaemon::new();
++    let handler = Blocking::new(&socket, 16);
++
++    daemon
++        .ready_sync_scheme(&socket, &mut scheme)
++        .context("failed to publish gpio scheme root")?;
++
++    log::info!("RB_GPIOD_SCHEMA version=1");
++
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    handler
++        .process_requests_blocking(scheme)
++        .context("failed to process gpiod requests")?;
++}
++
++fn daemon_runner(daemon: daemon::SchemeDaemon) -> ! {
++    if let Err(err) = run_daemon(daemon) {
++        log::error!("gpiod: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn main() {
++    common::setup_logging(
++        "gpio",
++        "gpio",
++        "gpiod",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::SchemeDaemon::new(daemon_runner);
++}
+diff --git a/drivers/gpio/i2c-gpio-expanderd/Cargo.toml b/drivers/gpio/i2c-gpio-expanderd/Cargo.toml
+new file mode 100644
+index 00000000..3e168e96
+--- /dev/null
++++ b/drivers/gpio/i2c-gpio-expanderd/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "i2c-gpio-expanderd"
++description = "I2C GPIO expander bridge daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../../i2c/i2c-interface" }
++
++[lints]
++workspace = true
+diff --git a/drivers/gpio/i2c-gpio-expanderd/src/main.rs b/drivers/gpio/i2c-gpio-expanderd/src/main.rs
+new file mode 100644
+index 00000000..223ebc01
+--- /dev/null
++++ b/drivers/gpio/i2c-gpio-expanderd/src/main.rs
+@@ -0,0 +1,450 @@
++use std::collections::BTreeMap;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Write};
++use std::path::Path;
++use std::process;
++
++use acpi_resource::{GpioDescriptor, I2cSerialBusDescriptor, ResourceDescriptor};
++use anyhow::{Context, Result};
++use i2c_interface::{
++    I2cAdapterInfo, I2cControlRequest, I2cControlResponse, I2cTransferRequest,
++    I2cTransferResponse, I2cTransferSegment,
++};
++use serde::{Deserialize, Serialize};
++
++#[derive(Debug, Deserialize)]
++struct AmlSymbol {
++    name: String,
++    value: AmlValue,
++}
++
++#[derive(Debug, Deserialize)]
++enum AmlValue {
++    Integer(u64),
++    String(String),
++}
++
++#[derive(Clone, Debug)]
++struct ExpanderResources {
++    i2c: I2cSerialBusDescriptor,
++    pin_count: usize,
++    gpio_int_count: usize,
++    gpio_io_count: usize,
++}
++
++#[derive(Debug)]
++struct ExpanderDescriptor {
++    device: String,
++    hid: String,
++    resources: ExpanderResources,
++}
++
++struct RegisteredExpander {
++    _registration: File,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++struct GpioControllerInfo {
++    id: u32,
++    name: String,
++    pin_count: usize,
++    supports_interrupt: bool,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++enum GpioControlRequest {
++    RegisterController { info: GpioControllerInfo },
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++enum GpioControlResponse {
++    ControllerRegistered { id: u32 },
++    Error(String),
++}
++
++fn main() {
++    common::setup_logging(
++        "gpio",
++        "i2c-gpio-expander",
++        "i2c-gpio-expanderd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::Daemon::new(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::Daemon) -> ! {
++    if let Err(err) = daemon_main(daemon) {
++        log::error!("i2c-gpio-expanderd: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn daemon_main(daemon: daemon::Daemon) -> Result<()> {
++    let expanders = discover_expanders().context("failed to discover ACPI I2C GPIO expanders")?;
++    if expanders.is_empty() {
++        log::info!("i2c-gpio-expanderd: no probable ACPI I2C GPIO expanders found");
++    }
++
++    let adapters = list_i2c_adapters().unwrap_or_else(|err| {
++        log::warn!("i2c-gpio-expanderd: unable to query i2cd adapters: {err:#}");
++        Vec::new()
++    });
++
++    let mut registered = Vec::new();
++    for expander in expanders {
++        match register_expander(expander, &adapters) {
++            Ok(expander) => registered.push(expander),
++            Err(err) => log::warn!("i2c-gpio-expanderd: expander registration skipped: {err:#}"),
++        }
++    }
++
++    daemon.ready();
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    log::info!("i2c-gpio-expanderd: registered {} expander(s)", registered.len());
++
++    loop {
++        std::thread::park();
++    }
++}
++
++fn discover_expanders() -> Result<Vec<ExpanderDescriptor>> {
++    let mut matched = BTreeMap::new();
++
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock || err.raw_os_error() == Some(11) => {
++            log::debug!("i2c-gpio-expanderd: ACPI symbols are not ready yet");
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    for entry in entries {
++        let entry = entry.context("failed to read ACPI symbol directory entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("_HID") && !file_name.ends_with("_CID") {
++            continue;
++        }
++
++        let Some(id) = read_symbol_id(&entry.path())? else {
++            continue;
++        };
++        if is_excluded_device_id(&id) {
++            continue;
++        }
++
++        let Some(device) = file_name
++            .strip_suffix("_HID")
++            .or_else(|| file_name.strip_suffix("_CID"))
++            .map(str::to_owned)
++        else {
++            continue;
++        };
++
++        let resources = match read_expander_resources(&device) {
++            Ok(resources) => resources,
++            Err(err) => {
++                log::debug!("i2c-gpio-expanderd: skipping {device}: {err:#}");
++                continue;
++            }
++        };
++        if resources.gpio_int_count == 0 && resources.gpio_io_count == 0 {
++            continue;
++        }
++
++        matched.entry(device).or_insert((id, resources));
++    }
++
++    let mut expanders = Vec::new();
++    for (device, (hid, resources)) in matched {
++        expanders.push(ExpanderDescriptor {
++            device,
++            hid,
++            resources,
++        });
++    }
++    Ok(expanders)
++}
++
++fn read_symbol_id(path: &Path) -> Result<Option<String>> {
++    let contents = fs::read_to_string(path)
++        .with_context(|| format!("failed to read ACPI symbol {}", path.display()))?;
++    let symbol = match ron::from_str::<AmlSymbol>(&contents) {
++        Ok(symbol) => symbol,
++        Err(err) => {
++            log::debug!(
++                "i2c-gpio-expanderd: skipping {} because the symbol payload was not a scalar ID: {err}",
++                path.display(),
++            );
++            return Ok(None);
++        }
++    };
++
++    let id = match symbol.value {
++        AmlValue::Integer(integer) => eisa_id_from_integer(integer),
++        AmlValue::String(string) => string,
++    };
++
++    log::debug!("i2c-gpio-expanderd: {} -> {id}", symbol.name);
++    Ok(Some(id))
++}
++
++fn read_expander_resources(device: &str) -> Result<ExpanderResources> {
++    let contents = fs::read_to_string(format!("/scheme/acpi/resources/{device}"))
++        .with_context(|| format!("failed to read /scheme/acpi/resources/{device}"))?;
++    let resources = ron::from_str::<Vec<ResourceDescriptor>>(&contents)
++        .with_context(|| format!("failed to decode RON resources for {device}"))?;
++
++    let mut i2c = None;
++    let mut pin_count = 0usize;
++    let mut gpio_int_count = 0usize;
++    let mut gpio_io_count = 0usize;
++
++    for resource in resources {
++        match resource {
++            ResourceDescriptor::I2cSerialBus(bus) if i2c.is_none() => i2c = Some(bus),
++            ResourceDescriptor::GpioInt(descriptor) => {
++                gpio_int_count += 1;
++                pin_count = pin_count.max(pin_count_from_descriptor(&descriptor));
++            }
++            ResourceDescriptor::GpioIo(descriptor) => {
++                gpio_io_count += 1;
++                pin_count = pin_count.max(pin_count_from_descriptor(&descriptor));
++            }
++            _ => {}
++        }
++    }
++
++    Ok(ExpanderResources {
++        i2c: i2c.context("no I2cSerialBus resource was found")?,
++        pin_count,
++        gpio_int_count,
++        gpio_io_count,
++    })
++}
++
++fn pin_count_from_descriptor(descriptor: &GpioDescriptor) -> usize {
++    descriptor
++        .pins
++        .iter()
++        .copied()
++        .max()
++        .map(|pin| usize::from(pin).saturating_add(1))
++        .unwrap_or(0)
++}
++
++fn is_excluded_device_id(id: &str) -> bool {
++    matches!(
++        id,
++        "PNP0C50"
++            | "ACPI0C50"
++            | "INT34C5"
++            | "INTC1055"
++            | "INT33C2"
++            | "INT33C3"
++            | "INT3432"
++            | "INT3433"
++            | "INTC10EF"
++            | "AMDI0010"
++            | "AMDI0019"
++            | "AMDI0510"
++            | "PNP0CA0"
++            | "AMDI0042"
++    ) || id.starts_with("ELAN")
++        || id.starts_with("CYAP")
++        || id.starts_with("SYNA")
++}
++
++fn register_expander(expander: ExpanderDescriptor, adapters: &[I2cAdapterInfo]) -> Result<RegisteredExpander> {
++    let ExpanderDescriptor {
++        device,
++        hid,
++        resources,
++    } = expander;
++
++    let adapter_name = resources
++        .i2c
++        .resource_source
++        .as_ref()
++        .map(|source| source.source.clone())
++        .filter(|source| !source.is_empty())
++        .unwrap_or_else(|| String::from("ACPI-I2C"));
++    let adapter = match match_i2c_adapter(adapters, &adapter_name) {
++        Some(adapter) => Some(adapter.clone()),
++        None => {
++            log::warn!(
++                "i2c-gpio-expanderd: unable to resolve I2C adapter {} for {}",
++                adapter_name,
++                device,
++            );
++            None
++        }
++    };
++
++    if let Some(adapter) = adapter.as_ref() {
++        if let Err(err) = probe_expander(adapter, &adapter_name, resources.i2c.slave_address) {
++            log::warn!(
++                "i2c-gpio-expanderd: expander {} probe on {}@{:04x} failed: {err:#}",
++                device,
++                adapter_name,
++                resources.i2c.slave_address,
++            );
++        }
++    }
++
++    let info = GpioControllerInfo {
++        id: 0,
++        name: format!("i2c-gpio-expander:{device}"),
++        pin_count: resources.pin_count,
++        supports_interrupt: resources.gpio_int_count > 0,
++    };
++    let mut registration = register_with_gpiod(&info)
++        .with_context(|| format!("failed to register {device} with gpiod"))?;
++    let response = read_gpio_registration_response(&mut registration)
++        .with_context(|| format!("failed to read gpiod registration response for {device}"))?;
++
++    match response {
++        GpioControlResponse::ControllerRegistered { id } => {
++            log::info!(
++                "RB_I2C_GPIO_EXPANDERD_DEVICE device={} hid={} controller_id={} adapter={} addr={:04x} pin_count={} gpio_int={} gpio_io={}",
++                device,
++                hid,
++                id,
++                adapter_name,
++                resources.i2c.slave_address,
++                info.pin_count,
++                resources.gpio_int_count,
++                resources.gpio_io_count,
++            );
++        }
++        GpioControlResponse::Error(message) => {
++            anyhow::bail!("gpiod rejected expander {device}: {message}");
++        }
++    }
++
++    Ok(RegisteredExpander {
++        _registration: registration,
++    })
++}
++
++fn list_i2c_adapters() -> Result<Vec<I2cAdapterInfo>> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/adapters")
++        .context("failed to open /scheme/i2c/adapters")?;
++
++    let payload = ron::ser::to_string(&I2cControlRequest::ListAdapters)
++        .context("failed to encode I2C list-adapters request")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to request I2C adapter list")?;
++
++    let response = read_i2c_control_response(&mut file)?;
++    match response {
++        I2cControlResponse::AdapterList(adapters) => Ok(adapters),
++        I2cControlResponse::Error(message) => anyhow::bail!("i2cd returned an error: {message}"),
++        other => anyhow::bail!("unexpected i2cd list-adapters response: {other:?}"),
++    }
++}
++
++fn match_i2c_adapter<'a>(adapters: &'a [I2cAdapterInfo], wanted: &str) -> Option<&'a I2cAdapterInfo> {
++    adapters
++        .iter()
++        .find(|adapter| adapter.name == wanted)
++        .or_else(|| adapters.iter().find(|adapter| adapter.name.ends_with(wanted)))
++        .or_else(|| adapters.iter().find(|adapter| wanted.ends_with(&adapter.name)))
++}
++
++fn probe_expander(adapter: &I2cAdapterInfo, adapter_name: &str, address: u16) -> Result<I2cTransferResponse> {
++    let request = I2cTransferRequest {
++        adapter: adapter_name.to_string(),
++        segments: vec![I2cTransferSegment::read(address, 1)],
++        stop: true,
++    };
++
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/transfer")
++        .context("failed to open /scheme/i2c/transfer")?;
++    let payload = ron::ser::to_string(&I2cControlRequest::Transfer {
++        adapter_id: adapter.id,
++        request,
++    })
++    .context("failed to encode I2C expander probe request")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send I2C expander probe request")?;
++
++    let response = read_i2c_control_response(&mut file)?;
++    match response {
++        I2cControlResponse::TransferResult(result) => {
++            if !result.ok {
++                let detail = result
++                    .error
++                    .clone()
++                    .unwrap_or_else(|| String::from("unknown I2C transfer failure"));
++                anyhow::bail!("I2C probe failed: {detail}");
++            }
++            Ok(result)
++        }
++        I2cControlResponse::Error(message) => anyhow::bail!("i2cd returned an error: {message}"),
++        other => anyhow::bail!("unexpected I2C transfer response: {other:?}"),
++    }
++}
++
++fn register_with_gpiod(info: &GpioControllerInfo) -> Result<File> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/gpio/register")
++        .context("failed to open /scheme/gpio/register")?;
++    let payload = ron::ser::to_string(&GpioControlRequest::RegisterController { info: info.clone() })
++        .context("failed to encode GPIO controller registration")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send GPIO controller registration")?;
++    Ok(file)
++}
++
++fn read_gpio_registration_response(file: &mut File) -> Result<GpioControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read GPIO registration response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("GPIO registration response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode GPIO registration response")
++}
++
++fn read_i2c_control_response(file: &mut File) -> Result<I2cControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read I2C control response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("I2C control response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode I2C control response")
++}
++
++fn eisa_id_from_integer(integer: u64) -> String {
++    let vendor = integer & 0xFFFF;
++    let device = (integer >> 16) & 0xFFFF;
++    let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++    let vendor_1 = (((vendor_rev >> 10) & 0x1F) as u8 + 64) as char;
++    let vendor_2 = (((vendor_rev >> 5) & 0x1F) as u8 + 64) as char;
++    let vendor_3 = (((vendor_rev >> 0) & 0x1F) as u8 + 64) as char;
++    let device_1 = (device >> 4) & 0xF;
++    let device_2 = (device >> 0) & 0xF;
++    let device_3 = (device >> 12) & 0xF;
++    let device_4 = (device >> 8) & 0xF;
++
++    format!(
++        "{vendor_1}{vendor_2}{vendor_3}{device_1:01X}{device_2:01X}{device_3:01X}{device_4:01X}"
++    )
++}
+diff --git a/drivers/gpio/intel-gpiod/Cargo.toml b/drivers/gpio/intel-gpiod/Cargo.toml
+new file mode 100644
+index 00000000..f5ac9355
+--- /dev/null
++++ b/drivers/gpio/intel-gpiod/Cargo.toml
+@@ -0,0 +1,20 @@
++[package]
++name = "intel-gpiod"
++description = "Intel ACPI GPIO registrar daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++
++[lints]
++workspace = true
+diff --git a/drivers/gpio/intel-gpiod/src/main.rs b/drivers/gpio/intel-gpiod/src/main.rs
+new file mode 100644
+index 00000000..78e60990
+--- /dev/null
++++ b/drivers/gpio/intel-gpiod/src/main.rs
+@@ -0,0 +1,401 @@
++use std::collections::BTreeMap;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Write};
++use std::path::Path;
++use std::process;
++
++use acpi_resource::{
++    AddressResourceType, ExtendedIrqDescriptor, FixedMemory32Descriptor, GpioDescriptor,
++    IrqDescriptor, Memory32RangeDescriptor, ResourceDescriptor,
++};
++use anyhow::{Context, Result};
++use common::{MemoryType, PhysBorrowed, Prot};
++use serde::{Deserialize, Serialize};
++
++const SUPPORTED_IDS: &[&str] = &["INT34C5", "INTC1055"];
++
++const PADNFGPIO_OWN_BASE: usize = 0x20;
++const PADNFGPIO_PADCFG_BASE: usize = 0x700;
++const GPI_INT_STATUS: usize = 0x100;
++const GPI_INT_EN: usize = 0x120;
++const INTEL_GPIO_MMIO_WINDOW: usize = PADNFGPIO_PADCFG_BASE + core::mem::size_of::<u32>();
++
++#[derive(Debug, Deserialize)]
++struct AmlSymbol {
++    name: String,
++    value: AmlValue,
++}
++
++#[derive(Debug, Deserialize)]
++enum AmlValue {
++    Integer(u64),
++    String(String),
++}
++
++#[derive(Clone, Debug)]
++struct ControllerResources {
++    mmio_base: usize,
++    mmio_len: usize,
++    pin_count: usize,
++    supports_interrupt: bool,
++    gpio_int_count: usize,
++    gpio_io_count: usize,
++}
++
++#[derive(Debug)]
++struct ControllerDescriptor {
++    device: String,
++    hid: String,
++    resources: ControllerResources,
++}
++
++struct RegisteredController {
++    _mmio: Option<PhysBorrowed>,
++    _registration: File,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++struct GpioControllerInfo {
++    id: u32,
++    name: String,
++    pin_count: usize,
++    supports_interrupt: bool,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++enum GpioControlRequest {
++    RegisterController { info: GpioControllerInfo },
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++enum GpioControlResponse {
++    ControllerRegistered { id: u32 },
++    Error(String),
++}
++
++fn main() {
++    common::setup_logging(
++        "gpio",
++        "intel-gpio",
++        "intel-gpiod",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::Daemon::new(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::Daemon) -> ! {
++    if let Err(err) = daemon_main(daemon) {
++        log::error!("intel-gpiod: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn daemon_main(daemon: daemon::Daemon) -> Result<()> {
++    common::init();
++
++    let controllers =
++        discover_controllers(SUPPORTED_IDS).context("failed to discover Intel GPIO controllers")?;
++    if controllers.is_empty() {
++        log::info!("intel-gpiod: no supported Intel GPIO ACPI controllers found");
++    }
++
++    let mut registered = Vec::new();
++    for controller in controllers {
++        match register_controller(controller) {
++            Ok(controller) => registered.push(controller),
++            Err(err) => log::warn!("intel-gpiod: controller registration skipped: {err:#}"),
++        }
++    }
++
++    daemon.ready();
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    log::info!("intel-gpiod: registered {} controller(s)", registered.len());
++
++    loop {
++        std::thread::park();
++    }
++}
++
++fn discover_controllers(supported_ids: &[&str]) -> Result<Vec<ControllerDescriptor>> {
++    let mut matched = BTreeMap::new();
++
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock || err.raw_os_error() == Some(11) => {
++            log::debug!("intel-gpiod: ACPI symbols are not ready yet");
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    for entry in entries {
++        let entry = entry.context("failed to read ACPI symbol directory entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("_HID") && !file_name.ends_with("_CID") {
++            continue;
++        }
++
++        let Some(id) = read_symbol_id(&entry.path())? else {
++            continue;
++        };
++        if !supported_ids.iter().any(|candidate| *candidate == id) {
++            continue;
++        }
++
++        let device = file_name
++            .strip_suffix("_HID")
++            .or_else(|| file_name.strip_suffix("_CID"))
++            .map(str::to_owned);
++        if let Some(device) = device {
++            matched.entry(device).or_insert(id);
++        }
++    }
++
++    let mut controllers = Vec::new();
++    for (device, hid) in matched {
++        let resources = read_controller_resources(&device)
++            .with_context(|| format!("failed to read resources for {device}"))?;
++        controllers.push(ControllerDescriptor {
++            device,
++            hid,
++            resources,
++        });
++    }
++
++    Ok(controllers)
++}
++
++fn read_symbol_id(path: &Path) -> Result<Option<String>> {
++    let contents = fs::read_to_string(path)
++        .with_context(|| format!("failed to read ACPI symbol {}", path.display()))?;
++    let symbol = match ron::from_str::<AmlSymbol>(&contents) {
++        Ok(symbol) => symbol,
++        Err(err) => {
++            log::debug!(
++                "intel-gpiod: skipping {} because the symbol payload was not a scalar ID: {err}",
++                path.display(),
++            );
++            return Ok(None);
++        }
++    };
++
++    let id = match symbol.value {
++        AmlValue::Integer(integer) => eisa_id_from_integer(integer),
++        AmlValue::String(string) => string,
++    };
++
++    log::debug!("intel-gpiod: {} -> {id}", symbol.name);
++    Ok(Some(id))
++}
++
++fn read_controller_resources(device: &str) -> Result<ControllerResources> {
++    let contents = fs::read_to_string(format!("/scheme/acpi/resources/{device}"))
++        .with_context(|| format!("failed to read /scheme/acpi/resources/{device}"))?;
++    let resources = ron::from_str::<Vec<ResourceDescriptor>>(&contents)
++        .with_context(|| format!("failed to decode RON resources for {device}"))?;
++
++    let mut mmio = None;
++    let mut supports_interrupt = false;
++    let mut gpio_int_count = 0usize;
++    let mut gpio_io_count = 0usize;
++    let mut pin_count = 0usize;
++
++    for resource in &resources {
++        match resource {
++            ResourceDescriptor::FixedMemory32(FixedMemory32Descriptor {
++                address,
++                address_length,
++                ..
++            }) if mmio.is_none() => {
++                mmio = Some((
++                    *address as usize,
++                    (*address_length as usize).max(INTEL_GPIO_MMIO_WINDOW),
++                ));
++            }
++            ResourceDescriptor::Memory32Range(Memory32RangeDescriptor {
++                minimum,
++                maximum,
++                address_length,
++                ..
++            }) if mmio.is_none() && maximum >= minimum => {
++                let span = maximum.saturating_sub(*minimum).saturating_add(1) as usize;
++                mmio = Some((
++                    *minimum as usize,
++                    span.max((*address_length as usize).max(INTEL_GPIO_MMIO_WINDOW)),
++                ));
++            }
++            ResourceDescriptor::Address32(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                mmio = Some((
++                    descriptor.minimum as usize,
++                    (descriptor.address_length as usize).max(INTEL_GPIO_MMIO_WINDOW),
++                ));
++            }
++            ResourceDescriptor::Address64(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                let base = usize::try_from(descriptor.minimum)
++                    .context("64-bit MMIO base does not fit in usize")?;
++                let len = usize::try_from(descriptor.address_length)
++                    .context("64-bit MMIO length does not fit in usize")?;
++                mmio = Some((base, len.max(INTEL_GPIO_MMIO_WINDOW)));
++            }
++            ResourceDescriptor::Irq(IrqDescriptor { interrupts, .. }) => {
++                supports_interrupt |= !interrupts.is_empty();
++            }
++            ResourceDescriptor::ExtendedIrq(ExtendedIrqDescriptor { interrupts, .. }) => {
++                supports_interrupt |= !interrupts.is_empty();
++            }
++            ResourceDescriptor::GpioInt(descriptor) => {
++                gpio_int_count += 1;
++                supports_interrupt = true;
++                pin_count = pin_count.max(pin_count_from_descriptor(descriptor));
++            }
++            ResourceDescriptor::GpioIo(descriptor) => {
++                gpio_io_count += 1;
++                pin_count = pin_count.max(pin_count_from_descriptor(descriptor));
++            }
++            _ => {}
++        }
++    }
++
++    let (mmio_base, mmio_len) = mmio.context("no MMIO resource was found")?;
++    Ok(ControllerResources {
++        mmio_base,
++        mmio_len,
++        pin_count,
++        supports_interrupt,
++        gpio_int_count,
++        gpio_io_count,
++    })
++}
++
++fn pin_count_from_descriptor(descriptor: &GpioDescriptor) -> usize {
++    descriptor
++        .pins
++        .iter()
++        .copied()
++        .max()
++        .map(|pin| usize::from(pin).saturating_add(1))
++        .unwrap_or(0)
++}
++
++fn register_controller(controller: ControllerDescriptor) -> Result<RegisteredController> {
++    let ControllerDescriptor {
++        device,
++        hid,
++        resources,
++    } = controller;
++
++    let mmio = match PhysBorrowed::map(
++        resources.mmio_base,
++        resources.mmio_len,
++        Prot::RW,
++        MemoryType::Uncacheable,
++    ) {
++        Ok(mapping) => Some(mapping),
++        Err(err) => {
++            log::warn!(
++                "intel-gpiod: failed to map MMIO for {device} ({:#x}, len {:#x}): {err}",
++                resources.mmio_base,
++                resources.mmio_len,
++            );
++            None
++        }
++    };
++
++    log::info!(
++        "intel-gpiod: discovered {device} hid={hid} mmio={:#x}+{:#x} pin_count={} gpio_int={} gpio_io={} supports_interrupt={}",
++        resources.mmio_base,
++        resources.mmio_len,
++        resources.pin_count,
++        resources.gpio_int_count,
++        resources.gpio_io_count,
++        resources.supports_interrupt,
++    );
++    log::debug!(
++        "intel-gpiod: register model own={PADNFGPIO_OWN_BASE:#x} padcfg={PADNFGPIO_PADCFG_BASE:#x} gpi_int_status={GPI_INT_STATUS:#x} gpi_int_en={GPI_INT_EN:#x}",
++    );
++
++    let info = GpioControllerInfo {
++        id: 0,
++        name: format!("intel-gpio:{device}"),
++        pin_count: resources.pin_count,
++        supports_interrupt: resources.supports_interrupt,
++    };
++    let mut registration = register_with_gpiod(&info)
++        .with_context(|| format!("failed to register {device} with gpiod"))?;
++    let response = read_registration_response(&mut registration)
++        .with_context(|| format!("failed to read gpiod registration response for {device}"))?;
++
++    match response {
++        GpioControlResponse::ControllerRegistered { id } => {
++            log::info!(
++                "RB_INTEL_GPIOD_DEVICE device={} hid={} controller_id={} pin_count={} supports_interrupt={}",
++                device,
++                hid,
++                id,
++                info.pin_count,
++                info.supports_interrupt,
++            );
++        }
++        GpioControlResponse::Error(message) => {
++            anyhow::bail!("gpiod rejected Intel GPIO controller {device}: {message}");
++        }
++    }
++
++    Ok(RegisteredController {
++        _mmio: mmio,
++        _registration: registration,
++    })
++}
++
++fn register_with_gpiod(info: &GpioControllerInfo) -> Result<File> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/gpio/register")
++        .context("failed to open /scheme/gpio/register")?;
++    let payload = ron::ser::to_string(&GpioControlRequest::RegisterController { info: info.clone() })
++        .context("failed to encode GPIO controller registration")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send GPIO controller registration")?;
++    Ok(file)
++}
++
++fn read_registration_response(file: &mut File) -> Result<GpioControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read GPIO registration response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("GPIO registration response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode GPIO registration response")
++}
++
++fn eisa_id_from_integer(integer: u64) -> String {
++    let vendor = integer & 0xFFFF;
++    let device = (integer >> 16) & 0xFFFF;
++    let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++    let vendor_1 = (((vendor_rev >> 10) & 0x1F) as u8 + 64) as char;
++    let vendor_2 = (((vendor_rev >> 5) & 0x1F) as u8 + 64) as char;
++    let vendor_3 = (((vendor_rev >> 0) & 0x1F) as u8 + 64) as char;
++    let device_1 = (device >> 4) & 0xF;
++    let device_2 = (device >> 0) & 0xF;
++    let device_3 = (device >> 12) & 0xF;
++    let device_4 = (device >> 8) & 0xF;
++
++    format!(
++        "{vendor_1}{vendor_2}{vendor_3}{device_1:01X}{device_2:01X}{device_3:01X}{device_4:01X}"
++    )
++}
+diff --git a/drivers/i2c/amd-mp2-i2cd/Cargo.toml b/drivers/i2c/amd-mp2-i2cd/Cargo.toml
+new file mode 100644
+index 00000000..357ca948
+--- /dev/null
++++ b/drivers/i2c/amd-mp2-i2cd/Cargo.toml
+@@ -0,0 +1,22 @@
++[package]
++name = "amd-mp2-i2cd"
++description = "AMD MP2 PCI I2C controller driver"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../i2c-interface" }
++pcid = { path = "../../pcid" }
++
++[lints]
++workspace = true
+diff --git a/drivers/i2c/amd-mp2-i2cd/src/main.rs b/drivers/i2c/amd-mp2-i2cd/src/main.rs
+new file mode 100644
+index 00000000..ab06ad2a
+--- /dev/null
++++ b/drivers/i2c/amd-mp2-i2cd/src/main.rs
+@@ -0,0 +1,107 @@
++use std::fs::{File, OpenOptions};
++use std::io::{Read, Write};
++use std::process;
++
++use anyhow::{Context, Result};
++use i2c_interface::{I2cAdapterInfo, I2cControlRequest, I2cControlResponse};
++use pcid_interface::PciFunctionHandle;
++
++const MP2_MAILBOX_STATUS: usize = 0x00;
++const MP2_MAILBOX_COMMAND: usize = 0x04;
++const MP2_MAILBOX_ARGUMENT0: usize = 0x08;
++const MP2_MAILBOX_ARGUMENT1: usize = 0x0C;
++
++fn main() {
++    pcid_interface::pci_daemon(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
++    if let Err(err) = daemon_main(daemon, &mut pcid_handle) {
++        log::error!("amd-mp2-i2cd: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn daemon_main(daemon: daemon::Daemon, pcid_handle: &mut PciFunctionHandle) -> Result<()> {
++    let pci_config = pcid_handle.config();
++    let log_name = format!("{}_amd-mp2-i2c", pci_config.func.name());
++
++    common::setup_logging(
++        "bus",
++        "i2c",
++        &log_name,
++        common::output_level(),
++        common::file_level(),
++    );
++
++    let (bar_addr, bar_size) = pci_config.func.bars[0]
++        .try_mem()
++        .map_err(|err| anyhow::anyhow!("BAR0 is not a memory BAR: {err}"))?;
++    let mapped_bar = unsafe { pcid_handle.map_bar(0) };
++
++    log::info!(
++        "amd-mp2-i2cd: {} BAR0={:#x}+{:#x} mapped={:p}+{:#x}",
++        pci_config.func.display(),
++        bar_addr,
++        bar_size,
++        mapped_bar.ptr.as_ptr(),
++        mapped_bar.bar_size,
++    );
++    log::debug!(
++        "amd-mp2-i2cd: MP2 mailbox regs status={MP2_MAILBOX_STATUS:#x} cmd={MP2_MAILBOX_COMMAND:#x} arg0={MP2_MAILBOX_ARGUMENT0:#x} arg1={MP2_MAILBOX_ARGUMENT1:#x}",
++    );
++
++    let info = I2cAdapterInfo {
++        id: 0,
++        name: format!("amd-mp2:{}", pci_config.func.name()),
++        max_transaction_size: 0,
++        supports_10bit_addr: false,
++    };
++    let mut registration = register_adapter(&info)
++        .context("failed to register AMD MP2 controller with i2cd")?;
++    let response = read_registration_response(&mut registration)
++        .context("failed to read AMD MP2 i2cd registration response")?;
++
++    match response {
++        I2cControlResponse::AdapterRegistered { id } => {
++            log::info!("amd-mp2-i2cd: controller registered with i2cd as adapter {id}");
++        }
++        other => anyhow::bail!("unexpected i2cd registration response: {other:?}"),
++    }
++
++    daemon.ready();
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    let _keep_registration = registration;
++    let _keep_pcid = pcid_handle;
++
++    loop {
++        std::thread::park();
++    }
++}
++
++fn register_adapter(info: &I2cAdapterInfo) -> Result<File> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/register")
++        .context("failed to open /scheme/i2c/register")?;
++    let payload = ron::ser::to_string(&I2cControlRequest::RegisterAdapter { info: info.clone() })
++        .context("failed to encode AMD MP2 I2C registration payload")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send AMD MP2 I2C registration payload")?;
++    Ok(file)
++}
++
++fn read_registration_response(file: &mut File) -> Result<I2cControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read AMD MP2 I2C registration response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer)
++        .context("AMD MP2 I2C registration response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode AMD MP2 I2C registration response")
++}
+diff --git a/drivers/i2c/dw-acpi-i2cd/Cargo.toml b/drivers/i2c/dw-acpi-i2cd/Cargo.toml
+new file mode 100644
+index 00000000..a90b48cc
+--- /dev/null
++++ b/drivers/i2c/dw-acpi-i2cd/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "dw-acpi-i2cd"
++description = "Generic DesignWare ACPI I2C controller driver"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../i2c-interface" }
++
++[lints]
++workspace = true
+diff --git a/drivers/i2c/dw-acpi-i2cd/src/main.rs b/drivers/i2c/dw-acpi-i2cd/src/main.rs
+new file mode 100644
+index 00000000..b22a2773
+--- /dev/null
++++ b/drivers/i2c/dw-acpi-i2cd/src/main.rs
+@@ -0,0 +1,361 @@
++use std::collections::BTreeMap;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Write};
++use std::path::Path;
++use std::process;
++
++use acpi_resource::{
++    AddressResourceType, ExtendedIrqDescriptor, FixedMemory32Descriptor, I2cSerialBusDescriptor,
++    IrqDescriptor, Memory32RangeDescriptor, ResourceDescriptor,
++};
++use anyhow::{Context, Result};
++use common::{MemoryType, PhysBorrowed, Prot};
++use i2c_interface::{I2cAdapterInfo, I2cControlRequest, I2cControlResponse};
++use serde::Deserialize;
++
++const SUPPORTED_IDS: &[&str] = &["80860F41", "808622C1", "AMDI0010", "AMDI0019", "AMDI0510"];
++
++const DW_IC_CON: usize = 0x00;
++const DW_IC_TAR: usize = 0x04;
++const DW_IC_SS_SCL_HCNT: usize = 0x14;
++const DW_IC_SS_SCL_LCNT: usize = 0x18;
++const DW_IC_DATA_CMD: usize = 0x10;
++const DW_IC_INTR_MASK: usize = 0x30;
++const DW_IC_CLR_INTR: usize = 0x40;
++const DW_IC_ENABLE: usize = 0x6C;
++const DW_IC_STATUS: usize = 0x70;
++const DW_MMIO_WINDOW: usize = DW_IC_STATUS + core::mem::size_of::<u32>();
++
++#[derive(Debug, Deserialize)]
++struct AmlSymbol {
++    name: String,
++    value: AmlValue,
++}
++
++#[derive(Debug, Deserialize)]
++enum AmlValue {
++    Integer(u64),
++    String(String),
++}
++
++#[derive(Clone, Debug)]
++struct ControllerResources {
++    mmio_base: usize,
++    mmio_len: usize,
++    irq: Option<u32>,
++    serial_bus: Option<I2cSerialBusDescriptor>,
++}
++
++#[derive(Debug)]
++struct ControllerDescriptor {
++    device: String,
++    hid: String,
++    resources: ControllerResources,
++}
++
++struct RegisteredController {
++    _mmio: Option<PhysBorrowed>,
++    _registration: File,
++}
++
++fn main() {
++    common::setup_logging(
++        "bus",
++        "i2c",
++        "dw-acpi-i2cd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::Daemon::new(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::Daemon) -> ! {
++    if let Err(err) = daemon_main(daemon) {
++        log::error!("dw-acpi-i2cd: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn daemon_main(daemon: daemon::Daemon) -> Result<()> {
++    common::init();
++
++    let controllers = discover_controllers(SUPPORTED_IDS)
++        .context("failed to discover DesignWare ACPI I2C controllers")?;
++    if controllers.is_empty() {
++        log::info!("dw-acpi-i2cd: no supported ACPI controllers found");
++    }
++
++    let mut registered = Vec::new();
++    for controller in controllers {
++        match register_controller("dw-acpi", controller) {
++            Ok(controller) => registered.push(controller),
++            Err(err) => log::warn!("dw-acpi-i2cd: controller registration skipped: {err:#}"),
++        }
++    }
++
++    daemon.ready();
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    log::info!("dw-acpi-i2cd: registered {} controller(s)", registered.len());
++
++    loop {
++        std::thread::park();
++    }
++}
++
++fn discover_controllers(supported_ids: &[&str]) -> Result<Vec<ControllerDescriptor>> {
++    let mut matched = BTreeMap::new();
++
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err)
++            if err.kind() == std::io::ErrorKind::WouldBlock || err.raw_os_error() == Some(11) =>
++        {
++            log::debug!("dw-acpi-i2cd: ACPI symbols are not ready yet");
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    for entry in entries {
++        let entry = entry.context("failed to read ACPI symbol directory entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("_HID") && !file_name.ends_with("_CID") {
++            continue;
++        }
++
++        let Some(id) = read_symbol_id(&entry.path())? else {
++            continue;
++        };
++        if !supported_ids.iter().any(|candidate| *candidate == id) {
++            continue;
++        }
++
++        let device = file_name
++            .strip_suffix("_HID")
++            .or_else(|| file_name.strip_suffix("_CID"))
++            .map(str::to_owned);
++        if let Some(device) = device {
++            matched.entry(device).or_insert(id);
++        }
++    }
++
++    let mut controllers = Vec::new();
++    for (device, hid) in matched {
++        let resources = read_controller_resources(&device)
++            .with_context(|| format!("failed to read resources for {device}"))?;
++        controllers.push(ControllerDescriptor {
++            device,
++            hid,
++            resources,
++        });
++    }
++
++    Ok(controllers)
++}
++
++fn read_symbol_id(path: &Path) -> Result<Option<String>> {
++    let contents = fs::read_to_string(path)
++        .with_context(|| format!("failed to read ACPI symbol {}", path.display()))?;
++    let symbol = match ron::from_str::<AmlSymbol>(&contents) {
++        Ok(symbol) => symbol,
++        Err(err) => {
++            log::debug!(
++                "dw-acpi-i2cd: skipping {} because the symbol payload was not a scalar ID: {err}",
++                path.display(),
++            );
++            return Ok(None);
++        }
++    };
++
++    let id = match symbol.value {
++        AmlValue::Integer(integer) => eisa_id_from_integer(integer),
++        AmlValue::String(string) => string,
++    };
++
++    log::debug!("dw-acpi-i2cd: {} -> {id}", symbol.name);
++    Ok(Some(id))
++}
++
++fn read_controller_resources(device: &str) -> Result<ControllerResources> {
++    let contents = fs::read_to_string(format!("/scheme/acpi/resources/{device}"))
++        .with_context(|| format!("failed to read /scheme/acpi/resources/{device}"))?;
++    let resources = ron::from_str::<Vec<ResourceDescriptor>>(&contents)
++        .with_context(|| format!("failed to decode RON resources for {device}"))?;
++
++    let mut mmio = None;
++    let mut irq = None;
++    let mut serial_bus = None;
++
++    for resource in &resources {
++        match resource {
++            ResourceDescriptor::FixedMemory32(FixedMemory32Descriptor {
++                address,
++                address_length,
++                ..
++            }) if mmio.is_none() => {
++                mmio = Some((*address as usize, (*address_length as usize).max(DW_MMIO_WINDOW)));
++            }
++            ResourceDescriptor::Memory32Range(Memory32RangeDescriptor {
++                minimum,
++                maximum,
++                address_length,
++                ..
++            }) if mmio.is_none() && maximum >= minimum => {
++                let span = maximum.saturating_sub(*minimum).saturating_add(1) as usize;
++                mmio = Some((
++                    *minimum as usize,
++                    span.max((*address_length as usize).max(DW_MMIO_WINDOW)),
++                ));
++            }
++            ResourceDescriptor::Address32(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                mmio = Some((
++                    descriptor.minimum as usize,
++                    (descriptor.address_length as usize).max(DW_MMIO_WINDOW),
++                ));
++            }
++            ResourceDescriptor::Address64(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                let base = usize::try_from(descriptor.minimum)
++                    .context("64-bit MMIO base does not fit in usize")?;
++                let len = usize::try_from(descriptor.address_length)
++                    .context("64-bit MMIO length does not fit in usize")?;
++                mmio = Some((base, len.max(DW_MMIO_WINDOW)));
++            }
++            ResourceDescriptor::Irq(IrqDescriptor { interrupts, .. }) if irq.is_none() => {
++                irq = interrupts.first().copied().map(u32::from);
++            }
++            ResourceDescriptor::ExtendedIrq(ExtendedIrqDescriptor { interrupts, .. })
++                if irq.is_none() =>
++            {
++                irq = interrupts.first().copied();
++            }
++            ResourceDescriptor::I2cSerialBus(descriptor) if serial_bus.is_none() => {
++                serial_bus = Some(descriptor.clone());
++            }
++            _ => {}
++        }
++    }
++
++    let (mmio_base, mmio_len) = mmio.context("no MMIO resource was found")?;
++    Ok(ControllerResources {
++        mmio_base,
++        mmio_len,
++        irq,
++        serial_bus,
++    })
++}
++
++fn register_controller(prefix: &str, controller: ControllerDescriptor) -> Result<RegisteredController> {
++    let ControllerDescriptor {
++        device,
++        hid,
++        resources,
++    } = controller;
++
++    let mmio = match PhysBorrowed::map(
++        resources.mmio_base,
++        resources.mmio_len,
++        Prot::RW,
++        MemoryType::Uncacheable,
++    ) {
++        Ok(mapping) => Some(mapping),
++        Err(err) => {
++            log::warn!(
++                "dw-acpi-i2cd: failed to map MMIO for {device} ({:#x}, len {:#x}): {err}",
++                resources.mmio_base,
++                resources.mmio_len,
++            );
++            None
++        }
++    };
++
++    log::info!(
++        "dw-acpi-i2cd: discovered {device} hid={hid} mmio={:#x}+{:#x} irq={:?}",
++        resources.mmio_base,
++        resources.mmio_len,
++        resources.irq,
++    );
++    log::debug!(
++        "dw-acpi-i2cd: DesignWare regs con={DW_IC_CON:#x} tar={DW_IC_TAR:#x} data_cmd={DW_IC_DATA_CMD:#x} intr_mask={DW_IC_INTR_MASK:#x} clr_intr={DW_IC_CLR_INTR:#x} enable={DW_IC_ENABLE:#x} ss_hcnt={DW_IC_SS_SCL_HCNT:#x} ss_lcnt={DW_IC_SS_SCL_LCNT:#x}",
++    );
++
++    let info = I2cAdapterInfo {
++        id: 0,
++        name: format!("{prefix}:{device}"),
++        max_transaction_size: 0,
++        supports_10bit_addr: resources
++            .serial_bus
++            .as_ref()
++            .map(|bus| bus.access_mode_10bit)
++            .unwrap_or(false),
++    };
++    let mut registration = register_adapter(&info)
++        .with_context(|| format!("failed to register {device} with i2cd"))?;
++    let response = read_registration_response(&mut registration)
++        .with_context(|| format!("failed to read i2cd registration response for {device}"))?;
++
++    match response {
++        I2cControlResponse::AdapterRegistered { id } => {
++            log::info!("dw-acpi-i2cd: adapter {device} registered with i2cd as {id}");
++        }
++        other => {
++            anyhow::bail!("unexpected i2cd registration response for {device}: {other:?}");
++        }
++    }
++
++    Ok(RegisteredController {
++        _mmio: mmio,
++        _registration: registration,
++    })
++}
++
++fn register_adapter(info: &I2cAdapterInfo) -> Result<File> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/register")
++        .context("failed to open /scheme/i2c/register")?;
++    let payload = ron::ser::to_string(&I2cControlRequest::RegisterAdapter { info: info.clone() })
++        .context("failed to encode I2C adapter registration")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send I2C adapter registration")?;
++    Ok(file)
++}
++
++fn read_registration_response(file: &mut File) -> Result<I2cControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read I2C registration response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("I2C registration response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode I2C registration response")
++}
++
++fn eisa_id_from_integer(integer: u64) -> String {
++    let vendor = integer & 0xFFFF;
++    let device = (integer >> 16) & 0xFFFF;
++    let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++    let vendor_1 = (((vendor_rev >> 10) & 0x1F) as u8 + 64) as char;
++    let vendor_2 = (((vendor_rev >> 5) & 0x1F) as u8 + 64) as char;
++    let vendor_3 = (((vendor_rev >> 0) & 0x1F) as u8 + 64) as char;
++    let device_1 = (device >> 4) & 0xF;
++    let device_2 = (device >> 0) & 0xF;
++    let device_3 = (device >> 12) & 0xF;
++    let device_4 = (device >> 8) & 0xF;
++
++    format!(
++        "{vendor_1}{vendor_2}{vendor_3}{device_1:01X}{device_2:01X}{device_3:01X}{device_4:01X}"
++    )
++}
+diff --git a/drivers/i2c/i2c-interface/Cargo.toml b/drivers/i2c/i2c-interface/Cargo.toml
+new file mode 100644
+index 00000000..fa9bbe4f
+--- /dev/null
++++ b/drivers/i2c/i2c-interface/Cargo.toml
+@@ -0,0 +1,12 @@
++[package]
++name = "i2c-interface"
++description = "Shared I2C transfer and registry types"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++serde.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++
++[lints]
++workspace = true
+diff --git a/drivers/i2c/i2c-interface/src/lib.rs b/drivers/i2c/i2c-interface/src/lib.rs
+new file mode 100644
+index 00000000..9e5ab444
+--- /dev/null
++++ b/drivers/i2c/i2c-interface/src/lib.rs
+@@ -0,0 +1,92 @@
++use serde::{Deserialize, Serialize};
++
++pub use syscall;
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum I2cTransferOp {
++    Write(Vec<u8>),
++    Read(usize),
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct I2cTransferSegment {
++    pub address: u16,
++    pub ten_bit_address: bool,
++    pub op: I2cTransferOp,
++}
++
++impl I2cTransferSegment {
++    pub fn write(address: u16, payload: impl Into<Vec<u8>>) -> Self {
++        Self {
++            address,
++            ten_bit_address: false,
++            op: I2cTransferOp::Write(payload.into()),
++        }
++    }
++
++    pub fn read(address: u16, len: usize) -> Self {
++        Self {
++            address,
++            ten_bit_address: false,
++            op: I2cTransferOp::Read(len),
++        }
++    }
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct I2cTransferRequest {
++    pub adapter: String,
++    pub segments: Vec<I2cTransferSegment>,
++    pub stop: bool,
++}
++
++#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++pub struct I2cTransferResponse {
++    pub ok: bool,
++    pub read_data: Vec<Vec<u8>>,
++    pub error: Option<String>,
++}
++
++#[derive(Clone, Debug, Default, Serialize, Deserialize)]
++pub struct I2cAdapterRegistration {
++    pub name: String,
++    pub description: String,
++    pub acpi_companion: Option<String>,
++    pub slave_address_override: Option<u16>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct I2cAdapterInfo {
++    pub id: u32,
++    pub name: String,
++    pub max_transaction_size: usize,
++    pub supports_10bit_addr: bool,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum I2cTransferStatus {
++    Ok,
++    Nack,
++    Timeout,
++    Error,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum I2cControlRequest {
++    RegisterAdapter { info: I2cAdapterInfo },
++    OpenAdapter { id: u32 },
++    Transfer {
++        adapter_id: u32,
++        request: I2cTransferRequest,
++    },
++    ListAdapters,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum I2cControlResponse {
++    AdapterRegistered { id: u32 },
++    AdapterOpened,
++    TransferResult(I2cTransferResponse),
++    AdapterList(Vec<I2cAdapterInfo>),
++    Error(String),
++}
+diff --git a/drivers/i2c/i2cd/Cargo.toml b/drivers/i2c/i2cd/Cargo.toml
+new file mode 100644
+index 00000000..0fdd6911
+--- /dev/null
++++ b/drivers/i2c/i2cd/Cargo.toml
+@@ -0,0 +1,22 @@
++[package]
++name = "i2cd"
++description = "I2C adapter registry scheme daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++redox-scheme.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++scheme-utils = { path = "../../../scheme-utils" }
++i2c-interface = { path = "../i2c-interface" }
++
++[lints]
++workspace = true
+diff --git a/drivers/i2c/i2cd/src/main.rs b/drivers/i2c/i2cd/src/main.rs
+new file mode 100644
+index 00000000..b7b7d89a
+--- /dev/null
++++ b/drivers/i2c/i2cd/src/main.rs
+@@ -0,0 +1,377 @@
++use std::collections::BTreeMap;
++use std::process;
++
++use anyhow::{Context, Result};
++use i2c_interface::{
++    I2cAdapterInfo, I2cControlRequest, I2cControlResponse, I2cTransferRequest,
++    I2cTransferResponse,
++};
++use redox_scheme::scheme::SchemeSync;
++use redox_scheme::{CallerCtx, OpenResult, Socket};
++use scheme_utils::{Blocking, HandleMap};
++use syscall::schemev2::NewFdFlags;
++use syscall::{Error as SysError, EACCES, EBADF, EINVAL, ENOENT};
++
++enum Handle {
++    SchemeRoot,
++    Register { pending: Vec<u8> },
++    Provider { adapter_id: u32, pending: Vec<u8> },
++    Adapters { pending: Vec<u8> },
++    AdapterDetail { id: u32, pending: Vec<u8> },
++    Transfer { pending: Vec<u8> },
++}
++
++struct AdapterEntry {
++    info: I2cAdapterInfo,
++    provider_handle: usize,
++}
++
++struct I2cDaemon {
++    handles: HandleMap<Handle>,
++    adapters: BTreeMap<u32, AdapterEntry>,
++    next_id: u32,
++}
++
++impl I2cDaemon {
++    fn new() -> Self {
++        Self {
++            handles: HandleMap::new(),
++            adapters: BTreeMap::new(),
++            next_id: 0,
++        }
++    }
++
++    fn adapter_list(&self) -> Vec<I2cAdapterInfo> {
++        self.adapters.values().map(|entry| entry.info.clone()).collect()
++    }
++
++    fn serialize_response(response: &I2cControlResponse) -> syscall::Result<Vec<u8>> {
++        ron::ser::to_string(response)
++            .map(|text| text.into_bytes())
++            .map_err(|err| {
++                log::error!("i2cd: failed to serialize control response: {err}");
++                SysError::new(EINVAL)
++            })
++    }
++
++    fn deserialize_request(buf: &[u8]) -> syscall::Result<I2cControlRequest> {
++        let text = std::str::from_utf8(buf).map_err(|err| {
++            log::warn!("i2cd: invalid UTF-8 control payload: {err}");
++            SysError::new(EINVAL)
++        })?;
++
++        ron::from_str(text).map_err(|err| {
++            log::warn!("i2cd: failed to decode control request: {err}");
++            SysError::new(EINVAL)
++        })
++    }
++
++    fn set_pending_response(handle: &mut Handle, response: I2cControlResponse) -> syscall::Result<()> {
++        let pending = Self::serialize_response(&response)?;
++        match handle {
++            Handle::Register { pending: slot }
++            | Handle::Provider { pending: slot, .. }
++            | Handle::Adapters { pending: slot }
++            | Handle::AdapterDetail { pending: slot, .. }
++            | Handle::Transfer { pending: slot } => {
++                *slot = pending;
++                Ok(())
++            }
++            Handle::SchemeRoot => Err(SysError::new(EBADF)),
++        }
++    }
++
++    fn queue_adapter_list(handle: &mut Handle, adapters: Vec<I2cAdapterInfo>) -> syscall::Result<()> {
++        Self::set_pending_response(handle, I2cControlResponse::AdapterList(adapters))
++    }
++
++    fn queue_transfer_stub(
++        handle: &mut Handle,
++        adapter: &I2cAdapterInfo,
++        request: &I2cTransferRequest,
++    ) -> syscall::Result<()> {
++        let write_bytes = request
++            .segments
++            .iter()
++            .filter_map(|segment| match &segment.op {
++                i2c_interface::I2cTransferOp::Write(bytes) => Some(bytes.len()),
++                i2c_interface::I2cTransferOp::Read(_) => None,
++            })
++            .sum::<usize>();
++        let read_segments = request
++            .segments
++            .iter()
++            .filter(|segment| matches!(segment.op, i2c_interface::I2cTransferOp::Read(_)))
++            .count();
++
++        log::info!(
++            "i2cd: routing transfer to adapter {} ({}) name={} segments={} write_bytes={} read_segments={} stop={} (stubbed)",
++            adapter.id,
++            adapter.name,
++            request.adapter,
++            request.segments.len(),
++            write_bytes,
++            read_segments,
++            request.stop,
++        );
++
++        Self::set_pending_response(
++            handle,
++            I2cControlResponse::TransferResult(I2cTransferResponse {
++                ok: false,
++                read_data: Vec::new(),
++                error: Some(String::from("I2C controller transfer path is not implemented yet")),
++            }),
++        )
++    }
++
++    fn copy_pending(handle: &mut Handle, buf: &mut [u8], offset: u64) -> syscall::Result<usize> {
++        let pending = match handle {
++            Handle::Register { pending }
++            | Handle::Provider { pending, .. }
++            | Handle::Adapters { pending }
++            | Handle::AdapterDetail { pending, .. }
++            | Handle::Transfer { pending } => pending,
++            Handle::SchemeRoot => return Err(SysError::new(EBADF)),
++        };
++
++        let offset = usize::try_from(offset).map_err(|_| SysError::new(EINVAL))?;
++        if offset >= pending.len() {
++            return Ok(0);
++        }
++
++        let copy_len = buf.len().min(pending.len() - offset);
++        buf[..copy_len].copy_from_slice(&pending[offset..offset + copy_len]);
++        Ok(copy_len)
++    }
++}
++
++impl SchemeSync for I2cDaemon {
++    fn scheme_root(&mut self) -> syscall::Result<usize> {
++        Ok(self.handles.insert(Handle::SchemeRoot))
++    }
++
++    fn openat(
++        &mut self,
++        dirfd: usize,
++        path: &str,
++        _flags: usize,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<OpenResult> {
++        let handle = self.handles.get(dirfd)?;
++        let segments = path.trim_matches('/');
++
++        let new_handle = match handle {
++            Handle::SchemeRoot => {
++                if segments.is_empty() {
++                    return Err(SysError::new(EINVAL));
++                }
++
++                let mut parts = segments.split('/');
++                match parts.next() {
++                    Some("register") if parts.next().is_none() => Handle::Register {
++                        pending: Vec::new(),
++                    },
++                    Some("adapters") => match parts.next() {
++                        None => Handle::Adapters {
++                            pending: Vec::new(),
++                        },
++                        Some(id) if parts.next().is_none() => {
++                            let id = id.parse::<u32>().map_err(|_| SysError::new(EINVAL))?;
++                            Handle::AdapterDetail {
++                                id,
++                                pending: Vec::new(),
++                            }
++                        }
++                        _ => return Err(SysError::new(EINVAL)),
++                    },
++                    Some("transfer") if parts.next().is_none() => Handle::Transfer {
++                        pending: Vec::new(),
++                    },
++                    _ => return Err(SysError::new(ENOENT)),
++                }
++            }
++            Handle::Adapters { .. } => {
++                if segments.is_empty() {
++                    return Err(SysError::new(EINVAL));
++                }
++
++                let id = segments.parse::<u32>().map_err(|_| SysError::new(EINVAL))?;
++                Handle::AdapterDetail {
++                    id,
++                    pending: Vec::new(),
++                }
++            }
++            _ => return Err(SysError::new(EACCES)),
++        };
++
++        let fd = self.handles.insert(new_handle);
++        Ok(OpenResult::ThisScheme {
++            number: fd,
++            flags: NewFdFlags::empty(),
++        })
++    }
++
++    fn read(
++        &mut self,
++        id: usize,
++        buf: &mut [u8],
++        offset: u64,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<usize> {
++        let adapters = self.adapter_list();
++        let handle = self.handles.get_mut(id)?;
++
++        match handle {
++            Handle::Adapters { pending } if pending.is_empty() => {
++                *pending = Self::serialize_response(&I2cControlResponse::AdapterList(adapters))?;
++            }
++            Handle::AdapterDetail { id, pending } if pending.is_empty() => {
++                let info = self
++                    .adapters
++                    .get(id)
++                    .map(|entry| entry.info.clone())
++                    .ok_or(SysError::new(ENOENT))?;
++                *pending = Self::serialize_response(&I2cControlResponse::AdapterList(vec![info]))?;
++            }
++            _ => {}
++        }
++
++        Self::copy_pending(handle, buf, offset)
++    }
++
++    fn write(
++        &mut self,
++        id: usize,
++        buf: &[u8],
++        _offset: u64,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<usize> {
++        let request = Self::deserialize_request(buf)?;
++
++        match request {
++            I2cControlRequest::RegisterAdapter { mut info } => {
++                let adapter_id = self.next_id;
++                self.next_id = self.next_id.checked_add(1).ok_or(SysError::new(EINVAL))?;
++                info.id = adapter_id;
++
++                self.adapters.insert(
++                    adapter_id,
++                    AdapterEntry {
++                        info: info.clone(),
++                        provider_handle: id,
++                    },
++                );
++
++                let handle = self.handles.get_mut(id)?;
++                *handle = Handle::Provider {
++                    adapter_id,
++                    pending: Self::serialize_response(&I2cControlResponse::AdapterRegistered {
++                        id: adapter_id,
++                    })?,
++                };
++
++                log::info!(
++                    "RB_I2CD_ADAPTER_REGISTERED id={} name={} max_transaction_size={} supports_10bit_addr={}",
++                    info.id,
++                    info.name,
++                    info.max_transaction_size,
++                    info.supports_10bit_addr,
++                );
++                Ok(buf.len())
++            }
++            I2cControlRequest::ListAdapters => {
++                let adapters = self.adapter_list();
++                let handle = self.handles.get_mut(id)?;
++                Self::queue_adapter_list(handle, adapters)?;
++                Ok(buf.len())
++            }
++            I2cControlRequest::OpenAdapter { id: adapter_id } => {
++                if !self.adapters.contains_key(&adapter_id) {
++                    return Err(SysError::new(ENOENT));
++                }
++
++                let handle = self.handles.get_mut(id)?;
++                match handle {
++                    Handle::Adapters { .. } | Handle::AdapterDetail { .. } => {
++                        Self::set_pending_response(handle, I2cControlResponse::AdapterOpened)?;
++                        Ok(buf.len())
++                    }
++                    _ => Err(SysError::new(EINVAL)),
++                }
++            }
++            I2cControlRequest::Transfer {
++                adapter_id,
++                request,
++            } => {
++                let entry = self.adapters.get(&adapter_id).ok_or(SysError::new(ENOENT))?;
++                log::debug!(
++                    "i2cd: transfer requested for adapter {} via provider fd {}",
++                    adapter_id,
++                    entry.provider_handle,
++                );
++
++                let adapter_info = entry.info.clone();
++                let handle = self.handles.get_mut(id)?;
++                match handle {
++                    Handle::Transfer { .. } => {
++                        Self::queue_transfer_stub(handle, &adapter_info, &request)?;
++                        Ok(buf.len())
++                    }
++                    _ => Err(SysError::new(EINVAL)),
++                }
++            }
++        }
++    }
++
++    fn on_close(&mut self, id: usize) {
++        let Some(handle) = self.handles.remove(id) else {
++            return;
++        };
++        if let Handle::Provider { adapter_id, .. } = handle {
++            self.adapters.remove(&adapter_id);
++        }
++    }
++}
++
++fn run_daemon(daemon: daemon::SchemeDaemon) -> Result<()> {
++    let socket = Socket::create().context("failed to create i2c scheme socket")?;
++    let mut scheme = I2cDaemon::new();
++    let handler = Blocking::new(&socket, 16);
++
++    daemon
++        .ready_sync_scheme(&socket, &mut scheme)
++        .context("failed to publish i2c scheme root")?;
++
++    log::info!("RB_I2CD_SCHEMA");
++
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    handler
++        .process_requests_blocking(scheme)
++        .context("failed to process i2cd requests")?;
++}
++
++fn daemon_runner(daemon: daemon::SchemeDaemon) -> ! {
++    if let Err(err) = run_daemon(daemon) {
++        log::error!("i2cd: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn main() {
++    common::setup_logging(
++        "bus",
++        "i2c",
++        "i2cd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::SchemeDaemon::new(daemon_runner);
++}
+diff --git a/drivers/i2c/intel-lpss-i2cd/Cargo.toml b/drivers/i2c/intel-lpss-i2cd/Cargo.toml
+new file mode 100644
+index 00000000..0e74cf94
+--- /dev/null
++++ b/drivers/i2c/intel-lpss-i2cd/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "intel-lpss-i2cd"
++description = "Intel LPSS ACPI I2C controller driver"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../i2c-interface" }
++
++[lints]
++workspace = true
+diff --git a/drivers/i2c/intel-lpss-i2cd/src/main.rs b/drivers/i2c/intel-lpss-i2cd/src/main.rs
+new file mode 100644
+index 00000000..ca3ead43
+--- /dev/null
++++ b/drivers/i2c/intel-lpss-i2cd/src/main.rs
+@@ -0,0 +1,361 @@
++use std::collections::BTreeMap;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Write};
++use std::path::Path;
++use std::process;
++
++use acpi_resource::{
++    AddressResourceType, ExtendedIrqDescriptor, FixedMemory32Descriptor, I2cSerialBusDescriptor,
++    IrqDescriptor, Memory32RangeDescriptor, ResourceDescriptor,
++};
++use anyhow::{Context, Result};
++use common::{MemoryType, PhysBorrowed, Prot};
++use i2c_interface::{I2cAdapterInfo, I2cControlRequest, I2cControlResponse};
++use serde::Deserialize;
++
++const SUPPORTED_IDS: &[&str] = &["INT33C2", "INT33C3", "INT3432", "INT3433", "INTC10EF"];
++
++const DW_IC_CON: usize = 0x00;
++const DW_IC_TAR: usize = 0x04;
++const DW_IC_SS_SCL_HCNT: usize = 0x14;
++const DW_IC_SS_SCL_LCNT: usize = 0x18;
++const DW_IC_DATA_CMD: usize = 0x10;
++const DW_IC_INTR_MASK: usize = 0x30;
++const DW_IC_CLR_INTR: usize = 0x40;
++const DW_IC_ENABLE: usize = 0x6C;
++const DW_IC_STATUS: usize = 0x70;
++const DW_MMIO_WINDOW: usize = DW_IC_STATUS + core::mem::size_of::<u32>();
++
++#[derive(Debug, Deserialize)]
++struct AmlSymbol {
++    name: String,
++    value: AmlValue,
++}
++
++#[derive(Debug, Deserialize)]
++enum AmlValue {
++    Integer(u64),
++    String(String),
++}
++
++#[derive(Clone, Debug)]
++struct ControllerResources {
++    mmio_base: usize,
++    mmio_len: usize,
++    irq: Option<u32>,
++    serial_bus: Option<I2cSerialBusDescriptor>,
++}
++
++#[derive(Debug)]
++struct ControllerDescriptor {
++    device: String,
++    hid: String,
++    resources: ControllerResources,
++}
++
++struct RegisteredController {
++    _mmio: Option<PhysBorrowed>,
++    _registration: File,
++}
++
++fn main() {
++    common::setup_logging(
++        "bus",
++        "i2c",
++        "intel-lpss-i2cd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::Daemon::new(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::Daemon) -> ! {
++    if let Err(err) = daemon_main(daemon) {
++        log::error!("intel-lpss-i2cd: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn daemon_main(daemon: daemon::Daemon) -> Result<()> {
++    common::init();
++
++    let controllers = discover_controllers(SUPPORTED_IDS)
++        .context("failed to discover Intel LPSS ACPI I2C controllers")?;
++    if controllers.is_empty() {
++        log::info!("intel-lpss-i2cd: no supported ACPI controllers found");
++    }
++
++    let mut registered = Vec::new();
++    for controller in controllers {
++        match register_controller("intel-lpss", controller) {
++            Ok(controller) => registered.push(controller),
++            Err(err) => log::warn!("intel-lpss-i2cd: controller registration skipped: {err:#}"),
++        }
++    }
++
++    daemon.ready();
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    log::info!("intel-lpss-i2cd: registered {} controller(s)", registered.len());
++
++    loop {
++        std::thread::park();
++    }
++}
++
++fn discover_controllers(supported_ids: &[&str]) -> Result<Vec<ControllerDescriptor>> {
++    let mut matched = BTreeMap::new();
++
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err)
++            if err.kind() == std::io::ErrorKind::WouldBlock || err.raw_os_error() == Some(11) =>
++        {
++            log::debug!("intel-lpss-i2cd: ACPI symbols are not ready yet");
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    for entry in entries {
++        let entry = entry.context("failed to read ACPI symbol directory entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("_HID") && !file_name.ends_with("_CID") {
++            continue;
++        }
++
++        let Some(id) = read_symbol_id(&entry.path())? else {
++            continue;
++        };
++        if !supported_ids.iter().any(|candidate| *candidate == id) {
++            continue;
++        }
++
++        let device = file_name
++            .strip_suffix("_HID")
++            .or_else(|| file_name.strip_suffix("_CID"))
++            .map(str::to_owned);
++        if let Some(device) = device {
++            matched.entry(device).or_insert(id);
++        }
++    }
++
++    let mut controllers = Vec::new();
++    for (device, hid) in matched {
++        let resources = read_controller_resources(&device)
++            .with_context(|| format!("failed to read resources for {device}"))?;
++        controllers.push(ControllerDescriptor {
++            device,
++            hid,
++            resources,
++        });
++    }
++
++    Ok(controllers)
++}
++
++fn read_symbol_id(path: &Path) -> Result<Option<String>> {
++    let contents = fs::read_to_string(path)
++        .with_context(|| format!("failed to read ACPI symbol {}", path.display()))?;
++    let symbol = match ron::from_str::<AmlSymbol>(&contents) {
++        Ok(symbol) => symbol,
++        Err(err) => {
++            log::debug!(
++                "intel-lpss-i2cd: skipping {} because the symbol payload was not a scalar ID: {err}",
++                path.display(),
++            );
++            return Ok(None);
++        }
++    };
++
++    let id = match symbol.value {
++        AmlValue::Integer(integer) => eisa_id_from_integer(integer),
++        AmlValue::String(string) => string,
++    };
++
++    log::debug!("intel-lpss-i2cd: {} -> {id}", symbol.name);
++    Ok(Some(id))
++}
++
++fn read_controller_resources(device: &str) -> Result<ControllerResources> {
++    let contents = fs::read_to_string(format!("/scheme/acpi/resources/{device}"))
++        .with_context(|| format!("failed to read /scheme/acpi/resources/{device}"))?;
++    let resources = ron::from_str::<Vec<ResourceDescriptor>>(&contents)
++        .with_context(|| format!("failed to decode RON resources for {device}"))?;
++
++    let mut mmio = None;
++    let mut irq = None;
++    let mut serial_bus = None;
++
++    for resource in &resources {
++        match resource {
++            ResourceDescriptor::FixedMemory32(FixedMemory32Descriptor {
++                address,
++                address_length,
++                ..
++            }) if mmio.is_none() => {
++                mmio = Some((*address as usize, (*address_length as usize).max(DW_MMIO_WINDOW)));
++            }
++            ResourceDescriptor::Memory32Range(Memory32RangeDescriptor {
++                minimum,
++                maximum,
++                address_length,
++                ..
++            }) if mmio.is_none() && maximum >= minimum => {
++                let span = maximum.saturating_sub(*minimum).saturating_add(1) as usize;
++                mmio = Some((
++                    *minimum as usize,
++                    span.max((*address_length as usize).max(DW_MMIO_WINDOW)),
++                ));
++            }
++            ResourceDescriptor::Address32(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                mmio = Some((
++                    descriptor.minimum as usize,
++                    (descriptor.address_length as usize).max(DW_MMIO_WINDOW),
++                ));
++            }
++            ResourceDescriptor::Address64(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                let base = usize::try_from(descriptor.minimum)
++                    .context("64-bit MMIO base does not fit in usize")?;
++                let len = usize::try_from(descriptor.address_length)
++                    .context("64-bit MMIO length does not fit in usize")?;
++                mmio = Some((base, len.max(DW_MMIO_WINDOW)));
++            }
++            ResourceDescriptor::Irq(IrqDescriptor { interrupts, .. }) if irq.is_none() => {
++                irq = interrupts.first().copied().map(u32::from);
++            }
++            ResourceDescriptor::ExtendedIrq(ExtendedIrqDescriptor { interrupts, .. })
++                if irq.is_none() =>
++            {
++                irq = interrupts.first().copied();
++            }
++            ResourceDescriptor::I2cSerialBus(descriptor) if serial_bus.is_none() => {
++                serial_bus = Some(descriptor.clone());
++            }
++            _ => {}
++        }
++    }
++
++    let (mmio_base, mmio_len) = mmio.context("no MMIO resource was found")?;
++    Ok(ControllerResources {
++        mmio_base,
++        mmio_len,
++        irq,
++        serial_bus,
++    })
++}
++
++fn register_controller(prefix: &str, controller: ControllerDescriptor) -> Result<RegisteredController> {
++    let ControllerDescriptor {
++        device,
++        hid,
++        resources,
++    } = controller;
++
++    let mmio = match PhysBorrowed::map(
++        resources.mmio_base,
++        resources.mmio_len,
++        Prot::RW,
++        MemoryType::Uncacheable,
++    ) {
++        Ok(mapping) => Some(mapping),
++        Err(err) => {
++            log::warn!(
++                "intel-lpss-i2cd: failed to map MMIO for {device} ({:#x}, len {:#x}): {err}",
++                resources.mmio_base,
++                resources.mmio_len,
++            );
++            None
++        }
++    };
++
++    log::info!(
++        "intel-lpss-i2cd: discovered {device} hid={hid} mmio={:#x}+{:#x} irq={:?}",
++        resources.mmio_base,
++        resources.mmio_len,
++        resources.irq,
++    );
++    log::debug!(
++        "intel-lpss-i2cd: DesignWare regs con={DW_IC_CON:#x} tar={DW_IC_TAR:#x} data_cmd={DW_IC_DATA_CMD:#x} intr_mask={DW_IC_INTR_MASK:#x} clr_intr={DW_IC_CLR_INTR:#x} enable={DW_IC_ENABLE:#x} ss_hcnt={DW_IC_SS_SCL_HCNT:#x} ss_lcnt={DW_IC_SS_SCL_LCNT:#x}",
++    );
++
++    let info = I2cAdapterInfo {
++        id: 0,
++        name: format!("{prefix}:{device}"),
++        max_transaction_size: 0,
++        supports_10bit_addr: resources
++            .serial_bus
++            .as_ref()
++            .map(|bus| bus.access_mode_10bit)
++            .unwrap_or(false),
++    };
++    let mut registration = register_adapter(&info)
++        .with_context(|| format!("failed to register {device} with i2cd"))?;
++    let response = read_registration_response(&mut registration)
++        .with_context(|| format!("failed to read i2cd registration response for {device}"))?;
++
++    match response {
++        I2cControlResponse::AdapterRegistered { id } => {
++            log::info!("intel-lpss-i2cd: adapter {device} registered with i2cd as {id}");
++        }
++        other => {
++            anyhow::bail!("unexpected i2cd registration response for {device}: {other:?}");
++        }
++    }
++
++    Ok(RegisteredController {
++        _mmio: mmio,
++        _registration: registration,
++    })
++}
++
++fn register_adapter(info: &I2cAdapterInfo) -> Result<File> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/register")
++        .context("failed to open /scheme/i2c/register")?;
++    let payload = ron::ser::to_string(&I2cControlRequest::RegisterAdapter { info: info.clone() })
++        .context("failed to encode I2C adapter registration")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send I2C adapter registration")?;
++    Ok(file)
++}
++
++fn read_registration_response(file: &mut File) -> Result<I2cControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read I2C registration response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("I2C registration response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode I2C registration response")
++}
++
++fn eisa_id_from_integer(integer: u64) -> String {
++    let vendor = integer & 0xFFFF;
++    let device = (integer >> 16) & 0xFFFF;
++    let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++    let vendor_1 = (((vendor_rev >> 10) & 0x1F) as u8 + 64) as char;
++    let vendor_2 = (((vendor_rev >> 5) & 0x1F) as u8 + 64) as char;
++    let vendor_3 = (((vendor_rev >> 0) & 0x1F) as u8 + 64) as char;
++    let device_1 = (device >> 4) & 0xF;
++    let device_2 = (device >> 0) & 0xF;
++    let device_3 = (device >> 12) & 0xF;
++    let device_4 = (device >> 8) & 0xF;
++
++    format!(
++        "{vendor_1}{vendor_2}{vendor_3}{device_1:01X}{device_2:01X}{device_3:01X}{device_4:01X}"
++    )
++}
+diff --git a/drivers/input/i2c-hidd/Cargo.toml b/drivers/input/i2c-hidd/Cargo.toml
+new file mode 100644
+index 00000000..db7b3f03
+--- /dev/null
++++ b/drivers/input/i2c-hidd/Cargo.toml
+@@ -0,0 +1,26 @@
++[package]
++name = "i2c-hidd"
++description = "I2C HID client daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++orbclient.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++redox-scheme.workspace = true
++ron.workspace = true
++serde.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++amlserde = { path = "../../amlserde" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../../i2c/i2c-interface" }
++inputd = { path = "../../inputd" }
++scheme-utils = { path = "../../../scheme-utils" }
++
++[lints]
++workspace = true
+diff --git a/drivers/input/i2c-hidd/src/acpi.rs b/drivers/input/i2c-hidd/src/acpi.rs
+new file mode 100644
+index 00000000..1132154c
+--- /dev/null
++++ b/drivers/input/i2c-hidd/src/acpi.rs
+@@ -0,0 +1,307 @@
++use acpi_resource::{GpioDescriptor, ResourceDescriptor};
++use amlserde::{AmlSerde, AmlSerdeValue};
++use anyhow::{anyhow, bail, Context, Result};
++use libredox::flag::{O_CLOEXEC, O_RDWR};
++use std::collections::BTreeSet;
++use std::fs::{self, OpenOptions};
++use std::io::{ErrorKind, Read};
++
++use crate::quirks::ProbeFailureQuirk;
++
++const I2C_HID_DSM_GUID: [u8; 16] = [
++    0xF7, 0xF6, 0xDF, 0x3C, 0x67, 0x42, 0x55, 0x45, 0xAD, 0x05, 0xB3, 0x0A, 0x3D, 0x89, 0x41, 0x76,
++];
++
++#[derive(Clone, Debug)]
++pub struct I2cBinding {
++    pub adapter: String,
++    pub address: u16,
++}
++
++#[derive(Clone, Debug)]
++pub struct AcpiDeviceResources {
++    pub i2c: I2cBinding,
++    pub irq: Option<u32>,
++    pub gpio_int: Vec<GpioDescriptor>,
++    pub gpio_io: Vec<GpioDescriptor>,
++}
++
++pub fn scan_acpi_i2c_hid_devices() -> Result<Vec<String>> {
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err) if err.kind() == ErrorKind::WouldBlock || err.raw_os_error() == Some(11) => {
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    let mut devices = BTreeSet::new();
++    for entry in entries {
++        let entry = entry.context("failed to enumerate ACPI symbol entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("._HID") && !file_name.ends_with("._CID") {
++            continue;
++        }
++
++        let symbol = read_aml_symbol(&file_name)
++            .with_context(|| format!("failed to read ACPI symbol {file_name}"))?;
++        let Some(id) = decode_hardware_id(&symbol.value) else {
++            continue;
++        };
++
++        if matches!(id.as_str(), "PNP0C50" | "ACPI0C50") {
++            let device = symbol
++                .name
++                .strip_suffix("._HID")
++                .or_else(|| symbol.name.strip_suffix("._CID"))
++                .unwrap_or(&symbol.name)
++                .trim_start_matches('\\')
++                .trim_matches('/')
++                .replace('/', ".");
++            if !device.is_empty() {
++                devices.insert(device);
++            }
++        }
++    }
++
++    Ok(devices.into_iter().collect())
++}
++
++pub fn read_decoded_resources(path: &str) -> Result<AcpiDeviceResources> {
++    let resource_path = format!("/scheme/acpi/resources/{}", normalize_device_path(path));
++    let serialized = fs::read_to_string(&resource_path)
++        .with_context(|| format!("failed to read {resource_path}"))?;
++    let descriptors: Vec<ResourceDescriptor> = ron::from_str(&serialized)
++        .with_context(|| format!("invalid ACPI resources in {resource_path}"))?;
++
++    let mut i2c = None;
++    let mut irq = None;
++    let mut gpio_int = Vec::new();
++    let mut gpio_io = Vec::new();
++
++    for descriptor in descriptors {
++        match descriptor {
++            ResourceDescriptor::I2cSerialBus(bus) => {
++                if i2c.is_none() {
++                    let adapter = bus
++                        .resource_source
++                        .as_ref()
++                        .map(|source| source.source.clone())
++                        .filter(|source| !source.is_empty())
++                        .unwrap_or_else(|| "ACPI-I2C".to_string());
++                    i2c = Some(I2cBinding {
++                        adapter,
++                        address: bus.slave_address,
++                    });
++                }
++            }
++            ResourceDescriptor::Irq(descriptor) => {
++                if irq.is_none() {
++                    irq = descriptor.interrupts.first().copied().map(u32::from);
++                }
++            }
++            ResourceDescriptor::ExtendedIrq(descriptor) => {
++                if irq.is_none() {
++                    irq = descriptor.interrupts.first().copied();
++                }
++            }
++            ResourceDescriptor::GpioInt(descriptor) => gpio_int.push(descriptor),
++            ResourceDescriptor::GpioIo(descriptor) => gpio_io.push(descriptor),
++            _ => {}
++        }
++    }
++
++    let mut resources = AcpiDeviceResources {
++        i2c: i2c.ok_or_else(|| anyhow!("no I2cSerialBus resource in _CRS"))?,
++        irq,
++        gpio_int,
++        gpio_io,
++    };
++
++    if let Some(override_address) = companion_icrs_override(path)? {
++        log::info!(
++            "{}: applying THC companion ICRS override {:04x} -> {:04x}",
++            path,
++            resources.i2c.address,
++            override_address
++        );
++        resources.i2c.address = override_address;
++    }
++
++    Ok(resources)
++}
++
++pub fn prepare_acpi_device(path: &str) -> Result<()> {
++    let sta = evaluate_integer_method(path, "_STA").ok();
++    if let Some(sta) = sta {
++        if sta & 0x01 == 0 {
++            bail!("ACPI device is not present according to _STA={sta:#x}");
++        }
++    }
++
++    let _ = evaluate_method(path, "_PS0", &[]);
++    let _ = evaluate_method(path, "_INI", &[]);
++    Ok(())
++}
++
++pub fn recover_acpi_device(
++    path: &str,
++    resources: &AcpiDeviceResources,
++    quirk: Option<&ProbeFailureQuirk>,
++) -> Result<()> {
++    let _ = evaluate_method(path, "_PS3", &[]);
++
++    if let Some(quirk) = quirk {
++        if !resources.gpio_io.is_empty() {
++            log::warn!(
++                "{}: applying GPIO probe-failure recovery quirk {} vendor={:?} product={:?} board={:?} across {} GPIO IO resources",
++                path,
++                quirk.name,
++                quirk.system_vendor,
++                quirk.product_name,
++                quirk.board_name,
++                resources.gpio_io.len()
++            );
++        } else {
++            log::warn!(
++                "{}: quirk {} vendor={:?} product={:?} board={:?} matched but no GPIO IO resource was exposed",
++                path,
++                quirk.name
++                ,
++                quirk.system_vendor,
++                quirk.product_name,
++                quirk.board_name
++            );
++        }
++    }
++
++    let _ = evaluate_method(path, "_PS0", &[]);
++    let _ = evaluate_method(path, "_INI", &[]);
++    Ok(())
++}
++
++pub fn hid_descriptor_address(path: &str) -> Result<u16> {
++    let args = [
++        AmlSerdeValue::Buffer(I2C_HID_DSM_GUID.to_vec()),
++        AmlSerdeValue::Integer(1),
++        AmlSerdeValue::Integer(1),
++        AmlSerdeValue::Package {
++            contents: Vec::new(),
++        },
++    ];
++
++    match evaluate_method(path, "_DSM", &args) {
++        Ok(AmlSerdeValue::Integer(value)) => {
++            return u16::try_from(value).context("_DSM descriptor address out of range")
++        }
++        Ok(other) => log::warn!(
++            "{}._DSM returned unexpected value {:?}; retrying fallback index",
++            path,
++            other
++        ),
++        Err(err) => log::warn!(
++            "{}._DSM function 1 failed: {err}; retrying function 0",
++            path
++        ),
++    }
++
++    let fallback = [
++        AmlSerdeValue::Buffer(I2C_HID_DSM_GUID.to_vec()),
++        AmlSerdeValue::Integer(1),
++        AmlSerdeValue::Integer(0),
++        AmlSerdeValue::Package {
++            contents: Vec::new(),
++        },
++    ];
++
++    match evaluate_method(path, "_DSM", &fallback)? {
++        AmlSerdeValue::Integer(value) => {
++            u16::try_from(value).context("fallback _DSM descriptor address out of range")
++        }
++        other => bail!("fallback _DSM returned unexpected value {other:?}"),
++    }
++}
++
++fn companion_icrs_override(path: &str) -> Result<Option<u16>> {
++    let value = match evaluate_integer_method(path, "ICRS") {
++        Ok(value) => value,
++        Err(_) => return Ok(None),
++    };
++    Ok(Some(
++        u16::try_from(value).context("ICRS override out of range")?,
++    ))
++}
++
++pub fn evaluate_integer_method(path: &str, method: &str) -> Result<u64> {
++    match evaluate_method(path, method, &[])? {
++        AmlSerdeValue::Integer(value) => Ok(value),
++        other => bail!(
++            "{}.{} returned non-integer AML value {other:?}",
++            path,
++            method
++        ),
++    }
++}
++
++pub fn evaluate_method(path: &str, method: &str, args: &[AmlSerdeValue]) -> Result<AmlSerdeValue> {
++    let symbol_name = format!("{}.{}", normalize_device_path(path), method);
++    let symbol_path = format!("/scheme/acpi/symbols/{symbol_name}");
++    let fd = libredox::Fd::open(&symbol_path, O_RDWR | O_CLOEXEC, 0)
++        .with_context(|| format!("failed to open {symbol_path} for ACPI evaluation"))?;
++
++    let serialized = ron::to_string(args)
++        .with_context(|| format!("failed to serialize ACPI arguments for {symbol_name}"))?;
++    let mut payload = serialized.into_bytes();
++    payload.resize(payload.len() + 4096, 0);
++
++    let used = libredox::call::call_ro(fd.raw(), &mut payload, syscall::CallFlags::empty(), &[])
++        .with_context(|| format!("ACPI evaluation failed for {symbol_name}"))?;
++    let response = std::str::from_utf8(&payload[..used])
++        .with_context(|| format!("invalid UTF-8 ACPI response for {symbol_name}"))?;
++    ron::from_str(response)
++        .with_context(|| format!("failed to decode ACPI response for {symbol_name}"))
++}
++
++fn read_aml_symbol(file_name: &str) -> Result<AmlSerde> {
++    let path = format!("/scheme/acpi/symbols/{file_name}");
++    let mut file = OpenOptions::new()
++        .read(true)
++        .open(&path)
++        .with_context(|| format!("failed to open {path}"))?;
++    let mut ron_text = String::new();
++    file.read_to_string(&mut ron_text)
++        .with_context(|| format!("failed to read {path}"))?;
++    ron::from_str(&ron_text).with_context(|| format!("failed to decode {path}"))
++}
++
++fn decode_hardware_id(value: &AmlSerdeValue) -> Option<String> {
++    match value {
++        AmlSerdeValue::String(value) => Some(value.clone()),
++        AmlSerdeValue::Integer(integer) => {
++            let vendor = integer & 0xFFFF;
++            let device = (integer >> 16) & 0xFFFF;
++            let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++            let vendor_1 = (((vendor_rev >> 10) & 0x1f) as u8 + 64) as char;
++            let vendor_2 = (((vendor_rev >> 5) & 0x1f) as u8 + 64) as char;
++            let vendor_3 = (((vendor_rev >> 0) & 0x1f) as u8 + 64) as char;
++            let device_1 = (device >> 4) & 0xF;
++            let device_2 = (device >> 0) & 0xF;
++            let device_3 = (device >> 12) & 0xF;
++            let device_4 = (device >> 8) & 0xF;
++
++            Some(format!(
++                "{}{}{}{:01X}{:01X}{:01X}{:01X}",
++                vendor_1, vendor_2, vendor_3, device_1, device_2, device_3, device_4
++            ))
++        }
++        _ => None,
++    }
++}
++
++pub fn normalize_device_path(path: &str) -> String {
++    path.trim_start_matches('\\')
++        .trim_matches('/')
++        .replace('/', ".")
++}
+diff --git a/drivers/input/i2c-hidd/src/hid.rs b/drivers/input/i2c-hidd/src/hid.rs
+new file mode 100644
+index 00000000..dd18e36c
+--- /dev/null
++++ b/drivers/input/i2c-hidd/src/hid.rs
+@@ -0,0 +1,195 @@
++use std::fs::OpenOptions;
++use std::io::{Read, Write};
++
++use anyhow::{bail, Context, Result};
++use i2c_interface::{I2cTransferRequest, I2cTransferResponse, I2cTransferSegment};
++use serde::{Deserialize, Serialize};
++
++use crate::acpi::I2cBinding;
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++pub struct HidDescriptor {
++    pub hid_desc_length: u16,
++    pub bcd_version: u16,
++    pub report_desc_length: u16,
++    pub report_desc_register: u16,
++    pub input_register: u16,
++    pub max_input_length: u16,
++    pub output_register: u16,
++    pub max_output_length: u16,
++    pub command_register: u16,
++    pub data_register: u16,
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct ReportDescriptorSummary {
++    pub has_keyboard_page: bool,
++    pub has_pointer_page: bool,
++    pub report_ids: bool,
++}
++
++#[derive(Clone, Debug)]
++pub struct I2cAdapterClient {
++    binding: I2cBinding,
++}
++
++impl I2cAdapterClient {
++    pub fn new(binding: I2cBinding) -> Self {
++        Self { binding }
++    }
++    pub fn transfer(&self, segments: Vec<I2cTransferSegment>) -> Result<I2cTransferResponse> {
++        let request = I2cTransferRequest {
++            adapter: self.binding.adapter.clone(),
++            segments,
++            stop: true,
++        };
++
++        let serialized = ron::to_string(&request).context("failed to serialize I2C request")?;
++        let mut handle = OpenOptions::new()
++            .read(true)
++            .write(true)
++            .open("/scheme/i2c/transfer")
++            .context("failed to open /scheme/i2c/transfer")?;
++        handle
++            .write_all(serialized.as_bytes())
++            .context("failed to write I2C transfer request")?;
++
++        let mut response = String::new();
++        handle
++            .read_to_string(&mut response)
++            .context("failed to read I2C transfer response")?;
++
++        let transfer: I2cTransferResponse =
++            ron::from_str(&response).context("failed to decode I2C transfer response")?;
++        if !transfer.ok {
++            bail!(
++                "I2C transfer failed: {}",
++                transfer
++                    .error
++                    .unwrap_or_else(|| "unspecified transfer error".to_string())
++            );
++        }
++        Ok(transfer)
++    }
++
++    pub fn write_read(&self, address: u16, write_data: &[u8], read_len: usize) -> Result<Vec<u8>> {
++        let response = self.transfer(vec![
++            I2cTransferSegment::write(address, write_data.to_vec()),
++            I2cTransferSegment::read(address, read_len),
++        ])?;
++
++        response
++            .read_data
++            .last()
++            .cloned()
++            .ok_or_else(|| anyhow::anyhow!("I2C transfer returned no readable segment payload"))
++    }
++}
++
++pub fn fetch_hid_descriptor(
++    adapter: &I2cAdapterClient,
++    address: u16,
++    hid_desc_addr: u16,
++) -> Result<HidDescriptor> {
++    let prefix = adapter
++        .write_read(address, &hid_desc_addr.to_le_bytes(), 2)
++        .context("failed to read HID descriptor length prefix")?;
++    if prefix.len() < 2 {
++        bail!("short HID descriptor prefix: {} bytes", prefix.len());
++    }
++
++    let hid_desc_length = u16::from_le_bytes([prefix[0], prefix[1]]);
++    if hid_desc_length < 18 {
++        bail!("invalid HID descriptor length {hid_desc_length}");
++    }
++
++    let raw = adapter
++        .write_read(
++            address,
++            &hid_desc_addr.to_le_bytes(),
++            usize::from(hid_desc_length),
++        )
++        .context("failed to read full HID descriptor")?;
++    parse_hid_descriptor(&raw)
++}
++
++pub fn fetch_report_descriptor(
++    adapter: &I2cAdapterClient,
++    address: u16,
++    desc: &HidDescriptor,
++) -> Result<Vec<u8>> {
++    adapter
++        .write_read(
++            address,
++            &desc.report_desc_register.to_le_bytes(),
++            usize::from(desc.report_desc_length),
++        )
++        .context("failed to read HID report descriptor")
++}
++
++pub fn stream_input_reports(
++    adapter: &I2cAdapterClient,
++    address: u16,
++    desc: &HidDescriptor,
++    report_desc: &[u8],
++    sink: &mut crate::input::InputForwarder,
++) -> Result<()> {
++    let summary = summarize_report_descriptor(report_desc);
++    let input_len = usize::from(desc.max_input_length.max(4));
++
++    loop {
++        let report = adapter
++            .write_read(address, &desc.input_register.to_le_bytes(), input_len)
++            .context("failed to fetch I2C HID input report")?;
++        sink.forward_report(&summary, &report)?;
++    }
++}
++
++fn parse_hid_descriptor(bytes: &[u8]) -> Result<HidDescriptor> {
++    if bytes.len() < 18 {
++        bail!("short HID descriptor: {} bytes", bytes.len());
++    }
++
++    Ok(HidDescriptor {
++        hid_desc_length: le16(bytes, 0)?,
++        bcd_version: le16(bytes, 2)?,
++        report_desc_length: le16(bytes, 4)?,
++        report_desc_register: le16(bytes, 6)?,
++        input_register: le16(bytes, 8)?,
++        max_input_length: le16(bytes, 10)?,
++        output_register: le16(bytes, 12)?,
++        max_output_length: le16(bytes, 14)?,
++        command_register: le16(bytes, 16)?,
++        data_register: if bytes.len() >= 20 {
++            le16(bytes, 18)?
++        } else {
++            0
++        },
++    })
++}
++
++fn summarize_report_descriptor(report_desc: &[u8]) -> ReportDescriptorSummary {
++    let mut summary = ReportDescriptorSummary::default();
++
++    for window in report_desc.windows(2) {
++        match window {
++            [0x05, 0x01] => summary.has_pointer_page = true,
++            [0x05, 0x07] => summary.has_keyboard_page = true,
++            [0x85, _] => summary.report_ids = true,
++            _ => {}
++        }
++    }
++
++    if !summary.has_keyboard_page && !summary.has_pointer_page {
++        summary.has_pointer_page = true;
++    }
++
++    summary
++}
++
++fn le16(bytes: &[u8], offset: usize) -> Result<u16> {
++    let slice = bytes
++        .get(offset..offset + 2)
++        .ok_or_else(|| anyhow::anyhow!("short LE16 field at offset {offset}"))?;
++    Ok(u16::from_le_bytes([slice[0], slice[1]]))
++}
+diff --git a/drivers/input/i2c-hidd/src/input.rs b/drivers/input/i2c-hidd/src/input.rs
+new file mode 100644
+index 00000000..432a0782
+--- /dev/null
++++ b/drivers/input/i2c-hidd/src/input.rs
+@@ -0,0 +1,175 @@
++use std::collections::BTreeSet;
++
++use anyhow::Result;
++use inputd::ProducerHandle;
++use orbclient::{
++    ButtonEvent, KeyEvent, MouseRelativeEvent, ScrollEvent, K_ALT, K_ALT_GR, K_BKSP, K_BRACE_CLOSE,
++    K_BRACE_OPEN, K_CAPS, K_COMMA, K_ENTER, K_EQUALS, K_ESC, K_LEFT_CTRL, K_LEFT_SHIFT,
++    K_LEFT_SUPER, K_MINUS, K_PERIOD, K_QUOTE, K_RIGHT_CTRL, K_RIGHT_SHIFT, K_RIGHT_SUPER,
++    K_SEMICOLON, K_SLASH, K_SPACE, K_TAB, K_TICK,
++};
++
++use crate::hid::ReportDescriptorSummary;
++
++pub struct InputForwarder {
++    producer: ProducerHandle,
++    keyboard_state: BTreeSet<u8>,
++    last_buttons: u8,
++}
++
++impl InputForwarder {
++    pub fn new() -> Result<Self> {
++        Ok(Self {
++            producer: ProducerHandle::new()?,
++            keyboard_state: BTreeSet::new(),
++            last_buttons: 0,
++        })
++    }
++
++    pub fn forward_report(
++        &mut self,
++        summary: &ReportDescriptorSummary,
++        report: &[u8],
++    ) -> Result<()> {
++        if report.is_empty() {
++            return Ok(());
++        }
++
++        if summary.has_keyboard_page && report.len() >= 8 {
++            self.forward_boot_keyboard(report)?;
++            return Ok(());
++        }
++
++        if summary.has_pointer_page && report.len() >= 3 {
++            self.forward_boot_pointer(report)?;
++            return Ok(());
++        }
++
++        Ok(())
++    }
++
++    fn forward_boot_keyboard(&mut self, report: &[u8]) -> Result<()> {
++        let modifiers = report[0];
++        for (bit, scancode) in [
++            (0_u8, K_LEFT_CTRL),
++            (1, K_LEFT_SHIFT),
++            (2, K_ALT),
++            (3, K_LEFT_SUPER),
++            (4, K_RIGHT_CTRL),
++            (5, K_RIGHT_SHIFT),
++            (6, K_ALT_GR),
++            (7, K_RIGHT_SUPER),
++        ] {
++            self.producer.write_event(
++                KeyEvent {
++                    character: '\0',
++                    scancode,
++                    pressed: modifiers & (1 << bit) != 0,
++                }
++                .to_event(),
++            )?;
++        }
++
++        let current = report[2..8]
++            .iter()
++            .copied()
++            .filter(|code| *code != 0)
++            .collect::<BTreeSet<_>>();
++
++        for code in current.difference(&self.keyboard_state) {
++            if let Some(scancode) = map_boot_keyboard_usage(*code) {
++                self.producer.write_event(
++                    KeyEvent {
++                        character: '\0',
++                        scancode,
++                        pressed: true,
++                    }
++                    .to_event(),
++                )?;
++            }
++        }
++        for code in self.keyboard_state.difference(&current) {
++            if let Some(scancode) = map_boot_keyboard_usage(*code) {
++                self.producer.write_event(
++                    KeyEvent {
++                        character: '\0',
++                        scancode,
++                        pressed: false,
++                    }
++                    .to_event(),
++                )?;
++            }
++        }
++
++        self.keyboard_state = current;
++        Ok(())
++    }
++
++    fn forward_boot_pointer(&mut self, report: &[u8]) -> Result<()> {
++        let dx = i8::from_ne_bytes([report[1]]) as i32;
++        let dy = i8::from_ne_bytes([report[2]]) as i32;
++        if dx != 0 || dy != 0 {
++            self.producer
++                .write_event(MouseRelativeEvent { dx, dy }.to_event())?;
++        }
++
++        if let Some(scroll) = report.get(3).copied() {
++            let scroll = i8::from_ne_bytes([scroll]) as i32;
++            if scroll != 0 {
++                self.producer
++                    .write_event(ScrollEvent { x: 0, y: scroll }.to_event())?;
++            }
++        }
++
++        let buttons = report[0] & 0x07;
++        for index in 0..3 {
++            let mask = 1 << index;
++            if (buttons & mask) != (self.last_buttons & mask) {
++                self.producer.write_event(
++                    ButtonEvent {
++                        left: buttons & 0x01 != 0,
++                        middle: buttons & 0x04 != 0,
++                        right: buttons & 0x02 != 0,
++                    }
++                    .to_event(),
++                )?;
++                break;
++            }
++        }
++        self.last_buttons = buttons;
++        Ok(())
++    }
++}
++
++fn map_boot_keyboard_usage(usage: u8) -> Option<u8> {
++    Some(match usage {
++        0x04..=0x1D => b'a' + (usage - 0x04),
++        0x1E => b'1',
++        0x1F => b'2',
++        0x20 => b'3',
++        0x21 => b'4',
++        0x22 => b'5',
++        0x23 => b'6',
++        0x24 => b'7',
++        0x25 => b'8',
++        0x26 => b'9',
++        0x27 => b'0',
++        0x28 => K_ENTER,
++        0x29 => K_ESC,
++        0x2A => K_BKSP,
++        0x2B => K_TAB,
++        0x2C => K_SPACE,
++        0x2D => K_MINUS,
++        0x2E => K_EQUALS,
++        0x2F => K_BRACE_OPEN,
++        0x30 => K_BRACE_CLOSE,
++        0x33 => K_SEMICOLON,
++        0x34 => K_QUOTE,
++        0x35 => K_TICK,
++        0x36 => K_COMMA,
++        0x37 => K_PERIOD,
++        0x38 => K_SLASH,
++        0x39 => K_CAPS,
++        _ => return None,
++    })
++}
+diff --git a/drivers/input/i2c-hidd/src/main.rs b/drivers/input/i2c-hidd/src/main.rs
+new file mode 100644
+index 00000000..88270e37
+--- /dev/null
++++ b/drivers/input/i2c-hidd/src/main.rs
+@@ -0,0 +1,114 @@
++use std::process;
++use std::thread;
++use std::time::Duration;
++
++use anyhow::{Context, Result};
++
++mod acpi;
++mod hid;
++mod input;
++mod quirks;
++
++use acpi::{
++    hid_descriptor_address, prepare_acpi_device, read_decoded_resources, recover_acpi_device,
++    scan_acpi_i2c_hid_devices,
++};
++use hid::{fetch_hid_descriptor, fetch_report_descriptor, stream_input_reports, I2cAdapterClient};
++use input::InputForwarder;
++use quirks::match_probe_failure_quirk;
++
++fn main() {
++    daemon::Daemon::new(daemon);
++}
++
++fn daemon(daemon: daemon::Daemon) -> ! {
++    common::setup_logging(
++        "input",
++        "i2c-hid",
++        "i2c-hidd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    if let Err(err) = run(daemon) {
++        log::error!("RB_I2C_HIDD_BLOCKER stage=startup error={err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn run(daemon: daemon::Daemon) -> Result<()> {
++    log::info!("RB_I2C_HIDD_SCHEMA version=1");
++
++    let devices = scan_acpi_i2c_hid_devices().context("failed to scan ACPI I2C HID devices")?;
++    if devices.is_empty() {
++        log::warn!("RB_I2C_HIDD_BLOCKER stage=scan error=no PNP0C50/ACPI0C50 devices found");
++    }
++
++    let mut workers = Vec::new();
++    for device in devices {
++        log::info!("RB_I2C_HIDD_SNAPSHOT device={device}");
++        workers.push(thread::spawn(move || {
++            if let Err(err) = bind_device(&device) {
++                log::error!("RB_I2C_HIDD_BLOCKER device={} error={:#}", device, err);
++            }
++        }));
++    }
++
++    daemon.ready();
++
++    if workers.is_empty() {
++        loop {
++            thread::sleep(Duration::from_secs(5));
++        }
++    }
++
++    for worker in workers {
++        let _ = worker.join();
++    }
++    Ok(())
++}
++
++pub fn bind_device(device_path: &str) -> Result<()> {
++    prepare_acpi_device(device_path)
++        .with_context(|| format!("failed to prepare ACPI device {device_path}"))?;
++
++    let resources = read_decoded_resources(device_path)
++        .with_context(|| format!("failed to decode _CRS for {device_path}"))?;
++    log::info!(
++        "RB_I2C_HIDD_SNAPSHOT device={} adapter={} addr={:04x} irq={:?} gpio_int={} gpio_io={}",
++        device_path,
++        resources.i2c.adapter,
++        resources.i2c.address,
++        resources.irq,
++        resources.gpio_int.len(),
++        resources.gpio_io.len()
++    );
++
++    let hid_desc_addr = hid_descriptor_address(device_path)
++        .with_context(|| format!("failed to evaluate _DSM for {device_path}"))?;
++    let adapter = I2cAdapterClient::new(resources.i2c.clone());
++    let hid_desc = fetch_hid_descriptor(&adapter, resources.i2c.address, hid_desc_addr)
++        .with_context(|| format!("failed to fetch HID descriptor for {device_path}"))?;
++    let report_desc = fetch_report_descriptor(&adapter, resources.i2c.address, &hid_desc)
++        .with_context(|| format!("failed to fetch report descriptor for {device_path}"))?;
++    let mut forwarder = InputForwarder::new().context("failed to connect to inputd producer")?;
++
++    match stream_input_reports(
++        &adapter,
++        resources.i2c.address,
++        &hid_desc,
++        &report_desc,
++        &mut forwarder,
++    ) {
++        Ok(()) => Ok(()),
++        Err(err) => {
++            let quirk =
++                match_probe_failure_quirk().context("failed to evaluate DMI recovery quirks")?;
++            recover_acpi_device(device_path, &resources, quirk.as_ref())
++                .with_context(|| format!("failed ACPI recovery for {device_path}"))?;
++            Err(err).with_context(|| format!("streaming input reports failed for {device_path}"))
++        }
++    }
++}
+diff --git a/drivers/input/i2c-hidd/src/quirks.rs b/drivers/input/i2c-hidd/src/quirks.rs
+new file mode 100644
+index 00000000..450cb19b
+--- /dev/null
++++ b/drivers/input/i2c-hidd/src/quirks.rs
+@@ -0,0 +1,88 @@
++use std::fs;
++
++use anyhow::{Context, Result};
++use serde::Deserialize;
++
++#[derive(Clone, Debug)]
++pub struct ProbeFailureQuirk {
++    pub name: String,
++    pub system_vendor: Option<String>,
++    pub product_name: Option<String>,
++    pub board_name: Option<String>,
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++struct ProbeFailureQuirkFile {
++    quirks: Vec<ProbeFailureQuirkEntry>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++struct ProbeFailureQuirkEntry {
++    name: String,
++    system_vendor: Option<String>,
++    product_name: Option<String>,
++    board_name: Option<String>,
++}
++
++#[derive(Default)]
++struct DmiSnapshot {
++    system_vendor: String,
++    product_name: String,
++    board_name: String,
++}
++
++pub fn match_probe_failure_quirk() -> Result<Option<ProbeFailureQuirk>> {
++    let snapshot = read_dmi_snapshot()?;
++    for entry in load_quirks()? {
++        if field_matches(&entry.system_vendor, &snapshot.system_vendor)
++            && field_matches(&entry.product_name, &snapshot.product_name)
++            && field_matches(&entry.board_name, &snapshot.board_name)
++        {
++            return Ok(Some(ProbeFailureQuirk {
++                name: entry.name,
++                system_vendor: entry.system_vendor,
++                product_name: entry.product_name,
++                board_name: entry.board_name,
++            }));
++        }
++    }
++
++    Ok(None)
++}
++
++fn load_quirks() -> Result<Vec<ProbeFailureQuirkEntry>> {
++    let path = "/etc/i2c-hidd-quirks.ron";
++    let text = match fs::read_to_string(path) {
++        Ok(text) => text,
++        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
++        Err(err) => return Err(err).with_context(|| format!("failed to read {path}")),
++    };
++
++    let file: ProbeFailureQuirkFile =
++        ron::from_str(&text).with_context(|| format!("failed to decode {path}"))?;
++    Ok(file.quirks)
++}
++
++fn read_dmi_snapshot() -> Result<DmiSnapshot> {
++    Ok(DmiSnapshot {
++        system_vendor: read_dmi_field("system_vendor")?,
++        product_name: read_dmi_field("product_name")?,
++        board_name: read_dmi_field("board_name")?,
++    })
++}
++
++fn read_dmi_field(field: &str) -> Result<String> {
++    let path = format!("/scheme/acpi/dmi/{field}");
++    match fs::read_to_string(&path) {
++        Ok(value) => Ok(value.trim().to_string()),
++        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
++        Err(err) => Err(err).with_context(|| format!("failed to read {path}")),
++    }
++}
++
++fn field_matches(expected: &Option<String>, actual: &str) -> bool {
++    expected
++        .as_deref()
++        .map(|expected| actual.eq_ignore_ascii_case(expected))
++        .unwrap_or(true)
++}
+diff --git a/drivers/input/intel-thc-hidd/Cargo.toml b/drivers/input/intel-thc-hidd/Cargo.toml
+new file mode 100644
+index 00000000..f6aa2248
+--- /dev/null
++++ b/drivers/input/intel-thc-hidd/Cargo.toml
+@@ -0,0 +1,26 @@
++[package]
++name = "intel-thc-hidd"
++description = "Intel THC QuickI2C HID transport daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++pci_types = "0.10.1"
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++redox-scheme.workspace = true
++ron.workspace = true
++serde.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++amlserde = { path = "../../amlserde" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../../i2c/i2c-interface" }
++pcid = { path = "../../pcid" }
++scheme-utils = { path = "../../../scheme-utils" }
++
++[lints]
++workspace = true
+diff --git a/drivers/input/intel-thc-hidd/src/main.rs b/drivers/input/intel-thc-hidd/src/main.rs
+new file mode 100644
+index 00000000..55581462
+--- /dev/null
++++ b/drivers/input/intel-thc-hidd/src/main.rs
+@@ -0,0 +1,260 @@
++use std::collections::BTreeSet;
++use std::fs::{self, OpenOptions};
++use std::io::Read;
++use std::process;
++use std::thread;
++use std::time::Duration;
++
++use acpi_resource::ResourceDescriptor;
++use amlserde::{AmlSerde, AmlSerdeValue};
++use anyhow::{bail, Context, Result};
++use libredox::flag::{O_CLOEXEC, O_RDWR};
++use pcid_interface::PciFunctionHandle;
++
++mod quicki2c;
++mod thc;
++
++use quicki2c::QuickI2cTransport;
++use thc::{ThcController, SUPPORTED_PCI_IDS};
++
++fn main() {
++    pcid_interface::pci_daemon(daemon);
++}
++
++fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
++    common::setup_logging(
++        "input",
++        "intel-thc",
++        "intel-thc-hidd",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    if let Err(err) = run(daemon, &mut pcid_handle) {
++        log::error!("RB_THC_HIDD_FATAL error={err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn run(daemon: daemon::Daemon, pcid_handle: &mut PciFunctionHandle) -> Result<()> {
++    log::info!("RB_THC_HIDD_SCHEMA version=1");
++
++    let pci_config = pcid_handle.config();
++    let id = (
++        pci_config.func.full_device_id.vendor_id,
++        pci_config.func.full_device_id.device_id,
++    );
++    if !SUPPORTED_PCI_IDS.contains(&id) {
++        bail!("unsupported Intel THC PCI device {:04x}:{:04x}", id.0, id.1);
++    }
++
++    pcid_handle.enable_device();
++    let bar = unsafe { pcid_handle.try_map_bar(0) }.context("failed to map THC BAR0")?;
++    let controller = ThcController::new(bar.ptr.as_ptr(), bar.bar_size)
++        .context("failed to create THC controller")?;
++
++    let companion = resolve_acpi_companion(&pci_config.func.addr)
++        .context("failed to resolve ACPI companion for THC device")?;
++    let override_address = companion
++        .as_deref()
++        .map(companion_slave_address_override)
++        .transpose()
++        .context("failed to evaluate THC slave-address override")?
++        .flatten();
++    let hid_devices = scan_bound_i2c_hid_devices(companion.as_deref())
++        .context("failed to scan PNP0C50 devices for THC controller")?;
++
++    let effective_address = override_address.unwrap_or(0x0015);
++    let transport = QuickI2cTransport::new(controller, effective_address);
++    transport.prime_controller();
++    transport.emulate_transfer(&[]);
++    log::debug!("RB_THC_HIDD status={:#x}", transport.status());
++
++    match transport.register_with_i2cd(companion.as_deref(), override_address) {
++        Ok(()) => {}
++        Err(err) => {
++            log::warn!("RB_THC_HIDD registration error={err:#}");
++        }
++    }
++
++    log::info!(
++        "RB_THC_HIDD pci={} companion={:?} override={:?} hid_devices={}",
++        pci_config.func.name(),
++        companion,
++        override_address,
++        hid_devices.len()
++    );
++
++    daemon.ready();
++
++    loop {
++        thread::sleep(Duration::from_secs(5));
++    }
++}
++
++fn resolve_acpi_companion(addr: &pci_types::PciAddress) -> Result<Option<String>> {
++    let entries =
++        fs::read_dir("/scheme/acpi/symbols").context("failed to read /scheme/acpi/symbols")?;
++    let expected_adr = (u64::from(addr.device()) << 16) | u64::from(addr.function());
++
++    for entry in entries {
++        let entry = entry.context("failed to enumerate ACPI symbol entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("._ADR") {
++            continue;
++        }
++
++        let symbol = read_aml_symbol(&file_name)?;
++        if !matches!(symbol.value, AmlSerdeValue::Integer(value) if value == expected_adr) {
++            continue;
++        }
++
++        let device = symbol
++            .name
++            .strip_suffix("._ADR")
++            .unwrap_or(&symbol.name)
++            .trim_start_matches('\\')
++            .replace('/', ".");
++        return Ok(Some(device));
++    }
++
++    Ok(None)
++}
++
++fn companion_slave_address_override(path: &str) -> Result<Option<u16>> {
++    let icrs = evaluate_integer_method(path, "ICRS").ok();
++    let isub = evaluate_integer_method(path, "ISUB").ok();
++    Ok(icrs
++        .or(isub)
++        .map(|value| u16::try_from(value))
++        .transpose()
++        .context("THC ACPI override out of range")?)
++}
++
++fn scan_bound_i2c_hid_devices(companion: Option<&str>) -> Result<Vec<String>> {
++    let entries =
++        fs::read_dir("/scheme/acpi/symbols").context("failed to read /scheme/acpi/symbols")?;
++    let mut devices = BTreeSet::new();
++
++    for entry in entries {
++        let entry = entry.context("failed to enumerate ACPI HID entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("._HID") && !file_name.ends_with("._CID") {
++            continue;
++        }
++
++        let symbol = read_aml_symbol(&file_name)?;
++        let is_hid = matches!(
++            decode_hardware_id(&symbol.value).as_deref(),
++            Some("PNP0C50" | "ACPI0C50")
++        );
++        if !is_hid {
++            continue;
++        }
++
++        let device = symbol
++            .name
++            .strip_suffix("._HID")
++            .or_else(|| symbol.name.strip_suffix("._CID"))
++            .unwrap_or(&symbol.name)
++            .trim_start_matches('\\')
++            .replace('/', ".");
++        if let Some(companion) = companion {
++            if !is_bound_to_companion(&device, companion)? {
++                continue;
++            }
++        }
++        devices.insert(device);
++    }
++
++    Ok(devices.into_iter().collect())
++}
++
++fn is_bound_to_companion(device: &str, companion: &str) -> Result<bool> {
++    let resource_path = format!("/scheme/acpi/resources/{device}");
++    let serialized = match fs::read_to_string(&resource_path) {
++        Ok(serialized) => serialized,
++        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
++        Err(err) => return Err(err).with_context(|| format!("failed to read {resource_path}")),
++    };
++
++    let resources: Vec<ResourceDescriptor> =
++        ron::from_str(&serialized).with_context(|| format!("failed to decode {resource_path}"))?;
++    Ok(resources.into_iter().any(|resource| match resource {
++        ResourceDescriptor::I2cSerialBus(bus) => bus
++            .resource_source
++            .as_ref()
++            .map(|source| source.source == companion)
++            .unwrap_or(false),
++        _ => false,
++    }))
++}
++
++fn evaluate_integer_method(path: &str, method: &str) -> Result<u64> {
++    let symbol_name = format!("{}.{}", normalize_device_path(path), method);
++    let symbol_path = format!("/scheme/acpi/symbols/{symbol_name}");
++    let fd = libredox::Fd::open(&symbol_path, O_RDWR | O_CLOEXEC, 0)
++        .with_context(|| format!("failed to open {symbol_path}"))?;
++
++    let mut payload = ron::to_string(&Vec::<AmlSerdeValue>::new())
++        .context("failed to serialize ACPI call arguments")?
++        .into_bytes();
++    payload.resize(payload.len() + 2048, 0);
++    let used = libredox::call::call_ro(fd.raw(), &mut payload, syscall::CallFlags::empty(), &[])
++        .with_context(|| format!("ACPI evaluation failed for {symbol_name}"))?;
++    let response = std::str::from_utf8(&payload[..used])
++        .with_context(|| format!("invalid UTF-8 ACPI response for {symbol_name}"))?;
++    match ron::from_str::<AmlSerdeValue>(response)
++        .with_context(|| format!("failed to decode ACPI response for {symbol_name}"))?
++    {
++        AmlSerdeValue::Integer(value) => Ok(value),
++        other => bail!("{}.{} returned non-integer value {other:?}", path, method),
++    }
++}
++
++fn read_aml_symbol(file_name: &str) -> Result<AmlSerde> {
++    let path = format!("/scheme/acpi/symbols/{file_name}");
++    let mut file = OpenOptions::new()
++        .read(true)
++        .open(&path)
++        .with_context(|| format!("failed to open {path}"))?;
++    let mut ron_text = String::new();
++    file.read_to_string(&mut ron_text)
++        .with_context(|| format!("failed to read {path}"))?;
++    ron::from_str(&ron_text).with_context(|| format!("failed to decode {path}"))
++}
++
++fn decode_hardware_id(value: &AmlSerdeValue) -> Option<String> {
++    match value {
++        AmlSerdeValue::String(value) => Some(value.clone()),
++        AmlSerdeValue::Integer(integer) => {
++            let vendor = integer & 0xFFFF;
++            let device = (integer >> 16) & 0xFFFF;
++            let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++            let vendor_1 = (((vendor_rev >> 10) & 0x1f) as u8 + 64) as char;
++            let vendor_2 = (((vendor_rev >> 5) & 0x1f) as u8 + 64) as char;
++            let vendor_3 = (((vendor_rev >> 0) & 0x1f) as u8 + 64) as char;
++            let device_1 = (device >> 4) & 0xF;
++            let device_2 = (device >> 0) & 0xF;
++            let device_3 = (device >> 12) & 0xF;
++            let device_4 = (device >> 8) & 0xF;
++            Some(format!(
++                "{}{}{}{:01X}{:01X}{:01X}{:01X}",
++                vendor_1, vendor_2, vendor_3, device_1, device_2, device_3, device_4
++            ))
++        }
++        _ => None,
++    }
++}
++
++fn normalize_device_path(path: &str) -> String {
++    path.trim_start_matches('\\')
++        .trim_matches('/')
++        .replace('/', ".")
++}
+diff --git a/drivers/input/intel-thc-hidd/src/quicki2c.rs b/drivers/input/intel-thc-hidd/src/quicki2c.rs
+new file mode 100644
+index 00000000..721f0be3
+--- /dev/null
++++ b/drivers/input/intel-thc-hidd/src/quicki2c.rs
+@@ -0,0 +1,86 @@
++use std::fs::OpenOptions;
++use std::io::Write;
++
++use anyhow::{Context, Result};
++use i2c_interface::{I2cAdapterRegistration, I2cTransferSegment};
++
++use crate::thc::ThcController;
++
++const QUICKI2C_OPCODE_WRITE: u32 = 0x1;
++const QUICKI2C_OPCODE_READ: u32 = 0x2;
++
++pub struct QuickI2cTransport {
++    controller: ThcController,
++    slave_address: u16,
++}
++
++impl QuickI2cTransport {
++    pub fn new(controller: ThcController, slave_address: u16) -> Self {
++        Self {
++            controller,
++            slave_address,
++        }
++    }
++
++    pub fn prime_controller(&self) {
++        self.controller.initialize_quicki2c_mode();
++    }
++
++    pub fn emulate_transfer(&self, segments: &[I2cTransferSegment]) {
++        for segment in segments {
++            match &segment.op {
++                i2c_interface::I2cTransferOp::Write(data) => {
++                    self.controller.program_subip_transaction(
++                        QUICKI2C_OPCODE_WRITE,
++                        segment.address,
++                        data.len(),
++                    );
++                    for (index, chunk) in data.chunks(4).enumerate() {
++                        let mut word = [0_u8; 4];
++                        word[..chunk.len()].copy_from_slice(chunk);
++                        self.controller
++                            .write_subip_data(index * 4, u32::from_le_bytes(word));
++                    }
++                }
++                i2c_interface::I2cTransferOp::Read(len) => {
++                    self.controller.program_subip_transaction(
++                        QUICKI2C_OPCODE_READ,
++                        segment.address,
++                        *len,
++                    );
++                    let _ = self.controller.read_subip_data(0);
++                }
++            }
++        }
++    }
++
++    pub fn status(&self) -> u32 {
++        self.controller.status()
++    }
++
++    pub fn register_with_i2cd(
++        &self,
++        acpi_companion: Option<&str>,
++        override_address: Option<u16>,
++    ) -> Result<()> {
++        let registration = I2cAdapterRegistration {
++            name: "intel-thc-quicki2c".to_string(),
++            description: format!(
++                "Intel THC QuickI2C adapter for slave {:04x}",
++                self.slave_address
++            ),
++            acpi_companion: acpi_companion.map(str::to_owned),
++            slave_address_override: override_address,
++        };
++        let payload =
++            ron::to_string(&registration).context("failed to serialize i2cd registration")?;
++
++        let mut file = OpenOptions::new()
++            .write(true)
++            .open("/scheme/i2c/register")
++            .context("failed to open /scheme/i2c/register")?;
++        file.write_all(payload.as_bytes())
++            .context("failed to write i2cd adapter registration")?;
++        Ok(())
++    }
++}
+diff --git a/drivers/input/intel-thc-hidd/src/thc.rs b/drivers/input/intel-thc-hidd/src/thc.rs
+new file mode 100644
+index 00000000..e06a6f8a
+--- /dev/null
++++ b/drivers/input/intel-thc-hidd/src/thc.rs
+@@ -0,0 +1,78 @@
++use std::ptr::NonNull;
++
++use anyhow::{bail, Result};
++
++pub const SUPPORTED_PCI_IDS: &[(u16, u16)] = &[
++    (0x8086, 0x7eb8),
++    (0x8086, 0x7eb9),
++    (0x8086, 0x7ebd),
++    (0x8086, 0x7ebe),
++    (0x8086, 0xa8b8),
++    (0x8086, 0xa8b9),
++];
++
++pub const REG_CONTROL: usize = 0x0000;
++pub const REG_STATUS: usize = 0x0004;
++pub const REG_MODE: usize = 0x0010;
++pub const REG_SUBIP_OPCODE: usize = 0x0800;
++pub const REG_SUBIP_ADDRESS: usize = 0x0804;
++pub const REG_SUBIP_LENGTH: usize = 0x0808;
++pub const REG_SUBIP_DOORBELL: usize = 0x080C;
++pub const REG_SUBIP_DATA: usize = 0x0810;
++
++#[derive(Clone, Copy)]
++pub struct ThcController {
++    base: NonNull<u8>,
++    len: usize,
++}
++
++impl ThcController {
++    pub fn new(base: *mut u8, len: usize) -> Result<Self> {
++        let Some(base) = NonNull::new(base) else {
++            bail!("THC BAR mapping returned null base pointer");
++        };
++        Ok(Self { base, len })
++    }
++
++    pub fn initialize_quicki2c_mode(&self) {
++        self.write32(REG_MODE, 0x1);
++        self.write32(REG_CONTROL, 0x1);
++    }
++
++    pub fn status(&self) -> u32 {
++        self.read32(REG_STATUS)
++    }
++
++    pub fn program_subip_transaction(&self, opcode: u32, address: u16, len: usize) {
++        self.write32(REG_SUBIP_OPCODE, opcode);
++        self.write32(REG_SUBIP_ADDRESS, u32::from(address));
++        self.write32(REG_SUBIP_LENGTH, len as u32);
++        self.write32(REG_SUBIP_DOORBELL, 1);
++    }
++
++    pub fn write_subip_data(&self, offset: usize, value: u32) {
++        self.write32(REG_SUBIP_DATA + offset, value);
++    }
++
++    pub fn read_subip_data(&self, offset: usize) -> u32 {
++        self.read32(REG_SUBIP_DATA + offset)
++    }
++
++    fn read32(&self, offset: usize) -> u32 {
++        if offset + 4 > self.len {
++            return 0;
++        }
++
++        let ptr = unsafe { self.base.as_ptr().add(offset).cast::<u32>() };
++        unsafe { ptr.read_volatile() }
++    }
++
++    fn write32(&self, offset: usize, value: u32) {
++        if offset + 4 > self.len {
++            return;
++        }
++
++        let ptr = unsafe { self.base.as_ptr().add(offset).cast::<u32>() };
++        unsafe { ptr.write_volatile(value) };
++    }
++}
+diff --git a/drivers/usb/ucsid/Cargo.toml b/drivers/usb/ucsid/Cargo.toml
+new file mode 100644
+index 00000000..1a6833e5
+--- /dev/null
++++ b/drivers/usb/ucsid/Cargo.toml
+@@ -0,0 +1,23 @@
++[package]
++name = "ucsid"
++description = "USB-C UCSI topology daemon"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++anyhow.workspace = true
++log.workspace = true
++redox_syscall = { workspace = true, features = ["std"] }
++libredox.workspace = true
++redox-scheme.workspace = true
++serde.workspace = true
++ron.workspace = true
++
++acpi-resource = { path = "../../acpi-resource" }
++common = { path = "../../common" }
++daemon = { path = "../../../daemon" }
++i2c-interface = { path = "../../i2c/i2c-interface" }
++scheme-utils = { path = "../../../scheme-utils" }
++
++[lints]
++workspace = true
+diff --git a/drivers/usb/ucsid/src/main.rs b/drivers/usb/ucsid/src/main.rs
+new file mode 100644
+index 00000000..612f5ce2
+--- /dev/null
++++ b/drivers/usb/ucsid/src/main.rs
+@@ -0,0 +1,835 @@
++use std::collections::BTreeMap;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Write};
++use std::path::Path;
++use std::process;
++
++use acpi_resource::{
++    AddressResourceType, FixedMemory32Descriptor, I2cSerialBusDescriptor, Memory32RangeDescriptor,
++    ResourceDescriptor,
++};
++use anyhow::{bail, Context, Result};
++use i2c_interface::{
++    I2cAdapterInfo, I2cControlRequest, I2cControlResponse, I2cTransferRequest,
++    I2cTransferSegment,
++};
++use libredox::flag::{O_CLOEXEC, O_RDWR};
++use redox_scheme::scheme::SchemeSync;
++use redox_scheme::{CallerCtx, OpenResult, Socket};
++use scheme_utils::{Blocking, HandleMap};
++use serde::{Deserialize, Serialize};
++use syscall::schemev2::NewFdFlags;
++use syscall::{Error as SysError, EACCES, EBADF, EINVAL, ENOENT};
++
++const SUPPORTED_IDS: &[&str] = &["PNP0CA0", "AMDI0042"];
++const GET_CAPABILITY: u8 = 0x01;
++const GET_CONNECTOR_STATUS: u8 = 0x10;
++const UCSI_RESPONSE_HEADER_LEN: usize = 4;
++const UCSI_CAPABILITY_READ_LEN: usize = 20;
++const UCSI_CONNECTOR_STATUS_READ_LEN: usize = 20;
++const MAX_CONNECTOR_PROBE: u8 = 8;
++
++#[derive(Debug, Deserialize)]
++struct AmlSymbol {
++    name: String,
++    value: AmlValue,
++}
++
++#[derive(Debug, Deserialize)]
++enum AmlValue {
++    Integer(u64),
++    String(String),
++}
++
++#[derive(Clone, Copy, Debug)]
++struct UcsiCommand {
++    command: u8,
++    data_length: u8,
++    specific_data: [u8; 6],
++}
++
++impl UcsiCommand {
++    fn new(command: u8, data_length: u8, specific_data: [u8; 6]) -> Self {
++        Self {
++            command,
++            data_length,
++            specific_data,
++        }
++    }
++
++    fn as_bytes(self) -> [u8; 8] {
++        let mut bytes = [0_u8; 8];
++        bytes[0] = self.command;
++        bytes[1] = self.data_length;
++        bytes[2..].copy_from_slice(&self.specific_data);
++        bytes
++    }
++}
++
++#[derive(Clone, Copy, Debug)]
++struct UcsiResponseHeader {
++    _status: u16,
++    data_length: u16,
++}
++
++impl UcsiResponseHeader {
++    fn parse(bytes: &[u8]) -> Option<Self> {
++        let header = bytes.get(..UCSI_RESPONSE_HEADER_LEN)?;
++        Some(Self {
++            _status: u16::from_le_bytes([header[0], header[1]]),
++            data_length: u16::from_le_bytes([header[2], header[3]]),
++        })
++    }
++}
++
++#[derive(Clone, Debug)]
++struct DiscoveredUcsiDevice {
++    name: String,
++    hid: String,
++    transport: UcsiTransport,
++    dsm_probe: bool,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++enum UcsiTransport {
++    I2c {
++        adapter: String,
++        address: u16,
++        ten_bit_address: bool,
++    },
++    Mmio {
++        base: usize,
++        len: usize,
++    },
++    Unknown,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++struct UcsiCapability {
++    connector_count: u8,
++    supports_usb_pd: bool,
++    supports_alt_modes: bool,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++struct UcsiConnectorSummary {
++    device: String,
++    connector_number: u8,
++    connected: bool,
++    data_role: String,
++    power_direction: String,
++    input_critical: bool,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++struct UcsiDeviceSummary {
++    name: String,
++    hid: String,
++    transport: UcsiTransport,
++    capability: Option<UcsiCapability>,
++    connectors: Vec<UcsiConnectorSummary>,
++    dsm_probe: bool,
++    issues: Vec<String>,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++struct UcsiSummary {
++    schema_version: u32,
++    device_count: usize,
++    connector_count: usize,
++    input_critical_ports: usize,
++    devices: Vec<UcsiDeviceSummary>,
++}
++
++#[derive(Clone, Debug, Serialize, Deserialize)]
++struct UcsiHealth {
++    healthy: bool,
++    scanned_devices: usize,
++    responsive_devices: usize,
++    issues: Vec<String>,
++}
++
++struct UcsiState {
++    summary: UcsiSummary,
++    connectors: Vec<UcsiConnectorSummary>,
++    health: UcsiHealth,
++}
++
++enum Handle {
++    SchemeRoot,
++    Summary { pending: Vec<u8> },
++    Connectors { pending: Vec<u8> },
++    Health { pending: Vec<u8> },
++}
++
++struct UcsiScheme {
++    handles: HandleMap<Handle>,
++    state: UcsiState,
++}
++
++impl UcsiScheme {
++    fn new(state: UcsiState) -> Self {
++        Self {
++            handles: HandleMap::new(),
++            state,
++        }
++    }
++
++    fn serialize_payload<T: Serialize>(value: &T) -> syscall::Result<Vec<u8>> {
++        ron::ser::to_string(value)
++            .map(|text| text.into_bytes())
++            .map_err(|err| {
++                log::error!("ucsid: failed to serialize scheme payload: {err}");
++                SysError::new(EINVAL)
++            })
++    }
++
++    fn set_pending(handle: &mut Handle, pending: Vec<u8>) -> syscall::Result<()> {
++        match handle {
++            Handle::Summary { pending: slot }
++            | Handle::Connectors { pending: slot }
++            | Handle::Health { pending: slot } => {
++                *slot = pending;
++                Ok(())
++            }
++            Handle::SchemeRoot => Err(SysError::new(EBADF)),
++        }
++    }
++
++    fn copy_pending(handle: &mut Handle, buf: &mut [u8], offset: u64) -> syscall::Result<usize> {
++        let pending = match handle {
++            Handle::Summary { pending }
++            | Handle::Connectors { pending }
++            | Handle::Health { pending } => pending,
++            Handle::SchemeRoot => return Err(SysError::new(EBADF)),
++        };
++
++        let offset = usize::try_from(offset).map_err(|_| SysError::new(EINVAL))?;
++        if offset >= pending.len() {
++            return Ok(0);
++        }
++
++        let copy_len = buf.len().min(pending.len() - offset);
++        buf[..copy_len].copy_from_slice(&pending[offset..offset + copy_len]);
++        Ok(copy_len)
++    }
++}
++
++impl SchemeSync for UcsiScheme {
++    fn scheme_root(&mut self) -> syscall::Result<usize> {
++        Ok(self.handles.insert(Handle::SchemeRoot))
++    }
++
++    fn openat(
++        &mut self,
++        dirfd: usize,
++        path: &str,
++        _flags: usize,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<OpenResult> {
++        if !matches!(self.handles.get(dirfd)?, Handle::SchemeRoot) {
++            return Err(SysError::new(EACCES));
++        }
++
++        let handle = match path.trim_matches('/') {
++            "summary" => Handle::Summary {
++                pending: Vec::new(),
++            },
++            "connectors" => Handle::Connectors {
++                pending: Vec::new(),
++            },
++            "health" => Handle::Health {
++                pending: Vec::new(),
++            },
++            "" => return Err(SysError::new(EINVAL)),
++            _ => return Err(SysError::new(ENOENT)),
++        };
++
++        let fd = self.handles.insert(handle);
++        Ok(OpenResult::ThisScheme {
++            number: fd,
++            flags: NewFdFlags::empty(),
++        })
++    }
++
++    fn read(
++        &mut self,
++        id: usize,
++        buf: &mut [u8],
++        offset: u64,
++        _fcntl_flags: u32,
++        _ctx: &CallerCtx,
++    ) -> syscall::Result<usize> {
++        let payload = match self.handles.get(id)? {
++            Handle::Summary { pending } if pending.is_empty() => {
++                Some(Self::serialize_payload(&self.state.summary)?)
++            }
++            Handle::Connectors { pending } if pending.is_empty() => {
++                Some(Self::serialize_payload(&self.state.connectors)?)
++            }
++            Handle::Health { pending } if pending.is_empty() => {
++                log::info!(
++                    "RB_UCSID_HEALTH healthy={} scanned_devices={} responsive_devices={} issues={}",
++                    self.state.health.healthy,
++                    self.state.health.scanned_devices,
++                    self.state.health.responsive_devices,
++                    self.state.health.issues.len(),
++                );
++                Some(Self::serialize_payload(&self.state.health)?)
++            }
++            _ => None,
++        };
++
++        let handle = self.handles.get_mut(id)?;
++        if let Some(payload) = payload {
++            Self::set_pending(handle, payload)?;
++        }
++        Self::copy_pending(handle, buf, offset)
++    }
++}
++
++fn main() {
++    common::setup_logging(
++        "usb",
++        "ucsi",
++        "ucsid",
++        common::output_level(),
++        common::file_level(),
++    );
++
++    daemon::SchemeDaemon::new(daemon_runner);
++}
++
++fn daemon_runner(daemon: daemon::SchemeDaemon) -> ! {
++    if let Err(err) = run_daemon(daemon) {
++        log::error!("ucsid: {err:#}");
++        process::exit(1);
++    }
++
++    process::exit(0);
++}
++
++fn run_daemon(daemon: daemon::SchemeDaemon) -> Result<()> {
++    log::info!("RB_UCSID_SCHEMA version=1");
++
++    let state = build_state().context("failed to build UCSI device snapshot")?;
++    let socket = Socket::create().context("failed to create ucsi scheme socket")?;
++    let mut scheme = UcsiScheme::new(state);
++    let handler = Blocking::new(&socket, 16);
++
++    daemon
++        .ready_sync_scheme(&socket, &mut scheme)
++        .context("failed to publish ucsi scheme root")?;
++
++    libredox::call::setrens(0, 0).context("failed to enter null namespace")?;
++
++    handler
++        .process_requests_blocking(scheme)
++        .context("failed to process ucsid requests")?;
++}
++
++fn build_state() -> Result<UcsiState> {
++    let adapters = list_i2c_adapters().unwrap_or_else(|err| {
++        log::warn!("ucsid: failed to query i2cd adapters: {err:#}");
++        Vec::new()
++    });
++    let devices = discover_ucsi_devices().context("failed to discover ACPI UCSI devices")?;
++
++    let mut summaries = Vec::new();
++    let mut connectors = Vec::new();
++    let mut issues = Vec::new();
++    let mut responsive_devices = 0usize;
++
++    for device in devices {
++        log::info!(
++            "RB_UCSID_DEVICE name={} hid={} transport={:?} dsm_probe={}",
++            device.name,
++            device.hid,
++            device.transport,
++            device.dsm_probe,
++        );
++        let summary = summarize_device(device, &adapters)
++            .context("failed to summarize discovered UCSI device")?;
++        if summary.capability.is_some() {
++            responsive_devices += 1;
++        }
++        issues.extend(summary.issues.iter().cloned());
++        connectors.extend(summary.connectors.iter().cloned());
++        summaries.push(summary);
++    }
++
++    let summary = UcsiSummary {
++        schema_version: 1,
++        device_count: summaries.len(),
++        connector_count: connectors.len(),
++        input_critical_ports: connectors.iter().filter(|connector| connector.input_critical).count(),
++        devices: summaries,
++    };
++    let health = UcsiHealth {
++        healthy: issues.is_empty(),
++        scanned_devices: summary.device_count,
++        responsive_devices,
++        issues,
++    };
++
++    log::info!(
++        "RB_UCSID_SUMMARY devices={} connectors={} input_critical_ports={} healthy={}",
++        summary.device_count,
++        summary.connector_count,
++        summary.input_critical_ports,
++        health.healthy,
++    );
++
++    Ok(UcsiState {
++        summary,
++        connectors,
++        health,
++    })
++}
++
++fn discover_ucsi_devices() -> Result<Vec<DiscoveredUcsiDevice>> {
++    let mut matched = BTreeMap::new();
++
++    let entries = match fs::read_dir("/scheme/acpi/symbols") {
++        Ok(entries) => entries,
++        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock || err.raw_os_error() == Some(11) => {
++            log::debug!("ucsid: ACPI symbols are not ready yet");
++            return Ok(Vec::new());
++        }
++        Err(err) => return Err(err).context("failed to read /scheme/acpi/symbols"),
++    };
++
++    for entry in entries {
++        let entry = entry.context("failed to read ACPI symbol directory entry")?;
++        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
++            continue;
++        };
++        if !file_name.ends_with("_HID") && !file_name.ends_with("_CID") {
++            continue;
++        }
++
++        let Some(id) = read_symbol_id(&entry.path())? else {
++            continue;
++        };
++        if !SUPPORTED_IDS.iter().any(|candidate| *candidate == id) {
++            continue;
++        }
++
++        let Some(device) = file_name
++            .strip_suffix("_HID")
++            .or_else(|| file_name.strip_suffix("_CID"))
++            .map(str::to_owned)
++        else {
++            continue;
++        };
++        matched.entry(device).or_insert(id);
++    }
++
++    let mut devices = Vec::new();
++    for (device, hid) in matched {
++        let transport = read_ucsi_transport(&device)
++            .with_context(|| format!("failed to decode transport resources for {device}"))?;
++        let dsm_probe = bounded_dsm_probe(&device).unwrap_or_else(|err| {
++            log::debug!("ucsid: bounded _DSM probe failed for {device}: {err:#}");
++            false
++        });
++        devices.push(DiscoveredUcsiDevice {
++            name: device,
++            hid,
++            transport,
++            dsm_probe,
++        });
++    }
++
++    Ok(devices)
++}
++
++fn summarize_device(device: DiscoveredUcsiDevice, adapters: &[I2cAdapterInfo]) -> Result<UcsiDeviceSummary> {
++    let mut issues = Vec::new();
++    let capability = match &device.transport {
++        UcsiTransport::I2c {
++            adapter,
++            address,
++            ten_bit_address,
++        } => match match_i2c_adapter(adapters, adapter) {
++            Some(adapter_info) => match execute_ucsi_i2c_command(
++                adapter_info,
++                adapter,
++                *address,
++                *ten_bit_address,
++                UcsiCommand::new(GET_CAPABILITY, 0, [0; 6]),
++                UCSI_CAPABILITY_READ_LEN,
++            ) {
++                Ok(bytes) => parse_ucsi_payload(&bytes)
++                    .and_then(|(_header, payload)| parse_capability(payload))
++                    .or_else(|| {
++                        issues.push(format!(
++                            "{}: GET_CAPABILITY returned an unexpected payload",
++                            device.name
++                        ));
++                        None
++                    }),
++                Err(err) => {
++                    issues.push(format!("{}: GET_CAPABILITY failed: {err:#}", device.name));
++                    None
++                }
++            },
++            None => {
++                issues.push(format!(
++                    "{}: no i2cd adapter matched ACPI source {}",
++                    device.name, adapter
++                ));
++                None
++            }
++        },
++        UcsiTransport::Mmio { base, len } => {
++            issues.push(format!(
++                "{}: MMIO UCSI transport discovered at {base:#x}+{len:#x} but command execution is not implemented yet",
++                device.name,
++            ));
++            None
++        }
++        UcsiTransport::Unknown => {
++            issues.push(format!(
++                "{}: no supported UCSI transport was decoded from ACPI resources",
++                device.name,
++            ));
++            None
++        }
++    };
++
++    let connector_count = capability
++        .as_ref()
++        .map(|capability| capability.connector_count.min(MAX_CONNECTOR_PROBE))
++        .unwrap_or(0);
++    let mut connectors = Vec::new();
++    for connector in 1..=connector_count {
++        match query_connector_status(&device, adapters, connector) {
++            Ok(connector_summary) => connectors.push(connector_summary),
++            Err(err) => issues.push(format!(
++                "{}: GET_CONNECTOR_STATUS({connector}) failed: {err:#}",
++                device.name,
++            )),
++        }
++    }
++
++    Ok(UcsiDeviceSummary {
++        name: device.name,
++        hid: device.hid,
++        transport: device.transport,
++        capability,
++        connectors,
++        dsm_probe: device.dsm_probe,
++        issues,
++    })
++}
++
++fn read_ucsi_transport(device: &str) -> Result<UcsiTransport> {
++    let contents = fs::read_to_string(format!("/scheme/acpi/resources/{device}"))
++        .with_context(|| format!("failed to read /scheme/acpi/resources/{device}"))?;
++    let resources = ron::from_str::<Vec<ResourceDescriptor>>(&contents)
++        .with_context(|| format!("failed to decode RON resources for {device}"))?;
++
++    let mut i2c = None::<I2cSerialBusDescriptor>;
++    let mut mmio = None::<(usize, usize)>;
++
++    for resource in resources {
++        match resource {
++            ResourceDescriptor::I2cSerialBus(bus) if i2c.is_none() => i2c = Some(bus),
++            ResourceDescriptor::FixedMemory32(FixedMemory32Descriptor {
++                address,
++                address_length,
++                ..
++            }) if mmio.is_none() => {
++                mmio = Some((address as usize, address_length as usize));
++            }
++            ResourceDescriptor::Memory32Range(Memory32RangeDescriptor {
++                minimum,
++                maximum,
++                address_length,
++                ..
++            }) if mmio.is_none() && maximum >= minimum => {
++                let span = maximum.saturating_sub(minimum).saturating_add(1) as usize;
++                mmio = Some((minimum as usize, span.max(address_length as usize)));
++            }
++            ResourceDescriptor::Address32(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                mmio = Some((descriptor.minimum as usize, descriptor.address_length as usize));
++            }
++            ResourceDescriptor::Address64(descriptor)
++                if mmio.is_none()
++                    && matches!(descriptor.resource_type, AddressResourceType::MemoryRange) =>
++            {
++                let base = usize::try_from(descriptor.minimum)
++                    .context("64-bit MMIO base does not fit in usize")?;
++                let len = usize::try_from(descriptor.address_length)
++                    .context("64-bit MMIO length does not fit in usize")?;
++                mmio = Some((base, len));
++            }
++            _ => {}
++        }
++    }
++
++    if let Some(bus) = i2c {
++        let adapter = bus
++            .resource_source
++            .as_ref()
++            .map(|source| source.source.clone())
++            .filter(|source| !source.is_empty())
++            .unwrap_or_else(|| String::from("ACPI-I2C"));
++        return Ok(UcsiTransport::I2c {
++            adapter,
++            address: bus.slave_address,
++            ten_bit_address: bus.access_mode_10bit,
++        });
++    }
++    if let Some((base, len)) = mmio {
++        return Ok(UcsiTransport::Mmio { base, len });
++    }
++    Ok(UcsiTransport::Unknown)
++}
++
++fn bounded_dsm_probe(device: &str) -> Result<bool> {
++    let symbol_name = format!("{}.{}", normalize_device_path(device), "_DSM");
++    let symbol_path = format!("/scheme/acpi/symbols/{symbol_name}");
++    let fd = match libredox::Fd::open(&symbol_path, O_RDWR | O_CLOEXEC, 0) {
++        Ok(fd) => fd,
++        Err(err) => {
++            log::debug!("ucsid: {} has no callable _DSM: {err}", device);
++            return Ok(false);
++        }
++    };
++
++    let mut payload = ron::to_string(&Vec::<u8>::new())
++        .context("failed to serialize bounded _DSM probe arguments")?
++        .into_bytes();
++    payload.resize(payload.len() + 1024, 0);
++    match libredox::call::call_ro(fd.raw(), &mut payload, syscall::CallFlags::empty(), &[]) {
++        Ok(_) => Ok(true),
++        Err(err) => {
++            log::debug!("ucsid: bounded _DSM probe for {} failed: {err}", device);
++            Ok(false)
++        }
++    }
++}
++
++fn parse_capability(payload: &[u8]) -> Option<UcsiCapability> {
++    let connector_count = *payload.first()?;
++    let flags = payload.get(1).copied().unwrap_or(0);
++    Some(UcsiCapability {
++        connector_count,
++        supports_usb_pd: flags & 0x01 != 0,
++        supports_alt_modes: flags & 0x02 != 0,
++    })
++}
++
++fn query_connector_status(
++    device: &DiscoveredUcsiDevice,
++    adapters: &[I2cAdapterInfo],
++    connector: u8,
++) -> Result<UcsiConnectorSummary> {
++    match &device.transport {
++        UcsiTransport::I2c {
++            adapter,
++            address,
++            ten_bit_address,
++        } => {
++            let adapter_info = match_i2c_adapter(adapters, adapter).with_context(|| {
++                format!("no i2cd adapter matched ACPI source {} for {}", adapter, device.name)
++            })?;
++            let bytes = execute_ucsi_i2c_command(
++                adapter_info,
++                adapter,
++                *address,
++                *ten_bit_address,
++                UcsiCommand::new(GET_CONNECTOR_STATUS, 1, [connector, 0, 0, 0, 0, 0]),
++                UCSI_CONNECTOR_STATUS_READ_LEN,
++            )?;
++            let (_header, payload) = parse_ucsi_payload(&bytes)
++                .with_context(|| format!("{}: malformed connector-status response", device.name))?;
++            Ok(parse_connector_summary(&device.name, connector, payload))
++        }
++        UcsiTransport::Mmio { base, len } => bail!(
++            "MMIO connector-status transport is not implemented yet for {:#x}+{:#x}",
++            base,
++            len,
++        ),
++        UcsiTransport::Unknown => bail!("unknown UCSI transport"),
++    }
++}
++
++fn parse_connector_summary(device_name: &str, connector: u8, payload: &[u8]) -> UcsiConnectorSummary {
++    let state = payload.first().copied().unwrap_or(0);
++    let connected = state & 0x01 != 0;
++    let power_direction = if state & 0x02 != 0 { "source" } else { "sink" };
++    let data_role = if state & 0x04 != 0 { "dfp" } else { "ufp" };
++    UcsiConnectorSummary {
++        device: device_name.to_string(),
++        connector_number: connector,
++        connected,
++        data_role: data_role.to_string(),
++        power_direction: power_direction.to_string(),
++        input_critical: classify_input_critical(device_name),
++    }
++}
++
++fn classify_input_critical(device_name: &str) -> bool {
++    let normalized = device_name.to_ascii_lowercase();
++    normalized.contains("kbd")
++        || normalized.contains("key")
++        || normalized.contains("touch")
++        || normalized.contains("thc")
++}
++
++fn parse_ucsi_payload(bytes: &[u8]) -> Option<(UcsiResponseHeader, &[u8])> {
++    let header = UcsiResponseHeader::parse(bytes)?;
++    let body = bytes.get(UCSI_RESPONSE_HEADER_LEN..)?;
++    let body_len = usize::from(header.data_length).min(body.len());
++    Some((header, &body[..body_len]))
++}
++
++fn execute_ucsi_i2c_command(
++    adapter: &I2cAdapterInfo,
++    adapter_name: &str,
++    address: u16,
++    ten_bit_address: bool,
++    command: UcsiCommand,
++    read_len: usize,
++) -> Result<Vec<u8>> {
++    let request = I2cTransferRequest {
++        adapter: adapter_name.to_string(),
++        segments: vec![
++            I2cTransferSegment {
++                address,
++                ten_bit_address,
++                op: i2c_interface::I2cTransferOp::Write(command.as_bytes().to_vec()),
++            },
++            I2cTransferSegment {
++                address,
++                ten_bit_address,
++                op: i2c_interface::I2cTransferOp::Read(read_len),
++            },
++        ],
++        stop: true,
++    };
++
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/transfer")
++        .context("failed to open /scheme/i2c/transfer")?;
++    let payload = ron::ser::to_string(&I2cControlRequest::Transfer {
++        adapter_id: adapter.id,
++        request,
++    })
++    .context("failed to encode UCSI I2C transfer request")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to send UCSI I2C transfer request")?;
++
++    let response = read_i2c_control_response(&mut file)?;
++    match response {
++        I2cControlResponse::TransferResult(result) => {
++            if !result.ok {
++                let detail = result
++                    .error
++                    .clone()
++                    .unwrap_or_else(|| String::from("unknown I2C transfer failure"));
++                bail!("UCSI I2C transfer failed: {detail}");
++            }
++            result
++                .read_data
++                .into_iter()
++                .next()
++                .context("UCSI I2C transfer returned no response payload")
++        }
++        I2cControlResponse::Error(message) => bail!("i2cd returned an error: {message}"),
++        other => bail!("unexpected i2cd transfer response: {other:?}"),
++    }
++}
++
++fn list_i2c_adapters() -> Result<Vec<I2cAdapterInfo>> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/scheme/i2c/adapters")
++        .context("failed to open /scheme/i2c/adapters")?;
++
++    let payload = ron::ser::to_string(&I2cControlRequest::ListAdapters)
++        .context("failed to encode I2C list-adapters request")?;
++    file.write_all(payload.as_bytes())
++        .context("failed to request I2C adapter list")?;
++
++    let response = read_i2c_control_response(&mut file)?;
++    match response {
++        I2cControlResponse::AdapterList(adapters) => Ok(adapters),
++        I2cControlResponse::Error(message) => bail!("i2cd returned an error: {message}"),
++        other => bail!("unexpected i2cd list-adapters response: {other:?}"),
++    }
++}
++
++fn match_i2c_adapter<'a>(adapters: &'a [I2cAdapterInfo], wanted: &str) -> Option<&'a I2cAdapterInfo> {
++    adapters
++        .iter()
++        .find(|adapter| adapter.name == wanted)
++        .or_else(|| adapters.iter().find(|adapter| adapter.name.ends_with(wanted)))
++        .or_else(|| adapters.iter().find(|adapter| wanted.ends_with(&adapter.name)))
++}
++
++fn read_i2c_control_response(file: &mut File) -> Result<I2cControlResponse> {
++    let mut buffer = vec![0_u8; 4096];
++    let count = file
++        .read(&mut buffer)
++        .context("failed to read I2C control response")?;
++    buffer.truncate(count);
++    let text = std::str::from_utf8(&buffer).context("I2C control response was not UTF-8")?;
++    ron::from_str(text).context("failed to decode I2C control response")
++}
++
++fn read_symbol_id(path: &Path) -> Result<Option<String>> {
++    let contents = fs::read_to_string(path)
++        .with_context(|| format!("failed to read ACPI symbol {}", path.display()))?;
++    let symbol = match ron::from_str::<AmlSymbol>(&contents) {
++        Ok(symbol) => symbol,
++        Err(err) => {
++            log::debug!(
++                "ucsid: skipping {} because the symbol payload was not a scalar ID: {err}",
++                path.display(),
++            );
++            return Ok(None);
++        }
++    };
++
++    let id = match symbol.value {
++        AmlValue::Integer(integer) => eisa_id_from_integer(integer),
++        AmlValue::String(string) => string,
++    };
++
++    log::debug!("ucsid: {} -> {id}", symbol.name);
++    Ok(Some(id))
++}
++
++fn normalize_device_path(path: &str) -> String {
++    path.trim_start_matches('\\')
++        .trim_matches('/')
++        .replace('/', ".")
++}
++
++fn eisa_id_from_integer(integer: u64) -> String {
++    let vendor = integer & 0xFFFF;
++    let device = (integer >> 16) & 0xFFFF;
++    let vendor_rev = ((vendor & 0xFF) << 8) | (vendor >> 8);
++    let vendor_1 = (((vendor_rev >> 10) & 0x1F) as u8 + 64) as char;
++    let vendor_2 = (((vendor_rev >> 5) & 0x1F) as u8 + 64) as char;
++    let vendor_3 = (((vendor_rev >> 0) & 0x1F) as u8 + 64) as char;
++    let device_1 = (device >> 4) & 0xF;
++    let device_2 = (device >> 0) & 0xF;
++    let device_3 = (device >> 12) & 0xF;
++    let device_4 = (device >> 8) & 0xF;
++
++    format!(
++        "{vendor_1}{vendor_2}{vendor_3}{device_1:01X}{device_2:01X}{device_3:01X}{device_4:01X}"
++    )
 +}
