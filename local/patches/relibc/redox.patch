@@ -1,37 +1,10 @@
-diff --git a/src/c/stdlib.c b/src/c/stdlib.c
-index 62e98108..a9c72392 100644
---- a/src/c/stdlib.c
-+++ b/src/c/stdlib.c
-@@ -4,6 +4,13 @@ long double strtold(const char *nptr, char **endptr) {
-     return (long double)strtod(nptr, endptr);
- }
- 
-+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr)
-+    __asm__("_Z7strtoldPKcPPc");
-+
-+long double relibc_compat_cpp_strtold(const char *nptr, char **endptr) {
-+    return strtold(nptr, endptr);
-+}
-+
- double relibc_ldtod(const long double* val) {
-     return (double)(*val);
- }
 diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
-index ec37906c..95604e06 100644
 --- a/src/header/fcntl/mod.rs
 +++ b/src/header/fcntl/mod.rs
-@@ -8,6 +8,7 @@ use crate::{
-     c_str::CStr,
-     error::{Errno, ResultExt},
-     header::errno::ENAMETOOLONG,
+@@ -9,0 +10 @@
 +    header::unistd::close,
-     platform::{
-         Pal, Sys,
-         types::{
-@@ -78,6 +79,23 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
-         _ => 0,
-     };
- 
+@@ -75,0 +77,17 @@
++
 +    if cmd == F_DUPFD_CLOEXEC {
 +        let new_fd = Sys::fcntl(fildes, F_DUPFD_CLOEXEC, arg).or_minus_one_errno();
 +        if new_fd >= 0 {
@@ -48,6 +21,3 @@ index ec37906c..95604e06 100644
 +        }
 +        return new_fd;
 +    }
-+
-     Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
- }

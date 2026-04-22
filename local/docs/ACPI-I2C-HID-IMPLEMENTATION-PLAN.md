@@ -141,6 +141,48 @@ Acceptance:
 - keep laptop input as a boot-resilience feature, not a desktop-only feature
 - treat Intel and AMD laptops as equal-priority hardware targets
 
+## Other Boot-Relevant I2C Device Classes
+
+`I2C-HID` is the first and most important I2C deliverable, but it is not the only I2C-related
+surface that can matter during boot on modern bare metal.
+
+### Highest priority after `I2C-HID`
+
+- GPIO expanders used to expose reset, enable, interrupt, or wake lines for input devices
+- platform-specific I2C controller companions that gate access to the actual `I2C-HID` device
+
+These are not always directly user-visible as "devices", but they are boot-relevant whenever the
+keyboard/touchpad path depends on them.
+
+### Sometimes boot-relevant
+
+- USB-C / UCSI / PD related I2C-attached endpoints on platforms where a USB-C attached keyboard or
+  dock path is firmware-mediated and not available without those services
+- embedded controller-adjacent I2C peripherals that gate keyboard/touchpad power or wake routing
+
+These should be treated as platform-dependent bring-up work, not as universal phase-1 targets.
+
+### Not first-order blockers for reaching login
+
+- sensors (accelerometer, gyro, ambient light)
+- battery / charger / fuel-gauge devices
+- camera-side I2C devices
+- most audio codecs and amplifier control devices
+- thermal and fan-adjacent I2C sensors
+
+These matter for full laptop support, but they do not outrank keyboard/touchpad bring-up for live
+boot and recovery.
+
+## Boot Priority Order
+
+For boot-to-login on modern laptops, the correct priority is:
+
+1. `I2C-HID` keyboards and touchpads
+2. any GPIO-expander or companion I2C devices required to make those devices usable
+3. platform-specific USB-C / UCSI I2C surfaces only on machines that actually depend on them for
+   input availability
+4. all other I2C-attached peripherals
+
 ## Immediate Next Steps
 
 1. land `_CRS` decoding in `acpid`

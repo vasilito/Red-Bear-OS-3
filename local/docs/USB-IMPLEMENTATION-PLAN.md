@@ -53,6 +53,26 @@ The Red Bear USB stack consists of:
   full stack, and storage autospawn
 - an in-guest scheme-tree checker (`redbear-usb-check`)
 
+### Boot-input reality
+
+For bare-metal boot resilience, the current USB stack is still incomplete.
+
+External USB keyboard input is reliably available only when the keyboard is reached through the
+`xHCI -> usbhubd/usbhidd -> inputd` path. This is an important distinction because modern bare
+metal does not guarantee that an attached keyboard will land on the xHCI runtime path.
+
+If a keyboard instead lands on:
+
+- an EHCI-owned path
+- a UHCI/OHCI companion path
+- a firmware routing topology where low/full-speed devices do not reach the xHCI runtime path
+
+then Red Bear may still detect controller ownership and connected ports, but it does not yet have a
+complete runtime host path that reaches the existing HID class daemons.
+
+This means Red Bear cannot yet honestly claim that an external USB keyboard is a reliable universal
+boot fallback on bare metal.
+
 ### Red Bear xHCI Patch Layer
 
 The Red Bear patch at `local/patches/base/redox.patch` carries these changes over the upstream
@@ -105,12 +125,17 @@ source:
 Even with the Red Bear patch applied:
 
 - HID is still wired through the legacy mixed-stream `inputd` path
+- external USB keyboard fallback is not guaranteed on bare metal unless the keyboard reaches the
+  xHCI runtime path
+- EHCI/UHCI/OHCI are not yet full runtime host-controller implementations
 - Any remaining USB composite/device-model issues now sit above the bounded helper fixes already
   landed for active alternates, endpoint direction, real interface/alternate hub configuration, and
   SSP-aware endpoint-context calculations.
 - ~57 TODO/FIXME comments remain across xHCI driver files
 - usbhubd: interrupt-driven change detection implemented; 1-second polling retained as fallback
 - usbscsid: `ReadCapacity16` now implemented with automatic fallback from `ReadCapacity10`
+- `usbhidd` keyboard LED sync is only a bounded per-device best-effort path, not a system-global
+  lock-state authority
 - No real hardware USB validation — all testing is QEMU-only
 - No hot-plug stress testing
 - No USB storage data I/O validation (autospawn checked, but no read/write tested)
@@ -124,8 +149,9 @@ Even with the Red Bear patch applied:
 |---|---|---|
 | Host mode | **builds / QEMU-validated** | Real host-side stack, interrupt-driven, QEMU-validated only |
 | xHCI controller | **builds / QEMU-validated** | Red Bear patch: 88 error handling fixes, ERDP split, endp_direction fix, cfg_idx fix, real grow_event_ring, mutex poison recovery on all hot-path locks; no real hardware validation yet |
+| EHCI/UHCI/OHCI | **builds / enumerates** | Ownership, port handling, and logging exist, but they are not yet full runtime enumeration paths |
 | Hub handling | **builds / good quality** | `usbhubd`: all `expect()` eliminated, interrupt-driven change detection with polling fallback, graceful per-port error handling |
-| HID | **builds / QEMU-validated in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path, no panics in report loop |
+| HID | **builds / QEMU-validated in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path, no panics in report loop; keyboard LED sync exists as a bounded per-device best-effort path |
 | Mass storage | **builds / good quality** | `usbscsid`: typed `ScsiError`, fallible parsing, `ReadCapacity16` for >2TB, stall recovery, resilient event loop |
 | Native tooling | **builds / enumerates** | `lsusb`, `usbctl`, `redbear-info`, `redbear-usb-check` provide observability |
 | Low-level userspace API | **builds** | `xhcid_interface` with `UsbSpeed` enum, `attach_with_speed()` |
