@@ -168,6 +168,14 @@ rebuild-push: $(FSTOOLS_TAG) FORCE
 	$(MAKE) repo
 	$(MAKE) push
 
+# WARNING: unfetch deletes the recipe source tree.
+# For local overlay recipes (symlinked into local/), this will delete
+# source code in local/recipes/ that may not be recoverable.
+# The repo binary now guards against this, but verify with --dry-run first.
+# WARNING: unfetch --all deletes ALL recipe source trees.
+# For local overlay recipes (symlinked into local/), this will delete
+# source code in local/recipes/ that may not be recoverable.
+# The repo binary now guards against this for local overlays.
 # Invoke unfetch for one or more targets separated by comma
 u.%: $(FSTOOLS_TAG) FORCE
 ifeq ($(PODMAN_BUILD),1)

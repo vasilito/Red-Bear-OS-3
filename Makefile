@@ -51,6 +51,10 @@ endif # NOT_ON_PODMAN
 	$(MAKE) fstools_clean
 endif # PODMAN_BUILD
 
+# distclean: removes build artifacts, toolchain, and upstream source trees.
+# local/ overlay source trees are PROTECTED — the repo binary refuses to
+# unfetch local overlay recipes unless REDBEAR_ALLOW_LOCAL_UNFETCH=1 is set.
+# This is the safe default for Red Bear OS. local/ is NEVER deleted.
 distclean:
 ifeq ($(PODMAN_BUILD),1)
 ifneq ("$(wildcard $(CONTAINER_TAG))","")
@@ -61,8 +65,26 @@ else
 endif # CONTAINER_TAG
 else
 ifneq ($(NOT_ON_PODMAN),1)
+	$(info ==> distclean: cleaning build artifacts and upstream source trees)
+	$(info ==> local/ overlay sources are PROTECTED and will NOT be deleted)
 	$(MAKE) fetch_clean
 endif # NOT_ON_PODMAN
+	$(MAKE) clean NOT_ON_PODMAN=1
+endif # PODMAN_BUILD
+
+# distclean-nuclear: DESTRUCTIVE — also deletes local/ overlay source trees.
+# This is the OLD distclean behavior that can destroy Red Bear work.
+# You must set REDBEAR_ALLOW_LOCAL_UNFETCH=1 for this to actually delete
+# local overlay sources. Without it, the repo binary still protects them.
+# Use ONLY when you are certain you want to discard local overlay source code.
+distclean-nuclear:
+ifeq ($(PODMAN_BUILD),1)
+	$(info distclean-nuclear is not supported in Podman mode; use native build)
+else
+	$(warning !! distclean-nuclear will attempt to DELETE ALL source trees including local/ overlays)
+	$(warning !! This can destroy Red Bear OS work that is not committed to git)
+	$(warning !! The repo binary still protects local overlays unless REDBEAR_ALLOW_LOCAL_UNFETCH=1)
+	$(MAKE) fetch_clean REDBEAR_ALLOW_LOCAL_UNFETCH=1
 	$(MAKE) clean NOT_ON_PODMAN=1
 endif # PODMAN_BUILD
 
