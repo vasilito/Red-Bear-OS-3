@@ -450,6 +450,11 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
                             recipe_dir.display()
                         );
                     } else {
+                        let mut clean_cmd = Command::new("git");
+                        clean_cmd.arg("-C").arg(&source_dir);
+                        clean_cmd.arg("clean").arg("-fd");
+                        let _ = run_command(clean_cmd, logger);
+
                         // Hard reset
                         let mut command = Command::new("git");
                         command.arg("-C").arg(&source_dir);

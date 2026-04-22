@@ -35,7 +35,7 @@ virt_bins()
 
 x86_common_bins()
 {
-    BINS+=(ahcid ehcid ohcid uhcid ided ps2d usbhidd usbscsid usbhubd xhcid vesad)
+    BINS+=(ahcid ided ps2d usbhidd usbscsid usbhubd xhcid vesad)
     virt_bins
 }
 
