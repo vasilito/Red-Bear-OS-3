@@ -17,6 +17,7 @@ filesystem_size = 768
 # Red Bear OS branding and host utilities.
 redbear-release = {}
 redbear-hwutils = {}
+redbear-quirks = {}
 
 # Redox-native netctl tooling.
 redbear-netctl = {}

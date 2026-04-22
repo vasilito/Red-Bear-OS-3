@@ -1,0 +1,34 @@
+# I2C-HID recovery quirks.
+#
+# These are intentionally narrow. They are only for known platforms where
+# generic ACPI recovery plus normal probe retries still are not enough.
+#
+# Matching is exact. At least one DMI or ACPI field must be present.
+# Actions only run on probe failure, and i2c-hidd applies at most one extra
+# quirk-driven retry for each read mode.
+#
+# Supported match keys:
+#   sys_vendor, board_vendor, board_name, board_version,
+#   product_name, product_version, bios_version,
+#   acpi_path, acpi_hid, acpi_cid
+#
+# Supported action keys:
+#   gpio_io_index          zero-based index into device GpioIo resources
+#   drive_high             pulse active-high when true, active-low when false
+#   hold_ms                active pulse duration, default 20
+#   settle_ms              post-restore delay, default 60
+#   require_initial_level  only run if the GPIO currently matches this level
+#
+# Example:
+#
+# [[i2c_hid_quirk]]
+# match.sys_vendor = "Example Vendor"
+# match.product_name = "Example Laptop 13"
+# match.acpi_hid = "ELAN0000"
+#
+# [[i2c_hid_quirk.probe_failure_action]]
+# gpio_io_index = 0
+# drive_high = false
+# hold_ms = 25
+# settle_ms = 120
+# require_initial_level = true
