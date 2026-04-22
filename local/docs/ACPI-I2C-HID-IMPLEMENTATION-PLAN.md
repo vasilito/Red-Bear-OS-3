@@ -13,23 +13,84 @@ The shortest correct path is:
 
 This work must be treated as bare-metal boot-critical substrate, not as optional polish.
 
-## Current State
+## Current State (updated 2026-04-22)
 
-What already exists:
+### What exists
 
-- `acpid` has AML evaluation and a scheme surface for tables, AML symbols, DMI, power,
-  reboot, and PCI registration.
-- `hwd` already recognizes `PNP0C50` as `I2C HID` during ACPI probe, but only as a label.
-- `amlserde` can already carry raw AML buffers and the relevant opregion kinds.
+- **`acpid`** has AML evaluation and a scheme surface for tables, AML symbols, DMI, power,
+  reboot, and PCI registration. `acpid/src/resources.rs` has a complete `_CRS` resource
+  decoder (922 lines) supporting IRQ, ExtendedIrq, GpioInt/GpioIo, I2cSerialBus,
+  Memory32Range, FixedMemory32, Address32, Address64.
+- **`/scheme/acpi/resources/<device>`** endpoint (IN PROGRESS) — acpid's `decode_resource_template()`
+  exists but is not yet wired into the scheme surface. This is the #1 remaining gap.
+- **`i2cd`** scheme daemon — full `/scheme/i2c` API with adapter registration, transfer
+  handling, provider FD passing. Located at `drivers/i2c/i2cd/`.
+- **`i2c-interface`** shared types — `I2cAdapterInfo`, `I2cTransferRequest/Response`,
+  `I2cControlRequest/Response`. Located at `drivers/i2c/i2c-interface/`.
+- **Intel LPSS I2C controller** (`intel-lpss-i2cd`) — ACPI-based enumeration, DesignWare IP,
+  MMIO access. Registers as adapter with i2cd.
+- **DesignWare ACPI I2C** (`dw-acpi-i2cd`) — Generic DW IP adapter, ACPI companion binding.
+- **AMD MP2 I2C** (`amd-mp2-i2cd`) — AMD Picasso/Renoir platform I2C via MP2.
+- **`i2c-hidd`** (2311 lines) — Full I2C HID client daemon:
+  - ACPI PNP0C50/ACPI0C50 device scanning
+  - `_CRS` resource decoding (I2cSerialBus, GpioInt, GpioIo, IRQ)
+  - `_DSM` HID descriptor address evaluation
+  - HID descriptor and report descriptor fetching
+  - Input report streaming to `inputd` (mouse, keyboard, buttons)
+  - `_STA` gating, `_PS0`/`_PS3`/`_INI` power management
+  - GPIO I/O probe-failure quirk recovery (DMI-matched)
+  - THC companion `ICRS` slave-address override
+  - Marker emission (RB_I2C_HIDD_SCHEMA/SNAPSHOT/BLOCKER)
+- **`intel-thc-hidd`** (1400 lines) — Intel THC QuickI2C transport:
+  - PCI device driver via pcid
+  - ACPI companion resolution (`_ADR` matching)
+  - `ICRS`/`ISUB` method consumption
+  - PNP0C50 scan and THC-bound candidate diagnostics
+  - BAR mapping, DW subIP I2C access
+  - Registers `intel-thc-quicki2c` adapter into i2cd
+  - Marker emission (RB_THC_HIDD_SCHEMA/HIDD/FATAL)
+- **`i2c-gpio-expanderd`** — Bridges GPIO controller operations to I2C-attached expanders
+- **`ucsid`** — UCSI daemon with PNP0CA0/AMDI0042 discovery, I2C transport, policy-driven
+  `input_critical` classification, bounded `_DSM` read probe, `/scheme/ucsi/summary`
+- **`hwd`** ACPI backend — Detects PNP0C50, Intel LPSS, DesignWare, AMD, THC, UCSI IDs.
+  Emits RB_THC_QUICKI2C, RB_UCSI_* markers. Consumes `/scheme/ucsi/summary`.
+- **`amlserde`** — AML serialization/deserialization, including `AmlSerdeValue::Buffer`
+  (needed for `_CRS`), `RegionSpace::GenericSerialBus` for I2C/SMBus opregions.
+- **Init services** — `redbear-live-mini.toml` wires `i2cd`, `i2c-hidd`, `i2c-dw-acpi`,
+  `i2c-gpio-expanderd`, `intel-gpiod`, `ucsid` with non-blocking startup ordering.
 
-What is missing:
+### What is missing (active gaps)
 
-- no decoded `_CRS` resource parser for ACPI devices
-- no `/scheme/acpi/...` API for decoded `I2cSerialBus`, `GpioInt`, `GpioIo`, or IRQ data
-- no native I2C controller subsystem
-- no native I2C controller drivers for Intel LPSS / AMD laptop paths
-- no `i2c-hidd`
-- no completed input path for laptop-class ACPI-attached keyboards and touchpads
+1. **`/scheme/acpi/resources/<device>` scheme endpoint** — `acpid` has the decoder
+   (`decode_resource_template()`) but does not expose it through the scheme. Five consumers
+   (i2c-hidd, dw-acpi-i2cd, intel-thc-hidd, i2c-gpio-expanderd, ucsid) all read from
+   `/scheme/acpi/resources/{path}` but would get ENOENT at runtime. This is the #1 blocker.
+
+2. **Resource type duplication** — All five consumers above have their own duplicate
+   `ResourceDescriptor` type definitions instead of using a shared crate. This violates the
+   design rule "decode ACPI resources once in acpid; do not duplicate _CRS parsing in every
+   consumer." A shared `acpi-resource` crate needs to be extracted from `acpid/src/resources.rs`
+   and adopted by all consumers.
+
+3. **`_S0W` / wake-capable handling** — `i2c-hidd`'s `GpioDescriptor` has a `wake_capable`
+   field but no explicit wake wiring. `_S0W` evaluation is not implemented. These are
+   sleep/resume features, not boot-critical.
+
+4. **GenericSerialBus / SMBus opregion support** — Not yet implemented. Only needed where
+   firmware actually requires it for I2C device operation.
+
+5. **Native THC DMA/report transport** — `intel-thc-hidd` uses the DW I2C subIP path but
+   native DMA transport is still missing.
+
+6. **Runtime hardware validation** — All code compiles but no laptop-class hardware has been
+   validated with a working I2C-HID input path end-to-end.
+
+### Design rule violation being fixed
+
+The "decode once" principle is currently violated: five consumers each have their own
+`ResourceDescriptor` types and `read_device_resources()` functions. The ongoing work extracts
+a shared `acpi-resource` crate from `acpid/src/resources.rs` and refactors all consumers to
+use it.
 
 ## Reference Carriers In Local Tree
 
@@ -47,12 +108,12 @@ semantics, but should not be transliterated blindly.
 
 ## Execution Order
 
-### Phase A: ACPI `_CRS` substrate
+### Phase A: ACPI `_CRS` substrate — IN PROGRESS
 
 Deliverables:
 
 - add decoded ACPI resource support in `acpid`
-- expose decoded device resources through `/scheme/acpi`
+- expose decoded device resources through `/scheme/acpi/resources/<device>`
 - support at minimum:
   - IRQ
   - Extended IRQ
@@ -60,13 +121,19 @@ Deliverables:
   - GPIO I/O
   - `I2cSerialBus`
 
+Current status:
+- ✅ `acpid/src/resources.rs` — complete `_CRS` decoder (922 lines)
+- ✅ `decode_resource_template()` function with all descriptor types
+- 🚧 `/scheme/acpi/resources/<device>` endpoint — decoder exists but not wired into scheme
+- 🚧 `acpi-resource` shared crate — extracting from acpid to eliminate duplication in 5 consumers
+
 Acceptance:
 
 - a consumer can query decoded resources for a device path without reimplementing AML
   resource decoding
 - known laptop devices show valid controller link, slave address, and interrupt metadata
 
-### Phase B: Native I2C substrate
+### Phase B: Native I2C substrate — COMPLETE
 
 Deliverables:
 
@@ -74,27 +141,32 @@ Deliverables:
 - support controller registration, transfers, and per-device addressing
 - keep scope tight; do not clone Linux I2C core complexity
 
+Current status:
+- ✅ `i2cd` — full `/scheme/i2c` scheme with adapter registry, transfers, provider FD passing
+- ✅ `i2c-interface` — shared types (I2cAdapterInfo, I2cTransferRequest, I2cControlRequest)
+- ✅ Controller registration and transfer API working
+
 Acceptance:
 
-- a userspace daemon can open an adapter and issue I2C transfers using a stable Red Bear API
+- ✅ a userspace daemon can open an adapter and issue I2C transfers using a stable Red Bear API
 
-### Phase C: Intel laptop controller path
+### Phase C: Intel laptop controller path — COMPLETE
 
 Deliverables:
 
 - add Intel LPSS / Serial IO I2C controller ownership first
 
-Why first:
-
-- this is the most common modern Intel laptop path for touchpads and keyboards
-- it directly unblocks `I2C-HID` on many real machines
+Current status:
+- ✅ `intel-lpss-i2cd` — Intel LPSS/SerialIO I2C controller with DesignWare IP
+- ✅ `dw-acpi-i2cd` — DesignWare ACPI-bound I2C adapter
+- ✅ Both register with i2cd and provide transfer capability
 
 Acceptance:
 
-- at least one Intel bare-metal laptop registers a usable I2C adapter from ACPI-described
-  hardware
+- compile-visible: ✅ at least one Intel controller driver registers a usable I2C adapter
+- runtime: ❌ no bare-metal validation yet
 
-### Phase D: `i2c-hidd`
+### Phase D: `i2c-hidd` — COMPLETE (compile-visible)
 
 Deliverables:
 
@@ -103,35 +175,50 @@ Deliverables:
 - fetch HID descriptor and report descriptor via I2C
 - stream input reports into `inputd`
 
+Current status:
+- ✅ `i2c-hidd` — 2311-line daemon with full ACPI scanning, _DSM, HID protocol, input streaming
+- ✅ `intel-thc-hidd` — 1400-line THC QuickI2C transport daemon
+- ✅ Both have marker emission for boot-log diagnostics
+
 Acceptance:
 
-- at least one laptop touchpad or keyboard produces usable events
+- compile-visible: ✅ all code builds
+- runtime: ❌ no laptop touchpad or keyboard has produced usable events yet (blocked by Phase A)
 
-### Phase E: AMD controller path
+### Phase E: AMD controller path — COMPLETE (compile-visible)
 
 Deliverables:
 
 - add AMD laptop-class I2C controller support
 - likely DesignWare / MP2 mediated paths depending on platform
 
-Acceptance:
-
-- at least one AMD laptop reaches a functioning internal input device through ACPI I2C
-
-### Phase F: Remaining ACPI I2C functions
-
-Deliverables:
-
-- `_STA` gating before bind
-- `_INI` where required
-- `_PS0` / `_PS3` best-effort device power transitions
-- `GpioInt` and `GpioIo` semantics for reset, wake, and power sequencing
-- `_S0W` / wake-capable handling where hardware requires it
-- GenericSerialBus / SMBus opregion support only where firmware actually needs it
+Current status:
+- ✅ `amd-mp2-i2cd` — AMD MP2 I2C controller driver
+- ✅ `dw-acpi-i2cd` also handles AMD DesignWare IDs (AMDI0010, AMDI0019, AMDI0510)
 
 Acceptance:
 
-- runtime bring-up no longer depends on USB or PS/2 fallback for supported laptops
+- compile-visible: ✅ AMD controller driver exists and registers with i2cd
+- runtime: ❌ no AMD laptop validated
+
+### Phase F: Remaining ACPI I2C functions — PARTIALLY COMPLETE
+
+Deliverables and status:
+
+| Feature | Status | Detail |
+|---------|--------|--------|
+| `_STA` gating before bind | ✅ | `i2c-hidd:prepare_acpi_device()` checks presence bit |
+| `_INI` where required | ✅ | Evaluated after `_PS0` in `prepare_acpi_device()` |
+| `_PS0` / `_PS3` power transitions | ✅ | `prepare_acpi_device()` and `recover_acpi_device()` |
+| `GpioInt`/`GpioIo` reset | ✅ | DMI-matched GPIO I/O probe-failure quirk recovery |
+| `_S0W` / wake-capable | ❌ | `wake_capable` field exists but not wired; `_S0W` not evaluated |
+| GpioInt wake wiring | ❌ | Wake interrupt path not implemented |
+| GenericSerialBus opregion | ❌ | Not needed for boot; only where firmware requires it |
+
+Acceptance:
+
+- boot-critical items (STA, PS0, PS3, GPIO reset): ✅
+- sleep/resume items (S0W, wake, opregion): ❌ deferred until sleep/resume is in scope
 
 ## Design Rules
 
@@ -192,12 +279,11 @@ For boot-to-login on modern laptops, the correct priority is:
 
 ## Immediate Next Steps
 
-1. land `_CRS` decoding in `acpid`
-2. expose decoded resources under `/scheme/acpi`
-3. validate decoded `I2cSerialBus` and GPIO/IRQ data on real hardware logs
-4. introduce the minimal native I2C userspace substrate
-5. implement Intel LPSS controller ownership
-6. implement `i2c-hidd`
+1. ~~land `_CRS` decoding in `acpid`~~ ✅ (decoder exists)
+2. expose decoded resources under `/scheme/acpi/resources/` ← **ACTIVE WORK**
+3. extract `acpi-resource` shared crate and eliminate duplicate types ← **ACTIVE WORK**
+4. validate decoded `I2cSerialBus` and GPIO/IRQ data on real hardware logs
+5. end-to-end I2C-HID input validation on bare metal
 
 ## Boot-Critical I2C Addendum (post-Phase D)
 
@@ -213,64 +299,41 @@ Anything outside this list should not preempt keyboard/touchpad path completion 
 
 | Priority | Device class | Linux carrier in tree | Red Bear status |
 |---|---|---|---|
-| P0 | Intel THC QuickI2C transport (`HID over THC`) | `drivers/hid/intel-thc-hid/intel-quicki2c/*` | detection/parking landed, transport still missing |
-| P1 | GPIO companions for `GpioInt`/`GpioIo` (reset/wake rails) | `drivers/gpio/*`, ACPI resource flow | partially landed, board-specific gaps remain |
-| P2 | Controller-companion ACPI methods (`_DSM/_DSD`) that gate input | `i2c-core-acpi.c`, QuickI2C ACPI helpers | partially landed, still platform-dependent |
-| P3 | USB-C/UCSI I2C only on machines where input depends on it | `drivers/usb/typec/ucsi/*` and ACPI glue | partial: ACPI UCSI (`PNP0CA0`/`AMDI0042`) discovery + bounded I2C probe/policy surface landed; runtime UCSI transport/partner path still missing |
+| P0 | Intel THC QuickI2C transport (`HID over THC`) | `drivers/hid/intel-thc-hid/intel-quicki2c/*` | ✅ detection, BAR mapping, DW subIP adapter registration landed; native DMA transport still missing |
+| P1 | GPIO companions for `GpioInt`/`GpioIo` (reset/wake rails) | `drivers/gpio/*`, ACPI resource flow | ✅ GPIO I/O probe-failure quirk recovery landed; wake wiring still missing |
+| P2 | Controller-companion ACPI methods (`_DSM/_DSD`) that gate input | `i2c-core-acpi.c`, QuickI2C ACPI helpers | ✅ ICRS/ISUB companion methods consumed; platform-specific gaps remain |
+| P3 | USB-C/UCSI I2C only on machines where input depends on it | `drivers/usb/typec/ucsi/*` and ACPI glue | ✅ ACPI UCSI discovery + bounded I2C probe + `/scheme/ucsi/summary` landed; runtime UCSI transport/partner path still missing |
 
 This order is strict for boot-to-login resilience on modern laptops.
 
-Current in-tree staging note:
-- initfs boot ownership for ACPI/PIC is now explicit: `40_pcid.service` -> `41_acpid.service` -> `40_hwd.service` -> `40_pcid-spawner-initfs.service`; `hwd` no longer spawns `acpid` or `pcid` ad hoc.
-- `redbear-live-mini` now enables `00_i2c-hidd.service` in non-blocking mode (`oneshot_async`) instead of masking it with `cmd = "true"`.
-- `redbear-live-mini` now carries non-blocking `00_i2c-gpio-expanderd.service` and `00_ucsid.service` overlays so the boot-minimal image keeps companion GPIO and UCSI topology diagnostics aligned with the boot-critical I2C path.
-- `intel-thc-hidd` now performs ACPI companion resolution, `_DSM` capability reads, `PNP0C50` scan, THC-bound candidate diagnostics, BAR mapping, and registers a minimal `intel-thc-quicki2c` adapter into `i2cd` with transfer handling through THC I2C subIP (DesignWare-style path).
-- `intel-thc-hidd` now also consumes bounded ACPI controller-companion methods `ICRS` and `ISUB` when present, using them to refine adapter speed/addressing diagnostics and to apply ACPI timing overrides for DW SCL high/low counters.
-- `intel-thc-hidd` now emits compact `RB_THC_HIDD_SCHEMA` / `RB_THC_HIDD` marker lines with THC-bound PNP0C50 candidate counts and status reasons (`available` vs `not-available`) so boot logs can distinguish missing ACPI binding surfaces from transport/runtime faults.
-- `intel-thc-hidd` now canonicalizes the primary `RB_THC_HIDD` status field and warns/coerces unknown values to `error`, matching the parser-robust status policy used in `hwd`/`i2c-hidd`.
-- `RB_THC_HIDD` / `RB_THC_HIDD_FATAL` markers now include `generation=<n>` for explicit correlation with other boot-readiness streams.
-- `RB_THC_HIDD` status semantics now explicitly include `not-ready` (ACPI symbols not ready) and `error` (ACPI symbol scan failure), so init ordering and enumeration faults are disambiguated in CI logs.
-- `intel-thc-hidd` now emits `RB_THC_HIDD_FATAL status=error ...` markers on hard-stop failures (BAR map/size failures, unexpected DW component type, i2cd registration failure, provider-loop failure) so fatal transport bring-up exits are machine-classifiable.
-- `hwd` now emits compact `RB_THC_QUICKI2C status=not-ready ...` and UCSI `RB_UCSI_* status=not-ready ...` markers even when ACPI symbol enumeration returns `WouldBlock`, preserving machine-readable readiness signals during early init ordering windows.
-- `hwd` now reports THC companion `ICRS`/`ISUB` method readiness counts (`thc_quicki2c_ready`) during ACPI probe so missing controller-companion surfaces are visible before driver bring-up.
-- `hwd` now also emits compact `RB_THC_QUICKI2C_SCHEMA` / `RB_THC_QUICKI2C` marker lines (`status=absent|available|not-ready`) for THC companion readiness scraping in CI/log pipelines.
-- `RB_THC_QUICKI2C` now also includes `generation=<n>` for consistent correlation semantics with other marker streams.
-- `hwd` now assigns marker generation per ACPI probe pass and threads it through UCSI/THC fallback markers as well, eliminating `generation=0` ambiguity on local fallback paths.
-- schema markers now also carry generation (`RB_UCSI_SCHEMA`, `RB_THC_QUICKI2C_SCHEMA`, `RB_UCSID_SCHEMA`, `RB_I2C_HIDD_SCHEMA`, `RB_THC_HIDD_SCHEMA`) so schema and data lines share the same correlation key shape.
-- `i2c-hidd` now consults THC companion `ICRS` when bound through `intel-thc-quicki2c`, and performs a bounded slave-address override if HID `_CRS` I2C address and companion-method address disagree.
-- `i2c-hidd` now emits compact `RB_I2C_HIDD_SCHEMA` and `RB_I2C_HIDD_BLOCKER` markers so unresolved THC resource-source adapter matches are machine-readable in boot logs (`reason=thc_transport_adapter_unavailable`).
-- `i2c-hidd` marker emitters now canonicalize status fields (`RB_I2C_HIDD_SNAPSHOT`, `RB_I2C_HIDD_BLOCKER`) and warn/coerce unknown values to `error` for parser-safe output under schema drift.
-- `RB_I2C_HIDD_BLOCKER` now also includes `generation=<n>`, aligned to the current scan cycle so blocker and snapshot events are directly correlatable.
-- `RB_I2C_HIDD_BLOCKER` status semantics now also include `not-ready` (`acpi_symbols_not_ready`) and `error` (`acpi_symbol_scan_error`) on the ACPI symbol scan path, aligning HID-consumer readiness reporting with THC producer markers.
-- `i2c-hidd` scan-state handling now preserves that distinction in snapshots: ACPI `WouldBlock` yields `RB_I2C_HIDD_SNAPSHOT status=not-ready reason=acpi_symbols_not_ready` (not `not-available`), avoiding false “no devices” classification during early init ordering.
-- `i2c-hidd` now emits `RB_I2C_HIDD_SNAPSHOT` per scan cycle (`status`, `reason`, `devices`, `adapters`, `started`, `probe_ok`, `probe_failed`) so boot logs expose HID bring-up progress and failure density, not only blocker edges.
-- `RB_I2C_HIDD_SNAPSHOT` now also carries `generation=<n>`, allowing cycle-level correlation with other readiness marker streams.
-- the same `RB_I2C_HIDD_SNAPSHOT` stream now includes `status=error reason=scan_failed` on scan-cycle exceptions, preserving explicit machine-readable failure state even when scan aborts early.
-- The in-tree bridge now derives adapter speed profile from ACPI-bound devices and includes bounded one-shot controller recovery/reinit on non-addressing transfer failures.
-- `ucsid` now exposes `/scheme/ucsi` summary/device records with policy-driven `input_critical` classification, per-node probe policy, bounded AMDI0042 I2C probe telemetry, and PNP0CA0 ACPI `_DSM` capability-mask diagnostics (Linux carrier aligned with `ucsi_acpi.c` function-mask semantics).
-- `ucsid` now also supports a policy/env-gated bounded PNP0CA0 `_DSM` function-2 read-call probe (`REDBEAR_UCSI_DSM_READ_PROBE` / `probe_dsm_read`) to surface ACPI transport readiness without enabling full UCSI command transport.
-- when that bounded read probe returns a buffer payload, `ucsid` now surfaces a minimal UCSI header snapshot (`version_bcd` at offset 0 and `cci` at offset 4) for early transport-readiness diagnostics.
-- `hwd` now opportunistically consumes `/scheme/ucsi/summary` (when available) and logs UCSI transport-readiness snapshot counts/devices on the ACPI probe path.
-- `hwd` now classifies UCSI summary availability as `available` / `not-ready` / `not-available` / `error`, making initfs service-order gaps distinguishable from summary parse/probe failures.
-- `hwd` now emits a compact `RB_UCSI_SNAPSHOT ...` key-value marker line for CI/log scrapers in addition to the human-readable UCSI status logs.
-- `ucsid` now emits compact `RB_UCSID_SUMMARY ...` and per-device `RB_UCSID_DEVICE ...` marker lines so readiness can be scraped directly from daemon logs without scheme reads.
-- `hwd` now mirrors per-device compact markers as `RB_UCSI_DEVICE ...` when `/scheme/ucsi/summary` is available, so CI can consume transport-readiness from the `hwd` boot stream as well.
-- `ucsid` now classifies `transport_blocker` for `input_critical` devices that are not transport-ready, and exports `transport_blocked_input_critical` in summary markers for boot-priority triage.
-- `ucsid`/`hwd` compact markers now include `health=ok|degraded` plus dedicated `RB_UCSID_HEALTH` / `RB_UCSI_HEALTH` lines keyed by `transport_blocked_input_critical`.
-- `RB_UCSID_SUMMARY` and mirrored `RB_UCSI_SUMMARY` now carry `generation=<n>` so CI can correlate `hwd` snapshots with a specific `ucsid` scan cycle and detect stale reads.
-- generation is now assigned before each `ucsid` scan pass and included on per-device markers (`RB_UCSID_DEVICE` / mirrored `RB_UCSI_DEVICE`) so device-level lines are cycle-correlated as well.
-- `RB_UCSI_SNAPSHOT` is now self-contained with `generation`, `health`, and `transport_blocked_input_critical` when summary is available, while preserving explicit `status=*` for not-ready/not-available/error cases.
-- `hwd` now emits `RB_UCSI_SNAPSHOT status=absent ...` when no ACPI UCSI candidates are discovered, so CI can distinguish true surface absence from service readiness failures.
-- `ucsid` compact markers now emit explicit status on every scan cycle (`status=available|absent|not-ready|error`) via `RB_UCSID_SUMMARY` / `RB_UCSID_HEALTH`.
-- `ucsid` now also emits `RB_UCSID_SUMMARY` / `RB_UCSID_HEALTH` with `status=error` and `health=unknown` on scan-cycle failures, so CI can distinguish explicit UCSI scan faults from stale/missing marker streams.
-- on scan failure, `ucsid` now also resets shared `/scheme/ucsi/summary` counters to a clean `status=error` state for that generation (instead of carrying stale counters from the previous successful cycle).
-- `ucsid` ACPI-symbol `WouldBlock` no longer collapses into `status=absent`; it now emits explicit `status=not-ready` markers so early-init readiness is not misclassified as true UCSI surface absence.
-- `/scheme/ucsi/summary` now carries explicit producer status (`available|absent|not-ready|error`) and `hwd` consumes that field when mirroring `RB_UCSI_*`, preventing false `status=available` interpretations from zeroed summary counters during not-ready/error cycles.
-- `hwd` now normalizes UCSI summary status parsing (trims whitespace and accepts case variants) and warns before coercing unknown statuses to `error`, improving resilience to producer/schema drift.
-- `hwd` now also cross-checks status against summary counters: contradictory payloads (`available` with zero devices, or `absent` with nonzero devices) are warned and coerced to safe marker output (`absent` / `error`) instead of being mirrored verbatim.
-- for `status=not-ready|not-available|error`, `hwd` now warns if nonzero payload counters/devices are present before emitting fallback status markers, making producer-status drift explicit in logs.
-- `ucsid` startup default summary state is now explicitly `status=not-ready` (instead of implicit empty/default status), so early pre-scan reads of `/scheme/ucsi/summary` remain unambiguous.
-- mirrored `hwd` markers now carry explicit status on `RB_UCSI_SUMMARY` / `RB_UCSI_HEALTH` (`available|absent|not-ready|not-available|error`), keeping status semantics aligned across both producers and fallback paths.
-- mirrored `RB_UCSI_DEVICE` now carries richer readiness context (`i2c_backed`, DSM read support/probe flags) to match `ucsid` diagnostics from a single boot-log stream.
-- for `status=not-ready|not-available|error`, `hwd` now emits fallback `RB_UCSI_SUMMARY` / `RB_UCSI_HEALTH` lines (not just `RB_UCSI_SNAPSHOT`) so CI can rely on the same marker keys in every status path.
-- Native THC DMA/report transport is still missing.
+## Marker Emission Summary
+
+The I2C stack uses structured marker lines for CI/log scraping:
+
+| Producer | Marker | Purpose |
+|----------|--------|---------|
+| `hwd` | `RB_THC_QUICKI2K_SCHEMA` / `RB_THC_QUICKI2K` | THC companion readiness |
+| `hwd` | `RB_UCSI_SCHEMA` / `RB_UCSI_SNAPSHOT` / `RB_UCSI_SUMMARY` / `RB_UCSI_HEALTH` / `RB_UCSI_DEVICE` | UCSI topology readiness |
+| `i2c-hidd` | `RB_I2C_HIDD_SCHEMA` / `RB_I2C_HIDD_BLOCKER` / `RB_I2C_HIDD_SNAPSHOT` | HID bind progress and blockers |
+| `intel-thc-hidd` | `RB_THC_HIDD_SCHEMA` / `RB_THC_HIDD` / `RB_THC_HIDD_FATAL` | THC transport bring-up status |
+| `ucsid` | `RB_UCSID_SCHEMA` / `RB_UCSID_SUMMARY` / `RB_UCSID_DEVICE` / `RB_UCSID_HEALTH` | UCSI daemon diagnostics |
+
+All markers carry `generation=<n>` for cycle-level correlation across producers.
+
+## Service Boot Ordering
+
+```
+00_base.target
+  → 40_pcid.service (PCI enumeration)
+  → 41_acpid.service (ACPI tables + AML evaluation)
+  → 40_hwd.service (hardware discovery + markers)
+  → 00_i2cd.service (I2C adapter registry)
+  → 00_i2c-dw-acpi.service (DesignWare I2C controllers)
+  → 00_intel-gpiod.service (Intel GPIO controller)
+  → 00_i2c-gpio-expanderd.service (GPIO expander companion)
+  → 00_i2c-hidd.service (I2C HID devices — touchpads, keyboards)
+  → 00_ucsid.service (UCSI USB-C topology)
+```
+
+All I2C services use non-blocking (`oneshot_async`) startup so the boot path is not blocked
+by any single service's probe latency.
