@@ -38,6 +38,7 @@ pub struct FetchResult {
 fn redbear_protected_recipe(name: &str) -> bool {
     matches!(
         name,
+        // Core patched recipes (upstream + Red Bear patches)
         "relibc"
             | "bootloader"
             | "kernel"
@@ -46,6 +47,107 @@ fn redbear_protected_recipe(name: &str) -> bool {
             | "installer"
             | "redoxfs"
             | "grub"
+        // Red Bear custom core recipes
+            | "ext4d"
+            | "fatd"
+        // Red Bear driver infrastructure
+            | "redox-driver-sys"
+            | "linux-kpi"
+            | "firmware-loader"
+            | "redbear-btusb"
+            | "redbear-iwlwifi"
+        // Red Bear GPU stack
+            | "redox-drm"
+            | "amdgpu"
+        // Red Bear system tools
+            | "cub"
+            | "evdevd"
+            | "udev-shim"
+            | "iommu"
+            | "redbear-firmware"
+            | "redbear-hwutils"
+            | "redbear-info"
+            | "rbos-info"
+            | "redbear-meta"
+            | "redbear-netctl"
+            | "redbear-netctl-console"
+            | "redbear-netstat"
+            | "redbear-btctl"
+            | "redbear-wifictl"
+            | "redbear-traceroute"
+            | "redbear-mtr"
+            | "redbear-nmap"
+            | "redbear-sessiond"
+            | "redbear-authd"
+            | "redbear-session-launch"
+            | "redbear-greeter"
+            | "redbear-dbus-services"
+            | "redbear-notifications"
+            | "redbear-upower"
+            | "redbear-udisks"
+            | "redbear-polkit"
+            | "redbear-quirks"
+        // Red Bear branding
+            | "redbear-release"
+        // Red Bear library stubs and custom libs
+            | "libepoxy-stub"
+            | "libdisplay-info-stub"
+            | "lcms2-stub"
+            | "libxcvt-stub"
+            | "libudev-stub"
+            | "zbus"
+            | "libqrencode"
+        // Red Bear Wayland
+            | "qt6-wayland-smoke"
+            | "smallvil"
+            | "seatd-redox"
+        // Red Bear KDE (47 recipes)
+            | "kf6-extra-cmake-modules"
+            | "kf6-kcoreaddons"
+            | "kf6-kwidgetsaddons"
+            | "kf6-kconfig"
+            | "kf6-ki18n"
+            | "kf6-kcodecs"
+            | "kf6-kguiaddons"
+            | "kf6-kcolorscheme"
+            | "kf6-kauth"
+            | "kf6-kitemmodels"
+            | "kf6-kitemviews"
+            | "kf6-karchive"
+            | "kf6-kwindowsystem"
+            | "kf6-knotifications"
+            | "kf6-kjobwidgets"
+            | "kf6-kconfigwidgets"
+            | "kf6-kcrash"
+            | "kf6-kdbusaddons"
+            | "kf6-kglobalaccel"
+            | "kf6-kservice"
+            | "kf6-kpackage"
+            | "kf6-kiconthemes"
+            | "kf6-kxmlgui"
+            | "kf6-ktextwidgets"
+            | "kf6-solid"
+            | "kf6-sonnet"
+            | "kf6-kio"
+            | "kf6-kbookmarks"
+            | "kf6-kcompletion"
+            | "kf6-kdeclarative"
+            | "kf6-kcmutils"
+            | "kf6-kidletime"
+            | "kf6-kwayland"
+            | "kf6-knewstuff"
+            | "kf6-kwallet"
+            | "kf6-prison"
+            | "kf6-kirigami"
+            | "kdecoration"
+            | "kwin"
+            | "plasma-desktop"
+            | "plasma-workspace"
+            | "plasma-framework"
+            | "plasma-wayland-protocols"
+            | "kirigami"
+        // Orbutils (has local patch)
+            | "orbutils"
     )
 }
 
@@ -54,6 +156,15 @@ fn redbear_allow_protected_fetch() -> bool {
         env::var("REDBEAR_ALLOW_PROTECTED_FETCH").ok().as_deref(),
         Some("1" | "true" | "TRUE" | "yes" | "YES")
     )
+}
+
+/// Check if a recipe directory is a local Red Bear overlay (symlink into local/).
+fn is_local_overlay(recipe_dir: &Path) -> bool {
+    if let Ok(resolved) = recipe_dir.canonicalize() {
+        let resolved_str = resolved.to_string_lossy();
+        return resolved_str.contains("/local/recipes/");
+    }
+    false
 }
 
 impl FetchResult {
@@ -331,11 +442,20 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
                 }
 
                 if !patches.is_empty() || script.is_some() {
-                    // Hard reset
-                    let mut command = Command::new("git");
-                    command.arg("-C").arg(&source_dir);
-                    command.arg("reset").arg("--hard");
-                    run_command(command, logger)?;
+                    if is_local_overlay(recipe_dir) && !redbear_allow_protected_fetch() {
+                        log_to_pty!(
+                            logger,
+                            "[WARN] skipping git reset --hard for local overlay recipe at {} \
+                             (set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
+                            recipe_dir.display()
+                        );
+                    } else {
+                        // Hard reset
+                        let mut command = Command::new("git");
+                        command.arg("-C").arg(&source_dir);
+                        command.arg("reset").arg("--hard");
+                        run_command(command, logger)?;
+                    }
                 }
 
                 if let Some(rev) = rev {
@@ -443,11 +563,20 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
             let mut cached = true;
             if source_dir.is_dir() {
                 if tar_updated || fetch_is_patches_newer(recipe_dir, patches, &source_dir)? {
-                    log_to_pty!(
-                        logger,
-                        "DEBUG: source tar or patches is newer than the source directory"
-                    );
-                    remove_all(&source_dir)?
+                    if is_local_overlay(recipe_dir) && !redbear_allow_protected_fetch() {
+                        log_to_pty!(
+                            logger,
+                            "[WARN] refusing to wipe source for local overlay recipe at {} \
+                             (set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
+                            recipe_dir.display()
+                        );
+                    } else {
+                        log_to_pty!(
+                            logger,
+                            "DEBUG: source tar or patches is newer than the source directory"
+                        );
+                        remove_all(&source_dir)?
+                    }
                 }
             }
             if !source_dir.is_dir() {

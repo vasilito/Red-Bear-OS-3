@@ -22,7 +22,7 @@ use redox_installer::PackageConfig;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Read, Write, stderr, stdin, stdout};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -37,6 +37,24 @@ use termion::screen::IntoAlternateScreen;
 use termion::{color, style};
 
 // A repo manager, to replace repo.sh
+
+/// Check if a recipe directory is a local Red Bear overlay (symlink into local/).
+/// Local overlay recipes must never have their source/ deleted by unfetch/clean.
+fn is_local_overlay(recipe_dir: &Path) -> bool {
+    if let Ok(resolved) = recipe_dir.canonicalize() {
+        let resolved_str = resolved.to_string_lossy();
+        return resolved_str.contains("/local/recipes/");
+    }
+    false
+}
+
+/// Check if the operator has explicitly allowed destructive operations on local overlays.
+fn redbear_allow_local_unfetch() -> bool {
+    matches!(
+        std::env::var("REDBEAR_ALLOW_LOCAL_UNFETCH").ok().as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
 
 const REPO_HELP_STR: &str = r#"
     Usage: repo <command> [flags] <recipe1> <recipe2> ...
@@ -772,8 +790,16 @@ fn handle_clean(
     }
     let dir = recipe.dir.join("source");
     if dir.exists() && matches!(*command, CliCommand::Unfetch) {
-        fs::remove_dir_all(&dir).context(format!("failed to delete {}", dir.display()))?;
-        cached = false;
+        if is_local_overlay(&recipe.dir) && !redbear_allow_local_unfetch() {
+            eprintln!(
+                "[WARN] skipping unfetch for local overlay recipe {} \
+                 (source lives in local/; set REDBEAR_ALLOW_LOCAL_UNFETCH=1 to override)",
+                recipe.name.name()
+            );
+        } else {
+            fs::remove_dir_all(&dir).context(format!("failed to delete {}", dir.display()))?;
+            cached = false;
+        }
     }
     Ok(cached)
 }
