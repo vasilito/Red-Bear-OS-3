@@ -102,7 +102,7 @@ include mk/redbear.mk
 
 # Ensure Red Bear OS integration runs before repo cook and disk image creation
 $(BUILD)/harddrive.img: $(REDBEAR_TAG)
-$(BUILD)/redbear-live.iso: $(REDBEAR_TAG)
+$(LIVE_ISO): $(REDBEAR_TAG)
 $(REPO_TAG): $(REDBEAR_TAG)
 
 env: prefix FORCE $(CONTAINER_TAG)

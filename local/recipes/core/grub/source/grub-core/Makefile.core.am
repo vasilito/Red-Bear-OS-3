@@ -23466,6 +23466,26 @@ bli.marker: $(bli_module_SOURCES) $(nodist_bli_module_SOURCES)
 	$(TARGET_CPP) -DGRUB_LST_GENERATOR $(CPPFLAGS_MARKER) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(bli_module_CPPFLAGS) $(CPPFLAGS) $^ > $@.new || (rm -f $@; exit 1)
 	grep 'MARKER' $@.new | grep -v '^#' > $@; rm -f $@.new
 endif
+platform_PROGRAMS += redoxfs.module
+MODULE_FILES += redoxfs.module$(EXEEXT)
+redoxfs_module_SOURCES  = fs/redoxfs.c  ## platform sources
+nodist_redoxfs_module_SOURCES  =  ## platform nodist sources
+redoxfs_module_LDADD  = 
+redoxfs_module_CFLAGS  = $(AM_CFLAGS) $(CFLAGS_MODULE) -DGRUB_BUILD 
+redoxfs_module_LDFLAGS  = $(AM_LDFLAGS) $(LDFLAGS_MODULE) 
+redoxfs_module_CPPFLAGS  = $(AM_CPPFLAGS) $(CPPFLAGS_MODULE) 
+redoxfs_module_CCASFLAGS  = $(AM_CCASFLAGS) $(CCASFLAGS_MODULE) 
+redoxfs_module_DEPENDENCIES  = $(TARGET_OBJ2ELF) 
+dist_noinst_DATA += 
+BUILT_SOURCES += $(nodist_redoxfs_module_SOURCES)
+CLEANFILES += $(nodist_redoxfs_module_SOURCES)
+MOD_FILES += redoxfs.mod
+MARKER_FILES += redoxfs.marker
+CLEANFILES += redoxfs.marker
+
+redoxfs.marker: $(redoxfs_module_SOURCES) $(nodist_redoxfs_module_SOURCES)
+	$(TARGET_CPP) -DGRUB_LST_GENERATOR $(CPPFLAGS_MARKER) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(redoxfs_module_CPPFLAGS) $(CPPFLAGS) $^ > $@.new || (rm -f $@; exit 1)
+	grep 'MARKER' $@.new | grep -v '^#' > $@; rm -f $@.new
 platform_PROGRAMS += gcry_arcfour.module
 MODULE_FILES += gcry_arcfour.module$(EXEEXT)
 gcry_arcfour_module_SOURCES  = lib/libgcrypt-grub/cipher/arcfour.c  ## platform sources

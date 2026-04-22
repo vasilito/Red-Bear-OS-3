@@ -1,6 +1,6 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/bootloader.git"
-patches = ["redox.patch"]
+patches = ["redox.patch", "P2-live-preload-guard.patch", "P3-uefi-live-image-safe-read.patch"]
 
 [build]
 template = "custom"

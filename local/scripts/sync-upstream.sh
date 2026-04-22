@@ -160,6 +160,11 @@ else
     ls -la recipes/core/kernel/redox.patch recipes/core/base/redox.patch
 fi
 
+if [ -x local/scripts/verify-overlay-integrity.sh ]; then
+    echo "==> Verifying overlay integrity..."
+    local/scripts/verify-overlay-integrity.sh --repair
+fi
+
 echo ""
 echo "==> Sync complete."
 echo "    Previous HEAD: $PREV_HEAD"

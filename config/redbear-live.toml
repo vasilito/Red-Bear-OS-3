@@ -1,0 +1,15 @@
+# Red Bear OS Live Configuration
+# Canonical full live ISO target for the desktop/session surface on real bare metal.
+#
+# Build: make live CONFIG_NAME=redbear-live
+# This ISO is for real bare-metal boot/install/recovery, not VM/QEMU use.
+
+include = ["redbear-full.toml"]
+
+[general]
+filesystem_size = 3072
+efi_partition_size = 1
+
+[packages]
+cub = {}
+redbear-meta = {}

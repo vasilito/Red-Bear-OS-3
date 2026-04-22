@@ -1,14 +1,7 @@
 # Red Bear OS Live Full Configuration
-# Live ISO variant for the primary full desktop/session target on real bare metal.
+# Legacy compatibility alias for the canonical full live target.
 #
-# Build: make live CONFIG_NAME=redbear-live-full
-# This ISO is for real bare-metal boot/install/recovery, not VM/QEMU use.
+# Preferred build: make live CONFIG_NAME=redbear-live
+# Legacy build:    make live CONFIG_NAME=redbear-live-full
 
-include = ["redbear-full.toml"]
-
-[general]
-filesystem_size = 4096
-
-[packages]
-cub = {}
-redbear-meta = {}
+include = ["redbear-live.toml"]

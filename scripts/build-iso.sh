@@ -6,6 +6,20 @@ CONFIG_NAME="redbear-live"
 ARCH="x86_64"
 ALLOW_UPSTREAM=0
 
+canonicalize_live_config() {
+    case "$1" in
+        redbear-live-full)
+            printf '%s\n' "redbear-live"
+            ;;
+        redbear-live-mini-grub)
+            printf '%s\n' "redbear-grub-live-mini"
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [CONFIG_NAME] [ARCH]
@@ -19,6 +33,15 @@ Important:
 Options:
   --upstream          Allow Redox/upstream recipe source refresh during build
   -h, --help          Show this help
+
+Supported live ISO targets:
+  redbear-live           Full live ISO
+  redbear-live-mini      Text-only mini live ISO
+  redbear-grub-live-mini Text-only mini live ISO with GRUB bootloader
+
+Legacy compatibility aliases:
+  redbear-live-full
+  redbear-live-mini-grub
 
 Defaults:
   CONFIG_NAME=redbear-live
@@ -61,6 +84,18 @@ fi
 
 [ ${#POSITIONAL[@]} -ge 1 ] && CONFIG_NAME="${POSITIONAL[0]}"
 [ ${#POSITIONAL[@]} -ge 2 ] && ARCH="${POSITIONAL[1]}"
+
+CONFIG_NAME="$(canonicalize_live_config "$CONFIG_NAME")"
+
+case "$CONFIG_NAME" in
+    redbear-live|redbear-live-mini|redbear-grub-live-mini)
+        ;;
+    *)
+        echo "ERROR: Unsupported live ISO target '$CONFIG_NAME'" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
 
 if [ -z "${CI:-}" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
     export CI=1

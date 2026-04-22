@@ -36,7 +36,7 @@ echo "               Defaults to the basename of FILESYSTEM_CONFIG, or 'redbear-
     echo "               config/ARCH/CONFIG.toml"
     echo "               If you specify both CONFIG and FILESYSTEM_CONFIG, it is not"
     echo "               necessary that they match, but it is recommended."
-    echo "    Examples:  ./build.sh -c demo live - make build/x86_64/demo/redbear-live.iso"
+    echo "    Examples:  ./build.sh -c demo live - make build/x86_64/demo.iso"
     echo "               ./build.sh -6 qemu - make build/i686/redbear-kde/harddrive.img and"
     echo "                                    and run it in qemu"
     echo "    NOTE:      If you do not change ARCH or CONFIG very often, edit mk/config.mk"

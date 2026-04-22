@@ -21,6 +21,7 @@ use pkg::SourceIdentifier;
 use pkg::net_backend::DownloadBackendWriter;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
@@ -32,6 +33,27 @@ pub struct FetchResult {
     pub source_dir: PathBuf,
     pub source_ident: String,
     pub cached: bool,
+}
+
+fn redbear_protected_recipe(name: &str) -> bool {
+    matches!(
+        name,
+        "relibc"
+            | "bootloader"
+            | "kernel"
+            | "base"
+            | "base-initfs"
+            | "installer"
+            | "redoxfs"
+            | "grub"
+    )
+}
+
+fn redbear_allow_protected_fetch() -> bool {
+    matches!(
+        env::var("REDBEAR_ALLOW_PROTECTED_FETCH").ok().as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
 }
 
 impl FetchResult {
@@ -139,6 +161,15 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
 }
 
 pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result<FetchResult> {
+    if redbear_protected_recipe(recipe.name.name()) && !redbear_allow_protected_fetch() {
+        log_to_pty!(
+            logger,
+            "[INFO]: protected recipe {} uses local source (fetch disabled; set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
+            recipe.name.name()
+        );
+        return fetch_offline(recipe, logger);
+    }
+
     let recipe_dir = &recipe.dir;
     let source_dir = recipe_dir.join("source");
     match recipe.recipe.build.kind {

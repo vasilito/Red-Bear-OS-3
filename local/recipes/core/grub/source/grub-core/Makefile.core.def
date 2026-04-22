@@ -2595,3 +2595,9 @@ module = {
   efi = commands/bli.c;
   enable = efi;
 };
+
+module = {
+  name = redoxfs;
+  common = fs/redoxfs.c;
+  cflags = '-DGRUB_BUILD';
+};

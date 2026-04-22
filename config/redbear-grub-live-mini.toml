@@ -1,0 +1,9 @@
+# Red Bear OS GRUB Live Mini Configuration
+# Canonical GRUB-backed live ISO for the stripped console/recovery target.
+#
+# Build: make live CONFIG_NAME=redbear-grub-live-mini
+
+include = ["redbear-live-mini.toml", "redbear-grub.toml"]
+
+[general]
+efi_partition_size = 16

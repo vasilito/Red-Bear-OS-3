@@ -13,7 +13,7 @@ else
 	FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
 	fi && \
 	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
-	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) $@.partial
+	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) --no-mount -c $(FILESYSTEM_CONFIG) $@.partial
 	mv $@.partial $@
 endif
 
@@ -22,14 +22,14 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p $(LIVE_BUILD)
-	rm -rf $@  $@.partial
+	rm -rf $@ $@.partial
 	-$(FUMOUNT) /tmp/redox_installer || true
 	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
 	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
 		FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
 	fi && \
 	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
-	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) --write-bootloader="$(LIVE_BOOTLOADER)" --live $@.partial
+	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) --no-mount -c $(FILESYSTEM_CONFIG) --write-bootloader="$(LIVE_BOOTLOADER)" --live $@.partial
 	mv $@.partial $@
 endif
 
@@ -39,38 +39,7 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 else
 	mkdir -p $(LIVE_BUILD)
 	rm -rf $@ $@.partial
-	tmpdir="$$(mktemp -d)"; \
-	esp_img="$$tmpdir/efiboot.img"; \
-	trap 'rm -rf "$$tmpdir"' EXIT; \
-	mkdir -p "$$tmpdir/EFI/BOOT"; \
-	BOOTLOADER_LIVE_BIOS=""; \
-	for path in recipes/core/bootloader/target/*/stage/usr/lib/boot/bootloader-live.bios repo/*/*/bootloader/*/usr/lib/boot/bootloader-live.bios; do \
-		if [ -f "$$path" ]; then \
-			BOOTLOADER_LIVE_BIOS="$$path"; \
-			break; \
-		fi; \
-	done; \
-	live_size="$$(stat -c%s "$(LIVE_IMG)")"; \
-	esp_size="$$((live_size + 64 * 1024 * 1024))"; \
-	truncate -s "$$esp_size" "$$esp_img"; \
-	mkfs.fat -F 32 "$$esp_img" >/dev/null; \
-	python3 local/scripts/fat_tool.py mkdir "$$esp_img" 0 EFI; \
-	python3 local/scripts/fat_tool.py mkdir "$$esp_img" 0 EFI/BOOT; \
-	python3 local/scripts/fat_tool.py cp-in "$$esp_img" 0 "$(LIVE_BOOTLOADER)" EFI/BOOT/BOOTX64.EFI; \
-	python3 local/scripts/fat_tool.py cp-in "$$esp_img" 0 "$(LIVE_IMG)" redox-live.iso; \
-	cp "$(LIVE_BOOTLOADER)" "$$tmpdir/EFI/BOOT/BOOTX64.EFI"; \
-	cp redbear.ipxe "$$tmpdir/redbear.ipxe"; \
-	if [ -n "$$BOOTLOADER_LIVE_BIOS" ]; then \
-		cp "$$BOOTLOADER_LIVE_BIOS" "$$tmpdir/bootloader-live.bios"; \
-		xorriso -as mkisofs -R -J -V "REDBEARLIVE" -o $@.partial \
-			-b bootloader-live.bios -no-emul-boot \
-			-eltorito-alt-boot -e efiboot.img -no-emul-boot \
-			"$$tmpdir" >/dev/null; \
-	else \
-		xorriso -as mkisofs -R -J -V "REDBEARLIVE" -o $@.partial \
-			-eltorito-alt-boot -e efiboot.img -no-emul-boot \
-			"$$tmpdir" >/dev/null; \
-	fi
+	cp "$(LIVE_IMG)" $@.partial
 	mv $@.partial $@
 	cp redbear.ipxe $(LIVE_IPXE)
 endif

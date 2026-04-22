@@ -78,7 +78,7 @@ Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets
 language in historical integration notes should be read as earlier sequencing context, not as the
 current platform policy.
 
-The tracked desktop-capable target surface is now `redbear-full` / `redbear-live-full`, and
+The tracked desktop-capable target surface is now `redbear-full` / `redbear-live`, and
 runtime support claims remain evidence-qualified until compositor/session proof is stronger.
 
 ## Historical Phase Snapshot
@@ -178,7 +178,7 @@ Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. 
 make all CONFIG_NAME=redbear-full        # Tracked desktop-capable target
 make all CONFIG_NAME=redbear-mini        # Tracked minimal non-desktop target
 make all CONFIG_NAME=redbear-full-grub   # Broader integration slice with GRUB boot manager
-make live CONFIG_NAME=redbear-live-full  # Live install ISO for real bare metal (redbear-live.iso)
+make live CONFIG_NAME=redbear-live       # Full live ISO for real bare metal
 make live CONFIG_NAME=redbear-live-mini  # Tiny bare-metal live ISO for minimal/recovery use (~256 MiB image)
 make qemu CONFIG_NAME=redbear-full       # Boot the tracked desktop-capable target in QEMU
 ```

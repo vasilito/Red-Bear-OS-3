@@ -5,8 +5,9 @@
 #   ./local/scripts/build-redbear.sh                                # Default: redbear-full
 #   ./local/scripts/build-redbear.sh redbear-mini                   # Minimal validation baseline
 #   ./local/scripts/build-redbear.sh redbear-full                   # Full Red Bear desktop/session target
-#   ./local/scripts/build-redbear.sh redbear-live-mini              # Live ISO for minimal target
-#   ./local/scripts/build-redbear.sh redbear-live-full              # Live ISO for full target
+#   ./local/scripts/build-redbear.sh redbear-live                   # Canonical full live profile config
+#   ./local/scripts/build-redbear.sh redbear-live-mini              # Text-only mini live profile config
+#   ./local/scripts/build-redbear.sh redbear-grub-live-mini         # Text-only GRUB mini live profile config
 #   ./local/scripts/build-redbear.sh --upstream redbear-full        # Allow Redox/upstream recipe refresh
 #   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh                # Skip patch application
 #
@@ -24,6 +25,23 @@ JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
 ALLOW_UPSTREAM=0
 
+canonicalize_config() {
+    case "$1" in
+        redbear-mini)
+            printf '%s\n' "redbear-minimal"
+            ;;
+        redbear-live-full)
+            printf '%s\n' "redbear-live"
+            ;;
+        redbear-live-mini-grub)
+            printf '%s\n' "redbear-grub-live-mini"
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [CONFIG]
@@ -35,7 +53,7 @@ Options:
   -h, --help          Show this help
 
 Configs:
-  redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
+  redbear-mini, redbear-full, redbear-live, redbear-live-mini, redbear-grub-live-mini
 EOF
 }
 
@@ -69,18 +87,22 @@ fi
 
 [ ${#POSITIONAL[@]} -eq 1 ] && CONFIG="${POSITIONAL[0]}"
 
+CONFIG="$(canonicalize_config "$CONFIG")"
+
 case "$CONFIG" in
-    redbear-mini)
-        CONFIG="redbear-minimal"
+    redbear-minimal)
+        ;;
+    redbear-live)
         ;;
     redbear-live-mini)
-        CONFIG="redbear-live-minimal"
         ;;
-    redbear-minimal|redbear-full|redbear-live-minimal|redbear-live-full)
+    redbear-grub-live-mini)
+        ;;
+    redbear-full)
         ;;
     *)
         echo "ERROR: Unknown config '$CONFIG'"
-        echo "Supported: redbear-mini, redbear-live-mini, redbear-full, redbear-live-full"
+        echo "Supported: redbear-mini, redbear-full, redbear-live, redbear-live-mini, redbear-grub-live-mini"
         exit 1
         ;;
 esac
@@ -97,6 +119,12 @@ echo "========================================"
 echo ""
 
 cd "$PROJECT_ROOT"
+
+if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
+    echo ">>> Verifying overlay integrity (auto-repair)..."
+    "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" --repair
+    echo ""
+fi
 
 stash_nested_repo_if_dirty() {
     local target_dir="$1"
@@ -193,17 +221,23 @@ if [ "$APPLY_PATCHES" = "1" ]; then
     echo ""
 fi
 
+if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
+    echo ">>> Verifying overlay integrity (strict)..."
+    "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh"
+    echo ""
+fi
+
 if [ ! -f "target/release/repo" ]; then
     echo ">>> Building cookbook binary..."
     cargo build --release
 fi
 
-if [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-live-full" ]; then
+if [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-live" ]; then
     ensure_relibc_desktop_surface
 fi
 
 FW_AMD_DIR="$PROJECT_ROOT/local/firmware/amdgpu"
-if [ "$CONFIG" != "redbear-minimal" ]; then
+if [ "$CONFIG" != "redbear-minimal" ] && [ "$CONFIG" != "redbear-live-mini" ] && [ "$CONFIG" != "redbear-grub-live-mini" ]; then
     if [ -d "$FW_AMD_DIR" ] && [ -n "$(ls -A "$FW_AMD_DIR" 2>/dev/null)" ]; then
         FW_COUNT=$(ls "$FW_AMD_DIR"/*.bin 2>/dev/null | wc -l)
         echo ">>> Found $FW_COUNT AMD firmware blobs"

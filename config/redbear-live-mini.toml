@@ -4,70 +4,117 @@
 # Build: make live CONFIG_NAME=redbear-live-mini
 #
 # Target contract:
-# - keep full non-graphics system surface from redbear-full
-# - strip graphics/desktop session stack
-# - strip network firmware payload
+# - keep a text-login live/recovery surface only
+# - avoid the shared firmware/input/device-service stack from redbear-minimal
+# - ship no graphics packages/services and no linux-firmware payload
 
-include = ["redbear-full.toml"]
+include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml"]
 
 [general]
-filesystem_size = 3072
+filesystem_size = 768
 
 [packages]
-# Strip firmware payload from mini live image.
-redbear-firmware = "ignore"
-firmware-loader = "ignore"
+# Red Bear OS branding and host utilities.
+redbear-release = {}
+redbear-hwutils = {}
 
-# Strip graphics/session surface.
-installer-gui = "ignore"
-redbear-authd = "ignore"
-redbear-session-launch = "ignore"
-redbear-greeter = "ignore"
-libwayland = "ignore"
-wayland-protocols = "ignore"
-libxkbcommon = "ignore"
-xkeyboard-config = "ignore"
-libevdev = "ignore"
-libinput = "ignore"
-seatd = "ignore"
-qtbase = "ignore"
-qtdeclarative = "ignore"
-qtsvg = "ignore"
-qtwayland = "ignore"
-qt6-wayland-smoke = "ignore"
-kf6-extra-cmake-modules = "ignore"
-kf6-kcoreaddons = "ignore"
-kf6-kconfig = "ignore"
-kf6-ki18n = "ignore"
-kf6-kcolorscheme = "ignore"
-kf6-kauth = "ignore"
-kf6-kwindowsystem = "ignore"
-kf6-knotifications = "ignore"
-kf6-kconfigwidgets = "ignore"
-kf6-kcrash = "ignore"
-kf6-kdbusaddons = "ignore"
-kf6-kglobalaccel = "ignore"
-kf6-kservice = "ignore"
-kf6-kpackage = "ignore"
-kf6-kiconthemes = "ignore"
-kirigami = "ignore"
-kf6-kio = "ignore"
-kf6-kdeclarative = "ignore"
-kf6-kcmutils = "ignore"
-kf6-kwayland = "ignore"
-kdecoration = "ignore"
-kwin = "ignore"
-redox-drm = "ignore"
-mesa = "ignore"
-libdrm = "ignore"
+# Redox-native netctl tooling.
+redbear-netctl = {}
+redbear-netctl-console = {}
+redbear-netstat = {}
+redbear-traceroute = {}
+redbear-mtr = {}
+redbear-nmap = {}
+
+# Diagnostics and shell-side utilities.
+mc = {}
+redbear-info = {}
 
 # Keep package builder utility in live environment.
 cub = {}
 
 [[files]]
-path = "/usr/lib/init.d/20_display.service"
+path = "/etc/netctl/active"
+data = "wired-dhcp\n"
+
+[[files]]
+path = "/usr/lib/init.d/30_console"
 data = ""
 
 [[files]]
-path = "/usr/lib/init.d/20_greeter.service"
-data = ""
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate console (text-only no-op)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "true"
+type = "oneshot"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = [
+    "29_activate_console.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/tty"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/motd"
+data = """
+########## Red Bear OS ##########
+# Login with the following:      #
+# `user`                         #
+# `root`:`password`              #
+##################################
+"""
+
+[[files]]
+path = "/etc/pcid.d/ihdgd.toml"
+data = """
+# redbear-live-mini: text-only image, disable Intel HD graphics auto-spawn
+[[drivers]]
+name = "disabled ihdgd sentinel"
+class = 0xFF
+vendor = 0xFFFF
+device = 0xFFFF
+command = ["ihdgd"]
+"""
+
+[[files]]
+path = "/etc/pcid.d/virtio-gpud.toml"
+data = """
+# redbear-live-mini: text-only image, disable virtio GPU auto-spawn
+[[drivers]]
+name = "disabled virtio-gpud sentinel"
+class = 0xFF
+vendor = 0xFFFF
+device = 0xFFFF
+command = ["virtio-gpud"]
+"""

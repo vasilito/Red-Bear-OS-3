@@ -129,6 +129,15 @@ The success criterion is therefore:
 > We can pull renewed upstream sources every day, reapply Red Bear’s local overlays, and still
 > build the project successfully.
 
+### Local recipe priority vs upstream WIP
+
+When Red Bear maintains a local recipe and upstream contains a package with the same name under
+`recipes/wip/*`, Red Bear must prefer the local recipe unconditionally.
+
+- Use the local overlay symlink in `recipes/*/<name> -> ../../local/recipes/...`
+- Do not switch back to upstream WIP for active Red Bear builds
+- Re-evaluate only when upstream package exits WIP and becomes a normal maintained package
+
 ```bash
 # Automated sync (preferred):
 ./local/scripts/sync-upstream.sh              # Fetch + rebase + check patches

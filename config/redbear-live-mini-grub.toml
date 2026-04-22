@@ -1,6 +1,7 @@
 # Red Bear OS Live Mini Configuration with GRUB Boot Manager
-# Live ISO for stripped console/recovery target with installer-native GRUB chainload.
+# Legacy compatibility alias for the canonical GRUB mini live target.
 #
-# Build: make live CONFIG_NAME=redbear-live-mini-grub
+# Preferred build: make live CONFIG_NAME=redbear-grub-live-mini
+# Legacy build:    make live CONFIG_NAME=redbear-live-mini-grub
 
-include = ["redbear-live-mini.toml", "redbear-grub.toml"]
+include = ["redbear-grub-live-mini.toml"]

@@ -9,7 +9,9 @@ set -ex
 trap 'kill -HUP 0' EXIT
 
 eval $(make setenv)
-make "${BUILD}/redbear-live.iso"
+LIVE_IMAGE="build/${ARCH}/${CONFIG_NAME}.iso"
+make "${LIVE_IMAGE}"
+ln -sf "$(realpath "${LIVE_IMAGE}")" "${BUILD}/redbear-live.iso"
 
 echo "Allowing packet forwarding"
 echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward

@@ -1,0 +1,60 @@
+diff --git a/src/os/uefi/device.rs b/src/os/uefi/device.rs
+index 4b0bf31..90a97b8 100644
+--- a/src/os/uefi/device.rs
++++ b/src/os/uefi/device.rs
+@@ -46,6 +46,8 @@ fn device_path_relation(a_path: &DevicePath, b_path: &DevicePath) -> DevicePath
+ }
+ 
+ fn esp_live_image(esp_handle: Handle, esp_device_path: &DevicePath) -> Option<Vec<u8>> {
++    const MAX_LIVE_IMAGE_PRELOAD: usize = 128 * 1024 * 1024;
++
+     let mut esp_fs = match FileSystem::handle_protocol(esp_handle) {
+         Ok(esp_fs) => esp_fs,
+         Err(err) => {
+@@ -87,9 +89,37 @@ fn esp_live_image(esp_handle: Handle, esp_device_path: &DevicePath) -> Option<V
+     };
+ 
+     let mut buffer = Vec::new();
++    let mut chunk = [0_u8; 64 * 1024];
++
++    loop {
++        let read = match live_image.read(&mut chunk) {
++            Ok(read) => read,
++            Err(err) => {
++                log::warn!(
++                    "Failed while reading {}\\redox-live.iso: {:?}",
++                    device_path_to_string(esp_device_path),
++                    err
++                );
++                return None;
++            }
++        };
++
++        if read == 0 {
++            break;
++        }
+ 
+-    live_image.read_to_end(&mut buffer).unwrap();
++        if buffer.len().saturating_add(read) > MAX_LIVE_IMAGE_PRELOAD {
++            log::warn!(
++                "Skipping {}\\redox-live.iso preload: file exceeds {} MiB safety limit",
++                device_path_to_string(esp_device_path),
++                MAX_LIVE_IMAGE_PRELOAD / 1024 / 1024
++            );
++            return None;
++        }
++
++        buffer.extend_from_slice(&chunk[..read]);
++    }
+ 
+     Some(buffer)
+ }
+@@ -130,7 +160,7 @@ pub fn disk_device_priority() -> Vec<DiskDevice> {
+             return vec![DiskDevice {
+                 handle: esp_handle,
+                 // Support both a copy of livedisk.iso and a standalone redoxfs partition
+-                partition_offset: if &buffer[512..520] == b"EFI PART" {
++                partition_offset: if buffer.len() >= 520 && &buffer[512..520] == b"EFI PART" {
+                     //TODO: get block from partition table
+                     2 * crate::MIBI as u64
+                 } else {
