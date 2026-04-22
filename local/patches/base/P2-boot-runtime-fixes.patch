@@ -1,5 +1,5 @@
 diff --git a/drivers/hwd/src/backend/acpi.rs b/drivers/hwd/src/backend/acpi.rs
-index 3da41d63..5d1a9466 100644
+index c24dfc4b..12d26261 100644
 --- a/drivers/hwd/src/backend/acpi.rs
 +++ b/drivers/hwd/src/backend/acpi.rs
 @@ -1,27 +1,36 @@
@@ -21,7 +21,7 @@ index 3da41d63..5d1a9466 100644
 -        // Spawn acpid
 -        //TODO: pass rxsdt data to acpid?
 -        #[allow(deprecated, reason = "we can't yet move this to init")]
--        daemon::Daemon::spawn(Command::new("acpid"));
+-        let _ = daemon::Daemon::spawn(Command::new("acpid"));
 -
 -        Ok(Self { rxsdt })
 +        Ok(Self { _rxsdt: rxsdt })
@@ -48,7 +48,7 @@ index 3da41d63..5d1a9466 100644
          // TODO: Reimplement with getdents?
          let symbols_fd = libredox::Fd::open(
              "/scheme/acpi/symbols",
-@@ -100,12 +109,102 @@ impl Backend for AcpiBackend {
+@@ -100,12 +109,103 @@ impl Backend for AcpiBackend {
                          "PNP0C0F" => "PCI interrupt link",
                          "PNP0C50" => "I2C HID",
                          "PNP0F13" => "PS/2 port for PS/2-style mouse",
@@ -62,9 +62,7 @@ index 3da41d63..5d1a9466 100644
 +                            "Intel THC companion (QuickI2C/QuickSPI path)"
 +                        }
 +                        _ if is_elan_touchpad_id(&id) => "ELAN touchpad (I2C/SMBus path)",
-+                        _ if is_cypress_touchpad_id(&id) => {
-+                            "Cypress/Trackpad (non-HID I2C path)"
-+                        }
++                        _ if is_cypress_touchpad_id(&id) => "Cypress/Trackpad (non-HID I2C path)",
 +                        _ if is_synaptics_rmi_id(&id) => "Synaptics RMI touchpad (I2C/SMBus path)",
                          _ => "?",
                      };
@@ -133,7 +131,10 @@ index 3da41d63..5d1a9466 100644
 +}
 +
 +fn is_thc_companion(id: &str) -> bool {
-+    matches!(id, "INTC1050" | "INTC1051" | "INTC1080" | "INTC1081" | "INTC1082")
++    matches!(
++        id,
++        "INTC1050" | "INTC1051" | "INTC1080" | "INTC1081" | "INTC1082"
++    )
 +}
 +
 +fn is_elan_touchpad_id(id: &str) -> bool {
@@ -152,16 +153,17 @@ index 3da41d63..5d1a9466 100644
 +    is_elan_touchpad_id(id) || is_cypress_touchpad_id(id) || is_synaptics_rmi_id(id)
 +}
 diff --git a/drivers/pcid-spawner/src/main.rs b/drivers/pcid-spawner/src/main.rs
-index a968f4d4..4f0aa7f7 100644
+index e41caee0..31a4af5a 100644
 --- a/drivers/pcid-spawner/src/main.rs
 +++ b/drivers/pcid-spawner/src/main.rs
-@@ -1,4 +1,5 @@
- use std::fs;
+@@ -1,11 +1,40 @@
 +use std::env;
+ use std::fs;
  use std::process::Command;
++use std::thread;
  
  use anyhow::{anyhow, Context, Result};
-@@ -6,6 +7,38 @@ use anyhow::{anyhow, Context, Result};
+ 
  use pcid_interface::config::Config;
  use pcid_interface::PciFunctionHandle;
  
@@ -181,15 +183,10 @@ index a968f4d4..4f0aa7f7 100644
 +        return false;
 +    }
 +
-+    // Keep storage controller drivers synchronous in initfs so rootfs discovery stays
-+    // deterministic. Everything else is non-blocking to avoid wedging boot on optional
-+    // hardware paths (GPU, HID companions, etc).
 +    if class == 0x01 {
 +        return false;
 +    }
 +
-+    // When explicitly requested, keep USB host controller startup synchronous
-+    // for rootfs-on-USB scenarios.
 +    if strict_usb_boot && class == 0x0C && subclass == 0x03 {
 +        return false;
 +    }
@@ -200,7 +197,7 @@ index a968f4d4..4f0aa7f7 100644
  fn main() -> Result<()> {
      let mut args = pico_args::Arguments::from_env();
      let initfs = args.contains("--initfs");
-@@ -30,6 +63,7 @@ fn main() -> Result<()> {
+@@ -30,6 +59,7 @@ fn main() -> Result<()> {
      }
  
      let config: Config = toml::from_str(&config_data)?;
@@ -208,104 +205,93 @@ index a968f4d4..4f0aa7f7 100644
  
      for entry in fs::read_dir("/scheme/pci")? {
          let entry = entry.context("failed to get entry")?;
-@@ -55,10 +89,11 @@ fn main() -> Result<()> {
-         };
+@@ -107,24 +137,61 @@ fn main() -> Result<()> {
  
-         let full_device_id = handle.config().func.full_device_id;
-+        let device_addr = handle.config().func.addr;
- 
-         log::debug!(
-             "pcid-spawner enumerated: PCI {} {}",
--            handle.config().func.addr,
-+            device_addr,
-             full_device_id.display()
-         );
- 
-@@ -67,7 +102,7 @@ fn main() -> Result<()> {
-             .iter()
-             .find(|driver| driver.match_function(&full_device_id))
-         else {
--            log::debug!("no driver for {}, continuing", handle.config().func.addr);
-+            log::debug!("no driver for {}, continuing", device_addr);
-             continue;
-         };
- 
-@@ -85,16 +120,61 @@ fn main() -> Result<()> {
-         let mut command = Command::new(program);
-         command.args(args);
- 
--        log::info!("pcid-spawner: spawn {:?}", command);
--
--        handle.enable_device();
-+        log::info!(
-+            "pcid-spawner: matched {} to driver {:?}",
-+            device_addr,
-+            driver.command
-+        );
-+        log::info!("pcid-spawner: enabling {} before spawn", device_addr);
-+
-+        if let Err(err) = handle.try_enable_device() {
-+            log::error!(
-+                "pcid-spawner: failed to enable {} before spawn: {}",
-+                device_addr,
-+                err
-+            );
-+            continue;
-+        }
- 
-         let channel_fd = handle.into_inner_fd();
-         command.env("PCID_CLIENT_CHANNEL", channel_fd.to_string());
- 
-+        log::info!("pcid-spawner: spawn {:?}", command);
+         log::info!("pcid-spawner: spawn {:?}", command);
          #[allow(deprecated, reason = "we can't yet move this to init")]
--        daemon::Daemon::spawn(command);
--        syscall::close(channel_fd as usize).unwrap();
-+        let spawn_result =
-+            if should_detach_in_initfs(
-+                initfs,
-+                full_device_id.class,
-+                full_device_id.subclass,
-+                strict_usb_boot,
-+            ) {
-+                log::warn!(
-+                    "pcid-spawner: detached initfs spawn for {} to avoid blocking early boot",
+-        if let Err(err) = daemon::Daemon::spawn(command) {
+-            log::error!(
+-                "pcid-spawner: spawn/readiness failed for {}: {}",
+-                device_addr,
+-                err
+-            );
+-            log::error!(
+-                "pcid-spawner: {} remains enabled without a confirmed ready driver",
++        if should_detach_in_initfs(
++            initfs,
++            full_device_id.class,
++            full_device_id.subclass,
++            strict_usb_boot,
++        ) {
++            log::warn!(
++                "pcid-spawner: detached initfs spawn for {} to avoid blocking early boot",
+                 device_addr
+             );
+-        }
+-        if let Err(err) = syscall::close(channel_fd as usize) {
+-            log::error!(
+-                "pcid-spawner: failed to close channel fd {} for {}: {}",
+-                channel_fd,
+-                device_addr,
+-                err
+-            );
++
++            let device_addr = device_addr.to_string();
++            thread::spawn(move || {
++                #[allow(deprecated, reason = "we can't yet move this to init")]
++                if let Err(err) = daemon::Daemon::spawn(command) {
++                    log::error!(
++                        "pcid-spawner: spawn/readiness failed for {}: {}",
++                        device_addr,
++                        err
++                    );
++                    log::error!(
++                        "pcid-spawner: {} remains enabled without a confirmed ready driver",
++                        device_addr
++                    );
++                }
++                if let Err(err) = syscall::close(channel_fd as usize) {
++                    log::error!(
++                        "pcid-spawner: failed to close channel fd {} for {}: {}",
++                        channel_fd,
++                        device_addr,
++                        err
++                    );
++                }
++            });
++        } else {
++            #[allow(deprecated, reason = "we can't yet move this to init")]
++            if let Err(err) = daemon::Daemon::spawn(command) {
++                log::error!(
++                    "pcid-spawner: spawn/readiness failed for {}: {}",
++                    device_addr,
++                    err
++                );
++                log::error!(
++                    "pcid-spawner: {} remains enabled without a confirmed ready driver",
 +                    device_addr
 +                );
-+                daemon::Daemon::spawn_detached(command)
-+            } else {
-+                daemon::Daemon::spawn(command)
-+            };
-+        if let Err(err) = spawn_result {
-+            log::error!(
-+                "pcid-spawner: spawn/readiness failed for {}: {}",
-+                device_addr,
-+                err
-+            );
-+            log::error!(
-+                "pcid-spawner: {} remains enabled without a confirmed ready driver",
-+                device_addr
-+            );
-+        }
-+        if let Err(err) = syscall::close(channel_fd as usize) {
-+            log::error!(
-+                "pcid-spawner: failed to close channel fd {} for {}: {}",
-+                channel_fd,
-+                device_addr,
-+                err
-+            );
-+        }
++            }
++            if let Err(err) = syscall::close(channel_fd as usize) {
++                log::error!(
++                    "pcid-spawner: failed to close channel fd {} for {}: {}",
++                    channel_fd,
++                    device_addr,
++                    err
++                );
++            }
+         }
      }
  
-     Ok(())
 diff --git a/drivers/pcid/src/main.rs b/drivers/pcid/src/main.rs
-index 61cd9a78..a15e5f38 100644
+index 61cd9a78..6da034ef 100644
 --- a/drivers/pcid/src/main.rs
 +++ b/drivers/pcid/src/main.rs
 @@ -12,6 +12,7 @@ use pci_types::{
  };
  use redox_scheme::scheme::register_sync_scheme;
  use scheme_utils::Blocking;
-+use syscall::{SendFdFlags, sendfd};
++use syscall::{sendfd, SendFdFlags};
  
  use crate::cfg_access::Pcie;
  use pcid_interface::{FullDeviceId, LegacyInterruptLine, PciBar, PciFunction, PciRom};

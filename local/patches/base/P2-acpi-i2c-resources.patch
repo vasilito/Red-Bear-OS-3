@@ -1,5 +1,5 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e776232..1578e5e9 100644
+index 9e776232..d4d108ee 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -20,6 +20,7 @@ members = [
@@ -10,29 +10,721 @@ index 9e776232..1578e5e9 100644
      "drivers/acpid",
      "drivers/hwd",
      "drivers/pcid",
-@@ -42,6 +43,12 @@ members = [
-     "drivers/graphics/vesad",
-     "drivers/graphics/virtio-gpud",
- 
-+    "drivers/gpio/i2c-gpio-expanderd",
+diff --git a/drivers/acpi-resource/Cargo.toml b/drivers/acpi-resource/Cargo.toml
+new file mode 100644
+index 00000000..f30c6d02
+--- /dev/null
++++ b/drivers/acpi-resource/Cargo.toml
+@@ -0,0 +1,13 @@
++[package]
++name = "acpi-resource"
++description = "Shared ACPI resource template decoder"
++version = "0.0.1"
++authors = ["Red Bear OS"]
++repository = "https://gitlab.redox-os.org/redox-os/drivers"
++categories = ["hardware-support"]
++license = "MIT/Apache-2.0"
++edition = "2021"
 +
-+    "drivers/i2c/dw-acpi-i2cd",
++[dependencies]
++serde.workspace = true
++thiserror.workspace = true
+diff --git a/drivers/acpi-resource/src/lib.rs b/drivers/acpi-resource/src/lib.rs
+new file mode 100644
+index 00000000..57ae4b4b
+--- /dev/null
++++ b/drivers/acpi-resource/src/lib.rs
+@@ -0,0 +1,688 @@
++use serde::{Deserialize, Serialize};
++use thiserror::Error;
 +
-+    "drivers/input/i2c-hidd",
-+    "drivers/input/intel-thc-hidd",
-     "drivers/input/ps2d",
-     "drivers/input/usbhidd",
- 
-@@ -65,6 +72,7 @@ members = [
- 
-     "drivers/usb/xhcid",
-     "drivers/usb/usbctl",
-+    "drivers/usb/ucsid",
-     "drivers/usb/usbhubd",
- ]
- 
++const SMALL_IRQ: u8 = 0x20;
++const SMALL_END_TAG: u8 = 0x78;
++
++const LARGE_MEMORY32: u8 = 0x85;
++const LARGE_FIXED_MEMORY32: u8 = 0x86;
++const LARGE_ADDRESS32: u8 = 0x87;
++const LARGE_EXTENDED_IRQ: u8 = 0x89;
++const LARGE_ADDRESS64: u8 = 0x8A;
++const LARGE_GPIO: u8 = 0x8C;
++const LARGE_SERIAL_BUS: u8 = 0x8E;
++
++const SERIAL_BUS_I2C: u8 = 1;
++const I2C_TYPE_DATA_LEN: usize = 6;
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum InterruptTrigger {
++    Edge,
++    Level,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum InterruptPolarity {
++    ActiveHigh,
++    ActiveLow,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum AddressResourceType {
++    MemoryRange,
++    IoRange,
++    BusNumberRange,
++    Unknown(u8),
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct ResourceSource {
++    pub index: u8,
++    pub source: String,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct IrqDescriptor {
++    pub interrupts: Vec<u8>,
++    pub triggering: InterruptTrigger,
++    pub polarity: InterruptPolarity,
++    pub shareable: bool,
++    pub wake_capable: bool,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct ExtendedIrqDescriptor {
++    pub producer_consumer: bool,
++    pub interrupts: Vec<u32>,
++    pub triggering: InterruptTrigger,
++    pub polarity: InterruptPolarity,
++    pub shareable: bool,
++    pub wake_capable: bool,
++    pub resource_source: Option<ResourceSource>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct GpioDescriptor {
++    pub revision_id: u8,
++    pub producer_consumer: bool,
++    pub pin_config: u8,
++    pub shareable: bool,
++    pub wake_capable: bool,
++    pub io_restriction: u8,
++    pub triggering: InterruptTrigger,
++    pub polarity: InterruptPolarity,
++    pub drive_strength: u16,
++    pub debounce_timeout: u16,
++    pub pins: Vec<u16>,
++    pub resource_source: Option<ResourceSource>,
++    pub vendor_data: Vec<u8>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct I2cSerialBusDescriptor {
++    pub revision_id: u8,
++    pub producer_consumer: bool,
++    pub slave_mode: bool,
++    pub connection_sharing: bool,
++    pub type_revision_id: u8,
++    pub access_mode_10bit: bool,
++    pub slave_address: u16,
++    pub connection_speed: u32,
++    pub resource_source: Option<ResourceSource>,
++    pub vendor_data: Vec<u8>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct Memory32RangeDescriptor {
++    pub write_protect: bool,
++    pub minimum: u32,
++    pub maximum: u32,
++    pub alignment: u32,
++    pub address_length: u32,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct FixedMemory32Descriptor {
++    pub write_protect: bool,
++    pub address: u32,
++    pub address_length: u32,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct Address32Descriptor {
++    pub resource_type: AddressResourceType,
++    pub producer_consumer: bool,
++    pub decode: bool,
++    pub min_address_fixed: bool,
++    pub max_address_fixed: bool,
++    pub specific_flags: u8,
++    pub granularity: u32,
++    pub minimum: u32,
++    pub maximum: u32,
++    pub translation_offset: u32,
++    pub address_length: u32,
++    pub resource_source: Option<ResourceSource>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct Address64Descriptor {
++    pub resource_type: AddressResourceType,
++    pub producer_consumer: bool,
++    pub decode: bool,
++    pub min_address_fixed: bool,
++    pub max_address_fixed: bool,
++    pub specific_flags: u8,
++    pub granularity: u64,
++    pub minimum: u64,
++    pub maximum: u64,
++    pub translation_offset: u64,
++    pub address_length: u64,
++    pub resource_source: Option<ResourceSource>,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub enum ResourceDescriptor {
++    Irq(IrqDescriptor),
++    ExtendedIrq(ExtendedIrqDescriptor),
++    GpioInt(GpioDescriptor),
++    GpioIo(GpioDescriptor),
++    I2cSerialBus(I2cSerialBusDescriptor),
++    Memory32Range(Memory32RangeDescriptor),
++    FixedMemory32(FixedMemory32Descriptor),
++    Address32(Address32Descriptor),
++    Address64(Address64Descriptor),
++}
++
++#[derive(Debug, Error, PartialEq, Eq)]
++pub enum ResourceDecodeError {
++    #[error("descriptor at offset {offset} overruns the resource template")]
++    TruncatedDescriptor { offset: usize },
++
++    #[error("unsupported small descriptor length {length} for tag {tag:#04x} at offset {offset}")]
++    InvalidSmallLength {
++        offset: usize,
++        tag: u8,
++        length: usize,
++    },
++
++    #[error("descriptor {descriptor} at offset {offset} is shorter than {minimum} bytes")]
++    InvalidLargeLength {
++        offset: usize,
++        descriptor: &'static str,
++        minimum: usize,
++    },
++
++    #[error("descriptor {descriptor} at offset {offset} has an invalid internal offset")]
++    InvalidInternalOffset {
++        offset: usize,
++        descriptor: &'static str,
++    },
++}
++
++pub fn decode_resource_template(
++    bytes: &[u8],
++) -> Result<Vec<ResourceDescriptor>, ResourceDecodeError> {
++    let mut resources = Vec::new();
++    let mut offset = 0usize;
++
++    while offset < bytes.len() {
++        let descriptor = *bytes
++            .get(offset)
++            .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++
++        if descriptor & 0x80 == 0 {
++            let length = usize::from(descriptor & 0x07);
++            let end = offset + 1 + length;
++            let desc = bytes
++                .get(offset..end)
++                .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++            let body = &desc[1..];
++
++            match descriptor & 0x78 {
++                SMALL_IRQ => resources.push(ResourceDescriptor::Irq(parse_irq(body, offset)?)),
++                SMALL_END_TAG => break,
++                _ => {}
++            }
++
++            offset = end;
++            continue;
++        }
++
++        let length = usize::from(read_u16(bytes, offset + 1)?);
++        let end = offset + 3 + length;
++        let desc = bytes
++            .get(offset..end)
++            .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++        let body = &desc[3..];
++
++        match descriptor {
++            LARGE_MEMORY32 => resources.push(ResourceDescriptor::Memory32Range(parse_memory32(
++                body, offset,
++            )?)),
++            LARGE_FIXED_MEMORY32 => resources.push(ResourceDescriptor::FixedMemory32(
++                parse_fixed_memory32(body, offset)?,
++            )),
++            LARGE_ADDRESS32 => {
++                resources.push(ResourceDescriptor::Address32(parse_address32(
++                    desc, body, offset,
++                )?));
++            }
++            LARGE_ADDRESS64 => {
++                resources.push(ResourceDescriptor::Address64(parse_address64(
++                    desc, body, offset,
++                )?));
++            }
++            LARGE_EXTENDED_IRQ => resources.push(ResourceDescriptor::ExtendedIrq(
++                parse_extended_irq(desc, body, offset)?,
++            )),
++            LARGE_GPIO => {
++                let (is_interrupt, descriptor) = parse_gpio(desc, body, offset)?;
++                resources.push(if is_interrupt {
++                    ResourceDescriptor::GpioInt(descriptor)
++                } else {
++                    ResourceDescriptor::GpioIo(descriptor)
++                });
++            }
++            LARGE_SERIAL_BUS => {
++                if let Some(descriptor) = parse_i2c_serial_bus(desc, body, offset)? {
++                    resources.push(ResourceDescriptor::I2cSerialBus(descriptor));
++                }
++            }
++            _ => {}
++        }
++
++        offset = end;
++    }
++
++    Ok(resources)
++}
++
++fn parse_irq(body: &[u8], offset: usize) -> Result<IrqDescriptor, ResourceDecodeError> {
++    if body.len() != 2 && body.len() != 3 {
++        return Err(ResourceDecodeError::InvalidSmallLength {
++            offset,
++            tag: SMALL_IRQ,
++            length: body.len(),
++        });
++    }
++
++    let mask = u16::from_le_bytes([body[0], body[1]]);
++    let flags = body.get(2).copied().unwrap_or(0);
++    let interrupts = (0..16)
++        .filter(|irq| mask & (1 << irq) != 0)
++        .map(|irq| irq as u8)
++        .collect();
++
++    Ok(IrqDescriptor {
++        interrupts,
++        triggering: if flags & 0x01 != 0 {
++            InterruptTrigger::Level
++        } else {
++            InterruptTrigger::Edge
++        },
++        polarity: if flags & 0x08 != 0 {
++            InterruptPolarity::ActiveLow
++        } else {
++            InterruptPolarity::ActiveHigh
++        },
++        shareable: flags & 0x10 != 0,
++        wake_capable: flags & 0x20 != 0,
++    })
++}
++
++fn parse_extended_irq(
++    desc: &[u8],
++    body: &[u8],
++    offset: usize,
++) -> Result<ExtendedIrqDescriptor, ResourceDecodeError> {
++    ensure_length(body, 2, offset, "ExtendedIrq")?;
++
++    let flags = body[0];
++    let count = usize::from(body[1]);
++    let ints_len = count * 4;
++    ensure_length(body, 2 + ints_len, offset, "ExtendedIrq")?;
++
++    let interrupts = (0..count)
++        .map(|index| read_u32(body, 2 + index * 4))
++        .collect::<Result<Vec<_>, _>>()?;
++    let resource_source = if body.len() > 2 + ints_len {
++        Some(parse_source_inline(&body[2 + ints_len..]))
++    } else {
++        None
++    };
++
++    let _ = desc;
++
++    Ok(ExtendedIrqDescriptor {
++        producer_consumer: flags & 0x01 != 0,
++        triggering: if flags & 0x02 != 0 {
++            InterruptTrigger::Level
++        } else {
++            InterruptTrigger::Edge
++        },
++        polarity: if flags & 0x04 != 0 {
++            InterruptPolarity::ActiveLow
++        } else {
++            InterruptPolarity::ActiveHigh
++        },
++        shareable: flags & 0x08 != 0,
++        wake_capable: flags & 0x10 != 0,
++        interrupts,
++        resource_source,
++    })
++}
++
++fn parse_gpio(
++    desc: &[u8],
++    body: &[u8],
++    offset: usize,
++) -> Result<(bool, GpioDescriptor), ResourceDecodeError> {
++    ensure_length(body, 20, offset, "Gpio")?;
++
++    let connection_type = body[1];
++    let flags = read_u16(body, 2)?;
++    let int_flags = read_u16(body, 4)?;
++    let pin_table_offset = usize::from(read_u16(body, 11)?);
++    let resource_source_index = body[13];
++    let resource_source_offset = usize::from(read_u16(body, 14)?);
++    let vendor_offset = usize::from(read_u16(body, 16)?);
++    let vendor_length = usize::from(read_u16(body, 18)?);
++
++    let pins_end = min_nonzero([resource_source_offset, vendor_offset, desc.len()]);
++    let pins = parse_u16_list(desc, pin_table_offset, pins_end, offset, "Gpio")?;
++    let resource_source = parse_source_absolute(
++        desc,
++        resource_source_offset,
++        min_nonzero([vendor_offset, desc.len()]),
++        resource_source_index,
++        offset,
++        "Gpio",
++    )?;
++    let vendor_data = parse_blob_absolute(desc, vendor_offset, vendor_length, offset, "Gpio")?;
++
++    Ok((
++        connection_type == 0,
++        GpioDescriptor {
++            revision_id: body[0],
++            producer_consumer: flags & 0x0001 != 0,
++            pin_config: body[6],
++            shareable: int_flags & 0x0008 != 0,
++            wake_capable: int_flags & 0x0010 != 0,
++            io_restriction: (int_flags & 0x0003) as u8,
++            triggering: if int_flags & 0x0001 != 0 {
++                InterruptTrigger::Level
++            } else {
++                InterruptTrigger::Edge
++            },
++            polarity: if int_flags & 0x0002 != 0 {
++                InterruptPolarity::ActiveLow
++            } else {
++                InterruptPolarity::ActiveHigh
++            },
++            drive_strength: read_u16(body, 7)?,
++            debounce_timeout: read_u16(body, 9)?,
++            pins,
++            resource_source,
++            vendor_data,
++        },
++    ))
++}
++
++fn parse_i2c_serial_bus(
++    desc: &[u8],
++    body: &[u8],
++    offset: usize,
++) -> Result<Option<I2cSerialBusDescriptor>, ResourceDecodeError> {
++    ensure_length(body, 15, offset, "SerialBus")?;
++    if body[2] != SERIAL_BUS_I2C {
++        return Ok(None);
++    }
++
++    let type_data_length = usize::from(read_u16(body, 7)?);
++    if type_data_length < I2C_TYPE_DATA_LEN {
++        return Err(ResourceDecodeError::InvalidLargeLength {
++            offset,
++            descriptor: "I2cSerialBus",
++            minimum: 15,
++        });
++    }
++
++    let vendor_length = type_data_length - I2C_TYPE_DATA_LEN;
++    let vendor_data = parse_blob_absolute(desc, 18, vendor_length, offset, "I2cSerialBus")?;
++    let resource_source = parse_source_absolute(
++        desc,
++        12 + type_data_length,
++        desc.len(),
++        body[1],
++        offset,
++        "I2cSerialBus",
++    )?;
++
++    Ok(Some(I2cSerialBusDescriptor {
++        revision_id: body[0],
++        producer_consumer: body[3] & 0x02 != 0,
++        slave_mode: body[3] & 0x01 != 0,
++        connection_sharing: body[3] & 0x04 != 0,
++        type_revision_id: body[6],
++        access_mode_10bit: read_u16(body, 4)? & 0x0001 != 0,
++        connection_speed: read_u32(body, 9)?,
++        slave_address: read_u16(body, 13)?,
++        resource_source,
++        vendor_data,
++    }))
++}
++
++fn parse_memory32(
++    body: &[u8],
++    offset: usize,
++) -> Result<Memory32RangeDescriptor, ResourceDecodeError> {
++    ensure_length(body, 17, offset, "Memory32Range")?;
++    Ok(Memory32RangeDescriptor {
++        write_protect: body[0] & 0x01 != 0,
++        minimum: read_u32(body, 1)?,
++        maximum: read_u32(body, 5)?,
++        alignment: read_u32(body, 9)?,
++        address_length: read_u32(body, 13)?,
++    })
++}
++
++fn parse_fixed_memory32(
++    body: &[u8],
++    offset: usize,
++) -> Result<FixedMemory32Descriptor, ResourceDecodeError> {
++    ensure_length(body, 9, offset, "FixedMemory32")?;
++    Ok(FixedMemory32Descriptor {
++        write_protect: body[0] & 0x01 != 0,
++        address: read_u32(body, 1)?,
++        address_length: read_u32(body, 5)?,
++    })
++}
++
++fn parse_address32(
++    desc: &[u8],
++    body: &[u8],
++    offset: usize,
++) -> Result<Address32Descriptor, ResourceDecodeError> {
++    ensure_length(body, 23, offset, "Address32")?;
++    Ok(Address32Descriptor {
++        resource_type: parse_address_type(body[0]),
++        producer_consumer: body[1] & 0x01 != 0,
++        decode: body[1] & 0x02 != 0,
++        min_address_fixed: body[1] & 0x04 != 0,
++        max_address_fixed: body[1] & 0x08 != 0,
++        specific_flags: body[2],
++        granularity: read_u32(body, 3)?,
++        minimum: read_u32(body, 7)?,
++        maximum: read_u32(body, 11)?,
++        translation_offset: read_u32(body, 15)?,
++        address_length: read_u32(body, 19)?,
++        resource_source: if desc.len() > 26 {
++            parse_source_absolute(desc, 26, desc.len(), desc[26], offset, "Address32")?
++        } else {
++            None
++        },
++    })
++}
++
++fn parse_address64(
++    desc: &[u8],
++    body: &[u8],
++    offset: usize,
++) -> Result<Address64Descriptor, ResourceDecodeError> {
++    ensure_length(body, 43, offset, "Address64")?;
++    Ok(Address64Descriptor {
++        resource_type: parse_address_type(body[0]),
++        producer_consumer: body[1] & 0x01 != 0,
++        decode: body[1] & 0x02 != 0,
++        min_address_fixed: body[1] & 0x04 != 0,
++        max_address_fixed: body[1] & 0x08 != 0,
++        specific_flags: body[2],
++        granularity: read_u64(body, 3)?,
++        minimum: read_u64(body, 11)?,
++        maximum: read_u64(body, 19)?,
++        translation_offset: read_u64(body, 27)?,
++        address_length: read_u64(body, 35)?,
++        resource_source: if desc.len() > 46 {
++            parse_source_absolute(desc, 46, desc.len(), desc[46], offset, "Address64")?
++        } else {
++            None
++        },
++    })
++}
++
++fn ensure_length(
++    body: &[u8],
++    minimum: usize,
++    offset: usize,
++    descriptor: &'static str,
++) -> Result<(), ResourceDecodeError> {
++    if body.len() < minimum {
++        return Err(ResourceDecodeError::InvalidLargeLength {
++            offset,
++            descriptor,
++            minimum,
++        });
++    }
++    Ok(())
++}
++
++fn parse_source_inline(bytes: &[u8]) -> ResourceSource {
++    let index = bytes.first().copied().unwrap_or(0);
++    let source = bytes.get(1..).map(parse_nul_string).unwrap_or_default();
++    ResourceSource { index, source }
++}
++
++fn parse_source_absolute(
++    desc: &[u8],
++    start: usize,
++    end: usize,
++    index: u8,
++    offset: usize,
++    descriptor: &'static str,
++) -> Result<Option<ResourceSource>, ResourceDecodeError> {
++    if start == 0 || start >= end || start > desc.len() {
++        return Ok(None);
++    }
++    let slice = desc
++        .get(start..end)
++        .ok_or(ResourceDecodeError::InvalidInternalOffset { offset, descriptor })?;
++    Ok(Some(ResourceSource {
++        index,
++        source: parse_nul_string(slice),
++    }))
++}
++
++fn parse_blob_absolute(
++    desc: &[u8],
++    start: usize,
++    length: usize,
++    offset: usize,
++    descriptor: &'static str,
++) -> Result<Vec<u8>, ResourceDecodeError> {
++    if start == 0 || length == 0 {
++        return Ok(Vec::new());
++    }
++    let end = start + length;
++    Ok(desc
++        .get(start..end)
++        .ok_or(ResourceDecodeError::InvalidInternalOffset { offset, descriptor })?
++        .to_vec())
++}
++
++fn parse_u16_list(
++    desc: &[u8],
++    start: usize,
++    end: usize,
++    offset: usize,
++    descriptor: &'static str,
++) -> Result<Vec<u16>, ResourceDecodeError> {
++    if start == 0 || start >= end || start > desc.len() {
++        return Ok(Vec::new());
++    }
++    let slice = desc
++        .get(start..end)
++        .ok_or(ResourceDecodeError::InvalidInternalOffset { offset, descriptor })?;
++    if slice.len() % 2 != 0 {
++        return Err(ResourceDecodeError::InvalidInternalOffset { offset, descriptor });
++    }
++    slice
++        .chunks_exact(2)
++        .map(|chunk| Ok(u16::from_le_bytes([chunk[0], chunk[1]])))
++        .collect()
++}
++
++fn parse_nul_string(bytes: &[u8]) -> String {
++    let end = bytes
++        .iter()
++        .position(|byte| *byte == 0)
++        .unwrap_or(bytes.len());
++    String::from_utf8_lossy(&bytes[..end]).to_string()
++}
++
++fn parse_address_type(value: u8) -> AddressResourceType {
++    match value {
++        0 => AddressResourceType::MemoryRange,
++        1 => AddressResourceType::IoRange,
++        2 => AddressResourceType::BusNumberRange,
++        other => AddressResourceType::Unknown(other),
++    }
++}
++
++fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, ResourceDecodeError> {
++    let slice = bytes
++        .get(offset..offset + 2)
++        .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++    Ok(u16::from_le_bytes([slice[0], slice[1]]))
++}
++
++fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, ResourceDecodeError> {
++    let slice = bytes
++        .get(offset..offset + 4)
++        .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
++}
++
++fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ResourceDecodeError> {
++    let slice = bytes
++        .get(offset..offset + 8)
++        .ok_or(ResourceDecodeError::TruncatedDescriptor { offset })?;
++    Ok(u64::from_le_bytes([
++        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
++    ]))
++}
++
++fn min_nonzero<const N: usize>(values: [usize; N]) -> usize {
++    values
++        .into_iter()
++        .filter(|value| *value != 0)
++        .min()
++        .unwrap_or(0)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{decode_resource_template, ResourceDescriptor};
++
++    #[test]
++    fn decodes_small_irq_descriptor() {
++        let resources = decode_resource_template(&[0x23, 0x0A, 0x00, 0x19, 0x79, 0x00]).unwrap();
++
++        assert!(matches!(
++            &resources[0],
++            ResourceDescriptor::Irq(descriptor)
++                if descriptor.interrupts == vec![1, 3]
++                    && descriptor.shareable
++                    && descriptor.wake_capable == false
++        ));
++    }
++
++    #[test]
++    fn decodes_i2c_serial_bus_descriptor() {
++        let template = [
++            0x8E, 0x14, 0x00, 0x01, 0x02, 0x01, 0x02, 0x00, 0x00, 0x01, 0x06, 0x00, 0x80, 0x1A,
++            0x06, 0x00, 0x15, 0x00, b'I', b'2', b'C', b'0', 0x00, 0x79, 0x00,
++        ];
++        let resources = decode_resource_template(&template).unwrap();
++
++        assert!(matches!(
++            &resources[0],
++            ResourceDescriptor::I2cSerialBus(descriptor)
++                if descriptor.connection_speed == 400_000
++                    && descriptor.slave_address == 0x15
++                    && descriptor.resource_source.as_ref().map(|source| source.source.as_str())
++                        == Some("I2C0")
++        ));
++    }
++
++    #[test]
++    fn decodes_gpio_interrupt_descriptor() {
++        let template = [
++            0x8C, 0x1B, 0x00, 0x01, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17,
++            0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x12, b'\\', b'_', b'S', b'B',
++            0x00, 0x79, 0x00,
++        ];
++        let resources = decode_resource_template(&template).unwrap();
++
++        assert!(matches!(&resources[0], ResourceDescriptor::GpioInt(_)));
++    }
++}
 diff --git a/drivers/acpid/Cargo.toml b/drivers/acpid/Cargo.toml
-index 2d22a8f9..712b6d6e 100644
+index f03a4ccb..712b6d6e 100644
 --- a/drivers/acpid/Cargo.toml
 +++ b/drivers/acpid/Cargo.toml
 @@ -8,6 +8,7 @@ edition = "2018"
@@ -43,622 +735,118 @@ index 2d22a8f9..712b6d6e 100644
  acpi = { git = "https://github.com/jackpot51/acpi.git" }
  arrayvec = "0.7.6"
  log.workspace = true
-@@ -21,6 +22,7 @@ rustc-hash = "1.1.0"
- thiserror.workspace = true
- ron.workspace = true
- serde.workspace = true
-+toml.workspace = true
- 
- amlserde = { path = "../amlserde" }
- common = { path = "../common" }
 diff --git a/drivers/acpid/src/main.rs b/drivers/acpid/src/main.rs
-index 059254b3..3b0deeab 100644
+index e388cd46..3b0deeab 100644
 --- a/drivers/acpid/src/main.rs
 +++ b/drivers/acpid/src/main.rs
-@@ -5,107 +5,182 @@ use std::ops::ControlFlow;
- use std::os::unix::io::AsRawFd;
- use std::sync::Arc;
- 
--use ::acpi::aml::op_region::{RegionHandler, RegionSpace};
- use event::{EventFlags, RawEventQueue};
- use redox_scheme::{scheme::register_sync_scheme, Socket};
- use scheme_utils::Blocking;
-+use thiserror::Error;
- 
- mod acpi;
- mod aml_physmem;
+@@ -15,8 +15,9 @@ mod aml_physmem;
  #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
  mod ec;
  
+-mod sleep;
 +mod resources;
  mod scheme;
 +mod sleep;
  
--fn daemon(daemon: daemon::Daemon) -> ! {
--    common::setup_logging(
--        "misc",
--        "acpi",
--        "acpid",
--        common::output_level(),
--        common::file_level(),
--    );
-+#[derive(Debug, Error)]
-+enum StartupError {
-+    #[error("failed to read `/scheme/kernel.acpi/rxsdt`: {0}")]
-+    ReadRootTable(std::io::Error),
- 
--    log::info!("acpid start");
-+    #[error("failed to parse [R/X]SDT from kernel: {0}")]
-+    ParseRootTable(self::acpi::InvalidSdtError),
- 
--    let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
--        .expect("acpid: failed to read `/scheme/kernel.acpi/rxsdt`")
--        .into();
-+    #[error("kernel returned unsupported root table signature `{signature}`")]
-+    UnsupportedRootSignature { signature: String },
- 
--    if rxsdt_raw_data.is_empty() {
--        log::info!("System doesn't use ACPI");
--        daemon.ready();
--        std::process::exit(0);
-+    #[error(
-+        "root table `{signature}` payload length {payload_len} is not divisible by entry size {entry_size}"
-+    )]
-+    MisalignedRootEntries {
-+        signature: String,
-+        payload_len: usize,
-+        entry_size: usize,
-+    },
-+
-+    #[error("{context}: {message}")]
-+    Runtime {
-+        context: &'static str,
-+        message: String,
-+    },
-+}
-+
-+impl StartupError {
-+    fn runtime(context: &'static str, message: impl Into<String>) -> Self {
-+        Self::Runtime {
-+            context,
-+            message: message.into(),
-+        }
-     }
-+}
- 
--    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).expect("acpid: failed to parse [RX]SDT");
-+fn parse_root_sdt(raw_data: Arc<[u8]>) -> Result<Option<self::acpi::Sdt>, StartupError> {
-+    if raw_data.is_empty() {
-+        return Ok(None);
-+    }
- 
--    let mut thirty_two_bit;
--    let mut sixty_four_bit;
-+    self::acpi::Sdt::new(raw_data)
-+        .map(Some)
-+        .map_err(StartupError::ParseRootTable)
-+}
-+
-+fn root_table_physaddrs(sdt: &self::acpi::Sdt) -> Result<Vec<u64>, StartupError> {
-+    let signature = String::from_utf8_lossy(&sdt.signature).into_owned();
-+    let data = sdt.data();
- 
--    let physaddrs_iter = match &sdt.signature {
-+    match &sdt.signature {
-         b"RSDT" => {
--            thirty_two_bit = sdt
--                .data()
--                .chunks(mem::size_of::<u32>())
--                // TODO: With const generics, the compiler has some way of doing this for static sizes.
--                .map(|chunk| <[u8; mem::size_of::<u32>()]>::try_from(chunk).unwrap())
--                .map(|chunk| u32::from_le_bytes(chunk))
--                .map(u64::from);
-+            let entry_size = mem::size_of::<u32>();
-+            if data.len() % entry_size != 0 {
-+                return Err(StartupError::MisalignedRootEntries {
-+                    signature,
-+                    payload_len: data.len(),
-+                    entry_size,
-+                });
-+            }
- 
--            &mut thirty_two_bit as &mut dyn Iterator<Item = u64>
-+            Ok(data
-+                .chunks_exact(entry_size)
-+                .map(|chunk| <[u8; mem::size_of::<u32>()]>::try_from(chunk).unwrap())
-+                .map(u32::from_le_bytes)
-+                .map(u64::from)
-+                .collect())
-         }
-         b"XSDT" => {
--            sixty_four_bit = sdt
--                .data()
--                .chunks(mem::size_of::<u64>())
--                .map(|chunk| <[u8; mem::size_of::<u64>()]>::try_from(chunk).unwrap())
--                .map(|chunk| u64::from_le_bytes(chunk));
-+            let entry_size = mem::size_of::<u64>();
-+            if data.len() % entry_size != 0 {
-+                return Err(StartupError::MisalignedRootEntries {
-+                    signature,
-+                    payload_len: data.len(),
-+                    entry_size,
-+                });
-+            }
- 
--            &mut sixty_four_bit as &mut dyn Iterator<Item = u64>
-+            Ok(data
-+                .chunks_exact(entry_size)
-+                .map(|chunk| <[u8; mem::size_of::<u64>()]>::try_from(chunk).unwrap())
-+                .map(u64::from_le_bytes)
-+                .collect())
-         }
--        _ => panic!("acpid: expected [RX]SDT from kernel to be either of those"),
-+        _ => Err(StartupError::UnsupportedRootSignature { signature }),
-+    }
-+}
-+
-+fn run_acpid(daemon: daemon::Daemon) -> Result<(), StartupError> {
-+    let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
-+        .map(Arc::<[u8]>::from)
-+        .map_err(StartupError::ReadRootTable)?;
-+
-+    let Some(sdt) = parse_root_sdt(rxsdt_raw_data)? else {
-+        log::info!("System doesn't use ACPI");
-+        daemon.ready();
-+        std::process::exit(0);
-     };
- 
--    let region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler + 'static>)> = vec![
--        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
--        (RegionSpace::EmbeddedControl, Box::new(ec::Ec::new())),
--    ];
--    let acpi_context = self::acpi::AcpiContext::init(physaddrs_iter, region_handlers);
-+    let physaddrs = root_table_physaddrs(&sdt)?;
-+    let acpi_context = self::acpi::AcpiContext::init(physaddrs.into_iter());
- 
--    // TODO: I/O permission bitmap?
-     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
--    common::acquire_port_io_rights().expect("acpid: failed to set I/O privilege level to Ring 3");
-+    common::acquire_port_io_rights().map_err(|error| {
-+        StartupError::runtime(
-+            "failed to set I/O privilege level to Ring 3",
-+            format!("{error}"),
-+        )
-+    })?;
- 
--    let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop")
--        .expect("acpid: failed to open `/scheme/kernel.acpi/kstop`");
-+    let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop").map_err(|error| {
-+        StartupError::runtime(
-+            "failed to open `/scheme/kernel.acpi/kstop`",
-+            error.to_string(),
-+        )
-+    })?;
- 
--    let mut event_queue = RawEventQueue::new().expect("acpid: failed to create event queue");
--    let socket = Socket::nonblock().expect("acpid: failed to create disk scheme");
-+    let mut event_queue = RawEventQueue::new().map_err(|error| {
-+        StartupError::runtime("failed to create event queue", error.to_string())
-+    })?;
-+    let socket = Socket::nonblock().map_err(|error| {
-+        StartupError::runtime("failed to create acpi scheme socket", error.to_string())
-+    })?;
- 
-     let mut scheme = self::scheme::AcpiScheme::new(&acpi_context, &socket);
-     let mut handler = Blocking::new(&socket, 16);
- 
-     event_queue
-         .subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
--        .expect("acpid: failed to register shutdown pipe for event queue");
-+        .map_err(|error| {
-+            StartupError::runtime(
-+                "failed to register shutdown pipe for event queue",
-+                error.to_string(),
-+            )
-+        })?;
-     event_queue
-         .subscribe(socket.inner().raw(), 1, EventFlags::READ)
--        .expect("acpid: failed to register scheme socket for event queue");
-+        .map_err(|error| {
-+            StartupError::runtime(
-+                "failed to register scheme socket for event queue",
-+                error.to_string(),
-+            )
-+        })?;
- 
--    register_sync_scheme(&socket, "acpi", &mut scheme)
--        .expect("acpid: failed to register acpi scheme to namespace");
-+    register_sync_scheme(&socket, "acpi", &mut scheme).map_err(|error| {
-+        StartupError::runtime(
-+            "failed to register acpi scheme to namespace",
-+            error.to_string(),
-+        )
-+    })?;
- 
--    daemon.ready();
-+    libredox::call::setrens(0, 0).map_err(|error| {
-+        StartupError::runtime("failed to enter null namespace", error.to_string())
-+    })?;
- 
--    libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
-+    daemon.ready();
- 
-     let mut mounted = true;
+ #[derive(Debug, Error)]
+ enum StartupError {
+@@ -179,15 +180,18 @@ fn run_acpid(daemon: daemon::Daemon) -> Result<(), StartupError> {
      while mounted {
--        let Some(event) = event_queue
--            .next()
--            .transpose()
--            .expect("acpid: failed to read event file")
-+        let Some(event) = event_queue.next().transpose().map_err(|error| {
-+            StartupError::runtime("failed to read event file", error.to_string())
+         let Some(event) = event_queue.next().transpose().map_err(|error| {
+             StartupError::runtime("failed to read event file", error.to_string())
+-        })? else {
 +        })?
-         else {
++        else {
              break;
          };
-@@ -114,8 +189,9 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+         if event.fd == socket.inner().raw() {
              loop {
-                 match handler
-                     .process_requests_nonblocking(&mut scheme)
--                    .expect("acpid: failed to process requests")
--                {
+-                match handler.process_requests_nonblocking(&mut scheme).map_err(|error| {
+-                    StartupError::runtime("failed to process requests", error.to_string())
+-                })? {
++                match handler
++                    .process_requests_nonblocking(&mut scheme)
 +                    .map_err(|error| {
 +                        StartupError::runtime("failed to process requests", error.to_string())
 +                    })? {
                      ControlFlow::Continue(()) => {}
                      ControlFlow::Break(()) => break,
                  }
-@@ -125,19 +201,139 @@ fn daemon(daemon: daemon::Daemon) -> ! {
-             mounted = false;
-         } else {
-             log::debug!("Received request to unknown fd: {}", event.fd);
--            continue;
-         }
-     }
- 
-     drop(shutdown_pipe);
+@@ -204,7 +208,10 @@ fn run_acpid(daemon: daemon::Daemon) -> Result<(), StartupError> {
      drop(event_queue);
  
--    acpi_context.set_global_s_state(5);
-+    acpi_context.set_global_s_state(5).map_err(|error| {
+     acpi_context.set_global_s_state(5).map_err(|error| {
+-        StartupError::runtime("failed to shut down after kernel request", error.to_string())
 +        StartupError::runtime(
 +            "failed to shut down after kernel request",
 +            error.to_string(),
 +        )
-+    })
-+}
-+
-+fn daemon(daemon: daemon::Daemon) -> ! {
-+    common::setup_logging(
-+        "misc",
-+        "acpi",
-+        "acpid",
-+        common::output_level(),
-+        common::file_level(),
-+    );
- 
--    unreachable!("System should have shut down before this is entered");
-+    log::info!("acpid start");
-+
-+    if let Err(error) = run_acpid(daemon) {
-+        log::error!("acpid startup/runtime failure: {error}");
-+        std::process::exit(1);
-+    }
-+
-+    unreachable!("acpid returned from run_acpid without exiting or shutting down");
+     })
  }
  
- fn main() {
-     common::init();
-     daemon::Daemon::new(daemon);
- }
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::{parse_root_sdt, root_table_physaddrs, StartupError};
-+    use crate::acpi::SdtHeader;
-+    use std::sync::Arc;
-+
-+    fn make_sdt(signature: [u8; 4], payload: &[u8]) -> Arc<[u8]> {
-+        let length = (std::mem::size_of::<SdtHeader>() + payload.len()) as u32;
-+        let header = SdtHeader {
-+            signature,
-+            length,
-+            revision: 1,
-+            checksum: 0,
-+            oem_id: *b"REDBAR",
-+            oem_table_id: *b"ACPITEST",
-+            oem_revision: 1,
-+            creator_id: 1,
-+            creator_revision: 1,
-+        };
-+
-+        let mut bytes = unsafe { plain::as_bytes(&header) }.to_vec();
-+        bytes.extend_from_slice(payload);
-+
-+        let checksum = bytes
-+            .iter()
-+            .copied()
-+            .fold(0u8, |sum, byte| sum.wrapping_add(byte));
-+        bytes[9] = 0u8.wrapping_sub(checksum);
-+
-+        bytes.into()
-+    }
-+
-+    #[test]
-+    fn empty_root_table_means_no_acpi() {
-+        let parsed = parse_root_sdt(Arc::<[u8]>::from(Vec::<u8>::new())).unwrap();
-+        assert!(parsed.is_none());
-+    }
-+
-+    #[test]
-+    fn rsdt_physaddrs_parse_without_panic() {
-+        let payload = [
-+            0x78, 0x56, 0x34, 0x12, // 0x12345678
-+            0xF0, 0xDE, 0xBC, 0x9A, // 0x9ABCDEF0
-+        ];
-+        let sdt = parse_root_sdt(make_sdt(*b"RSDT", &payload))
-+            .unwrap()
-+            .unwrap();
-+
-+        assert_eq!(
-+            root_table_physaddrs(&sdt).unwrap(),
-+            vec![0x1234_5678, 0x9ABC_DEF0]
-+        );
-+    }
-+
-+    #[test]
-+    fn xsdt_physaddrs_parse_without_panic() {
-+        let payload = [
+@@ -289,8 +296,8 @@ mod tests {
+     #[test]
+     fn xsdt_physaddrs_parse_without_panic() {
+         let payload = [
+-            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
+-            0x00, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99,
 +            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB,
 +            0xAA, 0x99,
-+        ];
-+        let sdt = parse_root_sdt(make_sdt(*b"XSDT", &payload))
-+            .unwrap()
-+            .unwrap();
-+
-+        assert_eq!(
-+            root_table_physaddrs(&sdt).unwrap(),
-+            vec![0x1122_3344_5566_7788, 0x99AA_BBCC_DDEE_FF00]
-+        );
-+    }
-+
-+    #[test]
-+    fn invalid_root_signature_is_explicit() {
-+        let sdt = parse_root_sdt(make_sdt(*b"FADT", &[])).unwrap().unwrap();
-+
-+        let error = root_table_physaddrs(&sdt).unwrap_err();
-+        assert!(matches!(
-+            error,
-+            StartupError::UnsupportedRootSignature { .. }
-+        ));
-+    }
-+
-+    #[test]
-+    fn misaligned_rsdt_entries_are_rejected() {
-+        let sdt = parse_root_sdt(make_sdt(*b"RSDT", &[1, 2, 3]))
-+            .unwrap()
-+            .unwrap();
-+
-+        let error = root_table_physaddrs(&sdt).unwrap_err();
-+        assert!(matches!(
-+            error,
-+            StartupError::MisalignedRootEntries {
-+                entry_size: 4,
-+                payload_len: 3,
-+                ..
-+            }
-+        ));
-+    }
-+}
+         ];
+         let sdt = parse_root_sdt(make_sdt(*b"XSDT", &payload))
+             .unwrap()
+diff --git a/drivers/acpid/src/resources.rs b/drivers/acpid/src/resources.rs
+new file mode 100644
+index 00000000..86bcfd1e
+--- /dev/null
++++ b/drivers/acpid/src/resources.rs
+@@ -0,0 +1 @@
++pub use acpi_resource::{decode_resource_template, ResourceDescriptor};
 diff --git a/drivers/acpid/src/scheme.rs b/drivers/acpid/src/scheme.rs
-index 5a5040c3..8158cad2 100644
+index 7070e8b9..4fe3b8d8 100644
 --- a/drivers/acpid/src/scheme.rs
 +++ b/drivers/acpid/src/scheme.rs
-@@ -2,7 +2,6 @@ use acpi::aml::namespace::AmlName;
- use amlserde::aml_serde_name::to_aml_format;
- use amlserde::AmlSerdeValue;
- use core::str;
--use libredox::Fd;
- use parking_lot::RwLockReadGuard;
- use redox_scheme::scheme::SchemeSync;
- use redox_scheme::{CallerCtx, OpenResult, SendFdRequest, Socket};
-@@ -16,17 +15,22 @@ use syscall::FobtainFdFlags;
+@@ -15,7 +15,9 @@ use syscall::FobtainFdFlags;
  
  use syscall::data::Stat;
  use syscall::error::{Error, Result};
--use syscall::error::{EACCES, EBADF, EBADFD, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR};
+-use syscall::error::{EACCES, EAGAIN, EBADF, EBADFD, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, EOPNOTSUPP};
 +use syscall::error::{
 +    EACCES, EAGAIN, EBADF, EBADFD, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, EOPNOTSUPP,
 +};
  use syscall::flag::{MODE_DIR, MODE_FILE};
  use syscall::flag::{O_ACCMODE, O_DIRECTORY, O_RDONLY, O_STAT, O_SYMLINK};
  use syscall::{EOVERFLOW, EPERM};
- 
--use crate::acpi::{AcpiContext, AmlSymbols, SdtSignature};
-+use crate::acpi::{
-+    AcpiBattery, AcpiContext, AcpiPowerAdapter, AcpiPowerSnapshot, AmlSymbols, DmiInfo,
-+    SdtSignature,
-+};
+@@ -24,6 +26,7 @@ use crate::acpi::{
+     AcpiBattery, AcpiContext, AcpiPowerAdapter, AcpiPowerSnapshot, AmlSymbols, DmiInfo,
+     SdtSignature,
+ };
 +use crate::resources::{decode_resource_template, ResourceDescriptor};
  
  pub struct AcpiScheme<'acpi, 'sock> {
      ctx: &'acpi AcpiContext,
-     handles: HandleMap<Handle<'acpi>>,
--    pci_fd: Option<Fd>,
-     socket: &'sock Socket,
- }
- 
-@@ -41,10 +45,204 @@ enum HandleKind<'a> {
+@@ -42,6 +45,8 @@ enum HandleKind<'a> {
      Table(SdtSignature),
      Symbols(RwLockReadGuard<'a, AmlSymbols>),
      Symbol { name: String, description: String },
 +    ResourcesDir,
 +    Resources(String),
-+    Reboot,
-+    DmiDir,
-+    Dmi(String),
-+    PowerDir,
-+    PowerAdaptersDir,
-+    PowerAdapterDir(String),
-+    PowerBatteriesDir,
-+    PowerBatteryDir(String),
-+    PowerFile(String),
-     SchemeRoot,
-     RegisterPci,
+     Reboot,
+     DmiDir,
+     Dmi(String),
+@@ -197,6 +202,7 @@ fn top_level_entries(power_available: bool) -> Vec<(&'static str, DirentKind)> {
+     let mut entries = vec![
+         ("tables", DirentKind::Directory),
+         ("symbols", DirentKind::Directory),
++        ("resources", DirentKind::Directory),
+         ("dmi", DirentKind::Directory),
+         ("reboot", DirentKind::Regular),
+     ];
+@@ -206,6 +212,37 @@ fn top_level_entries(power_available: bool) -> Vec<(&'static str, DirentKind)> {
+     entries
  }
  
-+const DMI_DIRECTORY_ENTRIES: &[&str] = &[
-+    "sys_vendor",
-+    "board_vendor",
-+    "board_name",
-+    "board_version",
-+    "product_name",
-+    "product_version",
-+    "bios_version",
-+    "match_all",
-+];
-+
-+fn dmi_contents(dmi_info: Option<&DmiInfo>, name: &str) -> Option<String> {
-+    Some(match name {
-+        "sys_vendor" => dmi_info
-+            .and_then(|info| info.sys_vendor.clone())
-+            .unwrap_or_default(),
-+        "board_vendor" => dmi_info
-+            .and_then(|info| info.board_vendor.clone())
-+            .unwrap_or_default(),
-+        "board_name" => dmi_info
-+            .and_then(|info| info.board_name.clone())
-+            .unwrap_or_default(),
-+        "board_version" => dmi_info
-+            .and_then(|info| info.board_version.clone())
-+            .unwrap_or_default(),
-+        "product_name" => dmi_info
-+            .and_then(|info| info.product_name.clone())
-+            .unwrap_or_default(),
-+        "product_version" => dmi_info
-+            .and_then(|info| info.product_version.clone())
-+            .unwrap_or_default(),
-+        "bios_version" => dmi_info
-+            .and_then(|info| info.bios_version.clone())
-+            .unwrap_or_default(),
-+        "match_all" => dmi_info.map(DmiInfo::to_match_lines).unwrap_or_default(),
-+        _ => return None,
-+    })
-+}
-+
-+fn power_bool_contents(value: bool) -> String {
-+    if value {
-+        String::from("1\n")
-+    } else {
-+        String::from("0\n")
-+    }
-+}
-+
-+fn power_u64_contents(value: u64) -> String {
-+    format!("{value}\n")
-+}
-+
-+fn power_f64_contents(value: f64) -> String {
-+    format!("{value}\n")
-+}
-+
-+fn power_string_contents(value: &str) -> String {
-+    format!("{value}\n")
-+}
-+
-+fn power_adapter_file_contents(adapter: &AcpiPowerAdapter, name: &str) -> Option<String> {
-+    Some(match name {
-+        "path" => power_string_contents(&adapter.path),
-+        "online" => power_bool_contents(adapter.online),
-+        _ => return None,
-+    })
-+}
-+
-+fn power_adapter_entry_names() -> &'static [&'static str] {
-+    &["path", "online"]
-+}
-+
-+fn power_battery_file_contents(battery: &AcpiBattery, name: &str) -> Option<String> {
-+    Some(match name {
-+        "path" => power_string_contents(&battery.path),
-+        "state" => power_u64_contents(battery.state),
-+        "present_rate" => power_u64_contents(battery.present_rate?),
-+        "remaining_capacity" => power_u64_contents(battery.remaining_capacity?),
-+        "present_voltage" => power_u64_contents(battery.present_voltage?),
-+        "power_unit" => power_string_contents(battery.power_unit.as_deref()?),
-+        "design_capacity" => power_u64_contents(battery.design_capacity?),
-+        "last_full_capacity" => power_u64_contents(battery.last_full_capacity?),
-+        "design_voltage" => power_u64_contents(battery.design_voltage?),
-+        "technology" => power_string_contents(battery.technology.as_deref()?),
-+        "model" => power_string_contents(battery.model.as_deref()?),
-+        "serial" => power_string_contents(battery.serial.as_deref()?),
-+        "battery_type" => power_string_contents(battery.battery_type.as_deref()?),
-+        "oem_info" => power_string_contents(battery.oem_info.as_deref()?),
-+        "percentage" => power_f64_contents(battery.percentage?),
-+        _ => return None,
-+    })
-+}
-+
-+fn power_battery_entry_names(battery: &AcpiBattery) -> Vec<&'static str> {
-+    let mut names = vec!["path", "state"];
-+
-+    if battery.present_rate.is_some() {
-+        names.push("present_rate");
-+    }
-+    if battery.remaining_capacity.is_some() {
-+        names.push("remaining_capacity");
-+    }
-+    if battery.present_voltage.is_some() {
-+        names.push("present_voltage");
-+    }
-+    if battery.power_unit.is_some() {
-+        names.push("power_unit");
-+    }
-+    if battery.design_capacity.is_some() {
-+        names.push("design_capacity");
-+    }
-+    if battery.last_full_capacity.is_some() {
-+        names.push("last_full_capacity");
-+    }
-+    if battery.design_voltage.is_some() {
-+        names.push("design_voltage");
-+    }
-+    if battery.technology.is_some() {
-+        names.push("technology");
-+    }
-+    if battery.model.is_some() {
-+        names.push("model");
-+    }
-+    if battery.serial.is_some() {
-+        names.push("serial");
-+    }
-+    if battery.battery_type.is_some() {
-+        names.push("battery_type");
-+    }
-+    if battery.oem_info.is_some() {
-+        names.push("oem_info");
-+    }
-+    if battery.percentage.is_some() {
-+        names.push("percentage");
-+    }
-+
-+    names
-+}
-+
-+fn top_level_entries(power_available: bool) -> Vec<(&'static str, DirentKind)> {
-+    let mut entries = vec![
-+        ("tables", DirentKind::Directory),
-+        ("symbols", DirentKind::Directory),
-+        ("resources", DirentKind::Directory),
-+        ("dmi", DirentKind::Directory),
-+        ("reboot", DirentKind::Regular),
-+    ];
-+    if power_available {
-+        entries.push(("power", DirentKind::Directory));
-+    }
-+    entries
-+}
-+
 +fn resource_symbol_path(path: &str) -> Option<String> {
 +    let normalized = path.trim_matches('/').trim_start_matches('\\');
 +    if normalized.is_empty() {
@@ -693,74 +881,34 @@ index 5a5040c3..8158cad2 100644
  impl HandleKind<'_> {
      fn is_dir(&self) -> bool {
          match self {
-@@ -53,6 +251,17 @@ impl HandleKind<'_> {
+@@ -214,6 +251,8 @@ impl HandleKind<'_> {
              Self::Table(_) => false,
              Self::Symbols(_) => true,
              Self::Symbol { .. } => false,
 +            Self::ResourcesDir => true,
 +            Self::Resources(_) => false,
-+            Self::Reboot => false,
-+            Self::DmiDir => true,
-+            Self::Dmi(_) => false,
-+            Self::PowerDir => true,
-+            Self::PowerAdaptersDir => true,
-+            Self::PowerAdapterDir(_) => true,
-+            Self::PowerBatteriesDir => true,
-+            Self::PowerBatteryDir(_) => true,
-+            Self::PowerFile(_) => false,
-             Self::SchemeRoot => false,
-             Self::RegisterPci => false,
-         }
-@@ -65,8 +274,21 @@ impl HandleKind<'_> {
+             Self::Reboot => false,
+             Self::DmiDir => true,
+             Self::Dmi(_) => false,
+@@ -235,12 +274,14 @@ impl HandleKind<'_> {
                  .ok_or(Error::new(EBADFD))?
                  .length(),
              Self::Symbol { description, .. } => description.len(),
 +            Self::Resources(contents) => contents.len(),
-+            Self::Reboot => 0,
-+            Self::Dmi(contents) => contents.len(),
-+            Self::PowerFile(contents) => contents.len(),
+             Self::Reboot => 0,
+             Self::Dmi(contents) => contents.len(),
+             Self::PowerFile(contents) => contents.len(),
              // Directories
--            Self::TopLevel | Self::Symbols(_) | Self::Tables => 0,
-+            Self::TopLevel
-+            | Self::Symbols(_)
+             Self::TopLevel
+             | Self::Symbols(_)
 +            | Self::ResourcesDir
-+            | Self::Tables
-+            | Self::DmiDir
-+            | Self::PowerDir
-+            | Self::PowerAdaptersDir
-+            | Self::PowerAdapterDir(_)
-+            | Self::PowerBatteriesDir
-+            | Self::PowerBatteryDir(_) => 0,
-             Self::SchemeRoot | Self::RegisterPci => return Err(Error::new(EBADF)),
-         })
+             | Self::Tables
+             | Self::DmiDir
+             | Self::PowerDir
+@@ -280,6 +321,58 @@ impl<'acpi, 'sock> AcpiScheme<'acpi, 'sock> {
+         matches!(self.ctx.power_snapshot(), Ok(_))
      }
-@@ -77,10 +299,163 @@ impl<'acpi, 'sock> AcpiScheme<'acpi, 'sock> {
-         Self {
-             ctx,
-             handles: HandleMap::new(),
--            pci_fd: None,
-             socket,
-         }
-     }
-+
-+    fn power_snapshot(&self) -> Result<AcpiPowerSnapshot> {
-+        self.ctx.power_snapshot().map_err(|error| match error {
-+            crate::acpi::AmlEvalError::NotInitialized => Error::new(EAGAIN),
-+            crate::acpi::AmlEvalError::Unsupported(message) => {
-+                log::warn!("ACPI power surface unavailable: {message}");
-+                Error::new(EOPNOTSUPP)
-+            }
-+            other => {
-+                log::warn!("Failed to build ACPI power snapshot: {:?}", other);
-+                Error::new(EIO)
-+            }
-+        })
-+    }
-+
-+    fn power_available(&self) -> bool {
-+        matches!(self.ctx.power_snapshot(), Ok(_))
-+    }
-+
+ 
 +    fn resources_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
 +        if !self.ctx.pci_ready() {
 +            let display_path = if path.is_empty() { "resources" } else { path };
@@ -813,101 +961,18 @@ index 5a5040c3..8158cad2 100644
 +        Ok(HandleKind::Resources(serialized))
 +    }
 +
-+    fn power_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
-+        let normalized = path.trim_matches('/');
-+        self.power_snapshot()?;
-+
-+        if normalized.is_empty() {
-+            return Ok(HandleKind::PowerDir);
-+        }
-+        if normalized == "on_battery" {
-+            return Ok(HandleKind::PowerFile(power_bool_contents(
-+                self.power_snapshot()?.on_battery(),
-+            )));
-+        }
-+        if normalized == "adapters" {
-+            return Ok(HandleKind::PowerAdaptersDir);
-+        }
-+        if let Some(rest) = normalized.strip_prefix("adapters/") {
-+            return self.power_adapter_handle(rest);
-+        }
-+        if normalized == "batteries" {
-+            return Ok(HandleKind::PowerBatteriesDir);
-+        }
-+        if let Some(rest) = normalized.strip_prefix("batteries/") {
-+            return self.power_battery_handle(rest);
-+        }
-+
-+        Err(Error::new(ENOENT))
-+    }
-+
-+    fn power_adapter_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
-+        let normalized = path.trim_matches('/');
-+        if normalized.is_empty() {
-+            return Ok(HandleKind::PowerAdaptersDir);
-+        }
-+
-+        let mut parts = normalized.split('/');
-+        let adapter_id = parts.next().ok_or(Error::new(ENOENT))?;
-+        let field = parts.next();
-+        if parts.next().is_some() {
-+            return Err(Error::new(ENOENT));
-+        }
-+
-+        let snapshot = self.power_snapshot()?;
-+        let adapter = snapshot
-+            .adapters
-+            .iter()
-+            .find(|adapter| adapter.id == adapter_id)
-+            .ok_or(Error::new(ENOENT))?;
-+
-+        match field {
-+            None | Some("") => Ok(HandleKind::PowerAdapterDir(adapter.id.clone())),
-+            Some(name) => Ok(HandleKind::PowerFile(
-+                power_adapter_file_contents(adapter, name).ok_or(Error::new(ENOENT))?,
-+            )),
-+        }
-+    }
-+
-+    fn power_battery_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
-+        let normalized = path.trim_matches('/');
-+        if normalized.is_empty() {
-+            return Ok(HandleKind::PowerBatteriesDir);
-+        }
-+
-+        let mut parts = normalized.split('/');
-+        let battery_id = parts.next().ok_or(Error::new(ENOENT))?;
-+        let field = parts.next();
-+        if parts.next().is_some() {
-+            return Err(Error::new(ENOENT));
-+        }
-+
-+        let snapshot = self.power_snapshot()?;
-+        let battery = snapshot
-+            .batteries
-+            .iter()
-+            .find(|battery| battery.id == battery_id)
-+            .ok_or(Error::new(ENOENT))?;
-+
-+        match field {
-+            None | Some("") => Ok(HandleKind::PowerBatteryDir(battery.id.clone())),
-+            Some(name) => Ok(HandleKind::PowerFile(
-+                power_battery_file_contents(battery, name).ok_or(Error::new(ENOENT))?,
-+            )),
-+        }
-+    }
- }
- 
- fn parse_hex_digit(hex: u8) -> Option<u8> {
-@@ -182,49 +557,97 @@ impl SchemeSync for AcpiScheme<'_, '_> {
+     fn power_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
+         let normalized = path.trim_matches('/');
+         self.power_snapshot()?;
+@@ -464,76 +557,85 @@ impl SchemeSync for AcpiScheme<'_, '_> {
  
          let kind = match handle.kind {
              HandleKind::SchemeRoot => {
 -                // TODO: arrayvec
 -                let components = {
--                    let mut v = arrayvec::ArrayVec::<&str, 3>::new();
+-                    let mut v = arrayvec::ArrayVec::<&str, 4>::new();
 -                    let it = path.split('/');
--                    for component in it.take(3) {
+-                    for component in it.take(4) {
 -                        v.push(component);
 -                    }
 -
@@ -916,8 +981,15 @@ index 5a5040c3..8158cad2 100644
 -
 -                match &*components {
 -                    [""] => HandleKind::TopLevel,
--                    ["register_pci"] => HandleKind::RegisterPci,
--                    ["tables"] => HandleKind::Tables,
+-                    ["reboot"] => HandleKind::Reboot,
+-                    ["dmi"] => {
+-                        if flag_dir || flag_stat || path.ends_with('/') {
+-                            HandleKind::DmiDir
+-                        } else {
+-                            HandleKind::Dmi(
+-                                dmi_contents(self.ctx.dmi_info(), "match_all")
+-                                    .expect("match_all should always resolve"),
+-                            )
 +                if path == "resources" || path == "resources/" {
 +                    self.resources_handle("")?
 +                } else if let Some(rest) = path.strip_prefix("resources/") {
@@ -929,12 +1001,28 @@ index 5a5040c3..8158cad2 100644
 +                        let it = path.split('/');
 +                        for component in it.take(4) {
 +                            v.push(component);
-+                        }
- 
+                         }
+-                    }
+-                    ["dmi", ""] => HandleKind::DmiDir,
+-                    ["dmi", field] => HandleKind::Dmi(
+-                        dmi_contents(self.ctx.dmi_info(), field).ok_or(Error::new(ENOENT))?,
+-                    ),
+-                    ["power"] => self.power_handle("")?,
+-                    ["power", tail] => self.power_handle(tail)?,
+-                    ["power", a, b] => self.power_handle(&format!("{a}/{b}"))?,
+-                    ["power", a, b, c] => self.power_handle(&format!("{a}/{b}/{c}"))?,
+-                    ["register_pci"] => HandleKind::RegisterPci,
+-                    ["tables"] => HandleKind::Tables,
+-
 -                    ["tables", table] => {
 -                        let signature = parse_table(table.as_bytes()).ok_or(Error::new(ENOENT))?;
 -                        HandleKind::Table(signature)
 -                    }
+ 
+-                    ["symbols"] => {
+-                        if !self.ctx.pci_ready() {
+-                            log::warn!("Deferring AML symbol scan until PCI registration is ready");
+-                            return Err(Error::new(EAGAIN));
 +                        v
 +                    };
 +
@@ -950,7 +1038,11 @@ index 5a5040c3..8158cad2 100644
 +                                        .expect("match_all should always resolve"),
 +                                )
 +                            }
-+                        }
+                         }
+-                        if let Ok(aml_symbols) = self.ctx.aml_symbols() {
+-                            HandleKind::Symbols(aml_symbols)
+-                        } else {
+-                            return Err(Error::new(EIO));
 +                        ["dmi", ""] => HandleKind::DmiDir,
 +                        ["dmi", field] => HandleKind::Dmi(
 +                            dmi_contents(self.ctx.dmi_info(), field).ok_or(Error::new(ENOENT))?,
@@ -966,13 +1058,15 @@ index 5a5040c3..8158cad2 100644
 +                            let signature =
 +                                parse_table(table.as_bytes()).ok_or(Error::new(ENOENT))?;
 +                            HandleKind::Table(signature)
-+                        }
+                         }
+-                    }
  
--                    ["symbols"] => {
--                        if let Ok(aml_symbols) = self.ctx.aml_symbols(self.pci_fd.as_ref()) {
--                            HandleKind::Symbols(aml_symbols)
--                        } else {
--                            return Err(Error::new(EIO));
+-                    ["symbols", symbol] => {
+-                        if !self.ctx.pci_ready() {
+-                            log::warn!(
+-                                "Deferring AML symbol lookup for {symbol} until PCI registration is ready"
+-                            );
+-                            return Err(Error::new(EAGAIN));
 +                        ["symbols"] => {
 +                            if !self.ctx.pci_ready() {
 +                                log::warn!(
@@ -986,18 +1080,16 @@ index 5a5040c3..8158cad2 100644
 +                                return Err(Error::new(EIO));
 +                            }
                          }
--                    }
- 
--                    ["symbols", symbol] => {
 -                        if let Some(description) = self.ctx.aml_lookup(symbol) {
 -                            HandleKind::Symbol {
 -                                name: (*symbol).to_owned(),
 -                                description,
++
 +                        ["symbols", symbol] => {
 +                            if !self.ctx.pci_ready() {
 +                                log::warn!(
-+                                "Deferring AML symbol lookup for {symbol} until PCI registration is ready"
-+                            );
++                                    "Deferring AML symbol lookup for {symbol} until PCI registration is ready"
++                                );
 +                                return Err(Error::new(EAGAIN));
 +                            }
 +                            if let Some(description) = self.ctx.aml_lookup(symbol) {
@@ -1016,101 +1108,29 @@ index 5a5040c3..8158cad2 100644
 -                    _ => return Err(Error::new(ENOENT)),
 +                        _ => return Err(Error::new(ENOENT)),
 +                    }
-+                }
-+            }
-+            HandleKind::DmiDir => {
-+                if path.is_empty() {
-+                    HandleKind::DmiDir
-+                } else {
-+                    HandleKind::Dmi(
-+                        dmi_contents(self.ctx.dmi_info(), path).ok_or(Error::new(ENOENT))?,
-+                    )
+                 }
+             }
+             HandleKind::DmiDir => {
+@@ -545,6 +647,7 @@ impl SchemeSync for AcpiScheme<'_, '_> {
+                     )
                  }
              }
 +            HandleKind::ResourcesDir => self.resources_handle(path)?,
              HandleKind::Symbols(ref aml_symbols) => {
                  if let Some(description) = aml_symbols.lookup(path) {
                      HandleKind::Symbol {
-@@ -235,6 +658,23 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-                     return Err(Error::new(ENOENT));
-                 }
-             }
-+            HandleKind::PowerDir => self.power_handle(path)?,
-+            HandleKind::PowerAdaptersDir => self.power_adapter_handle(path)?,
-+            HandleKind::PowerAdapterDir(ref adapter_id) => {
-+                if path.is_empty() {
-+                    HandleKind::PowerAdapterDir(adapter_id.clone())
-+                } else {
-+                    self.power_adapter_handle(&format!("{adapter_id}/{path}"))?
-+                }
-+            }
-+            HandleKind::PowerBatteriesDir => self.power_battery_handle(path)?,
-+            HandleKind::PowerBatteryDir(ref battery_id) => {
-+                if path.is_empty() {
-+                    HandleKind::PowerBatteryDir(battery_id.clone())
-+                } else {
-+                    self.power_battery_handle(&format!("{battery_id}/{path}"))?
-+                }
-+            }
-             _ => return Err(Error::new(EACCES)),
-         };
- 
-@@ -296,7 +736,7 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-     ) -> Result<usize> {
-         let offset: usize = offset.try_into().map_err(|_| Error::new(EINVAL))?;
- 
--        let handle = self.handles.get_mut(id)?;
-+        let handle = self.handles.get(id)?;
- 
-         if handle.stat {
-             return Err(Error::new(EBADF));
-@@ -309,6 +749,9 @@ impl SchemeSync for AcpiScheme<'_, '_> {
+@@ -646,6 +749,7 @@ impl SchemeSync for AcpiScheme<'_, '_> {
                  .ok_or(Error::new(EBADFD))?
                  .as_slice(),
              HandleKind::Symbol { description, .. } => description.as_bytes(),
 +            HandleKind::Resources(contents) => contents.as_bytes(),
-+            HandleKind::Dmi(contents) => contents.as_bytes(),
-+            HandleKind::PowerFile(contents) => contents.as_bytes(),
+             HandleKind::Dmi(contents) => contents.as_bytes(),
+             HandleKind::PowerFile(contents) => contents.as_bytes(),
              _ => return Err(Error::new(EINVAL)),
-         };
- 
-@@ -328,13 +771,95 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-         mut buf: DirentBuf<&'buf mut [u8]>,
-         opaque_offset: u64,
-     ) -> Result<DirentBuf<&'buf mut [u8]>> {
--        let handle = self.handles.get_mut(id)?;
-+        let handle = self.handles.get(id)?;
- 
-         match &handle.kind {
-             HandleKind::TopLevel => {
--                const TOPLEVEL_ENTRIES: &[&str] = &["tables", "symbols"];
-+                for (idx, (name, kind)) in top_level_entries(self.power_available())
-+                    .iter()
-+                    .enumerate()
-+                    .skip(opaque_offset as usize)
-+                {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name,
-+                        kind: *kind,
-+                    })?;
-+                }
-+            }
-+            HandleKind::DmiDir => {
-+                for (idx, name) in DMI_DIRECTORY_ENTRIES
-+                    .iter()
-+                    .enumerate()
-+                    .skip(opaque_offset as usize)
-+                {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name,
-+                        kind: DirentKind::Regular,
-+                    })?;
-+                }
-+            }
+@@ -698,6 +802,19 @@ impl SchemeSync for AcpiScheme<'_, '_> {
+                     })?;
+                 }
+             }
 +            HandleKind::ResourcesDir => {
 +                let aml_symbols = self.ctx.aml_symbols().map_err(|_| Error::new(EIO))?;
 +                let entries =
@@ -1124,205 +1144,38 @@ index 5a5040c3..8158cad2 100644
 +                    })?;
 +                }
 +            }
-+            HandleKind::PowerDir => {
-+                const POWER_ROOT_ENTRIES: &[(&str, DirentKind)] = &[
-+                    ("on_battery", DirentKind::Regular),
-+                    ("adapters", DirentKind::Directory),
-+                    ("batteries", DirentKind::Directory),
-+                ];
-+
-+                for (idx, (name, kind)) in POWER_ROOT_ENTRIES
-+                    .iter()
-+                    .enumerate()
-+                    .skip(opaque_offset as usize)
-+                {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name,
-+                        kind: *kind,
-+                    })?;
-+                }
-+            }
-+            HandleKind::PowerAdaptersDir => {
-+                let snapshot = self.power_snapshot()?;
-+                for (idx, adapter) in snapshot
-+                    .adapters
-+                    .iter()
-+                    .enumerate()
-+                    .skip(opaque_offset as usize)
-+                {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name: adapter.id.as_str(),
-+                        kind: DirentKind::Directory,
-+                    })?;
-+                }
-+            }
-+            HandleKind::PowerAdapterDir(adapter_id) => {
-+                let snapshot = self.power_snapshot()?;
-+                let _adapter = snapshot
-+                    .adapters
-+                    .iter()
-+                    .find(|adapter| adapter.id == *adapter_id)
-+                    .ok_or(Error::new(EIO))?;
+             HandleKind::PowerDir => {
+                 const POWER_ROOT_ENTRIES: &[(&str, DirentKind)] = &[
+                     ("on_battery", DirentKind::Regular),
+@@ -958,7 +1075,7 @@ impl SchemeSync for AcpiScheme<'_, '_> {
  
--                for (idx, name) in TOPLEVEL_ENTRIES
-+                for (idx, name) in power_adapter_entry_names()
-                     .iter()
-                     .enumerate()
-                     .skip(opaque_offset as usize)
-@@ -343,10 +868,44 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-                         inode: 0,
-                         next_opaque_id: idx as u64 + 1,
-                         name,
-+                        kind: DirentKind::Regular,
-+                    })?;
-+                }
-+            }
-+            HandleKind::PowerBatteriesDir => {
-+                let snapshot = self.power_snapshot()?;
-+                for (idx, battery) in snapshot
-+                    .batteries
-+                    .iter()
-+                    .enumerate()
-+                    .skip(opaque_offset as usize)
-+                {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name: battery.id.as_str(),
-                         kind: DirentKind::Directory,
-                     })?;
-                 }
-             }
-+            HandleKind::PowerBatteryDir(battery_id) => {
-+                let snapshot = self.power_snapshot()?;
-+                let battery = snapshot
-+                    .batteries
-+                    .iter()
-+                    .find(|battery| battery.id == *battery_id)
-+                    .ok_or(Error::new(EIO))?;
-+                let entry_names = power_battery_entry_names(battery);
-+
-+                for (idx, name) in entry_names.iter().enumerate().skip(opaque_offset as usize) {
-+                    buf.entry(DirEntry {
-+                        inode: 0,
-+                        next_opaque_id: idx as u64 + 1,
-+                        name,
-+                        kind: DirentKind::Regular,
-+                    })?;
-+                }
-+            }
-             HandleKind::Symbols(aml_symbols) => {
-                 for (idx, (symbol_name, _value)) in aml_symbols
-                     .symbols_cache()
-@@ -444,6 +1003,38 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-         Ok(result_len)
-     }
- 
-+    fn write(
-+        &mut self,
-+        id: usize,
-+        buf: &[u8],
-+        _offset: u64,
-+        _flags: u32,
-+        _ctx: &CallerCtx,
-+    ) -> Result<usize> {
-+        let handle = self.handles.get_mut(id)?;
-+
-+        if handle.stat {
-+            return Err(Error::new(EBADF));
-+        }
-+        if !handle.allowed_to_eval {
-+            return Err(Error::new(EPERM));
-+        }
-+
-+        match handle.kind {
-+            HandleKind::Reboot => {
-+                if buf.is_empty() {
-+                    return Err(Error::new(EINVAL));
-+                }
-+                self.ctx.acpi_reboot().map_err(|error| {
-+                    log::error!("ACPI reboot failed: {error}");
-+                    Error::new(EIO)
-+                })?;
-+                Ok(buf.len())
-+            }
-+            _ => Err(Error::new(EBADF)),
-+        }
-+    }
-+
-     fn on_sendfd(&mut self, sendfd_request: &SendFdRequest) -> Result<usize> {
-         let id = sendfd_request.id();
-         let num_fds = sendfd_request.num_fds();
-@@ -470,10 +1061,8 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-         }
-         let new_fd = libredox::Fd::new(new_fd);
- 
--        if self.pci_fd.is_some() {
-+        if self.ctx.register_pci_fd(new_fd).is_err() {
-             return Err(Error::new(EINVAL));
--        } else {
--            self.pci_fd = Some(new_fd);
-         }
- 
-         Ok(num_fds)
-@@ -483,3 +1072,90 @@ impl SchemeSync for AcpiScheme<'_, '_> {
-         self.handles.remove(id);
-     }
- }
-+
-+#[cfg(test)]
-+mod tests {
+ #[cfg(test)]
+ mod tests {
+-    use super::{dmi_contents, top_level_entries};
 +    use super::{dmi_contents, resource_dir_entries, resource_symbol_path, top_level_entries};
-+    use crate::acpi::DmiInfo;
-+    use syscall::dirent::DirentKind;
-+
-+    #[test]
-+    fn dmi_contents_exposes_individual_fields_and_match_all() {
-+        let dmi_info = DmiInfo {
-+            sys_vendor: Some("Framework".to_string()),
-+            board_name: Some("FRANMECP01".to_string()),
-+            product_name: Some("Laptop 16".to_string()),
-+            ..DmiInfo::default()
-+        };
-+
-+        assert_eq!(
-+            dmi_contents(Some(&dmi_info), "sys_vendor").as_deref(),
-+            Some("Framework")
-+        );
-+        assert_eq!(
-+            dmi_contents(Some(&dmi_info), "board_name").as_deref(),
-+            Some("FRANMECP01")
-+        );
-+        assert_eq!(
-+            dmi_contents(Some(&dmi_info), "product_name").as_deref(),
-+            Some("Laptop 16")
-+        );
-+        assert_eq!(
-+            dmi_contents(Some(&dmi_info), "match_all").as_deref(),
-+            Some("sys_vendor=Framework\nboard_name=FRANMECP01\nproduct_name=Laptop 16")
-+        );
-+        assert_eq!(dmi_contents(None, "bios_version").as_deref(), Some(""));
-+        assert_eq!(dmi_contents(Some(&dmi_info), "unknown"), None);
-+    }
-+
-+    #[test]
-+    fn top_level_entries_always_include_reboot() {
-+        let entries = top_level_entries(false);
+     use crate::acpi::DmiInfo;
+     use syscall::dirent::DirentKind;
+ 
+@@ -994,9 +1111,9 @@ mod tests {
+     #[test]
+     fn top_level_entries_always_include_reboot() {
+         let entries = top_level_entries(false);
+-        assert!(entries.iter().any(|(name, kind)| {
+-            *name == "reboot" && matches!(kind, DirentKind::Regular)
+-        }));
 +        assert!(entries
 +            .iter()
 +            .any(|(name, kind)| { *name == "reboot" && matches!(kind, DirentKind::Regular) }));
-+    }
-+
-+    #[test]
-+    fn top_level_entries_only_include_power_when_available() {
-+        let hidden = top_level_entries(false);
-+        let visible = top_level_entries(true);
-+
-+        assert!(!hidden.iter().any(|(name, _)| *name == "power"));
+     }
+ 
+     #[test]
+@@ -1005,8 +1122,40 @@ mod tests {
+         let visible = top_level_entries(true);
+ 
+         assert!(!hidden.iter().any(|(name, _)| *name == "power"));
+-        assert!(visible.iter().any(|(name, kind)| {
+-            *name == "power" && matches!(kind, DirentKind::Directory)
+-        }));
 +        assert!(visible
 +            .iter()
 +            .any(|(name, kind)| { *name == "power" && matches!(kind, DirentKind::Directory) }));
@@ -1358,5 +1211,55 @@ index 5a5040c3..8158cad2 100644
 +            ]),
 +            vec!["_SB.PCI0.I2C0.TPD0".to_string()]
 +        );
+     }
+ }
+diff --git a/drivers/acpid/src/sleep.rs b/drivers/acpid/src/sleep.rs
+new file mode 100644
+index 00000000..e5d6ab22
+--- /dev/null
++++ b/drivers/acpid/src/sleep.rs
+@@ -0,0 +1,44 @@
++use std::convert::TryFrom;
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum SleepTarget {
++    S0,
++    S1,
++    S2,
++    S3,
++    S4,
++    S5,
++}
++
++impl SleepTarget {
++    pub fn aml_method_name(self) -> &'static str {
++        match self {
++            Self::S0 => "_S0",
++            Self::S1 => "_S1",
++            Self::S2 => "_S2",
++            Self::S3 => "_S3",
++            Self::S4 => "_S4",
++            Self::S5 => "_S5",
++        }
++    }
++
++    pub fn is_soft_off(self) -> bool {
++        matches!(self, Self::S5)
++    }
++}
++
++impl TryFrom<u8> for SleepTarget {
++    type Error = ();
++
++    fn try_from(value: u8) -> Result<Self, Self::Error> {
++        match value {
++            0 => Ok(Self::S0),
++            1 => Ok(Self::S1),
++            2 => Ok(Self::S2),
++            3 => Ok(Self::S3),
++            4 => Ok(Self::S4),
++            5 => Ok(Self::S5),
++            _ => Err(()),
++        }
 +    }
 +}
