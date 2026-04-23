@@ -1,0 +1,22 @@
+diff -ruN a/src/header/mod.rs b/src/header/mod.rs
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -89,6 +89,7 @@
+ // TODO: stropts.h (deprecated)
+ pub mod sys_auxv;
+ pub mod sys_epoll;
++pub mod sys_eventfd;
+ pub mod sys_file;
+ pub mod sys_ioctl;
+ // TODO: sys/ipc.h
+@@ -114,8 +115,10 @@
+ pub mod arch_aarch64_user;
+ pub mod arch_riscv64_user;
+ pub mod arch_x64_user;
++pub mod sys_signalfd;
+ #[cfg(not(target_arch = "x86"))] // TODO: x86
+ pub mod sys_procfs;
+ pub mod sys_random;
++pub mod sys_timerfd;
+ pub mod sys_syslog;
+ pub mod sys_types;
