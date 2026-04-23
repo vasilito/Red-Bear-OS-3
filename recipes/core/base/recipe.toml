@@ -1,7 +1,7 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/base.git"
 rev = "463f76b9608a896e6f6c9f63457f57f6409873c7"
-patches = ["redox.patch", "P2-boot-runtime-fixes.patch", "P2-acpi-i2c-resources.patch"]
+patches = ["redox.patch", "P2-boot-runtime-fixes.patch", "P2-acpi-i2c-resources.patch", "P2-daemon-ready-graceful.patch", "P2-daemon-hardening.patch"]
 
 [build]
 template = "custom"

@@ -1,0 +1,3767 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 9e776232..36d87870 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -20,8 +20,17 @@ members = [
+     "drivers/common",
+     "drivers/executor",
+ 
++    "drivers/acpi-resource",
+     "drivers/acpid",
++    "drivers/gpio/gpiod",
++    "drivers/gpio/i2c-gpio-expanderd",
++    "drivers/gpio/intel-gpiod",
+     "drivers/hwd",
++    "drivers/i2c/amd-mp2-i2cd",
++    "drivers/i2c/dw-acpi-i2cd",
++    "drivers/i2c/i2c-interface",
++    "drivers/i2c/i2cd",
++    "drivers/i2c/intel-lpss-i2cd",
+     "drivers/pcid",
+     "drivers/pcid-spawner",
+     "drivers/rtcd",
+@@ -43,6 +52,8 @@ members = [
+     "drivers/graphics/virtio-gpud",
+ 
+     "drivers/input/ps2d",
++    "drivers/input/i2c-hidd",
++    "drivers/input/intel-thc-hidd",
+     "drivers/input/usbhidd",
+ 
+     "drivers/net/driver-network",
+@@ -63,6 +74,7 @@ members = [
+     "drivers/storage/usbscsid",
+     "drivers/storage/virtio-blkd",
+ 
++    "drivers/usb/ucsid",
+     "drivers/usb/xhcid",
+     "drivers/usb/usbctl",
+     "drivers/usb/usbhubd",
+@@ -81,6 +93,7 @@ drm = "0.15.0"
+ drm-sys = "0.8.1"
+ edid = "0.3.0" #TODO: edid is abandoned, fork it and maintain?
+ fdt = "0.1.5"
++nom = "3.2.0" # transitive dep via edid; needed to match on IResult variants
+ libc = "0.2.181"
+ log = "0.4"
+ libredox = "0.1.16"
+diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
+index 9f507221..a0ba9d88 100644
+--- a/daemon/src/lib.rs
++++ b/daemon/src/lib.rs
+@@ -11,12 +11,23 @@ use redox_scheme::Socket;
+ use redox_scheme::scheme::{SchemeAsync, SchemeSync};
+ 
+ unsafe fn get_fd(var: &str) -> RawFd {
+-    let fd: RawFd = std::env::var(var).unwrap().parse().unwrap();
++    let fd: RawFd = match std::env::var(var)
++        .map_err(|e| eprintln!("daemon: env var {var} not set: {e}"))
++        .ok()
++        .and_then(|val| {
++            val.parse()
++                .map_err(|e| eprintln!("daemon: failed to parse {var} as fd: {e}"))
++                .ok()
++        }) {
++        Some(fd) => fd,
++        None => return -1,
++    };
+     if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } == -1 {
+-        panic!(
++        eprintln!(
+             "daemon: failed to set CLOEXEC flag for {var} fd: {}",
+             io::Error::last_os_error()
+         );
++        return -1;
+     }
+     fd
+ }
+@@ -51,31 +62,40 @@ impl Daemon {
+ 
+     /// Notify the process that the daemon is ready to accept requests.
+     pub fn ready(mut self) {
+-        self.write_pipe.write_all(&[0]).unwrap();
++        if let Err(err) = self.write_pipe.write_all(&[0]) {
++            if err.kind() != io::ErrorKind::BrokenPipe {
++                eprintln!("daemon::ready write failed: {err}");
++            }
++        }
+     }
+ 
+     /// Executes `Command` as a child process.
+     // FIXME remove once the service spawning of hwd and pcid-spawner is moved to init
+     #[deprecated]
+-    pub fn spawn(mut cmd: Command) {
+-        let (mut read_pipe, write_pipe) = io::pipe().unwrap();
++    pub fn spawn(mut cmd: Command) -> io::Result<()> {
++        let (mut read_pipe, write_pipe) = io::pipe().map_err(|err| {
++            io::Error::new(err.kind(), format!("daemon: failed to create readiness pipe: {err}"))
++        })?;
+ 
+         unsafe { pass_fd(&mut cmd, "INIT_NOTIFY", write_pipe.into()) };
+ 
+-        if let Err(err) = cmd.spawn() {
+-            eprintln!("daemon: failed to execute {cmd:?}: {err}");
+-            return;
+-        }
++        cmd.spawn().map_err(|err| {
++            io::Error::new(err.kind(), format!("failed to execute {cmd:?}: {err}"))
++        })?;
+ 
+         let mut data = [0];
+         match read_pipe.read_exact(&mut data) {
+-            Ok(()) => {}
++            Ok(()) => Ok(()),
+             Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+-                eprintln!("daemon: {cmd:?} exited without notifying readiness");
+-            }
+-            Err(err) => {
+-                eprintln!("daemon: failed to wait for {cmd:?}: {err}");
++                Err(io::Error::new(
++                    io::ErrorKind::UnexpectedEof,
++                    format!("{cmd:?} exited without notifying readiness"),
++                ))
+             }
++            Err(err) => Err(io::Error::new(
++                err.kind(),
++                format!("failed to wait for {cmd:?}: {err}"),
++            )),
+         }
+     }
+ }
+diff --git a/drivers/graphics/console-draw/src/lib.rs b/drivers/graphics/console-draw/src/lib.rs
+index 5eb951df..0b959e5c 100644
+--- a/drivers/graphics/console-draw/src/lib.rs
++++ b/drivers/graphics/console-draw/src/lib.rs
+@@ -59,19 +59,19 @@ pub struct V2DisplayMap {
+ 
+ impl V2DisplayMap {
+     pub fn new(display_handle: V2GraphicsHandle) -> io::Result<Self> {
+-        let connector = display_handle.first_display().unwrap();
+-        let connector_info = display_handle.get_connector(connector, true).unwrap();
++        let connector = display_handle.first_display()?;
++        let connector_info = display_handle.get_connector(connector, true)?;
+ 
+         let mode = connector_info.modes()[0];
+         let (width, height) = mode.size();
+ 
+         // FIXME do something smarter that avoids conflicts
+-        let crtc = display_handle.resource_handles().unwrap().filter_crtcs(
+-            display_handle
+-                .get_encoder(connector_info.encoders()[0])
+-                .unwrap()
+-                .possible_crtcs(),
+-        )[0];
++        let crtc = {
++            let res_handles = display_handle.resource_handles()?;
++            let encoder = display_handle
++                .get_encoder(connector_info.encoders()[0])?;
++            res_handles.filter_crtcs(encoder.possible_crtcs())[0]
++        };
+ 
+         let buffer = CpuBackedBuffer::new(
+             &display_handle,
+@@ -338,12 +338,12 @@ impl TextScreen {
+             line_changed(y);
+         }
+ 
+-        let width = map.width.try_into().unwrap();
++        let width: u32 = map.width.try_into().unwrap_or(0);
+         let damage = Damage {
+             x: 0,
+-            y: u32::try_from(min_changed).unwrap() * 16,
++            y: u32::try_from(min_changed).unwrap_or(0) * 16,
+             width,
+-            height: u32::try_from(max_changed.saturating_sub(min_changed) + 1).unwrap() * 16,
++            height: u32::try_from(max_changed.saturating_sub(min_changed) + 1).unwrap_or(0) * 16,
+         };
+ 
+         damage
+@@ -445,7 +445,9 @@ impl TextBuffer {
+         }
+ 
+         for &byte in buf {
+-            self.lines.back_mut().unwrap().push(byte);
++            if let Some(last) = self.lines.back_mut() {
++                last.push(byte);
++            }
+ 
+             if byte == b'\n' {
+                 self.lines.push_back(Vec::new());
+diff --git a/drivers/graphics/driver-graphics/Cargo.toml b/drivers/graphics/driver-graphics/Cargo.toml
+index 31e02335..fc747cce 100644
+--- a/drivers/graphics/driver-graphics/Cargo.toml
++++ b/drivers/graphics/driver-graphics/Cargo.toml
+@@ -9,6 +9,7 @@ drm-fourcc = "2.2.0"
+ drm-sys.workspace = true
+ edid.workspace = true #TODO: edid is abandoned, fork it and maintain?
+ log.workspace = true
++nom.workspace = true
+ redox-ioctl.workspace = true
+ redox-scheme.workspace = true
+ scheme-utils = { path = "../../../scheme-utils" }
+diff --git a/drivers/graphics/driver-graphics/src/kms/connector.rs b/drivers/graphics/driver-graphics/src/kms/connector.rs
+index c885f413..19037fec 100644
+--- a/drivers/graphics/driver-graphics/src/kms/connector.rs
++++ b/drivers/graphics/driver-graphics/src/kms/connector.rs
+@@ -21,7 +21,14 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+     ) -> KmsObjectId {
+         let mut possible_crtcs = 0;
+         for &crtc in crtcs {
+-            possible_crtcs = 1 << self.get_crtc(crtc).unwrap().lock().unwrap().crtc_index;
++            if let Ok(crtc_guard) = self.get_crtc(crtc) {
++                match crtc_guard.lock() {
++                    Ok(locked) => possible_crtcs = 1 << locked.crtc_index,
++                    Err(e) => log::error!("add_connector: crtc lock poisoned: {e}"),
++                }
++            } else {
++                log::error!("add_connector: failed to get crtc {}", crtc.0);
++            }
+         }
+ 
+         let encoder_id = self.add(KmsEncoder {
+@@ -61,7 +68,7 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+     pub fn connectors(&self) -> impl Iterator<Item = &Mutex<KmsConnector<T>>> + use<'_, T> {
+         self.connectors
+             .iter()
+-            .map(|&id| self.get_connector(id).unwrap())
++            .filter_map(|&id| self.get_connector(id).ok())
+     }
+ 
+     pub fn get_connector(&self, id: KmsObjectId) -> Result<&Mutex<KmsConnector<T>>> {
+@@ -136,10 +143,16 @@ impl<T: GraphicsAdapter> KmsConnector<T> {
+     }
+ 
+     pub fn update_from_edid(&mut self, edid: &[u8]) {
+-        let edid = edid::parse(edid).unwrap().1;
++        let edid_data = match edid::parse(edid) {
++            nom::IResult::Done(_, data) => data,
++            _ => {
++                log::error!("failed to parse EDID: parse returned error or incomplete");
++                return;
++            }
++        };
+ 
+         if let Some(first_detailed_timing) =
+-            edid.descriptors
++            edid_data.descriptors
+                 .iter()
+                 .find_map(|descriptor| match descriptor {
+                     edid::Descriptor::DetailedTiming(detailed_timing) => Some(detailed_timing),
+@@ -152,7 +165,7 @@ impl<T: GraphicsAdapter> KmsConnector<T> {
+             log::error!("No edid timing descriptor detected");
+         }
+ 
+-        self.modes = edid
++        self.modes = edid_data
+             .descriptors
+             .iter()
+             .filter_map(|descriptor| {
+diff --git a/drivers/graphics/driver-graphics/src/kms/objects.rs b/drivers/graphics/driver-graphics/src/kms/objects.rs
+index 1daf3221..55c60167 100644
+--- a/drivers/graphics/driver-graphics/src/kms/objects.rs
++++ b/drivers/graphics/driver-graphics/src/kms/objects.rs
+@@ -95,7 +95,7 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+     pub fn crtcs(&self) -> impl Iterator<Item = &Mutex<KmsCrtc<T>>> + use<'_, T> {
+         self.crtcs
+             .iter()
+-            .map(|&id| self.get::<Mutex<KmsCrtc<T>>>(id).unwrap())
++            .filter_map(|&id| self.get::<Mutex<KmsCrtc<T>>>(id).ok())
+     }
+ 
+     pub fn get_crtc(&self, id: KmsObjectId) -> Result<&Mutex<KmsCrtc<T>>> {
+@@ -115,7 +115,12 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+         let KmsObject::Framebuffer(_) = object else {
+             return Err(Error::new(EINVAL));
+         };
+-        self.objects.remove(&id).unwrap();
++        self.objects
++            .remove(&id)
++            .ok_or_else(|| {
++                log::error!("remove_framebuffer: object {} vanished during removal", id.0);
++                Error::new(EINVAL)
++            })?;
+ 
+         Ok(())
+     }
+diff --git a/drivers/graphics/driver-graphics/src/kms/properties.rs b/drivers/graphics/driver-graphics/src/kms/properties.rs
+index e22527a7..85893861 100644
+--- a/drivers/graphics/driver-graphics/src/kms/properties.rs
++++ b/drivers/graphics/driver-graphics/src/kms/properties.rs
+@@ -21,7 +21,11 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+         kind: KmsPropertyKind,
+     ) -> KmsObjectId {
+         match &kind {
+-            KmsPropertyKind::Range(start, end) => assert!(start < end),
++            KmsPropertyKind::Range(start, end) => {
++                if start >= end {
++                    log::error!("Range property '{name}' has invalid range: start ({start}) >= end ({end})");
++                }
++            }
+             KmsPropertyKind::Enum(_variants) => {
+                 // FIXME check duplicate variant numbers
+             }
+@@ -30,7 +34,11 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+                 // FIXME check overlapping flag numbers
+             }
+             KmsPropertyKind::Object { type_: _ } => {}
+-            KmsPropertyKind::SignedRange(start, end) => assert!(start < end),
++            KmsPropertyKind::SignedRange(start, end) => {
++                if start >= end {
++                    log::error!("SignedRange property '{name}' has invalid range: start ({start}) >= end ({end})");
++                }
++            }
+         }
+ 
+         let mut name_bytes = [0; DRM_PROP_NAME_LEN as usize];
+@@ -54,7 +62,13 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+         let object = self.objects.get(&id).ok_or(Error::new(EINVAL))?;
+         match object {
+             KmsObject::Crtc(crtc) => {
+-                let crtc = crtc.lock().unwrap();
++                let crtc = match crtc.lock() {
++                    Ok(g) => g,
++                    Err(e) => {
++                        log::error!("get_object_properties_data: crtc lock poisoned: {e}");
++                        return Err(Error::new(EINVAL));
++                    }
++                };
+                 let props = &crtc.properties;
+                 Ok((
+                     props.iter().map(|prop| prop.id.0).collect::<Vec<_>>(),
+@@ -65,7 +79,13 @@ impl<T: GraphicsAdapter> KmsObjects<T> {
+                 ))
+             }
+             KmsObject::Connector(connector) => {
+-                let connector = connector.lock().unwrap();
++                let connector = match connector.lock() {
++                    Ok(g) => g,
++                    Err(e) => {
++                        log::error!("get_object_properties_data: connector lock poisoned: {e}");
++                        return Err(Error::new(EINVAL));
++                    }
++                };
+                 let props = &connector.properties;
+                 Ok((
+                     props.iter().map(|prop| prop.id.0).collect::<Vec<_>>(),
+@@ -151,12 +171,16 @@ macro_rules! define_properties {
+ 
+         pub(super) fn init_standard_props<T: GraphicsAdapter>(objects: &mut KmsObjects<T>) {
+             $(
+-                assert_eq!(objects.add_property(
++                let prop_id = objects.add_property(
+                     define_properties!(@prop_name $prop $($prop_name)?),
+                     define_properties!(@is_immutable $($prop_flag)?),
+                     define_properties!(@is_atomic $($prop_flag)?),
+                     define_properties!(@prop_kind $prop_type $({$($prop_content)*})?),
+-                ), $prop);
++                );
++                if prop_id != $prop {
++                    log::error!("property ID mismatch for {}: expected {:?}, got {:?}",
++                        stringify!($prop), $prop, prop_id);
++                }
+             )*
+         }
+     };
+diff --git a/drivers/graphics/driver-graphics/src/lib.rs b/drivers/graphics/driver-graphics/src/lib.rs
+index eab0be9c..e5886b36 100644
+--- a/drivers/graphics/driver-graphics/src/lib.rs
++++ b/drivers/graphics/driver-graphics/src/lib.rs
+@@ -136,13 +136,20 @@ pub struct GraphicsScheme<T: GraphicsAdapter> {
+ 
+ impl<T: GraphicsAdapter> GraphicsScheme<T> {
+     pub fn new(mut adapter: T, scheme_name: String, early: bool) -> Self {
+-        assert!(scheme_name.starts_with("display"));
+-        let socket = Socket::nonblock().expect("failed to create graphics scheme");
++        if !scheme_name.starts_with("display") {
++            log::error!("graphics scheme name must start with 'display': {scheme_name}");
++            std::process::exit(1);
++        }
++        let socket = match Socket::nonblock() {
++            Ok(s) => s,
++            Err(e) => {
++                log::error!("failed to create graphics scheme: {e}");
++                std::process::exit(1);
++            }
++        };
+ 
+-        let disable_graphical_debug = Some(
+-            File::open("/scheme/debug/disable-graphical-debug")
+-                .expect("vesad: Failed to open /scheme/debug/disable-graphical-debug"),
+-        );
++        let disable_graphical_debug =
++            File::open("/scheme/debug/disable-graphical-debug").ok();
+ 
+         let mut objects = KmsObjects::new();
+         adapter.init(&mut objects);
+@@ -161,14 +168,34 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
+             vts: HashMap::new(),
+         };
+ 
+-        let cap_id = inner.scheme_root().expect("failed to get this scheme root");
+-        register_scheme_inner(&inner.socket, &inner.scheme_name, cap_id)
+-            .expect("failed to register graphics scheme root");
++        let cap_id = match inner.scheme_root() {
++            Ok(id) => id,
++            Err(e) => {
++                log::error!("failed to get this scheme root: {e}");
++                std::process::exit(1);
++            }
++        };
++        if let Err(e) = register_scheme_inner(&inner.socket, &inner.scheme_name, cap_id) {
++            log::error!("failed to register graphics scheme root: {e}");
++            std::process::exit(1);
++        }
+ 
+         let display_handle = if early {
+-            DisplayHandle::new_early(&inner.scheme_name).unwrap()
++            match DisplayHandle::new_early(&inner.scheme_name) {
++                Ok(h) => h,
++                Err(e) => {
++                    log::error!("failed to create early display handle: {e}");
++                    std::process::exit(1);
++                }
++            }
+         } else {
+-            DisplayHandle::new(&inner.scheme_name).unwrap()
++            match DisplayHandle::new(&inner.scheme_name) {
++                Ok(h) => h,
++                Err(e) => {
++                    log::error!("failed to create display handle: {e}");
++                    std::process::exit(1);
++                }
++            }
+         };
+ 
+         Self {
+@@ -207,11 +234,15 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
+     }
+ 
+     pub fn handle_vt_events(&mut self) {
+-        while let Some(vt_event) = self
+-            .inputd_handle
+-            .read_vt_event()
+-            .expect("driver-graphics: failed to read display handle")
+-        {
++        loop {
++            let vt_event = match self.inputd_handle.read_vt_event() {
++                Ok(Some(event)) => event,
++                Ok(None) => break,
++                Err(e) => {
++                    log::error!("driver-graphics: failed to read display handle: {e}");
++                    break;
++                }
++            };
+             match vt_event.kind {
+                 VtEventKind::Activate => self.inner.activate_vt(vt_event.vt),
+             }
+@@ -241,10 +272,17 @@ impl<T: GraphicsAdapter> GraphicsScheme<T> {
+             match request.kind() {
+                 RequestKind::Call(call) => {
+                     let response = call.handle_sync(&mut self.inner, &mut self.state);
+-                    self.inner
++                    if let Err(e) = self
++                        .inner
+                         .socket
+                         .write_response(response, SignalBehavior::Restart)
+-                        .expect("driver-graphics: failed to write response");
++                    {
++                        log::error!("driver-graphics: failed to write response: {e}");
++                        return Err(io::Error::new(
++                            io::ErrorKind::Other,
++                            format!("driver-graphics: failed to write response: {e}"),
++                        ));
++                    }
+                 }
+                 RequestKind::OnClose { id } => {
+                     self.inner.on_close(id);
+@@ -294,11 +332,28 @@ impl<T: GraphicsAdapter> GraphicsSchemeInner<T> {
+         vts.entry(vt).or_insert_with(|| VtState {
+             connector_state: objects
+                 .connectors()
+-                .map(|connector| connector.lock().unwrap().state.clone())
++                .map(|connector| {
++                    connector
++                        .lock()
++                        .unwrap_or_else(|e| {
++                            log::error!("get_or_create_vt: connector lock poisoned: {e}");
++                            e.into_inner()
++                        })
++                        .state
++                        .clone()
++                })
+                 .collect(),
+             crtc_state: objects
+                 .crtcs()
+-                .map(|crtc| crtc.lock().unwrap().state.clone())
++                .map(|crtc| {
++                    crtc.lock()
++                        .unwrap_or_else(|e| {
++                            log::error!("get_or_create_vt: crtc lock poisoned: {e}");
++                            e.into_inner()
++                        })
++                        .state
++                        .clone()
++                })
+                 .collect(),
+             cursor_plane: CursorPlane {
+                 x: 0,
+@@ -327,47 +382,71 @@ impl<T: GraphicsAdapter> GraphicsSchemeInner<T> {
+ 
+         for (connector_idx, connector_state) in vt_state.connector_state.iter().enumerate() {
+             let connector_id = self.objects.connector_ids()[connector_idx];
+-            let mut connector = self
+-                .objects
+-                .get_connector(connector_id)
+-                .unwrap()
+-                .lock()
+-                .unwrap();
++            let connector_guard = match self.objects.get_connector(connector_id) {
++                Ok(g) => g,
++                Err(e) => {
++                    log::error!("activate_vt: failed to get connector {}: {e}", connector_id.0);
++                    continue;
++                }
++            };
++            let mut connector = match connector_guard.lock() {
++                Ok(g) => g,
++                Err(e) => {
++                    log::error!("activate_vt: connector {} lock poisoned: {e}", connector_id.0);
++                    e.into_inner()
++                }
++            };
+             connector.state = connector_state.clone();
+         }
+ 
+         for (crtc_idx, crtc_state) in vt_state.crtc_state.iter().enumerate() {
+             let crtc_id = self.objects.crtc_ids()[crtc_idx];
+-            let crtc = self.objects.get_crtc(crtc_id).unwrap();
++            let crtc = match self.objects.get_crtc(crtc_id) {
++                Ok(c) => c,
++                Err(e) => {
++                    log::error!("activate_vt: failed to get crtc {}: {e}", crtc_id.0);
++                    continue;
++                }
++            };
+             let connector_id = self.objects.connector_ids()[crtc_idx];
+ 
+-            let fb = crtc_state.fb_id.map(|fb_id| {
++            let fb = crtc_state.fb_id.and_then(|fb_id| {
+                 self.objects
+                     .get_framebuffer(fb_id)
+-                    .expect("removed framebuffers should be unset")
++                    .map_err(|e| {
++                        log::error!("activate_vt: framebuffer {} missing: {e}", fb_id.0);
++                        e
++                    })
++                    .ok()
+             });
+ 
+-            self.adapter
+-                .set_crtc(
+-                    &self.objects,
+-                    crtc,
+-                    crtc_state.clone(),
+-                    Damage {
+-                        x: 0,
+-                        y: 0,
+-                        width: fb.map_or(0, |fb| fb.width),
+-                        height: fb.map_or(0, |fb| fb.height),
+-                    },
+-                )
+-                .unwrap();
+-
+-            self.objects
+-                .get_connector(connector_id)
+-                .unwrap()
+-                .lock()
+-                .unwrap()
+-                .state
+-                .crtc_id = crtc_id;
++            if let Err(e) = self.adapter.set_crtc(
++                &self.objects,
++                crtc,
++                crtc_state.clone(),
++                Damage {
++                    x: 0,
++                    y: 0,
++                    width: fb.as_ref().map_or(0, |fb| fb.width),
++                    height: fb.as_ref().map_or(0, |fb| fb.height),
++                },
++            ) {
++                log::error!("activate_vt: set_crtc failed for crtc {}: {e}", crtc_id.0);
++                continue;
++            }
++
++            match self.objects.get_connector(connector_id) {
++                Ok(conn_guard) => match conn_guard.lock() {
++                    Ok(mut conn) => conn.state.crtc_id = crtc_id,
++                    Err(e) => {
++                        log::error!("activate_vt: connector {} lock poisoned: {e}", connector_id.0);
++                        e.into_inner().state.crtc_id = crtc_id;
++                    }
++                },
++                Err(e) => {
++                    log::error!("activate_vt: failed to get connector {}: {e}", connector_id.0);
++                }
++            }
+         }
+ 
+         if self.adapter.hw_cursor_size().is_some() {
+@@ -430,7 +509,12 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                     vt,
+                     next_id: _,
+                     buffers: _,
+-                } => write!(w, "v2/{vt}").unwrap(),
++                } => {
++                    if let Err(e) = write!(w, "v2/{vt}") {
++                        log::error!("fpath: write failed: {e}");
++                        return Err(Error::new(EINVAL));
++                    }
++                }
+                 Handle::SchemeRoot => return Err(Error::new(EOPNOTSUPP)),
+             };
+             Ok(())
+@@ -531,7 +615,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                         .objects
+                         .get_crtc(KmsObjectId(data.crtc_id()))?
+                         .lock()
+-                        .unwrap();
++                        .map_err(|e| {
++                            log::error!("MODE_GET_CRTC: crtc lock poisoned: {e}");
++                            Error::new(EINVAL)
++                        })?;
+                     // Don't touch set_connectors, that is only used by MODE_SET_CRTC
+                     data.set_fb_id(crtc.state.fb_id.unwrap_or(KmsObjectId::INVALID).0);
+                     // FIXME fill x and y with the data from the primary plane
+@@ -565,7 +652,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                     } else {
+                         None
+                     };
+-                    let mut new_state = crtc.lock().unwrap().state.clone();
++                    let mut new_state = crtc.lock().map_err(|e| {
++                        log::error!("MODE_SET_CRTC: crtc lock poisoned: {e}");
++                        Error::new(EINVAL)
++                    })?.state.clone();
+                     new_state.fb_id = fb_id;
+                     new_state.mode = mode;
+                     if *vt == self.active_vt {
+@@ -582,20 +672,34 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                         )?;
+ 
+                         for connector in connector_ids {
+-                            self.objects
+-                                .get_connector(connector)?
+-                                .lock()
+-                                .unwrap()
+-                                .state
+-                                .crtc_id = KmsObjectId(data.crtc_id());
++                            let conn_guard = self.objects.get_connector(connector)?;
++                            match conn_guard.lock() {
++                                Ok(mut conn) => conn.state.crtc_id = KmsObjectId(data.crtc_id()),
++                                Err(e) => {
++                                    log::error!("MODE_SET_CRTC: connector lock poisoned: {e}");
++                                    e.into_inner().state.crtc_id = KmsObjectId(data.crtc_id());
++                                }
++                            }
+                         }
+                     }
+-                    self.vts.get_mut(vt).unwrap().crtc_state
+-                        [crtc.lock().unwrap().crtc_index as usize] = new_state;
++                    {
++                        let crtc_index = crtc.lock().map_err(|e| {
++                            log::error!("MODE_SET_CRTC: crtc lock poisoned: {e}");
++                            Error::new(EINVAL)
++                        })?.crtc_index as usize;
++                        let vt_state = self.vts.get_mut(vt).ok_or_else(|| {
++                            log::error!("MODE_SET_CRTC: vt {} not found", vt);
++                            Error::new(EINVAL)
++                        })?;
++                        vt_state.crtc_state[crtc_index] = new_state;
++                    }
+                     Ok(0)
+                 }),
+                 ipc::MODE_CURSOR => ipc::DrmModeCursor::with(payload, |data| {
+-                    let vt_state = self.vts.get_mut(vt).unwrap();
++                    let vt_state = self.vts.get_mut(vt).ok_or_else(|| {
++                        log::error!("MODE_CURSOR: vt {} not found", vt);
++                        Error::new(EINVAL)
++                    })?;
+ 
+                     let cursor_plane = &mut vt_state.cursor_plane;
+ 
+@@ -635,7 +739,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                         .objects
+                         .get_connector(KmsObjectId(data.connector_id()))?
+                         .lock()
+-                        .unwrap();
++                        .map_err(|e| {
++                            log::error!("MODE_GET_CONNECTOR: connector lock poisoned: {e}");
++                            Error::new(EINVAL)
++                        })?;
+                     data.set_encoders_ptr(&[connector.encoder_id.0]);
+                     data.set_modes_ptr(&connector.modes);
+                     data.set_connector_type(data.connector_type());
+@@ -772,20 +879,23 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                             if *vt != self.active_vt {
+                                 continue;
+                             }
+-                            let crtc = self.objects.crtcs().nth(crtc_idx).unwrap();
+-                            self.adapter
+-                                .set_crtc(
+-                                    &self.objects,
+-                                    crtc,
+-                                    crtc_state.clone(),
+-                                    Damage {
+-                                        x: 0,
+-                                        y: 0,
+-                                        width: 0,
+-                                        height: 0,
+-                                    },
+-                                )
+-                                .unwrap();
++                            let Some(crtc) = self.objects.crtcs().nth(crtc_idx) else {
++                                log::error!("MODE_RM_FB: crtc index {crtc_idx} out of bounds");
++                                continue;
++                            };
++                            if let Err(e) = self.adapter.set_crtc(
++                                &self.objects,
++                                crtc,
++                                crtc_state.clone(),
++                                Damage {
++                                    x: 0,
++                                    y: 0,
++                                    width: 0,
++                                    height: 0,
++                                },
++                            ) {
++                                log::error!("MODE_RM_FB: set_crtc failed for crtc {crtc_idx}: {e}");
++                            }
+                         }
+                     }
+ 
+@@ -813,7 +923,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+ 
+                     if *vt == self.active_vt {
+                         for crtc in self.objects.crtcs() {
+-                            let state = crtc.lock().unwrap().state.clone();
++                            let state = crtc.lock().map_err(|e| {
++                                log::error!("MODE_DIRTYFB: crtc lock poisoned: {e}");
++                                Error::new(EINVAL)
++                            })?.state.clone();
+                             if state.fb_id == Some(KmsObjectId(data.fb_id())) {
+                                 self.adapter.set_crtc(&self.objects, crtc, state, damage)?;
+                             }
+@@ -850,7 +963,13 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                     }
+ 
+                     // FIXME use a better scheme for creating map offsets
+-                    assert!(buffers[&buffer_id].size() < MAP_FAKE_OFFSET_MULTIPLIER);
++                    let buf_size = buffers[&buffer_id].size();
++                    if buf_size >= MAP_FAKE_OFFSET_MULTIPLIER {
++                        log::error!(
++                            "MODE_MAP_DUMB: buffer size {buf_size} exceeds offset multiplier {MAP_FAKE_OFFSET_MULTIPLIER}"
++                        );
++                        return Err(Error::new(EINVAL));
++                    }
+ 
+                     data.set_offset((buffer_id as usize * MAP_FAKE_OFFSET_MULTIPLIER) as u64);
+ 
+@@ -874,11 +993,14 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                 ipc::MODE_GET_PLANE => ipc::DrmModeGetPlane::with(payload, |mut data| {
+                     let i = id_index(data.plane_id());
+                     let crtc_id = self.objects.crtc_ids()[i as usize];
+-                    let crtc = self.objects.get_crtc(crtc_id).unwrap();
++                    let crtc = self.objects.get_crtc(crtc_id)?;
+                     data.set_crtc_id(crtc_id.0);
++                    let crtc_locked = crtc.lock().map_err(|e| {
++                        log::error!("MODE_GET_PLANE: crtc lock poisoned: {e}");
++                        Error::new(EINVAL)
++                    })?;
+                     data.set_fb_id(
+-                        crtc.lock()
+-                            .unwrap()
++                        crtc_locked
+                             .state
+                             .fb_id
+                             .unwrap_or(KmsObjectId::INVALID)
+@@ -907,7 +1029,10 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+                     })
+                 }
+                 ipc::MODE_CURSOR2 => ipc::DrmModeCursor2::with(payload, |data| {
+-                    let vt_state = self.vts.get_mut(vt).unwrap();
++                    let vt_state = self.vts.get_mut(vt).ok_or_else(|| {
++                        log::error!("MODE_CURSOR2: vt {} not found", vt);
++                        Error::new(EINVAL)
++                    })?;
+ 
+                     let cursor_plane = &mut vt_state.cursor_plane;
+ 
+@@ -970,8 +1095,7 @@ impl<T: GraphicsAdapter> SchemeSync for GraphicsSchemeInner<T> {
+             } => (
+                 buffers
+                     .get(&((offset as usize / MAP_FAKE_OFFSET_MULTIPLIER) as u32))
+-                    .ok_or(Error::new(EINVAL))
+-                    .unwrap(),
++                    .ok_or(Error::new(EINVAL))?,
+                 offset & (MAP_FAKE_OFFSET_MULTIPLIER as u64 - 1),
+             ),
+             Handle::SchemeRoot => return Err(Error::new(EOPNOTSUPP)),
+diff --git a/drivers/graphics/fbbootlogd/src/main.rs b/drivers/graphics/fbbootlogd/src/main.rs
+index 3e42d590..62749577 100644
+--- a/drivers/graphics/fbbootlogd/src/main.rs
++++ b/drivers/graphics/fbbootlogd/src/main.rs
+@@ -24,7 +24,13 @@ fn main() {
+     daemon::SchemeDaemon::new(daemon);
+ }
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+-    let event_queue = EventQueue::new().expect("fbbootlogd: failed to create event queue");
++    let event_queue = match EventQueue::new() {
++        Ok(eq) => eq,
++        Err(err) => {
++            eprintln!("fbbootlogd: failed to create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     event::user_data! {
+         enum Source {
+@@ -33,78 +39,105 @@ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+         }
+     }
+ 
+-    let socket = Socket::nonblock().expect("fbbootlogd: failed to create fbbootlog scheme");
++    let socket = match Socket::nonblock() {
++        Ok(s) => s,
++        Err(err) => {
++            eprintln!("fbbootlogd: failed to create fbbootlog scheme: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = FbbootlogScheme::new();
+     let mut handler = Blocking::new(&socket, 16);
+ 
+-    event_queue
+-        .subscribe(
+-            socket.inner().raw(),
+-            Source::Scheme,
+-            event::EventFlags::READ,
+-        )
+-        .expect("fbbootlogd: failed to subscribe to scheme events");
++    if let Err(err) = event_queue.subscribe(
++        socket.inner().raw(),
++        Source::Scheme,
++        event::EventFlags::READ,
++    ) {
++        eprintln!("fbbootlogd: failed to subscribe to scheme events: {err}");
++        std::process::exit(1);
++    }
+ 
+-    event_queue
+-        .subscribe(
+-            scheme.input_handle.event_handle().as_raw_fd() as usize,
+-            Source::Input,
+-            event::EventFlags::READ,
+-        )
+-        .expect("fbbootlogd: failed to subscribe to scheme events");
++    if let Err(err) = event_queue.subscribe(
++        scheme.input_handle.event_handle().as_raw_fd() as usize,
++        Source::Input,
++        event::EventFlags::READ,
++    ) {
++        eprintln!("fbbootlogd: failed to subscribe to input events: {err}");
++        std::process::exit(1);
++    }
+ 
+     {
+-        let log_fd = socket
+-            .create_this_scheme_fd(0, 0, 0, 0)
+-            .expect("fbbootlogd: failed to create log fd");
++        let log_fd = match socket.create_this_scheme_fd(0, 0, 0, 0) {
++            Ok(fd) => fd,
++            Err(err) => {
++                eprintln!("fbbootlogd: failed to create log fd: {err}");
++                std::process::exit(1);
++            }
++        };
+         // Add ourself as log sink
+-        let log_file = libredox::Fd::open(
++        let log_file = match libredox::Fd::open(
+             "/scheme/log/add_sink",
+             libredox::flag::O_WRONLY | libredox::flag::O_CLOEXEC,
+             0,
+-        )
+-        .expect("fbbootlogd: failed to open log/add_sink");
+-        log_file
+-            .call_wo(&log_fd.to_ne_bytes(), syscall::CallFlags::FD, &[])
+-            .expect("fbbootlogd: failed to send log fd to log scheme.");
++        ) {
++            Ok(fd) => fd,
++            Err(err) => {
++                eprintln!("fbbootlogd: failed to open log/add_sink: {err}");
++                std::process::exit(1);
++            }
++        };
++        if let Err(err) =
++            log_file.call_wo(&log_fd.to_ne_bytes(), syscall::CallFlags::FD, &[])
++        {
++            eprintln!("fbbootlogd: failed to send log fd to log scheme: {err}");
++            std::process::exit(1);
++        }
+     }
+ 
+     let _ = daemon.ready_sync_scheme(&socket, &mut scheme);
+ 
+     // This is not possible for now as fbbootlogd needs to open new displays at runtime for graphics
+     // driver handoff. In the future inputd may directly pass a handle to the display instead.
+-    //libredox::call::setrens(0, 0).expect("fbbootlogd: failed to enter null namespace");
+ 
+     for event in event_queue {
+-        match event.expect("fbbootlogd: failed to get event").user_data {
++        let event = match event {
++            Ok(e) => e,
++            Err(err) => {
++                eprintln!("fbbootlogd: failed to get event: {err}");
++                continue;
++            }
++        };
++        match event.user_data {
+             Source::Scheme => loop {
+-                match handler
+-                    .process_requests_nonblocking(&mut scheme)
+-                    .expect("fbbootlogd: failed to process requests")
+-                {
+-                    ControlFlow::Continue(()) => {}
+-                    ControlFlow::Break(()) => break,
++                match handler.process_requests_nonblocking(&mut scheme) {
++                    Ok(ControlFlow::Continue(())) => {}
++                    Ok(ControlFlow::Break(())) => break,
++                    Err(err) => {
++                        eprintln!("fbbootlogd: failed to process requests: {err}");
++                        break;
++                    }
+                 }
+             },
+             Source::Input => {
+                 let mut events = [Event::new(); 16];
+                 loop {
+-                    match scheme
+-                        .input_handle
+-                        .read_events(&mut events)
+-                        .expect("fbbootlogd: error while reading events")
+-                    {
+-                        ConsumerHandleEvent::Events(&[]) => break,
+-                        ConsumerHandleEvent::Events(events) => {
++                    match scheme.input_handle.read_events(&mut events) {
++                        Ok(ConsumerHandleEvent::Events(&[])) => break,
++                        Ok(ConsumerHandleEvent::Events(events)) => {
+                             for event in events {
+                                 scheme.handle_input(&event);
+                             }
+                         }
+-                        ConsumerHandleEvent::Handoff => {
++                        Ok(ConsumerHandleEvent::Handoff) => {
+                             eprintln!("fbbootlogd: handoff requested");
+                             scheme.handle_handoff();
+                         }
++                        Err(err) => {
++                            eprintln!("fbbootlogd: error while reading events: {err}");
++                            break;
++                        }
+                     }
+                 }
+             }
+diff --git a/drivers/graphics/fbbootlogd/src/scheme.rs b/drivers/graphics/fbbootlogd/src/scheme.rs
+index 812c4a5b..9e1869c3 100644
+--- a/drivers/graphics/fbbootlogd/src/scheme.rs
++++ b/drivers/graphics/fbbootlogd/src/scheme.rs
+@@ -26,7 +26,13 @@ pub struct FbbootlogScheme {
+ impl FbbootlogScheme {
+     pub fn new() -> FbbootlogScheme {
+         let mut scheme = FbbootlogScheme {
+-            input_handle: ConsumerHandle::bootlog_vt().expect("fbbootlogd: Failed to open vt"),
++            input_handle: match ConsumerHandle::bootlog_vt() {
++                Ok(handle) => handle,
++                Err(err) => {
++                    eprintln!("fbbootlogd: failed to open vt: {err}");
++                    std::process::exit(1);
++                }
++            },
+             display_map: None,
+             text_screen: console_draw::TextScreen::new(),
+             text_buffer: console_draw::TextBuffer::new(1000),
+@@ -42,7 +48,13 @@ impl FbbootlogScheme {
+ 
+     pub fn handle_handoff(&mut self) {
+         let new_display_handle = match self.input_handle.open_display_v2() {
+-            Ok(display) => V2GraphicsHandle::from_file(display).unwrap(),
++            Ok(display) => match V2GraphicsHandle::from_file(display) {
++                Ok(handle) => handle,
++                Err(err) => {
++                    eprintln!("fbbootlogd: failed to create graphics handle: {err}");
++                    return;
++                }
++            },
+             Err(err) => {
+                 eprintln!("fbbootlogd: No display present yet: {err}");
+                 return;
+@@ -140,7 +152,9 @@ impl FbbootlogScheme {
+                 total_damage = total_damage.merge(damage);
+             }
+         }
+-        map.dirty_fb(total_damage).unwrap();
++        if let Err(err) = map.dirty_fb(total_damage) {
++            eprintln!("fbbootlogd: failed to flush scrollback damage: {err}");
++        }
+     }
+ 
+     fn handle_resize(map: &mut V2DisplayMap, text_screen: &mut TextScreen) {
+@@ -234,7 +248,9 @@ impl SchemeSync for FbbootlogScheme {
+                 let damage = self.text_screen.write(map, buf, &mut VecDeque::new());
+ 
+                 if let Some(map) = &mut self.display_map {
+-                    map.dirty_fb(damage).unwrap();
++                    if let Err(err) = map.dirty_fb(damage) {
++                        eprintln!("fbbootlogd: failed to flush write damage: {err}");
++                    }
+                 }
+             }
+         }
+diff --git a/drivers/graphics/fbcond/src/display.rs b/drivers/graphics/fbcond/src/display.rs
+index eb09b97e..957a6d88 100644
+--- a/drivers/graphics/fbcond/src/display.rs
++++ b/drivers/graphics/fbcond/src/display.rs
+@@ -31,7 +31,13 @@ impl Display {
+                 return;
+             }
+         };
+-        let new_display_handle = V2GraphicsHandle::from_file(display_file).unwrap();
++        let new_display_handle = match V2GraphicsHandle::from_file(display_file) {
++            Ok(h) => h,
++            Err(err) => {
++                log::error!("fbcond: failed to create display handle: {err}");
++                return;
++            }
++        };
+ 
+         log::debug!("fbcond: Opened new display");
+ 
+@@ -77,7 +83,9 @@ impl Display {
+ 
+     pub fn sync_rect(&mut self, damage: Damage) {
+         if let Some(map) = &mut self.map {
+-            map.dirty_fb(damage).unwrap();
++            if let Err(err) = map.dirty_fb(damage) {
++                log::error!("fbcond: failed to sync display rect: {err}");
++            }
+         }
+     }
+ }
+diff --git a/drivers/graphics/fbcond/src/main.rs b/drivers/graphics/fbcond/src/main.rs
+index eb4f9add..7acc488f 100644
+--- a/drivers/graphics/fbcond/src/main.rs
++++ b/drivers/graphics/fbcond/src/main.rs
+@@ -21,7 +21,15 @@ fn main() {
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+     let vt_ids = env::args()
+         .skip(1)
+-        .map(|arg| arg.parse().expect("invalid vt number"))
++        .filter_map(|arg| {
++            match arg.parse() {
++                Ok(v) => Some(v),
++                Err(_) => {
++                    eprintln!("fbcond: invalid vt number '{}', skipping", arg);
++                    None
++                }
++            }
++        })
+         .collect::<Vec<_>>();
+ 
+     common::setup_logging(
+@@ -31,18 +39,31 @@ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+         common::output_level(),
+         common::file_level(),
+     );
+-    let mut event_queue = EventQueue::new().expect("fbcond: failed to create event queue");
++    let mut event_queue = match EventQueue::new() {
++        Ok(eq) => eq,
++        Err(err) => {
++            eprintln!("fbcond: failed to create event queue: {}", err);
++            std::process::exit(1);
++        }
++    };
+ 
+     // FIXME listen for resize events from inputd and handle them
+ 
+-    let mut socket = Socket::nonblock().expect("fbcond: failed to create fbcon scheme");
+-    event_queue
+-        .subscribe(
+-            socket.inner().raw(),
+-            VtIndex::SCHEMA_SENTINEL,
+-            event::EventFlags::READ,
+-        )
+-        .expect("fbcond: failed to subscribe to scheme events");
++    let mut socket = match Socket::nonblock() {
++        Ok(s) => s,
++        Err(err) => {
++            eprintln!("fbcond: failed to create fbcon scheme: {}", err);
++            std::process::exit(1);
++        }
++    };
++    if let Err(err) = event_queue.subscribe(
++        socket.inner().raw(),
++        VtIndex::SCHEMA_SENTINEL,
++        event::EventFlags::READ,
++    ) {
++        eprintln!("fbcond: failed to subscribe to scheme events: {}", err);
++        std::process::exit(1);
++    }
+ 
+     let mut state = SchemeState::new();
+     let mut scheme = FbconScheme::new(&vt_ids, &mut event_queue);
+@@ -51,7 +72,6 @@ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+ 
+     // This is not possible for now as fbcond needs to open new displays at runtime for graphics
+     // driver handoff. In the future inputd may directly pass a handle to the display instead.
+-    // libredox::call::setrens(0, 0).expect("fbcond: failed to enter null namespace");
+ 
+     let mut blocked = Vec::new();
+ 
+@@ -68,7 +88,13 @@ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+     }
+ 
+     for event in event_queue {
+-        let event = event.expect("fbcond: failed to read event from event queue");
++        let event = match event {
++            Ok(ev) => ev,
++            Err(err) => {
++                eprintln!("fbcond: failed to read event from event queue: {}", err);
++                continue;
++            }
++        };
+         handle_event(
+             &mut socket,
+             &mut scheme,
+@@ -99,7 +125,10 @@ fn handle_event(
+                 Err(err) if err.errno == EAGAIN => {
+                     break;
+                 }
+-                Err(err) => panic!("fbcond: failed to read display scheme: {err}"),
++                Err(err) => {
++                    eprintln!("fbcond: failed to read display scheme: {err}");
++                    break;
++                }
+             };
+ 
+             match request.kind() {
+@@ -108,12 +137,12 @@ fn handle_event(
+                     let mut op = match req.op() {
+                         Ok(op) => op,
+                         Err(req) => {
+-                            let _ = socket
+-                                .write_response(
+-                                    Response::err(EOPNOTSUPP, req),
+-                                    SignalBehavior::Restart,
+-                                )
+-                                .expect("fbcond: failed to write responses to fbcon scheme");
++                            if let Err(err) = socket.write_response(
++                                Response::err(EOPNOTSUPP, req),
++                                SignalBehavior::Restart,
++                            ) {
++                                eprintln!("fbcond: failed to write response: {}", err);
++                            }
+                             continue;
+                         }
+                     };
+@@ -125,25 +154,27 @@ fn handle_event(
+                             blocked.push((op, caller));
+                         }
+                         SchemeResponse::Regular(r) => {
+-                            let _ = socket
++                            if let Err(err) = socket
+                                 .write_response(Response::new(r, op), SignalBehavior::Restart)
+-                                .expect("fbcond: failed to write responses to fbcon scheme");
++                            {
++                                eprintln!("fbcond: failed to write response: {}", err);
++                            }
+                         }
+                         SchemeResponse::Opened(o) => {
+-                            let _ = socket
+-                                .write_response(
+-                                    Response::open_dup_like(o, op),
+-                                    SignalBehavior::Restart,
+-                                )
+-                                .expect("fbcond: failed to write responses to fbcon scheme");
++                            if let Err(err) = socket.write_response(
++                                Response::open_dup_like(o, op),
++                                SignalBehavior::Restart,
++                            ) {
++                                eprintln!("fbcond: failed to write response: {}", err);
++                            }
+                         }
+                         SchemeResponse::RegularAndNotifyOnDetach(status) => {
+-                            let _ = socket
+-                                .write_response(
+-                                    Response::new_notify_on_detach(status, op),
+-                                    SignalBehavior::Restart,
+-                                )
+-                                .expect("fbcond: failed to write scheme");
++                            if let Err(err) = socket.write_response(
++                                Response::new_notify_on_detach(status, op),
++                                SignalBehavior::Restart,
++                            ) {
++                                eprintln!("fbcond: failed to write response: {}", err);
++                            }
+                         }
+                     }
+                 }
+@@ -157,25 +188,32 @@ fn handle_event(
+                     {
+                         let (blocked_req, _) = blocked.remove(i);
+                         let resp = Response::err(EINTR, blocked_req);
+-                        socket
+-                            .write_response(resp, SignalBehavior::Restart)
+-                            .expect("vesad: failed to write display scheme");
++                        if let Err(err) =
++                            socket.write_response(resp, SignalBehavior::Restart)
++                        {
++                            eprintln!("fbcond: failed to write cancellation response: {}", err);
++                        }
+                     }
+                 }
+                 _ => {}
+             }
+         },
+         vt_i => {
+-            let vt = scheme.vts.get_mut(&vt_i).unwrap();
++            let Some(vt) = scheme.vts.get_mut(&vt_i) else {
++                eprintln!("fbcond: unknown vt index {:?}", vt_i);
++                return;
++            };
+ 
+             let mut events = [Event::new(); 16];
+             loop {
+-                match vt
+-                    .display
+-                    .input_handle
+-                    .read_events(&mut events)
+-                    .expect("fbcond: Error while reading events")
+-                {
++                let read_result = match vt.display.input_handle.read_events(&mut events) {
++                    Ok(r) => r,
++                    Err(err) => {
++                        eprintln!("fbcond: error while reading events: {}", err);
++                        break;
++                    }
++                };
++                match read_result {
+                     ConsumerHandleEvent::Events(&[]) => break,
+ 
+                     ConsumerHandleEvent::Events(events) => {
+@@ -193,9 +231,9 @@ fn handle_event(
+     {
+         let mut i = 0;
+         while i < blocked.len() {
+-            let (op, caller) = blocked
+-                .get_mut(i)
+-                .expect("vesad: Failed to get blocked request");
++            let Some((op, caller)) = blocked.get_mut(i) else {
++                break;
++            };
+             let resp = match op.handle_sync_dont_consume(&caller, scheme, state) {
+                 SchemeResponse::Opened(Err(e)) | SchemeResponse::Regular(Err(e))
+                     if libredox::error::Error::from(e).is_wouldblock()
+@@ -217,9 +255,9 @@ fn handle_event(
+                     Response::new_notify_on_detach(status, op)
+                 }
+             };
+-            let _ = socket
+-                .write_response(resp, SignalBehavior::Restart)
+-                .expect("vesad: failed to write display scheme");
++            if let Err(err) = socket.write_response(resp, SignalBehavior::Restart) {
++                eprintln!("fbcond: failed to write blocked response: {}", err);
++            }
+         }
+     }
+ 
+@@ -242,9 +280,9 @@ fn handle_event(
+             if !handle.notified_read {
+                 handle.notified_read = true;
+                 let response = Response::post_fevent(*handle_id, EVENT_READ.bits());
+-                socket
+-                    .write_response(response, SignalBehavior::Restart)
+-                    .expect("fbcond: failed to write display event");
++                if let Err(err) = socket.write_response(response, SignalBehavior::Restart) {
++                    eprintln!("fbcond: failed to write display event: {}", err);
++                }
+             }
+         } else {
+             handle.notified_read = false;
+diff --git a/drivers/graphics/fbcond/src/scheme.rs b/drivers/graphics/fbcond/src/scheme.rs
+index 1bee134e..973ff31e 100644
+--- a/drivers/graphics/fbcond/src/scheme.rs
++++ b/drivers/graphics/fbcond/src/scheme.rs
+@@ -6,7 +6,7 @@ use redox_scheme::scheme::SchemeSync;
+ use redox_scheme::{CallerCtx, OpenResult};
+ use scheme_utils::{FpathWriter, HandleMap};
+ use syscall::schemev2::NewFdFlags;
+-use syscall::{Error, EventFlags, Result, EACCES, EAGAIN, EBADF, ENOENT, O_NONBLOCK};
++use syscall::{Error, EventFlags, Result, EACCES, EAGAIN, EBADF, EINVAL, ENOENT, O_NONBLOCK};
+ 
+ use crate::display::Display;
+ use crate::text::TextScreen;
+@@ -50,14 +50,21 @@ impl FbconScheme {
+         let mut vts = BTreeMap::new();
+ 
+         for &vt_i in vt_ids {
+-            let display = Display::open_new_vt().expect("Failed to open display for vt");
+-            event_queue
+-                .subscribe(
+-                    display.input_handle.event_handle().as_raw_fd() as usize,
+-                    VtIndex(vt_i),
+-                    event::EventFlags::READ,
+-                )
+-                .expect("Failed to subscribe to input events for vt");
++            let display = match Display::open_new_vt() {
++                Ok(d) => d,
++                Err(err) => {
++                    eprintln!("fbcond: failed to open display for vt {}: {}", vt_i, err);
++                    continue;
++                }
++            };
++            if let Err(err) = event_queue.subscribe(
++                display.input_handle.event_handle().as_raw_fd() as usize,
++                VtIndex(vt_i),
++                event::EventFlags::READ,
++            ) {
++                eprintln!("fbcond: failed to subscribe to input events for vt {}: {}", vt_i, err);
++                continue;
++            }
+             vts.insert(VtIndex(vt_i), TextScreen::new(display));
+         }
+ 
+@@ -127,7 +134,7 @@ impl SchemeSync for FbconScheme {
+     fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
+         FpathWriter::with_legacy(buf, "fbcon", |w| {
+             let handle = self.get_vt_handle_mut(id)?;
+-            write!(w, "{}", handle.vt_i.0).unwrap();
++            write!(w, "{}", handle.vt_i.0).map_err(|_| Error::new(EINVAL))?;
+             Ok(())
+         })
+     }
+diff --git a/drivers/graphics/fbcond/src/text.rs b/drivers/graphics/fbcond/src/text.rs
+index 8a24bbeb..c7272ab7 100644
+--- a/drivers/graphics/fbcond/src/text.rs
++++ b/drivers/graphics/fbcond/src/text.rs
+@@ -113,7 +113,7 @@ impl TextScreen {
+         let mut i = 0;
+ 
+         while i < buf.len() && !self.input.is_empty() {
+-            buf[i] = self.input.pop_front().unwrap();
++            buf[i] = self.input.pop_front().unwrap_or(0);
+             i += 1;
+         }
+ 
+diff --git a/drivers/graphics/graphics-ipc/src/lib.rs b/drivers/graphics/graphics-ipc/src/lib.rs
+index 285b3043..7451c90a 100644
+--- a/drivers/graphics/graphics-ipc/src/lib.rs
++++ b/drivers/graphics/graphics-ipc/src/lib.rs
+@@ -29,12 +29,16 @@ impl drm::control::Device for V2GraphicsHandle {}
+ impl V2GraphicsHandle {
+     pub fn from_file(file: File) -> io::Result<Self> {
+         let handle = V2GraphicsHandle { file };
+-        assert!(handle.get_driver_capability(DriverCapability::DumbBuffer)? == 1);
++        if handle.get_driver_capability(DriverCapability::DumbBuffer)? != 1 {
++            return Err(io::Error::other(
++                "graphics device does not support dumb buffers",
++            ));
++        }
+         Ok(handle)
+     }
+ 
+     pub fn first_display(&self) -> io::Result<connector::Handle> {
+-        for &connector in self.resource_handles().unwrap().connectors() {
++        for &connector in self.resource_handles()?.connectors() {
+             if self.get_connector(connector, true)?.state() == State::Connected {
+                 return Ok(connector);
+             }
+@@ -95,13 +99,28 @@ impl CpuBackedBuffer {
+             return; // No shadow buffer; all writes are already propagated to the GPU.
+         };
+ 
+-        assert!(x.checked_add(width).unwrap() <= self.buffer.size().0);
+-        assert!(y.checked_add(height).unwrap() <= self.buffer.size().1);
++        let Some(x_end) = x.checked_add(width) else {
++            return;
++        };
++        let Some(y_end) = y.checked_add(height) else {
++            return;
++        };
++        if x_end > self.buffer.size().0 || y_end > self.buffer.size().1 {
++            return;
++        }
+ 
+-        let start_x: usize = x.try_into().unwrap();
+-        let start_y: usize = y.try_into().unwrap();
+-        let w: usize = width.try_into().unwrap();
+-        let h: usize = height.try_into().unwrap();
++        let Ok(start_x) = usize::try_from(x) else {
++            return;
++        };
++        let Ok(start_y) = usize::try_from(y) else {
++            return;
++        };
++        let Ok(w) = usize::try_from(width) else {
++            return;
++        };
++        let Ok(h) = usize::try_from(height) else {
++            return;
++        };
+ 
+         let offscreen_ptr = shadow.as_ptr().cast::<u32>();
+         let onscreen_ptr = self.map.as_mut_ptr().cast::<u32>();
+diff --git a/drivers/graphics/ihdgd/config.toml b/drivers/graphics/ihdgd/config.toml
+index acbb4e78..210731ae 100644
+--- a/drivers/graphics/ihdgd/config.toml
++++ b/drivers/graphics/ihdgd/config.toml
+@@ -51,5 +51,26 @@ ids = { 0x8086 = [
+     0x56B3, # Pro A60
+     0x56C0, # GPU Flex 170
+     0x56C1, # GPU Flex 140
++    # Alder Lake-S Desktop
++    0x4680, 0x4682, 0x4688, 0x468A, 0x468B,
++    0x4690, 0x4692, 0x4693,
++    # Alder Lake-P Mobile
++    0x46A0, 0x46A1, 0x46A2, 0x46A3, 0x46A6,
++    0x46A8, 0x46AA, 0x462A, 0x4626, 0x4628,
++    0x46B0, 0x46B1, 0x46B2, 0x46B3,
++    0x46C0, 0x46C1, 0x46C2, 0x46C3,
++    # Alder Lake-N Low-Power
++    0x46D0, 0x46D1, 0x46D2, 0x46D3, 0x46D4,
++    # Raptor Lake-S Desktop
++    0xA780, 0xA781, 0xA782, 0xA783,
++    0xA788, 0xA789, 0xA78A, 0xA78B,
++    # Raptor Lake-P Mobile
++    0xA720, 0xA7A0, 0xA7A8, 0xA7AA, 0xA7AB,
++    # Raptor Lake-U Mobile
++    0xA721, 0xA7A1, 0xA7A9, 0xA7AC, 0xA7AD,
++    # Meteor Lake
++    0x7D40, 0x7D45, 0x7D55, 0x7D60, 0x7DD5,
++    # Arrow Lake-H
++    0x7D51, 0x7DD1,
+ ] }
+ command = ["ihdgd"]
+diff --git a/drivers/graphics/ihdgd/src/device/ddi.rs b/drivers/graphics/ihdgd/src/device/ddi.rs
+index ac4ce1bd..b851d169 100644
+--- a/drivers/graphics/ihdgd/src/device/ddi.rs
++++ b/drivers/graphics/ihdgd/src/device/ddi.rs
+@@ -347,9 +347,12 @@ impl Ddi {
+ 
+         // Last setting is the default
+         //TODO: get correct setting index from BIOS
+-        let setting = settings.last().unwrap();
++        let Some(setting) = settings.last() else {
++            log::error!("no voltage swing settings available");
++            return Err(Error::new(EIO));
++        };
+ 
+-        // This allows unwraps on port functions below without panic
++        // All port registers below require port_base to be set (checked above)
+         if self.port_base.is_none() {
+             log::error!("HDMI voltage swing procedure only implemented on combo DDI");
+             return Err(Error::new(EIO));
+@@ -358,9 +361,15 @@ impl Ddi {
+         // Clear cmnkeeper_enable for HDMI
+         {
+             // It is not possible to read from GRP register, so use LN0 as template
+-            let pcs_dw1_ln0 = self.port_pcs(PortPcsReg::Dw1, PortLane::Ln0).unwrap();
+-            let mut pcs_dw1_grp =
+-                WriteOnly::new(self.port_pcs(PortPcsReg::Dw1, PortLane::Grp).unwrap());
++            let Some(pcs_dw1_ln0) = self.port_pcs(PortPcsReg::Dw1, PortLane::Ln0) else {
++                log::error!("failed to get PCS_DW1_LN0 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
++            let Some(pcs_dw1_grp_raw) = self.port_pcs(PortPcsReg::Dw1, PortLane::Grp) else {
++                log::error!("failed to get PCS_DW1_GRP for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
++            let mut pcs_dw1_grp = WriteOnly::new(pcs_dw1_grp_raw);
+             let mut v = pcs_dw1_ln0.read();
+             v &= !PORT_PCS_DW1_CMNKEEPER_ENABLE;
+             pcs_dw1_grp.write(v);
+@@ -369,28 +378,50 @@ impl Ddi {
+         // Program loadgen select
+         //TODO: this assumes bit rate <= 6 GHz and 4 lanes enabled
+         {
+-            let mut tx_dw4_ln0 = self.port_tx(PortTxReg::Dw4, PortLane::Ln0).unwrap();
++            let Some(mut tx_dw4_ln0) = self.port_tx(PortTxReg::Dw4, PortLane::Ln0) else {
++                log::error!("failed to get TX_DW4_LN0 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
+             tx_dw4_ln0.writef(PORT_TX_DW4_SELECT, false);
+ 
+-            let mut tx_dw4_ln1 = self.port_tx(PortTxReg::Dw4, PortLane::Ln1).unwrap();
++            let Some(mut tx_dw4_ln1) = self.port_tx(PortTxReg::Dw4, PortLane::Ln1) else {
++                log::error!("failed to get TX_DW4_LN1 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
+             tx_dw4_ln1.writef(PORT_TX_DW4_SELECT, true);
+ 
+-            let mut tx_dw4_ln2 = self.port_tx(PortTxReg::Dw4, PortLane::Ln2).unwrap();
++            let Some(mut tx_dw4_ln2) = self.port_tx(PortTxReg::Dw4, PortLane::Ln2) else {
++                log::error!("failed to get TX_DW4_LN2 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
+             tx_dw4_ln2.writef(PORT_TX_DW4_SELECT, true);
+ 
+-            let mut tx_dw4_ln3 = self.port_tx(PortTxReg::Dw4, PortLane::Ln3).unwrap();
++            let Some(mut tx_dw4_ln3) = self.port_tx(PortTxReg::Dw4, PortLane::Ln3) else {
++                log::error!("failed to get TX_DW4_LN3 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
+             tx_dw4_ln3.writef(PORT_TX_DW4_SELECT, true);
+         }
+ 
+         // Set PORT_CL_DW5 sus clock config to 11b
+         {
+-            let mut cl_dw5 = self.port_cl(PortClReg::Dw5).unwrap();
++            let Some(mut cl_dw5) = self.port_cl(PortClReg::Dw5) else {
++                log::error!("failed to get CL_DW5 for DDI {}", self.name);
++                return Err(Error::new(EIO));
++            };
+             cl_dw5.writef(PORT_CL_DW5_SUS_CLOCK_MASK, true);
+         }
+ 
+         // Clear training enable to change swing values
+-        let tx_dw5_ln0 = self.port_tx(PortTxReg::Dw5, PortLane::Ln0).unwrap();
+-        let mut tx_dw5_grp = WriteOnly::new(self.port_tx(PortTxReg::Dw5, PortLane::Grp).unwrap());
++        let Some(tx_dw5_ln0) = self.port_tx(PortTxReg::Dw5, PortLane::Ln0) else {
++            log::error!("failed to get TX_DW5_LN0 for DDI {}", self.name);
++            return Err(Error::new(EIO));
++        };
++        let Some(tx_dw5_grp_raw) = self.port_tx(PortTxReg::Dw5, PortLane::Grp) else {
++            log::error!("failed to get TX_DW5_GRP for DDI {}", self.name);
++            return Err(Error::new(EIO));
++        };
++        let mut tx_dw5_grp = WriteOnly::new(tx_dw5_grp_raw);
+         {
+             let mut v = tx_dw5_ln0.read();
+             v &= !PORT_TX_DW5_TRAINING_ENABLE;
+@@ -400,7 +431,10 @@ impl Ddi {
+         // Program swing and de-emphasis
+ 
+         // Disable eDP bits in PORT_CL_DW10
+-        let mut cl_dw10 = self.port_cl(PortClReg::Dw10).unwrap();
++        let Some(mut cl_dw10) = self.port_cl(PortClReg::Dw10) else {
++            log::error!("failed to get CL_DW10 for DDI {}", self.name);
++            return Err(Error::new(EIO));
++        };
+         cl_dw10.writef(
+             PORT_CL_DW10_EDP4K2K_MODE_OVRD_EN | PORT_CL_DW10_EDP4K2K_MODE_OVRD_VAL,
+             false,
+@@ -435,7 +469,10 @@ impl Ddi {
+         // - Set swing sel from settings
+         // - Set rcomp scalar to 0x98
+         for lane in lanes {
+-            let mut tx_dw2 = self.port_tx(PortTxReg::Dw2, lane).unwrap();
++            let Some(mut tx_dw2) = self.port_tx(PortTxReg::Dw2, lane) else {
++                log::error!("failed to get TX_DW2 for {:?} on DDI {}", lane, self.name);
++                continue;
++            };
+             let mut v = tx_dw2.read();
+             v &= !(PORT_TX_DW2_SWING_SEL_UPPER_MASK
+                 | PORT_TX_DW2_SWING_SEL_LOWER_MASK
+@@ -451,7 +488,10 @@ impl Ddi {
+         // - Set post cursor 2 to 0x0
+         // - Set cursor coeff from settings
+         for lane in lanes {
+-            let mut tx_dw4 = self.port_tx(PortTxReg::Dw4, lane).unwrap();
++            let Some(mut tx_dw4) = self.port_tx(PortTxReg::Dw4, lane) else {
++                log::error!("failed to get TX_DW4 for {:?} on DDI {}", lane, self.name);
++                continue;
++            };
+             let mut v = tx_dw4.read();
+             v &= !(PORT_TX_DW4_POST_CURSOR_1_MASK
+                 | PORT_TX_DW4_POST_CURSOR_2_MASK
+@@ -464,7 +504,10 @@ impl Ddi {
+         // For PORT_TX_DW7:
+         // - Set n scalar from settings
+         for lane in lanes {
+-            let mut tx_dw7 = self.port_tx(PortTxReg::Dw7, lane).unwrap();
++            let Some(mut tx_dw7) = self.port_tx(PortTxReg::Dw7, lane) else {
++                log::error!("failed to get TX_DW7 for {:?} on DDI {}", lane, self.name);
++                continue;
++            };
+             // All other bits are spare
+             tx_dw7.write(setting.dw7_n_scalar << PORT_TX_DW7_N_SCALAR_SHIFT);
+         }
+diff --git a/drivers/graphics/ihdgd/src/device/ggtt.rs b/drivers/graphics/ihdgd/src/device/ggtt.rs
+index 5e39827a..0ec5358b 100644
+--- a/drivers/graphics/ihdgd/src/device/ggtt.rs
++++ b/drivers/graphics/ihdgd/src/device/ggtt.rs
+@@ -3,7 +3,7 @@ use std::{mem, ptr};
+ 
+ use pcid_interface::PciFunctionHandle;
+ use range_alloc::RangeAllocator;
+-use syscall::{Error, EIO};
++use syscall::{Error, EIO, EINVAL};
+ 
+ use crate::device::MmioRegion;
+ 
+@@ -88,20 +88,36 @@ impl GlobalGtt {
+         }
+     }
+ 
+-    pub fn reserve(&mut self, surf: u32, surf_size: u32) {
+-        assert!(surf.is_multiple_of(GTT_PAGE_SIZE));
+-        assert!(surf_size.is_multiple_of(GTT_PAGE_SIZE));
++    pub fn reserve(&mut self, surf: u32, surf_size: u32) -> syscall::Result<()> {
++        if !surf.is_multiple_of(GTT_PAGE_SIZE) {
++            log::error!(
++                "reserve: surface address 0x{:x} is not aligned to GTT page size",
++                surf
++            );
++            return Err(Error::new(EINVAL));
++        }
++        if !surf_size.is_multiple_of(GTT_PAGE_SIZE) {
++            log::error!(
++                "reserve: surface size 0x{:x} is not aligned to GTT page size",
++                surf_size
++            );
++            return Err(Error::new(EINVAL));
++        }
+ 
+-        self.gm_alloc
+-            .allocate_exact_range(
+-                surf / GTT_PAGE_SIZE..surf / GTT_PAGE_SIZE + surf_size / GTT_PAGE_SIZE,
+-            )
+-            .unwrap_or_else(|err| {
+-                panic!(
++        match self.gm_alloc.allocate_exact_range(
++            surf / GTT_PAGE_SIZE..surf / GTT_PAGE_SIZE + surf_size / GTT_PAGE_SIZE,
++        ) {
++            Ok(_range) => Ok(()),
++            Err(err) => {
++                log::error!(
+                     "failed to allocate pre-existing surface at 0x{:x} of size {}: {:?}",
+-                    surf, surf_size, err
++                    surf,
++                    surf_size,
++                    err
+                 );
+-            });
++                Err(Error::new(EIO))
++            }
++        }
+     }
+ 
+     pub fn alloc_phys_mem(&mut self, size: u32) -> syscall::Result<u32> {
+diff --git a/drivers/graphics/ihdgd/src/device/mod.rs b/drivers/graphics/ihdgd/src/device/mod.rs
+index ced9dd56..fc2a1108 100644
+--- a/drivers/graphics/ihdgd/src/device/mod.rs
++++ b/drivers/graphics/ihdgd/src/device/mod.rs
+@@ -51,8 +51,9 @@ impl<'a, T, F: FnOnce(&mut T)> CallbackGuard<'a, T, F> {
+ 
+ impl<'a, T, F: FnOnce(&mut T)> Drop for CallbackGuard<'a, T, F> {
+     fn drop(&mut self) {
+-        let fini = self.fini.take().unwrap();
+-        fini(&mut self.value);
++        if let Some(fini) = self.fini.take() {
++            fini(&mut self.value);
++        }
+     }
+ }
+ 
+@@ -246,7 +247,9 @@ impl Device {
+         };
+ 
+         let gttmm = {
+-            let (phys, size) = func.bars[0].expect_mem();
++            let (phys, size) = func.bars[0]
++                .try_mem()
++                .map_err(|_| Error::new(ENODEV))?;
+             Arc::new(MmioRegion::new(
+                 phys,
+                 size,
+@@ -255,7 +258,9 @@ impl Device {
+         };
+         log::info!("GTTMM {:X?}", gttmm);
+         let gm = {
+-            let (phys, size) = func.bars[2].expect_mem();
++            let (phys, size) = func.bars[2]
++                .try_mem()
++                .map_err(|_| Error::new(ENODEV))?;
+             MmioRegion::new(phys, size, common::MemoryType::WriteCombining)?
+         };
+         log::info!("GM {:X?}", gm);
+@@ -453,7 +458,12 @@ impl Device {
+         // Probe all DDIs
+         let ddi_names: Vec<&str> = self.ddis.iter().map(|ddi| ddi.name).collect();
+         for ddi_name in ddi_names {
+-            self.probe_ddi(ddi_name).expect("failed to probe DDI");
++            match self.probe_ddi(ddi_name) {
++                Ok(_) => {}
++                Err(err) => {
++                    log::error!("failed to probe DDI {}: {}", ddi_name, err);
++                }
++            }
+         }
+ 
+         self.dump();
+diff --git a/drivers/graphics/ihdgd/src/device/pipe.rs b/drivers/graphics/ihdgd/src/device/pipe.rs
+index 0e99ffe4..59d1b383 100644
+--- a/drivers/graphics/ihdgd/src/device/pipe.rs
++++ b/drivers/graphics/ihdgd/src/device/pipe.rs
+@@ -122,7 +122,13 @@ impl Plane {
+         let surf = self.surf.read() & 0xFFFFF000;
+         //TODO: read bits per pixel
+         let surf_size = (stride * height).next_multiple_of(4096);
+-        ggtt.reserve(surf, surf_size);
++        ggtt.reserve(surf, surf_size).unwrap_or_else(|err| {
++            log::warn!(
++                "failed to reserve GTT entries for existing framebuffer at 0x{:x}: {}",
++                surf,
++                err
++            );
++        });
+ 
+         unsafe { DeviceFb::new(gm, surf, width, height, stride, true) }
+     }
+diff --git a/drivers/graphics/ihdgd/src/device/scheme.rs b/drivers/graphics/ihdgd/src/device/scheme.rs
+index 95db5bbf..3554a35e 100644
+--- a/drivers/graphics/ihdgd/src/device/scheme.rs
++++ b/drivers/graphics/ihdgd/src/device/scheme.rs
+@@ -68,7 +68,20 @@ impl GraphicsAdapter for Device {
+     }
+ 
+     fn probe_connector(&mut self, objects: &mut KmsObjects<Self>, id: KmsObjectId) {
+-        let mut connector = objects.get_connector(id).unwrap().lock().unwrap();
++        let connector_guard = match objects.get_connector(id) {
++            Ok(guard) => guard,
++            Err(e) => {
++                log::error!("probe_connector: connector {:?} not found: {}", id, e);
++                return;
++            }
++        };
++        let mut connector = match connector_guard.lock() {
++            Ok(guard) => guard,
++            Err(err) => {
++                log::error!("probe_connector: failed to lock connector {:?}: {}", id, err);
++                return;
++            }
++        };
+         let framebuffer = &self.framebuffers[connector.driver_data.framebuffer_id];
+         connector.connection = KmsConnectorStatus::Connected;
+         connector.update_from_size(framebuffer.width as u32, framebuffer.height as u32);
+@@ -94,7 +107,10 @@ impl GraphicsAdapter for Device {
+         state: KmsCrtcState<Self>,
+         damage: Damage,
+     ) -> syscall::Result<()> {
+-        let mut crtc = crtc.lock().unwrap();
++        let mut crtc = crtc.lock().map_err(|err| {
++            log::error!("set_crtc: failed to lock crtc: {}", err);
++            syscall::Error::new(EINVAL)
++        })?;
+         let buffer = state
+             .fb_id
+             .map(|fb_id| objects.get_framebuffer(fb_id))
+@@ -102,7 +118,13 @@ impl GraphicsAdapter for Device {
+         crtc.state = state;
+ 
+         for connector in objects.connectors() {
+-            let connector = connector.lock().unwrap();
++            let connector = match connector.lock() {
++                Ok(c) => c,
++                Err(err) => {
++                    log::error!("set_crtc: failed to lock connector: {}", err);
++                    continue;
++                }
++            };
+ 
+             if connector.state.crtc_id != objects.crtc_ids()[crtc.crtc_index as usize] {
+                 continue;
+@@ -161,9 +183,9 @@ impl DumbFb {
+     fn layout(len: usize) -> Layout {
+         // optimizes to an integer mul
+         Layout::array::<u32>(len)
+-            .unwrap()
++            .unwrap_or_else(|_| Layout::from_size_align(len * 4, PAGE_SIZE).unwrap_or(Layout::new::<u32>()))
+             .align_to(PAGE_SIZE)
+-            .unwrap()
++            .unwrap_or_else(|_| Layout::new::<u8>().align_to(PAGE_SIZE).unwrap_or(Layout::new::<u8>()))
+     }
+ }
+ 
+@@ -182,15 +204,38 @@ impl Buffer for DumbFb {
+ 
+ impl DumbFb {
+     fn sync(&self, framebuffer: &mut DeviceFb, sync_rect: Damage) {
+-        let sync_rect = sync_rect.clip(
+-            self.width.try_into().unwrap(),
+-            self.height.try_into().unwrap(),
+-        );
+-
+-        let start_x: usize = sync_rect.x.try_into().unwrap();
+-        let start_y: usize = sync_rect.y.try_into().unwrap();
+-        let w: usize = sync_rect.width.try_into().unwrap();
+-        let h: usize = sync_rect.height.try_into().unwrap();
++        let fb_w: u32 = match self.width.try_into() {
++            Ok(v) => v,
++            Err(_) => {
++                log::error!("sync: framebuffer width {} overflow", self.width);
++                return;
++            }
++        };
++        let fb_h: u32 = match self.height.try_into() {
++            Ok(v) => v,
++            Err(_) => {
++                log::error!("sync: framebuffer height {} overflow", self.height);
++                return;
++            }
++        };
++        let sync_rect = sync_rect.clip(fb_w, fb_h);
++
++        let start_x: usize = match sync_rect.x.try_into() {
++            Ok(v) => v,
++            Err(_) => return,
++        };
++        let start_y: usize = match sync_rect.y.try_into() {
++            Ok(v) => v,
++            Err(_) => return,
++        };
++        let w: usize = match sync_rect.width.try_into() {
++            Ok(v) => v,
++            Err(_) => return,
++        };
++        let h: usize = match sync_rect.height.try_into() {
++            Ok(v) => v,
++            Err(_) => return,
++        };
+ 
+         let offscreen_ptr = self.ptr.as_ptr() as *mut u32;
+         let onscreen_ptr = framebuffer.buffer.virt.cast::<u32>();
+diff --git a/drivers/graphics/ihdgd/src/main.rs b/drivers/graphics/ihdgd/src/main.rs
+index a8b6cc60..84d58a3e 100644
+--- a/drivers/graphics/ihdgd/src/main.rs
++++ b/drivers/graphics/ihdgd/src/main.rs
+@@ -1,6 +1,6 @@
+ use driver_graphics::GraphicsScheme;
+ use event::{user_data, EventQueue};
+-use pcid_interface::{irq_helpers::pci_allocate_interrupt_vector, PciFunctionHandle};
++use pcid_interface::{irq_helpers::try_pci_allocate_interrupt_vector, PciFunctionHandle};
+ use std::{
+     io::{Read, Write},
+     os::fd::AsRawFd,
+@@ -29,16 +29,32 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!("IHDG {}", pci_config.func.display());
+ 
+-    let device = Device::new(&mut pcid_handle, &pci_config.func)
+-        .expect("ihdgd: failed to initialize device");
++    let device = match Device::new(&mut pcid_handle, &pci_config.func) {
++        Ok(device) => device,
++        Err(err) => {
++            log::error!("ihdgd: failed to initialize device: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "ihdgd");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "ihdgd") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("ihdgd: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     // Needs to be before GraphicsScheme::new to avoid a deadlock due to initnsmgr blocking on
+     // /scheme/event as it is already blocked on opening /scheme/display.ihdg.*.
+     // FIXME change the initnsmgr to not block on openat for the target scheme.
+-    let event_queue: EventQueue<Source> =
+-        EventQueue::new().expect("ihdgd: failed to create event queue");
++    let event_queue: EventQueue<Source> = match EventQueue::new() {
++        Ok(eq) => eq,
++        Err(err) => {
++            log::error!("ihdgd: failed to create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = GraphicsScheme::new(device, format!("display.ihdg.{}", name), false);
+ 
+@@ -50,53 +66,69 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    event_queue
+-        .subscribe(
+-            scheme.inputd_event_handle().as_raw_fd() as usize,
+-            Source::Input,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
+-    event_queue
+-        .subscribe(
+-            irq_file.irq_handle().as_raw_fd() as usize,
+-            Source::Irq,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
+-    event_queue
+-        .subscribe(
+-            scheme.event_handle().raw(),
+-            Source::Scheme,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("ihdgd: failed to enter null namespace");
++    if let Err(err) = event_queue.subscribe(
++        scheme.inputd_event_handle().as_raw_fd() as usize,
++        Source::Input,
++        event::EventFlags::READ,
++    ) {
++        log::error!("ihdgd: failed to subscribe to input events: {err}");
++    }
++    if let Err(err) = event_queue.subscribe(
++        irq_file.irq_handle().as_raw_fd() as usize,
++        Source::Irq,
++        event::EventFlags::READ,
++    ) {
++        log::error!("ihdgd: failed to subscribe to IRQ events: {err}");
++    }
++    if let Err(err) = event_queue.subscribe(
++        scheme.event_handle().raw(),
++        Source::Scheme,
++        event::EventFlags::READ,
++    ) {
++        log::error!("ihdgd: failed to subscribe to scheme events: {err}");
++    }
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        log::error!("ihdgd: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+     daemon.ready();
+ 
+     let all = [Source::Input, Source::Irq, Source::Scheme];
+-    for event in all
+-        .into_iter()
+-        .chain(event_queue.map(|e| e.expect("ihdgd: failed to get next event").user_data))
+-    {
++    for event in all.into_iter().chain(
++        event_queue.filter_map(|e| match e {
++            Ok(event) => Some(event.user_data),
++            Err(err) => {
++                log::error!("ihdgd: failed to get next event: {err}");
++                None
++            }
++        }),
++    ) {
+         match event {
+             Source::Input => scheme.handle_vt_events(),
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.irq_handle().read(&mut irq).unwrap();
++                if irq_file.irq_handle().read(&mut irq).is_err() {
++                    log::error!("ihdgd: failed to read IRQ");
++                    continue;
++                }
+                 if scheme.adapter_mut().handle_irq() {
+-                    irq_file.irq_handle().write(&mut irq).unwrap();
++                    if let Err(err) = irq_file.irq_handle().write(&mut irq) {
++                        log::error!("ihdgd: failed to write IRQ: {err}");
++                        continue;
++                    }
+ 
+                     scheme.adapter_mut().handle_events();
+-                    scheme.tick().unwrap();
++                    if let Err(err) = scheme.tick() {
++                        log::error!("ihdgd: failed to handle display events after IRQ: {err}");
++                    }
+                 }
+             }
+             Source::Scheme => {
+-                scheme
+-                    .tick()
+-                    .expect("ihdgd: failed to handle scheme events");
++                if let Err(err) = scheme.tick() {
++                    log::error!("ihdgd: failed to handle scheme events: {err}");
++                }
+             }
+         }
+     }
+diff --git a/drivers/graphics/vesad/src/main.rs b/drivers/graphics/vesad/src/main.rs
+index a4c07d1e..41faa0e2 100644
+--- a/drivers/graphics/vesad/src/main.rs
++++ b/drivers/graphics/vesad/src/main.rs
+@@ -23,25 +23,49 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     }
+ 
+     let width = usize::from_str_radix(
+-        &env::var("FRAMEBUFFER_WIDTH").expect("FRAMEBUFFER_WIDTH not set"),
++        &env::var("FRAMEBUFFER_WIDTH").unwrap_or_else(|_| {
++            eprintln!("vesad: FRAMEBUFFER_WIDTH not set");
++            std::process::exit(1);
++        }),
+         16,
+     )
+-    .expect("failed to parse FRAMEBUFFER_WIDTH");
++    .unwrap_or_else(|err| {
++        eprintln!("vesad: failed to parse FRAMEBUFFER_WIDTH: {}", err);
++        std::process::exit(1);
++    });
+     let height = usize::from_str_radix(
+-        &env::var("FRAMEBUFFER_HEIGHT").expect("FRAMEBUFFER_HEIGHT not set"),
++        &env::var("FRAMEBUFFER_HEIGHT").unwrap_or_else(|_| {
++            eprintln!("vesad: FRAMEBUFFER_HEIGHT not set");
++            std::process::exit(1);
++        }),
+         16,
+     )
+-    .expect("failed to parse FRAMEBUFFER_HEIGHT");
++    .unwrap_or_else(|err| {
++        eprintln!("vesad: failed to parse FRAMEBUFFER_HEIGHT: {}", err);
++        std::process::exit(1);
++    });
+     let phys = usize::from_str_radix(
+-        &env::var("FRAMEBUFFER_ADDR").expect("FRAMEBUFFER_ADDR not set"),
++        &env::var("FRAMEBUFFER_ADDR").unwrap_or_else(|_| {
++            eprintln!("vesad: FRAMEBUFFER_ADDR not set");
++            std::process::exit(1);
++        }),
+         16,
+     )
+-    .expect("failed to parse FRAMEBUFFER_ADDR");
++    .unwrap_or_else(|err| {
++        eprintln!("vesad: failed to parse FRAMEBUFFER_ADDR: {}", err);
++        std::process::exit(1);
++    });
+     let stride = usize::from_str_radix(
+-        &env::var("FRAMEBUFFER_STRIDE").expect("FRAMEBUFFER_STRIDE not set"),
++        &env::var("FRAMEBUFFER_STRIDE").unwrap_or_else(|_| {
++            eprintln!("vesad: FRAMEBUFFER_STRIDE not set");
++            std::process::exit(1);
++        }),
+         16,
+     )
+-    .expect("failed to parse FRAMEBUFFER_STRIDE");
++    .unwrap_or_else(|err| {
++        eprintln!("vesad: failed to parse FRAMEBUFFER_STRIDE: {}", err);
++        std::process::exit(1);
++    });
+ 
+     println!(
+         "vesad: {}x{} stride {} at 0x{:X}",
+@@ -57,14 +81,20 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     let mut framebuffers = vec![unsafe { FrameBuffer::new(phys, width, height, stride) }];
+ 
+     //TODO: ideal maximum number of outputs?
+-    let bootloader_env = std::fs::read_to_string("/scheme/sys/env")
+-        .expect("failed to read env")
+-        .lines()
+-        .map(|line| {
+-            let (env, value) = line.split_once('=').unwrap();
+-            (env.to_owned(), value.to_owned())
+-        })
+-        .collect::<HashMap<String, String>>();
++    let bootloader_env: HashMap<String, String> =
++        match std::fs::read_to_string("/scheme/sys/env") {
++            Ok(content) => content
++                .lines()
++                .filter_map(|line| {
++                    let (env, value) = line.split_once('=')?;
++                    Some((env.to_owned(), value.to_owned()))
++                })
++                .collect(),
++            Err(err) => {
++                eprintln!("vesad: failed to read bootloader env: {}", err);
++                HashMap::new()
++            }
++        };
+     for i in 1..1024 {
+         match bootloader_env.get(&format!("FRAMEBUFFER{}", i)) {
+             Some(var) => match unsafe { FrameBuffer::parse(&var) } {
+@@ -93,38 +123,51 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         }
+     }
+ 
+-    let event_queue: EventQueue<Source> =
+-        EventQueue::new().expect("vesad: failed to create event queue");
+-    event_queue
+-        .subscribe(
+-            scheme.inputd_event_handle().as_raw_fd() as usize,
+-            Source::Input,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
+-    event_queue
+-        .subscribe(
+-            scheme.event_handle().raw(),
+-            Source::Scheme,
+-            event::EventFlags::READ,
+-        )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("vesad: failed to enter null namespace");
++    let event_queue: EventQueue<Source> = match EventQueue::new() {
++        Ok(eq) => eq,
++        Err(err) => {
++            eprintln!("vesad: failed to create event queue: {}", err);
++            daemon.ready();
++            std::process::exit(1);
++        }
++    };
++    if let Err(err) = event_queue.subscribe(
++        scheme.inputd_event_handle().as_raw_fd() as usize,
++        Source::Input,
++        event::EventFlags::READ,
++    ) {
++        eprintln!("vesad: failed to subscribe to input events: {}", err);
++    }
++    if let Err(err) = event_queue.subscribe(
++        scheme.event_handle().raw(),
++        Source::Scheme,
++        event::EventFlags::READ,
++    ) {
++        eprintln!("vesad: failed to subscribe to scheme events: {}", err);
++    }
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("vesad: failed to enter null namespace: {}", err);
++    }
+ 
+     daemon.ready();
+ 
+     let all = [Source::Input, Source::Scheme];
+-    for event in all
+-        .into_iter()
+-        .chain(event_queue.map(|e| e.expect("vesad: failed to get next event").user_data))
+-    {
++    for event in all.into_iter().chain(event_queue.filter_map(|e| {
++        match e {
++            Ok(ev) => Some(ev.user_data),
++            Err(err) => {
++                eprintln!("vesad: failed to get next event: {}", err);
++                None
++            }
++        }
++    })) {
+         match event {
+             Source::Input => scheme.handle_vt_events(),
+             Source::Scheme => {
+-                scheme
+-                    .tick()
+-                    .expect("vesad: failed to handle scheme events");
++                if let Err(err) = scheme.tick() {
++                    eprintln!("vesad: failed to handle scheme events: {}", err);
++                }
+             }
+         }
+     }
+diff --git a/drivers/graphics/vesad/src/scheme.rs b/drivers/graphics/vesad/src/scheme.rs
+index 5bf2be91..20d755d2 100644
+--- a/drivers/graphics/vesad/src/scheme.rs
++++ b/drivers/graphics/vesad/src/scheme.rs
+@@ -74,7 +74,17 @@ impl GraphicsAdapter for FbAdapter {
+     }
+ 
+     fn probe_connector(&mut self, objects: &mut KmsObjects<Self>, id: KmsObjectId) {
+-        let mut connector = objects.get_connector(id).unwrap().lock().unwrap();
++        let connector_mutex = match objects.get_connector(id) {
++            Ok(c) => c,
++            Err(err) => {
++                eprintln!("vesad: probe_connector: connector {:?} not found: {}", id, err);
++                return;
++            }
++        };
++        let mut connector = connector_mutex.lock().unwrap_or_else(|e| {
++            eprintln!("vesad: probe_connector: connector lock poisoned, recovering");
++            e.into_inner()
++        });
+         let connector = &mut *connector;
+         connector.connection = KmsConnectorStatus::Connected;
+         connector.update_from_size(connector.driver_data.width, connector.driver_data.height);
+@@ -102,7 +112,10 @@ impl GraphicsAdapter for FbAdapter {
+         state: KmsCrtcState<Self>,
+         damage: Damage,
+     ) -> syscall::Result<()> {
+-        let mut crtc = crtc.lock().unwrap();
++        let mut crtc = crtc.lock().unwrap_or_else(|e| {
++            eprintln!("vesad: set_crtc: crtc lock poisoned, recovering");
++            e.into_inner()
++        });
+         let buffer = state
+             .fb_id
+             .map(|fb_id| objects.get_framebuffer(fb_id))
+@@ -110,7 +123,10 @@ impl GraphicsAdapter for FbAdapter {
+         crtc.state = state;
+ 
+         for connector in objects.connectors() {
+-            let connector = connector.lock().unwrap();
++            let connector = connector.lock().unwrap_or_else(|e| {
++                eprintln!("vesad: set_crtc: connector lock poisoned, recovering");
++                e.into_inner()
++            });
+ 
+             if connector.state.crtc_id != objects.crtc_ids()[crtc.crtc_index as usize] {
+                 continue;
+@@ -159,7 +175,7 @@ pub struct FrameBuffer {
+ impl FrameBuffer {
+     pub unsafe fn new(phys: usize, width: usize, height: usize, stride: usize) -> Self {
+         let size = stride * height;
+-        let virt = common::physmap(
++        let virt = match common::physmap(
+             phys,
+             size * 4,
+             common::Prot {
+@@ -167,8 +183,13 @@ impl FrameBuffer {
+                 write: true,
+             },
+             common::MemoryType::WriteCombining,
+-        )
+-        .expect("vesad: failed to map framebuffer") as *mut u32;
++        ) {
++            Ok(v) => v as *mut u32,
++            Err(err) => {
++                eprintln!("vesad: failed to map framebuffer at 0x{:X}: {}", phys, err);
++                std::process::exit(1);
++            }
++        };
+ 
+         let onscreen = ptr::slice_from_raw_parts_mut(virt, size);
+ 
+@@ -228,9 +249,11 @@ impl GraphicScreen {
+     fn layout(len: usize) -> Layout {
+         // optimizes to an integer mul
+         Layout::array::<u32>(len)
+-            .unwrap()
+-            .align_to(PAGE_SIZE)
+-            .unwrap()
++            .and_then(|l| l.align_to(PAGE_SIZE))
++            .unwrap_or_else(|err| {
++                eprintln!("vesad: failed to compute buffer layout (len={}): {}", len, err);
++                std::process::exit(1);
++            })
+     }
+ }
+ 
+@@ -249,15 +272,26 @@ impl Buffer for GraphicScreen {
+ 
+ impl GraphicScreen {
+     fn sync(&self, framebuffer: &mut FrameBuffer, sync_rect: Damage) {
+-        let sync_rect = sync_rect.clip(
+-            self.width.try_into().unwrap(),
+-            self.height.try_into().unwrap(),
+-        );
+-
+-        let start_x: usize = sync_rect.x.try_into().unwrap();
+-        let start_y: usize = sync_rect.y.try_into().unwrap();
+-        let w: usize = sync_rect.width.try_into().unwrap();
+-        let h: usize = sync_rect.height.try_into().unwrap();
++        let Ok(fb_width) = u32::try_from(self.width) else {
++            return;
++        };
++        let Ok(fb_height) = u32::try_from(self.height) else {
++            return;
++        };
++        let sync_rect = sync_rect.clip(fb_width, fb_height);
++
++        let Ok(start_x): Result<usize, _> = sync_rect.x.try_into() else {
++            return;
++        };
++        let Ok(start_y): Result<usize, _> = sync_rect.y.try_into() else {
++            return;
++        };
++        let Ok(w): Result<usize, _> = sync_rect.width.try_into() else {
++            return;
++        };
++        let Ok(h): Result<usize, _> = sync_rect.height.try_into() else {
++            return;
++        };
+ 
+         let offscreen_ptr = self.ptr.as_ptr() as *mut u32;
+         let onscreen_ptr = framebuffer.onscreen as *mut u32; // FIXME use as_mut_ptr once stable
+diff --git a/drivers/graphics/virtio-gpud/src/main.rs b/drivers/graphics/virtio-gpud/src/main.rs
+index b27f4c56..0f1a9e4d 100644
+--- a/drivers/graphics/virtio-gpud/src/main.rs
++++ b/drivers/graphics/virtio-gpud/src/main.rs
+@@ -482,7 +482,10 @@ fn main() {
+ }
+ 
+ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    deamon(daemon, pcid_handle).unwrap();
++    if let Err(err) = deamon(daemon, pcid_handle) {
++        log::error!("virtio-gpud: startup failed: {err}");
++        std::process::exit(1);
++    }
+     unreachable!();
+ }
+ 
+@@ -500,7 +503,12 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // 0x1050 - virtio-gpu
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1050);
++    if pci_config.func.full_device_id.device_id != 0x1050 {
++        return Err(anyhow::anyhow!(
++            "unexpected virtio-gpu device id: {:04x}",
++            pci_config.func.full_device_id.device_id
++        ));
++    }
+     log::info!("virtio-gpu: initiating startup sequence :^)");
+ 
+     let device = DEVICE.try_call_once(|| virtio_core::probe_device(&mut pcid_handle))?;
+@@ -530,8 +538,8 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // Needs to be before GpuScheme::new to avoid a deadlock due to initnsmgr blocking on
+     // /scheme/event as it is already blocked on opening /scheme/display.virtio-gpu.
+     // FIXME change the initnsmgr to not block on openat for the target scheme.
+-    let event_queue: EventQueue<Source> =
+-        EventQueue::new().expect("virtio-gpud: failed to create event queue");
++    let event_queue: EventQueue<Source> = EventQueue::new()
++        .map_err(|err| anyhow::anyhow!("failed to create event queue: {err}"))?;
+ 
+     let mut scheme = scheme::GpuScheme::new(
+         config,
+@@ -556,33 +564,40 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+             Source::Input,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .map_err(|err| anyhow::anyhow!("virtio-gpud: failed to subscribe to input events: {err}"))?;
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .map_err(|err| {
++            anyhow::anyhow!("virtio-gpud: failed to subscribe to scheme events: {err}")
++        })?;
+     event_queue
+         .subscribe(
+             device.irq_handle.as_raw_fd() as usize,
+             Source::Interrupt,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .map_err(|err| {
++            anyhow::anyhow!("virtio-gpud: failed to subscribe to interrupt events: {err}")
++        })?;
+ 
+     let all = [Source::Input, Source::Scheme, Source::Interrupt];
+-    for event in all
+-        .into_iter()
+-        .chain(event_queue.map(|e| e.expect("virtio-gpud: failed to get next event").user_data))
+-    {
++    for event in all.into_iter().chain(event_queue.filter_map(|e| match e {
++        Ok(ev) => Some(ev.user_data),
++        Err(err) => {
++            log::error!("virtio-gpud: failed to get next event: {err}");
++            None
++        }
++    })) {
+         match event {
+             Source::Input => scheme.handle_vt_events(),
+             Source::Scheme => {
+-                scheme
+-                    .tick()
+-                    .expect("virtio-gpud: failed to process scheme events");
++                if let Err(err) = scheme.tick() {
++                    log::error!("virtio-gpud: failed to process scheme events: {err}");
++                }
+             }
+             Source::Interrupt => loop {
+                 let before_gen = device.transport.config_generation();
+@@ -591,7 +606,11 @@ fn deamon(deamon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+ 
+                 if events & VIRTIO_GPU_EVENT_DISPLAY != 0 {
+                     let (adapter, objects) = scheme.adapter_and_kms_objects_mut();
+-                    futures::executor::block_on(async { adapter.update_displays().await.unwrap() });
++                    futures::executor::block_on(async {
++                        if let Err(err) = adapter.update_displays().await {
++                            log::error!("virtio-gpud: failed to update displays: {err}");
++                        }
++                    });
+                     for connector_id in objects.connector_ids().to_vec() {
+                         adapter.probe_connector(objects, connector_id);
+                     }
+diff --git a/drivers/graphics/virtio-gpud/src/scheme.rs b/drivers/graphics/virtio-gpud/src/scheme.rs
+index 22a985ee..075502a2 100644
+--- a/drivers/graphics/virtio-gpud/src/scheme.rs
++++ b/drivers/graphics/virtio-gpud/src/scheme.rs
+@@ -10,7 +10,7 @@ use drm_sys::{
+     DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT,
+ };
+ 
+-use syscall::{EINVAL, PAGE_SIZE};
++use syscall::{EIO, EINVAL, PAGE_SIZE};
+ 
+ use virtio_core::spec::{Buffer, ChainBuilder, DescriptorFlags};
+ use virtio_core::transport::{Error, Queue, Transport};
+@@ -65,9 +65,21 @@ impl DrmBuffer for VirtGpuFramebuffer<'_> {
+ impl Drop for VirtGpuFramebuffer<'_> {
+     fn drop(&mut self) {
+         futures::executor::block_on(async {
+-            let request = Dma::new(ResourceUnref::new(self.id)).unwrap();
++            let request = match Dma::new(ResourceUnref::new(self.id)) {
++                Ok(r) => r,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate DMA for resource unref: {err}");
++                    return;
++                }
++            };
+ 
+-            let header = Dma::new(ControlHeader::default()).unwrap();
++            let header = match Dma::new(ControlHeader::default()) {
++                Ok(h) => h,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate DMA for unref header: {err}");
++                    return;
++                }
++            };
+             let command = ChainBuilder::new()
+                 .chain(Buffer::new(&request))
+                 .chain(Buffer::new(&header).flags(DescriptorFlags::WRITE_ONLY))
+@@ -182,7 +194,9 @@ impl VirtGpuAdapter<'_> {
+             .build();
+ 
+         self.control_queue.send(command).await;
+-        assert!(response.header.ty == CommandTy::RespOkDisplayInfo);
++        if response.header.ty != CommandTy::RespOkDisplayInfo {
++            return Err(Error::QueueSetup("unexpected response type for display info"));
++        }
+ 
+         Ok(response)
+     }
+@@ -197,7 +211,9 @@ impl VirtGpuAdapter<'_> {
+             .build();
+ 
+         self.control_queue.send(command).await;
+-        assert!(response.header.ty == CommandTy::RespOkEdid);
++        if response.header.ty != CommandTy::RespOkEdid {
++            return Err(Error::QueueSetup("unexpected response type for EDID"));
++        }
+ 
+         Ok(response)
+     }
+@@ -212,7 +228,7 @@ impl VirtGpuAdapter<'_> {
+     ) {
+         //Transfering cursor resource to host
+         futures::executor::block_on(async {
+-            let transfer_request = Dma::new(XferToHost2d::new(
++            let transfer_request = match Dma::new(XferToHost2d::new(
+                 cursor.id,
+                 GpuRect {
+                     x: 0,
+@@ -221,14 +237,38 @@ impl VirtGpuAdapter<'_> {
+                     height: 64,
+                 },
+                 0,
+-            ))
+-            .unwrap();
+-            let header = self.send_request_fenced(transfer_request).await.unwrap();
+-            assert_eq!(header.ty, CommandTy::RespOkNodata);
++            )) {
++                Ok(r) => r,
++                Err(err) => {
++                    log::error!(
++                        "virtio-gpud: failed to allocate DMA for cursor transfer: {err}"
++                    );
++                    return;
++                }
++            };
++            let header = match self.send_request_fenced(transfer_request).await {
++                Ok(h) => h,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to send cursor transfer request: {err}");
++                    return;
++                }
++            };
++            if header.ty != CommandTy::RespOkNodata {
++                log::error!(
++                    "virtio-gpud: unexpected response for cursor transfer: {:?}",
++                    header.ty
++                );
++            }
+         });
+ 
+         //Update the cursor position
+-        let request = Dma::new(UpdateCursor::update_cursor(x, y, hot_x, hot_y, cursor.id)).unwrap();
++        let request = match Dma::new(UpdateCursor::update_cursor(x, y, hot_x, hot_y, cursor.id)) {
++            Ok(r) => r,
++            Err(err) => {
++                log::error!("virtio-gpud: failed to allocate DMA for cursor update: {err}");
++                return;
++            }
++        };
+         futures::executor::block_on(async {
+             let command = ChainBuilder::new().chain(Buffer::new(&request)).build();
+             self.cursor_queue.send(command).await;
+@@ -236,7 +276,13 @@ impl VirtGpuAdapter<'_> {
+     }
+ 
+     fn move_cursor(&mut self, x: i32, y: i32) {
+-        let request = Dma::new(MoveCursor::move_cursor(x, y)).unwrap();
++        let request = match Dma::new(MoveCursor::move_cursor(x, y)) {
++            Ok(r) => r,
++            Err(err) => {
++                log::error!("virtio-gpud: failed to allocate DMA for cursor move: {err}");
++                return;
++            }
++        };
+ 
+         futures::executor::block_on(async {
+             let command = ChainBuilder::new().chain(Buffer::new(&request)).build();
+@@ -246,7 +292,10 @@ impl VirtGpuAdapter<'_> {
+ 
+     fn disable_cursor(&mut self) {
+         if self.hidden_cursor.is_none() {
+-            let (width, height) = self.hw_cursor_size().unwrap();
++            let Some((width, height)) = self.hw_cursor_size() else {
++                log::error!("virtio-gpud: failed to get hardware cursor size");
++                return;
++            };
+             let (cursor, stride) = self.create_dumb_buffer(width, height);
+             unsafe {
+                 core::ptr::write_bytes(
+@@ -257,8 +306,9 @@ impl VirtGpuAdapter<'_> {
+             }
+             self.hidden_cursor = Some(Arc::new(cursor));
+         }
+-        let hidden_cursor = self.hidden_cursor.as_ref().unwrap().clone();
+-
++        let Some(hidden_cursor) = self.hidden_cursor.clone() else {
++            return;
++        };
+         self.update_cursor(&hidden_cursor, 0, 0, 0, 0);
+     }
+ }
+@@ -280,7 +330,9 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+ 
+     fn init(&mut self, objects: &mut KmsObjects<Self>) {
+         futures::executor::block_on(async {
+-            self.update_displays().await.unwrap();
++            if let Err(err) = self.update_displays().await {
++                log::error!("virtio-gpud: failed to update displays during init: {err}");
++            }
+         });
+ 
+         for display_id in 0..self.config.num_scanouts.get() {
+@@ -310,7 +362,19 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+ 
+     fn probe_connector(&mut self, objects: &mut KmsObjects<Self>, id: KmsObjectId) {
+         futures::executor::block_on(async {
+-            let mut connector = objects.get_connector(id).unwrap().lock().unwrap();
++            let mut connector = match objects.get_connector(id) {
++                Ok(c) => match c.lock() {
++                    Ok(guard) => guard,
++                    Err(err) => {
++                        log::error!("virtio-gpud: failed to lock connector: {err}");
++                        return;
++                    }
++                },
++                Err(e) => {
++                    log::error!("virtio-gpud: connector not found: {e}");
++                    return;
++                }
++            };
+             let display = &self.displays[connector.driver_data.display_id as usize];
+ 
+             connector.connection = if display.enabled {
+@@ -325,7 +389,19 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                 drop(connector);
+ 
+                 let blob = objects.add_blob(display.edid.clone());
+-                objects.get_connector(id).unwrap().lock().unwrap().edid = blob;
++                match objects.get_connector(id) {
++                    Ok(c) => match c.lock() {
++                        Ok(mut guard) => guard.edid = blob,
++                        Err(err) => {
++                            log::error!(
++                                "virtio-gpud: failed to lock connector for EDID update: {err}"
++                            );
++                        }
++                    },
++                    Err(e) => {
++                        log::error!("virtio-gpud: connector not found for EDID update: {e}");
++                    }
++                }
+             } else {
+                 connector.update_from_size(display.width, display.height);
+             }
+@@ -336,7 +412,13 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+         futures::executor::block_on(async {
+             let bpp = 32;
+             let fb_size = width as usize * height as usize * bpp / 8;
+-            let sgl = sgl::Sgl::new(fb_size).unwrap();
++            let sgl = match sgl::Sgl::new(fb_size) {
++                Ok(s) => s,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate SGL for dumb buffer: {err}");
++                    std::process::exit(1);
++                }
++            };
+ 
+             unsafe {
+                 core::ptr::write_bytes(sgl.as_ptr() as *mut u8, 255, fb_size);
+@@ -345,22 +427,61 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+             let res_id = ResourceId::alloc();
+ 
+             // Create a host resource using `VIRTIO_GPU_CMD_RESOURCE_CREATE_2D`.
+-            let request = Dma::new(ResourceCreate2d::new(
++            let request = match Dma::new(ResourceCreate2d::new(
+                 res_id,
+                 ResourceFormat::Bgrx,
+                 width,
+                 height,
+-            ))
+-            .unwrap();
++            )) {
++                Ok(r) => r,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate DMA for resource create: {err}");
++                    return (
++                        VirtGpuFramebuffer {
++                            queue: self.control_queue.clone(),
++                            id: res_id,
++                            sgl,
++                            width,
++                            height,
++                        },
++                        width * 4,
++                    );
++                }
++            };
+ 
+-            let header = self.send_request(request).await.unwrap();
+-            assert_eq!(header.ty, CommandTy::RespOkNodata);
++            match self.send_request(request).await {
++                Ok(header) => {
++                    if header.ty != CommandTy::RespOkNodata {
++                        log::error!(
++                            "virtio-gpud: unexpected response for resource create: {:?}",
++                            header.ty
++                        );
++                    }
++                }
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to send resource create request: {err}");
++                }
++            }
+ 
+             // Use the allocated framebuffer from the guest ram, and attach it as backing
+             // storage to the resource just created, using `VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING`.
+ 
+-            let mut mem_entries =
+-                unsafe { Dma::zeroed_slice(sgl.chunks().len()).unwrap().assume_init() };
++            let mut mem_entries = match unsafe { Dma::zeroed_slice(sgl.chunks().len()) } {
++                Ok(entries) => unsafe { entries.assume_init() },
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate DMA for memory entries: {err}");
++                    return (
++                        VirtGpuFramebuffer {
++                            queue: self.control_queue.clone(),
++                            id: res_id,
++                            sgl,
++                            width,
++                            height,
++                        },
++                        width * 4,
++                    );
++                }
++            };
+             for (entry, chunk) in mem_entries.iter_mut().zip(sgl.chunks().iter()) {
+                 *entry = MemEntry {
+                     address: chunk.phys as u64,
+@@ -369,9 +490,43 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                 };
+             }
+ 
+-            let attach_request =
+-                Dma::new(AttachBacking::new(res_id, mem_entries.len() as u32)).unwrap();
+-            let header = Dma::new(ControlHeader::default()).unwrap();
++            let attach_request = match Dma::new(AttachBacking::new(
++                res_id,
++                mem_entries.len() as u32,
++            )) {
++                Ok(r) => r,
++                Err(err) => {
++                    log::error!(
++                        "virtio-gpud: failed to allocate DMA for attach request: {err}"
++                    );
++                    return (
++                        VirtGpuFramebuffer {
++                            queue: self.control_queue.clone(),
++                            id: res_id,
++                            sgl,
++                            width,
++                            height,
++                        },
++                        width * 4,
++                    );
++                }
++            };
++            let header = match Dma::new(ControlHeader::default()) {
++                Ok(h) => h,
++                Err(err) => {
++                    log::error!("virtio-gpud: failed to allocate DMA for attach header: {err}");
++                    return (
++                        VirtGpuFramebuffer {
++                            queue: self.control_queue.clone(),
++                            id: res_id,
++                            sgl,
++                            width,
++                            height,
++                        },
++                        width * 4,
++                    );
++                }
++            };
+             let command = ChainBuilder::new()
+                 .chain(Buffer::new(&attach_request))
+                 .chain(Buffer::new_unsized(&mem_entries))
+@@ -379,7 +534,12 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                 .build();
+ 
+             self.control_queue.send(command).await;
+-            assert_eq!(header.ty, CommandTy::RespOkNodata);
++            if header.ty != CommandTy::RespOkNodata {
++                log::error!(
++                    "virtio-gpud: unexpected response for attach backing: {:?}",
++                    header.ty
++                );
++            }
+ 
+             (
+                 VirtGpuFramebuffer {
+@@ -410,7 +570,13 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+         damage: Damage,
+     ) -> syscall::Result<()> {
+         futures::executor::block_on(async {
+-            let mut crtc = crtc.lock().unwrap();
++            let mut crtc = match crtc.lock() {
++                Ok(guard) => guard,
++                Err(err) => {
++                    log::error!("virtio-gpud: crtc mutex poisoned: {err}");
++                    return Err(syscall::Error::new(EIO));
++                }
++            };
+             let framebuffer = state
+                 .fb_id
+                 .map(|fb_id| objects.get_framebuffer(fb_id))
+@@ -418,7 +584,13 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+             crtc.state = state;
+ 
+             for connector in objects.connectors() {
+-                let connector = connector.lock().unwrap();
++                let connector = match connector.lock() {
++                    Ok(guard) => guard,
++                    Err(err) => {
++                        log::error!("virtio-gpud: connector mutex poisoned: {err}");
++                        continue;
++                    }
++                };
+ 
+                 if connector.state.crtc_id != objects.crtc_ids()[crtc.crtc_index as usize] {
+                     continue;
+@@ -427,19 +599,40 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                 let display_id = connector.driver_data.display_id;
+ 
+                 let Some(framebuffer) = framebuffer else {
+-                    let scanout_request = Dma::new(SetScanout::new(
++                    let scanout_request = match Dma::new(SetScanout::new(
+                         display_id,
+                         ResourceId::NONE,
+                         GpuRect::new(0, 0, 0, 0),
+-                    ))
+-                    .unwrap();
+-                    let header = self.send_request(scanout_request).await.unwrap();
+-                    assert_eq!(header.ty, CommandTy::RespOkNodata);
++                    )) {
++                        Ok(r) => r,
++                        Err(err) => {
++                            log::error!(
++                                "virtio-gpud: failed to allocate DMA for scanout: {err}"
++                            );
++                            return Err(syscall::Error::new(EIO));
++                        }
++                    };
++                    let header = match self.send_request(scanout_request).await {
++                        Ok(h) => h,
++                        Err(err) => {
++                            log::error!(
++                                "virtio-gpud: failed to send scanout request: {err}"
++                            );
++                            return Err(syscall::Error::new(EIO));
++                        }
++                    };
++                    if header.ty != CommandTy::RespOkNodata {
++                        log::error!(
++                            "virtio-gpud: unexpected response for scanout: {:?}",
++                            header.ty
++                        );
++                        return Err(syscall::Error::new(EIO));
++                    }
+                     self.displays[display_id as usize].active_resource = None;
+                     return Ok(());
+                 };
+ 
+-                let req = Dma::new(XferToHost2d::new(
++                let req = match Dma::new(XferToHost2d::new(
+                     framebuffer.buffer.id,
+                     GpuRect {
+                         x: 0,
+@@ -448,22 +641,61 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                         height: framebuffer.height,
+                     },
+                     0,
+-                ))
+-                .unwrap();
+-                let header = self.send_request(req).await.unwrap();
+-                assert_eq!(header.ty, CommandTy::RespOkNodata);
++                )) {
++                    Ok(r) => r,
++                    Err(err) => {
++                        log::error!("virtio-gpud: failed to allocate DMA for transfer: {err}");
++                        return Err(syscall::Error::new(EIO));
++                    }
++                };
++                let header = match self.send_request(req).await {
++                    Ok(h) => h,
++                    Err(err) => {
++                        log::error!("virtio-gpud: failed to send transfer request: {err}");
++                        return Err(syscall::Error::new(EIO));
++                    }
++                };
++                if header.ty != CommandTy::RespOkNodata {
++                    log::error!(
++                        "virtio-gpud: unexpected response for transfer: {:?}",
++                        header.ty
++                    );
++                    return Err(syscall::Error::new(EIO));
++                }
+ 
+                 // FIXME once we support resizing we also need to check that the current and target size match
+-                if self.displays[display_id as usize].active_resource != Some(framebuffer.buffer.id)
++                if self.displays[display_id as usize].active_resource
++                    != Some(framebuffer.buffer.id)
+                 {
+-                    let scanout_request = Dma::new(SetScanout::new(
++                    let scanout_request = match Dma::new(SetScanout::new(
+                         display_id,
+                         framebuffer.buffer.id,
+                         GpuRect::new(0, 0, framebuffer.width, framebuffer.height),
+-                    ))
+-                    .unwrap();
+-                    let header = self.send_request(scanout_request).await.unwrap();
+-                    assert_eq!(header.ty, CommandTy::RespOkNodata);
++                    )) {
++                        Ok(r) => r,
++                        Err(err) => {
++                            log::error!(
++                                "virtio-gpud: failed to allocate DMA for scanout: {err}"
++                            );
++                            return Err(syscall::Error::new(EIO));
++                        }
++                    };
++                    let header = match self.send_request(scanout_request).await {
++                        Ok(h) => h,
++                        Err(err) => {
++                            log::error!(
++                                "virtio-gpud: failed to send scanout request: {err}"
++                            );
++                            return Err(syscall::Error::new(EIO));
++                        }
++                    };
++                    if header.ty != CommandTy::RespOkNodata {
++                        log::error!(
++                            "virtio-gpud: unexpected response for scanout: {:?}",
++                            header.ty
++                        );
++                        return Err(syscall::Error::new(EIO));
++                    }
+                     self.displays[display_id as usize].active_resource =
+                         Some(framebuffer.buffer.id);
+                 }
+@@ -472,8 +704,27 @@ impl<'a> GraphicsAdapter for VirtGpuAdapter<'a> {
+                     framebuffer.buffer.id,
+                     damage.clip(framebuffer.width, framebuffer.height).into(),
+                 );
+-                let header = self.send_request(Dma::new(flush).unwrap()).await.unwrap();
+-                assert_eq!(header.ty, CommandTy::RespOkNodata);
++                let flush_dma = match Dma::new(flush) {
++                    Ok(d) => d,
++                    Err(err) => {
++                        log::error!("virtio-gpud: failed to allocate DMA for flush: {err}");
++                        return Err(syscall::Error::new(EIO));
++                    }
++                };
++                let header = match self.send_request(flush_dma).await {
++                    Ok(h) => h,
++                    Err(err) => {
++                        log::error!("virtio-gpud: failed to send flush request: {err}");
++                        return Err(syscall::Error::new(EIO));
++                    }
++                };
++                if header.ty != CommandTy::RespOkNodata {
++                    log::error!(
++                        "virtio-gpud: unexpected response for flush: {:?}",
++                        header.ty
++                    );
++                    return Err(syscall::Error::new(EIO));
++                }
+             }
+ 
+             Ok(())
+diff --git a/drivers/inputd/src/lib.rs b/drivers/inputd/src/lib.rs
+index b68e8211..0627f301 100644
+--- a/drivers/inputd/src/lib.rs
++++ b/drivers/inputd/src/lib.rs
+@@ -64,25 +64,53 @@ impl ConsumerHandle {
+         let fd = self.0.as_raw_fd();
+         let written = libredox::call::fpath(fd as usize, &mut buffer)?;
+ 
+-        assert!(written <= buffer.len());
+-
+-        let mut display_path = PathBuf::from(
+-            std::str::from_utf8(&buffer[..written])
+-                .expect("init: display path UTF-8 check failed")
+-                .to_owned(),
+-        );
+-        display_path.set_file_name(format!(
+-            "v2/{}",
+-            display_path.file_name().unwrap().to_str().unwrap()
+-        ));
+-        let display_path = display_path.to_str().unwrap();
++        if written > buffer.len() {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                "inputd: display path exceeded buffer size",
++            ));
++        }
++
++        let path_str = std::str::from_utf8(&buffer[..written]).map_err(|e| {
++            io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("inputd: display path is not valid UTF-8: {e}"),
++            )
++        })?;
++        let mut display_path = PathBuf::from(path_str.to_owned());
++
++        let file_name = display_path
++            .file_name()
++            .and_then(|n| n.to_str())
++            .ok_or_else(|| {
++                io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    format!(
++                        "inputd: display path has no valid file name: {}",
++                        display_path.display()
++                    ),
++                )
++            })?;
++        display_path.set_file_name(format!("v2/{file_name}"));
++        let display_path_str = display_path.to_str().ok_or_else(|| {
++            io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!(
++                    "inputd: constructed display path is not valid UTF-8: {}",
++                    display_path.display()
++                ),
++            )
++        })?;
+ 
+         let display_file =
+-            libredox::call::open(display_path, (O_CLOEXEC | O_NONBLOCK | O_RDWR) as _, 0)
++            libredox::call::open(display_path_str, (O_CLOEXEC | O_NONBLOCK | O_RDWR) as _, 0)
+                 .map(|socket| unsafe { File::from_raw_fd(socket as RawFd) })
+-                .unwrap_or_else(|err| {
+-                    panic!("failed to open display {}: {}", display_path, err);
+-                });
++                .map_err(|err| {
++                    io::Error::new(
++                        io::ErrorKind::Other,
++                        format!("inputd: failed to open display {display_path_str}: {err}"),
++                    )
++                })?;
+ 
+         Ok(display_file)
+     }
+@@ -152,8 +180,12 @@ impl DisplayHandle {
+ 
+         if nread == 0 {
+             Ok(None)
++        } else if nread != size_of::<VtEvent>() {
++            Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("inputd: partial vt event read: got {nread}, expected {}", size_of::<VtEvent>()),
++            ))
+         } else {
+-            assert_eq!(nread, size_of::<VtEvent>());
+             Ok(Some(event))
+         }
+     }
+diff --git a/drivers/inputd/src/main.rs b/drivers/inputd/src/main.rs
+index 07aa943e..61641b9f 100644
+--- a/drivers/inputd/src/main.rs
++++ b/drivers/inputd/src/main.rs
+@@ -274,7 +274,7 @@ impl SchemeSync for InputScheme {
+             let handle = self.handles.get(id)?;
+ 
+             if let Handle::Consumer { vt, .. } = handle {
+-                write!(w, "{vt}").unwrap();
++                write!(w, "{vt}").map_err(|_| SysError::new(EINVAL))?;
+                 Ok(())
+             } else {
+                 Err(SysError::new(EINVAL))
+@@ -438,7 +438,9 @@ impl SchemeSync for InputScheme {
+         }
+ 
+         let handle = self.handles.get_mut(id)?;
+-        assert!(matches!(handle, Handle::Producer));
++        if !matches!(handle, Handle::Producer) {
++            return Err(SysError::new(EBADF));
++        }
+ 
+         let buf = unsafe {
+             core::slice::from_raw_parts(
+@@ -505,8 +507,8 @@ impl SchemeSync for InputScheme {
+     }
+ 
+     fn on_close(&mut self, id: usize) {
+-        match self.handles.remove(id).unwrap() {
+-            Handle::Consumer { vt, .. } => {
++        match self.handles.remove(id) {
++            Some(Handle::Consumer { vt, .. }) => {
+                 self.vts.remove(&vt);
+                 if self.active_vt == Some(vt) {
+                     if let Some(&new_vt) = self.vts.last() {
+@@ -516,7 +518,10 @@ impl SchemeSync for InputScheme {
+                     }
+                 }
+             }
+-            _ => {}
++            Some(_) => {}
++            None => {
++                log::warn!("inputd: on_close called with unknown handle id {id}");
++            }
+         }
+     }
+ }
+@@ -589,8 +594,11 @@ fn deamon(daemon: daemon::SchemeDaemon) -> anyhow::Result<()> {
+ }
+ 
+ fn daemon_runner(daemon: daemon::SchemeDaemon) -> ! {
+-    deamon(daemon).unwrap();
+-    unreachable!();
++    if let Err(err) = deamon(daemon) {
++        log::error!("inputd: scheme daemon failed: {err}");
++        std::process::exit(1);
++    }
++    unreachable!()
+ }
+ 
+ const HELP: &str = r#"
+@@ -608,13 +616,26 @@ fn main() {
+         match val.as_ref() {
+             // Activates a VT.
+             "-A" => {
+-                let vt = args.next().unwrap().parse::<usize>().unwrap();
++                let vt_str = args.next().unwrap_or_else(|| {
++                    eprintln!("inputd: -A requires a VT number argument");
++                    std::process::exit(1);
++                });
++                let vt = vt_str.parse::<usize>().unwrap_or_else(|_| {
++                    eprintln!("inputd: invalid VT number: {vt_str}");
++                    std::process::exit(1);
++                });
+ 
+-                let mut handle =
+-                    inputd::ControlHandle::new().expect("inputd: failed to open control handle");
+-                handle
+-                    .activate_vt(vt)
+-                    .expect("inputd: failed to activate VT");
++                let mut handle = match inputd::ControlHandle::new() {
++                    Ok(h) => h,
++                    Err(e) => {
++                        eprintln!("inputd: failed to open control handle: {e}");
++                        std::process::exit(1);
++                    }
++                };
++                if let Err(e) = handle.activate_vt(vt) {
++                    eprintln!("inputd: failed to activate VT {vt}: {e}");
++                    std::process::exit(1);
++                }
+             }
+             // Activates a keymap.
+             "-K" => {
+@@ -630,11 +651,17 @@ fn main() {
+                     std::process::exit(1);
+                 });
+ 
+-                let mut handle =
+-                    inputd::ControlHandle::new().expect("inputd: failed to open control handle");
+-                handle
+-                    .activate_keymap(vt as usize)
+-                    .expect("inputd: failed to activate keymap");
++                let mut handle = match inputd::ControlHandle::new() {
++                    Ok(h) => h,
++                    Err(e) => {
++                        eprintln!("inputd: failed to open control handle: {e}");
++                        std::process::exit(1);
++                    }
++                };
++                if let Err(e) = handle.activate_keymap(vt as usize) {
++                    eprintln!("inputd: failed to activate keymap: {e}");
++                    std::process::exit(1);
++                }
+             }
+             // List available keymaps
+             "--keymaps" => {
+@@ -647,7 +674,10 @@ fn main() {
+                 println!("{}", HELP);
+             }
+ 
+-            _ => panic!("inputd: invalid argument: {}", val),
++            _ => {
++                eprintln!("inputd: invalid argument: {val}");
++                std::process::exit(1);
++            }
+         }
+     } else {
+         common::setup_logging(
+diff --git a/init/src/main.rs b/init/src/main.rs
+index 5682cf44..d40451a8 100644
+--- a/init/src/main.rs
++++ b/init/src/main.rs
+@@ -117,6 +117,8 @@ fn main() {
+     let mut unit_store = UnitStore::new();
+     let mut scheduler = Scheduler::new();
+ 
++    eprintln!("init: phase 1 — initfs boot");
++
+     switch_root(
+         &mut unit_store,
+         &mut init_config,
+@@ -125,6 +127,7 @@ fn main() {
+     );
+ 
+     // Start logd first such that we can pass /scheme/log as stdio to all other services
++    eprintln!("init: starting logd");
+     scheduler
+         .schedule_start_and_report_errors(&mut unit_store, UnitId("00_logd.service".to_owned()));
+     scheduler.step(&mut unit_store, &mut init_config);
+@@ -132,6 +135,7 @@ fn main() {
+         eprintln!("init: failed to switch stdio to '/scheme/log': {err}");
+     }
+ 
++    eprintln!("init: starting runtime target");
+     let runtime_target = UnitId("00_runtime.target".to_owned());
+     scheduler.schedule_start_and_report_errors(&mut unit_store, runtime_target.clone());
+     unit_store.set_runtime_target(runtime_target);
+@@ -140,6 +144,7 @@ fn main() {
+         .schedule_start_and_report_errors(&mut unit_store, UnitId("90_initfs.target".to_owned()));
+     scheduler.step(&mut unit_store, &mut init_config);
+ 
++    eprintln!("init: phase 2 — switchroot to /usr");
+     switch_root(
+         &mut unit_store,
+         &mut init_config,
+@@ -162,23 +167,59 @@ fn main() {
+                         .collect::<Vec<_>>()
+                         .join(", ")
+                 );
+-                return;
++                Vec::new()
+             }
+         };
++        eprintln!("init: scheduling {} rootfs units", entries.len());
+         for entry in entries {
++            let name = match entry.file_name().and_then(|n| n.to_str()) {
++                Some(name) => name,
++                None => {
++                    eprintln!("init: skipping config entry with non-UTF-8 filename");
++                    continue;
++                }
++            };
+             scheduler.schedule_start_and_report_errors(
+                 &mut unit_store,
+-                UnitId(entry.file_name().unwrap().to_str().unwrap().to_owned()),
++                UnitId(name.to_owned()),
+             );
+         }
+     };
+ 
+     scheduler.step(&mut unit_store, &mut init_config);
++    eprintln!("init: phase 3 — rootfs services started");
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("init: failed to enter null namespace: {err}");
++    }
++
++    eprintln!("init: boot complete — entering waitpid loop");
+ 
+-    libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
++    let mut respawn_map: BTreeMap<u32, UnitId> = BTreeMap::new();
++    for (unit_id, pid) in scheduler.respawn_pids {
++        respawn_map.insert(pid, unit_id);
++    }
+ 
+     loop {
+         let mut status = 0;
+-        libredox::call::waitpid(0, &mut status, 0).unwrap();
++        match libredox::call::waitpid(0, &mut status, 0) {
++            Ok(pid) => {
++                if let Some(unit_id) = respawn_map.remove(&(pid as u32)) {
++                    eprintln!("init: respawning {} (pid {} exited)", unit_id.0, pid);
++                    let mut resp_scheduler = Scheduler::new();
++                    resp_scheduler.schedule_start_and_report_errors(
++                        &mut unit_store,
++                        unit_id.clone(),
++                    );
++                    resp_scheduler.step(&mut unit_store, &mut init_config);
++                    for (uid, new_pid) in resp_scheduler.respawn_pids {
++                        respawn_map.insert(new_pid, uid);
++                    }
++                }
++            }
++            Err(_) => {
++                std::thread::sleep(std::time::Duration::from_millis(100));
++            }
++        }
+     }
+ }
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+index d42a4e57..32f5076f 100644
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -5,6 +5,7 @@ use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
+ 
+ pub struct Scheduler {
+     pending: VecDeque<Job>,
++    pub respawn_pids: Vec<(UnitId, u32)>,
+ }
+ 
+ struct Job {
+@@ -20,6 +21,7 @@ impl Scheduler {
+     pub fn new() -> Scheduler {
+         Scheduler {
+             pending: VecDeque::new(),
++            respawn_pids: Vec::new(),
+         }
+     }
+ 
+@@ -43,7 +45,10 @@ impl Scheduler {
+     ) {
+         let loaded_units = unit_store.load_units(unit_id.clone(), errors);
+         for unit_id in loaded_units {
+-            if !unit_store.unit(&unit_id).conditions_met() {
++            if unit_store
++                .unit(&unit_id)
++                .map_or(false, |u| u.conditions_met())
++            {
+                 continue;
+             }
+ 
+@@ -62,7 +67,10 @@ impl Scheduler {
+ 
+             match job.kind {
+                 JobKind::Start => {
+-                    let unit = unit_store.unit_mut(&job.unit);
++                    let Some(unit) = unit_store.unit_mut(&job.unit) else {
++                        eprintln!("init: unit {} not found in store, skipping", job.unit.0);
++                        continue 'a;
++                    };
+ 
+                     for dep in &unit.info.requires_weak {
+                         for pending_job in &self.pending {
+@@ -73,14 +81,17 @@ impl Scheduler {
+                         }
+                     }
+ 
+-                    run(unit, init_config);
++                    let pid = run(unit, init_config);
++                    if let Some(pid) = pid {
++                        self.respawn_pids.push((job.unit.clone(), pid));
++                    }
+                 }
+             }
+         }
+     }
+ }
+ 
+-fn run(unit: &mut Unit, config: &mut InitConfig) {
++fn run(unit: &mut Unit, config: &mut InitConfig) -> Option<u32> {
+     match &unit.kind {
+         UnitKind::LegacyScript { script } => {
+             for cmd in script.clone() {
+@@ -93,7 +104,7 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+         UnitKind::Service { service } => {
+             if config.skip_cmd.contains(&service.cmd) {
+                 eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
+-                return;
++                return None;
+             }
+             if config.log_debug {
+                 eprintln!(
+@@ -102,7 +113,7 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+                     service.cmd,
+                 );
+             }
+-            service.spawn(&config.envs);
++            return service.spawn(&config.envs);
+         }
+         UnitKind::Target {} => {
+             if config.log_debug {
+@@ -113,4 +124,5 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+             }
+         }
+     }
++    None
+ }
+diff --git a/init/src/service.rs b/init/src/service.rs
+index ed0023e9..e06e1b16 100644
+--- a/init/src/service.rs
++++ b/init/src/service.rs
+@@ -22,6 +22,8 @@ pub struct Service {
+     pub inherit_envs: BTreeSet<String>,
+     #[serde(rename = "type")]
+     pub type_: ServiceType,
++    #[serde(default)]
++    pub respawn: bool,
+ }
+ 
+ #[derive(Clone, Debug, Default, Deserialize)]
+@@ -35,7 +37,7 @@ pub enum ServiceType {
+ }
+ 
+ impl Service {
+-    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) {
++    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) -> Option<u32> {
+         let mut command = Command::new(&self.cmd);
+         command.args(self.args.iter().map(|arg| subst_env(arg)));
+         command.env_clear();
+@@ -46,14 +48,20 @@ impl Service {
+         }
+         command.envs(base_envs).envs(&self.envs);
+ 
+-        let (mut read_pipe, write_pipe) = io::pipe().unwrap();
++        let (mut read_pipe, write_pipe) = match io::pipe() {
++            Ok(pair) => pair,
++            Err(err) => {
++                eprintln!("init: failed to create readiness pipe for {:?}: {err}", command);
++                return None;
++            }
++        };
+         unsafe { pass_fd(&mut command, "INIT_NOTIFY", write_pipe.into()) };
+ 
+         let mut child = match command.spawn() {
+             Ok(child) => child,
+             Err(err) => {
+                 eprintln!("init: failed to execute {:?}: {}", command, err);
+-                return;
++                return None;
+             }
+         };
+ 
+@@ -81,23 +89,32 @@ impl Service {
+                         }) => continue,
+                         Ok(0) => {
+                             eprintln!("init: {command:?} exited without notifying readiness");
+-                            return;
++                            return None;
+                         }
+                         Ok(1) => break,
+                         Ok(n) => {
+                             eprintln!("init: incorrect amount of fds {n} returned");
+-                            return;
++                            return None;
+                         }
+                         Err(err) => {
+                             eprintln!("init: failed to wait for {command:?}: {err}");
+-                            return;
++                            return None;
+                         }
+                     }
+                 }
+ 
+-                let current_namespace_fd = libredox::call::getns().expect("TODO");
+-                libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
+-                    .expect("TODO");
++                let current_namespace_fd = match libredox::call::getns() {
++                    Ok(fd) => fd,
++                    Err(err) => {
++                        eprintln!("init: failed to get current namespace for {command:?}: {err}");
++                        return None;
++                    }
++                };
++                if let Err(err) =
++                    libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
++                {
++                    eprintln!("init: failed to register scheme {scheme:?} for {command:?}: {err}");
++                }
+             }
+             ServiceType::Oneshot => {
+                 drop(read_pipe);
+@@ -112,8 +129,13 @@ impl Service {
+                     }
+                 }
+             }
+-            ServiceType::OneshotAsync => {}
++            ServiceType::OneshotAsync => {
++                if self.respawn {
++                    return Some(child.id());
++                }
++            }
+         }
++        None
+     }
+ }
+ 
+diff --git a/init/src/unit.rs b/init/src/unit.rs
+index 98053cb2..a58bfb96 100644
+--- a/init/src/unit.rs
++++ b/init/src/unit.rs
+@@ -23,8 +23,14 @@ impl UnitStore {
+     }
+ 
+     pub fn set_runtime_target(&mut self, unit_id: UnitId) {
+-        assert!(self.runtime_target.is_none());
+-        assert!(self.units.contains_key(&unit_id));
++        if self.runtime_target.is_some() {
++            eprintln!("init: runtime target already set, ignoring {}", unit_id.0);
++            return;
++        }
++        if !self.units.contains_key(&unit_id) {
++            eprintln!("init: runtime target {} not found in unit store", unit_id.0);
++            return;
++        }
+         self.runtime_target = Some(unit_id);
+     }
+ 
+@@ -85,8 +91,10 @@ impl UnitStore {
+             let unit = self.load_single_unit(unit_id, errors);
+             if let Some(unit) = unit {
+                 loaded_units.push(unit.clone());
+-                for dep in &self.unit(&unit).info.requires_weak {
+-                    pending_units.push(dep.clone());
++                if let Some(u) = self.unit(&unit) {
++                    for dep in &u.info.requires_weak {
++                        pending_units.push(dep.clone());
++                    }
+                 }
+             }
+         }
+@@ -94,12 +102,12 @@ impl UnitStore {
+         loaded_units
+     }
+ 
+-    pub fn unit(&self, unit: &UnitId) -> &Unit {
+-        self.units.get(unit).unwrap()
++    pub fn unit(&self, unit: &UnitId) -> Option<&Unit> {
++        self.units.get(unit)
+     }
+ 
+-    pub fn unit_mut(&mut self, unit: &UnitId) -> &mut Unit {
+-        self.units.get_mut(unit).unwrap()
++    pub fn unit_mut(&mut self, unit: &UnitId) -> Option<&mut Unit> {
++        self.units.get_mut(unit)
+     }
+ }
+ 
+@@ -180,7 +188,7 @@ impl Unit {
+     ) -> io::Result<Self> {
+         let config = fs::read_to_string(config_path)?;
+ 
+-        let Some(ext) = config_path.extension().map(|ext| ext.to_str().unwrap()) else {
++        let Some(ext) = config_path.extension().and_then(|ext| ext.to_str()) else {
+             let script = Script::from_str(&config, errors)?;
+             return Ok(Unit {
+                 id,
+diff --git a/logd/src/main.rs b/logd/src/main.rs
+index 3636f1fa..559d8993 100644
+--- a/logd/src/main.rs
++++ b/logd/src/main.rs
+@@ -6,18 +6,30 @@ use crate::scheme::LogScheme;
+ mod scheme;
+ 
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+-    let socket = Socket::create().expect("logd: failed to create log scheme");
++    let socket = match Socket::create() {
++        Ok(s) => s,
++        Err(e) => {
++            eprintln!("logd: failed to create log scheme: {e}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = LogScheme::new(&socket);
+     let handler = Blocking::new(&socket, 16);
+ 
+     let _ = daemon.ready_sync_scheme(&socket, &mut scheme);
+ 
+-    libredox::call::setrens(0, 0).expect("logd: failed to enter null namespace");
+-
+-    handler
+-        .process_requests_blocking(scheme)
+-        .expect("logd: failed to process requests");
++    if let Err(e) = libredox::call::setrens(0, 0) {
++        eprintln!("logd: failed to enter null namespace: {e}");
++    }
++
++    match handler.process_requests_blocking(scheme) {
++        Ok(never) => match never {},
++        Err(e) => {
++            eprintln!("logd: failed to process requests: {e}");
++            std::process::exit(1);
++        }
++    }
+ }
+ 
+ fn main() {
+diff --git a/logd/src/scheme.rs b/logd/src/scheme.rs
+index 070de3d6..ef3e175c 100644
+--- a/logd/src/scheme.rs
++++ b/logd/src/scheme.rs
+@@ -22,7 +22,7 @@ pub enum LogHandle {
+ 
+ pub struct LogScheme<'sock> {
+     socket: &'sock Socket,
+-    kernel_debug: File,
++    kernel_debug: Option<File>,
+     output_tx: Sender<OutputCmd>,
+     handles: HandleMap<LogHandle>,
+ }
+@@ -34,12 +34,24 @@ enum OutputCmd {
+ 
+ impl<'sock> LogScheme<'sock> {
+     pub fn new(socket: &'sock Socket) -> Self {
+-        let kernel_debug = OpenOptions::new()
++        let kernel_debug = match OpenOptions::new()
+             .write(true)
+             .open("/scheme/debug")
+-            .unwrap();
++        {
++            Ok(f) => Some(f),
++            Err(e) => {
++                eprintln!("logd: failed to open /scheme/debug: {e}");
++                None
++            }
++        };
+ 
+-        let mut kernel_sys_log = std::fs::File::open("/scheme/sys/log").unwrap();
++        let kernel_sys_log = match std::fs::File::open("/scheme/sys/log") {
++            Ok(f) => Some(f),
++            Err(e) => {
++                eprintln!("logd: failed to open /scheme/sys/log: {e}");
++                None
++            }
++        };
+ 
+         let (output_tx, output_rx) = mpsc::channel::<OutputCmd>();
+ 
+@@ -72,20 +84,28 @@ impl<'sock> LogScheme<'sock> {
+             }
+         });
+ 
+-        let output_tx2 = output_tx.clone();
+-        std::thread::spawn(move || {
+-            let mut handle_buf = vec![];
+-            let mut buf = [0; 4096];
+-            buf[.."kernel: ".len()].copy_from_slice(b"kernel: ");
+-            loop {
+-                let n = kernel_sys_log.read(&mut buf["kernel: ".len()..]).unwrap();
+-                if n == 0 {
+-                    // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
+-                    break;
++        if let Some(mut kernel_sys_log) = kernel_sys_log {
++            let output_tx2 = output_tx.clone();
++            std::thread::spawn(move || {
++                let mut handle_buf = vec![];
++                let mut buf = [0; 4096];
++                buf[.."kernel: ".len()].copy_from_slice(b"kernel: ");
++                loop {
++                    let n = match kernel_sys_log.read(&mut buf["kernel: ".len()..]) {
++                        Ok(n) => n,
++                        Err(e) => {
++                            eprintln!("logd: error reading kernel log: {e}");
++                            break;
++                        }
++                    };
++                    if n == 0 {
++                        // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
++                        break;
++                    }
++                    Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf, None);
+                 }
+-                Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf, None);
+-            }
+-        });
++            });
++        }
+ 
+         LogScheme {
+             socket,
+@@ -120,9 +140,9 @@ impl<'sock> LogScheme<'sock> {
+                     let _ = kernel_debug.flush();
+                 }
+ 
+-                output_tx
+-                    .send(OutputCmd::Log(mem::take(handle_buf)))
+-                    .unwrap();
++                if let Err(e) = output_tx.send(OutputCmd::Log(mem::take(handle_buf))) {
++                    eprintln!("logd: failed to send log output: {e}");
++                }
+             }
+ 
+             i += 1;
+@@ -196,7 +216,7 @@ impl<'sock> SchemeSync for LogScheme<'sock> {
+             handle_buf,
+             context,
+             buf,
+-            Some(&mut self.kernel_debug),
++            self.kernel_debug.as_mut(),
+         );
+ 
+         Ok(buf.len())
+@@ -217,7 +237,10 @@ impl<'sock> SchemeSync for LogScheme<'sock> {
+         ) {
+             return Err(e);
+         }
+-        self.output_tx.send(OutputCmd::AddSink(new_fd)).unwrap();
++        if let Err(e) = self.output_tx.send(OutputCmd::AddSink(new_fd)) {
++            eprintln!("logd: failed to add log sink: {e}");
++            return Err(Error::new(EIO));
++        }
+ 
+         Ok(1)
+     }
+diff --git a/randd/src/main.rs b/randd/src/main.rs
+index d68dd732..5c330719 100644
+--- a/randd/src/main.rs
++++ b/randd/src/main.rs
+@@ -41,7 +41,11 @@ fn create_rdrand_seed() -> [u8; SEED_BYTES] {
+     let mut have_seeded = false;
+     #[cfg(target_arch = "x86_64")]
+     {
+-        if CpuId::new().get_feature_info().unwrap().has_rdrand() {
++        if CpuId::new()
++            .get_feature_info()
++            .map(|info| info.has_rdrand())
++            .unwrap_or(false)
++        {
+             for i in 0..SEED_BYTES / 8 {
+                 // We get 8 bytes at a time from rdrand instruction
+                 let rand: u64;
+@@ -81,7 +85,7 @@ fn create_rdrand_seed() -> [u8; SEED_BYTES] {
+         }
+     } // TODO integrate alternative entropy sources
+     if !have_seeded {
+-        println!("randd: Seeding failed, no entropy source.  Random numbers on this platform are NOT SECURE");
++        eprintln!("randd: no hardware entropy source, random numbers are NOT SECURE");
+     }
+     rng
+ }
+@@ -450,18 +454,32 @@ impl SchemeSync for RandScheme {
+ }
+ 
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+-    let socket = Socket::create().expect("randd: failed to create rand scheme");
++    let socket = match Socket::create() {
++        Ok(s) => s,
++        Err(e) => {
++            eprintln!("randd: failed to create rand scheme: {e}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = RandScheme::new();
+-    let handler = Blocking::new(&socket, 16);
+ 
+     let _ = daemon.ready_sync_scheme(&socket, &mut scheme);
+ 
+-    libredox::call::setrens(0, 0).expect("randd: failed to enter null namespace");
++    if let Err(e) = libredox::call::setrens(0, 0) {
++        eprintln!("randd: failed to enter null namespace: {e}");
++    }
+ 
+-    handler
+-        .process_requests_blocking(scheme)
+-        .expect("randd: failed to process events from zero scheme");
++    loop {
++        let handler = Blocking::new(&socket, 16);
++        match handler.process_requests_blocking(scheme) {
++            Ok(never) => never,
++            Err(e) => {
++                eprintln!("randd: error processing requests: {e}");
++                scheme = RandScheme::new();
++            }
++        }
++    }
+ }
+ 
+ fn main() {
+diff --git a/zerod/src/main.rs b/zerod/src/main.rs
+index c9bd1465..59f6b97c 100644
+--- a/zerod/src/main.rs
++++ b/zerod/src/main.rs
+@@ -5,6 +5,7 @@ use scheme_utils::Blocking;
+ 
+ mod scheme;
+ 
++#[derive(Clone, Copy)]
+ enum Ty {
+     Null,
+     Zero,
+@@ -15,21 +16,36 @@ fn main() {
+ }
+ 
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+-    let ty = match &*std::env::args().nth(1).unwrap() {
+-        "null" => Ty::Null,
+-        "zero" => Ty::Zero,
+-        _ => panic!("needs to be called with either null or zero as argument"),
++    let ty = match std::env::args().nth(1).as_deref() {
++        Some("null") => Ty::Null,
++        Some("zero") | None => Ty::Zero,
++        Some(other) => {
++            eprintln!("zerod: unknown argument '{other}', use 'null' or 'zero'");
++            std::process::exit(1);
++        }
+     };
+ 
+-    let socket = Socket::create().expect("zerod: failed to create zero scheme");
++    let socket = match Socket::create() {
++        Ok(s) => s,
++        Err(e) => {
++            eprintln!("zerod: failed to create zero scheme: {e}");
++            std::process::exit(1);
++        }
++    };
+     let mut zero_scheme = ZeroScheme(ty);
+-    let zero_handler = Blocking::new(&socket, 16);
+ 
+     let _ = daemon.ready_sync_scheme(&socket, &mut zero_scheme);
+ 
+-    libredox::call::setrens(0, 0).expect("zerod: failed to enter null namespace");
+-
+-    zero_handler
+-        .process_requests_blocking(zero_scheme)
+-        .expect("zerod: failed to process events from zero scheme");
++    if let Err(e) = libredox::call::setrens(0, 0) {
++        eprintln!("zerod: failed to enter null namespace: {e}");
++    }
++
++    loop {
++        let zero_handler = Blocking::new(&socket, 16);
++        let scheme = ZeroScheme(ty);
++        match zero_handler.process_requests_blocking(scheme) {
++            Ok(never) => never,
++            Err(e) => eprintln!("zerod: error processing requests: {e}"),
++        }
++    }
+ }
