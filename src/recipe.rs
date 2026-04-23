@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, VecDeque},
     convert::TryInto,
     fs,
     path::{Path, PathBuf},
@@ -288,88 +288,76 @@ impl CookRecipe {
         collect_self: bool,
         recursion: usize,
     ) -> Result<Vec<Self>, PackageError> {
-        if recursion == 0 {
-            return Err(PackageError::Recursion(Default::default()));
+        // Iterative BFS with an explicit worklist to avoid stack overflow
+        // on large transitive dependency graphs.  Each work item carries its
+        // remaining depth budget so the original recursion limit is honoured.
+        struct WorkItem {
+            name: PackageName,
+            depth: usize,
+            collect_self: bool,
+        }
+
+        let mut queue: VecDeque<WorkItem> = VecDeque::new();
+        for name in names {
+            queue.push_back(WorkItem {
+                name: name.clone(),
+                depth: recursion,
+                collect_self,
+            });
         }
 
         let mut recipes = Vec::new();
         let mut recipes_set = BTreeSet::new();
-        for name in names {
-            let recipe = Self::from_name(name.clone())?;
+        let mut expanded = BTreeSet::new();
+
+        while let Some(item) = queue.pop_front() {
+            if item.depth == 0 {
+                return Err(PackageError::Recursion(Default::default()));
+            }
+
+            if expanded.contains(&item.name) {
+                if item.collect_self && !recipes_set.contains(&item.name) {
+                    let recipe = Self::from_name(item.name.clone())?;
+                    recipes_set.insert(recipe.name.clone());
+                    recipes.push(recipe);
+                }
+                continue;
+            }
+            expanded.insert(item.name.clone());
+
+            let recipe = Self::from_name(item.name.clone())?;
 
             if recurse_build_deps {
-                let dependencies = Self::new_recursive(
-                    &recipe.recipe.build.dependencies,
-                    recurse_build_deps,
-                    recurse_dev_build_deps,
-                    recurse_package_deps,
-                    collect_build_deps,
-                    collect_package_deps,
-                    collect_build_deps,
-                    recursion - 1,
-                )
-                .map_err(|mut err| {
-                    err.append_recursion(name);
-                    err
-                })?;
-
-                for dependency in dependencies {
-                    if !recipes_set.contains(&dependency.name) {
-                        recipes_set.insert(dependency.name.clone());
-                        recipes.push(dependency);
-                    }
+                for dep in &recipe.recipe.build.dependencies {
+                    queue.push_back(WorkItem {
+                        name: dep.clone(),
+                        depth: item.depth - 1,
+                        collect_self: collect_build_deps,
+                    });
                 }
             }
 
             if recurse_dev_build_deps {
-                let dependencies = Self::new_recursive(
-                    &recipe.recipe.build.dev_dependencies,
-                    recurse_build_deps,
-                    recurse_dev_build_deps,
-                    recurse_package_deps,
-                    collect_build_deps,
-                    collect_package_deps,
-                    collect_build_deps,
-                    recursion - 1,
-                )
-                .map_err(|mut err| {
-                    err.append_recursion(name);
-                    err
-                })?;
-
-                for dependency in dependencies {
-                    if !recipes_set.contains(&dependency.name) {
-                        recipes_set.insert(dependency.name.clone());
-                        recipes.push(dependency);
-                    }
+                for dep in &recipe.recipe.build.dev_dependencies {
+                    queue.push_back(WorkItem {
+                        name: dep.clone(),
+                        depth: item.depth - 1,
+                        collect_self: collect_build_deps,
+                    });
                 }
             }
 
             if recurse_package_deps {
-                let dependencies = Self::new_recursive(
-                    &recipe.recipe.package.dependencies,
-                    recurse_build_deps,
-                    recurse_dev_build_deps,
-                    recurse_package_deps,
-                    collect_build_deps,
-                    collect_package_deps,
-                    collect_package_deps,
-                    recursion - 1,
-                )
-                .map_err(|mut err| {
-                    err.append_recursion(name);
-                    err
-                })?;
-
-                for dependency in dependencies {
-                    if !recipes_set.contains(&dependency.name) {
-                        recipes_set.insert(dependency.name.clone());
-                        recipes.push(dependency);
-                    }
+                for dep in &recipe.recipe.package.dependencies {
+                    queue.push_back(WorkItem {
+                        name: dep.clone(),
+                        depth: item.depth - 1,
+                        collect_self: collect_package_deps,
+                    });
                 }
             }
 
-            if collect_self && !recipes_set.contains(&recipe.name) {
+            if item.collect_self && !recipes_set.contains(&recipe.name) {
                 recipes_set.insert(recipe.name.clone());
                 recipes.push(recipe);
             }

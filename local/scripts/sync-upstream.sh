@@ -148,10 +148,30 @@ if [ "$NO_MERGE" = "0" ] && [ "$DRY_RUN" = "0" ]; then
 
         if [ "$FORCE" = "0" ]; then
             echo ""
-            echo "   ABORT: Uncommitted local/ changes detected. Use --force to override."
+            echo "   ABORT: Uncommitted local/ changes detected."
+            echo "   Commit your changes first: git add local/ && git commit -m 'WIP'"
+            echo "   Or use --force if you understand the risks (untracked files will be LOST)."
             exit 1
         else
-            echo "   --force specified, proceeding anyway..."
+            # --force with untracked files requires explicit confirmation
+            if [ -n "$LOCAL_UNTRACKED" ]; then
+                echo ""
+                echo "!! DANGER: --force with untracked files will DELETE them permanently. !!"
+                echo "   git stash does NOT protect untracked files."
+                echo "   Untracked files found:"
+                echo "$LOCAL_UNTRACKED" | head -10 | while read -r f; do echo "     $f"; done
+                TOTAL=$(echo "$LOCAL_UNTRACKED" | grep -c .)
+                [ "$TOTAL" -gt 10 ] && echo "     ... and $((TOTAL - 10)) more"
+                echo ""
+                read -p "   Type 'YES_DELETE' to confirm destruction of untracked local/ files: " CONFIRM
+                if [ "$CONFIRM" != "YES_DELETE" ]; then
+                    echo "   Aborted. Your untracked files are safe."
+                    exit 1
+                fi
+                echo "   Proceeding with --force — untracked files WILL be deleted..."
+            else
+                echo "   --force specified, proceeding (tracked changes will be stashed)..."
+            fi
         fi
     fi
 fi

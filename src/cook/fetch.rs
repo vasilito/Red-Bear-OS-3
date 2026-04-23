@@ -210,7 +210,11 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
     }
 
     let result = match &recipe.recipe.source {
-        Some(SourceRecipe::Path { path: _ }) | None => fetch(recipe, true, logger)?,
+        Some(SourceRecipe::Path { path: _ }) | None => {
+            offline_check_exists(&source_dir)?;
+            let ident = fetch_apply_source_info(recipe, "".to_string())?;
+            FetchResult::cached(source_dir, ident)
+        }
         Some(SourceRecipe::SameAs { same_as }) => {
             let recipe = fetch_resolve_canon(recipe_dir, &same_as, recipe.name.is_host())?;
             // recursively fetch
