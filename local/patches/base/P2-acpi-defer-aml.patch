@@ -1,0 +1,46 @@
+Defer AML initialization until PCI registration completes.
+
+When acpid starts before pcid has registered the PCI fd, AML
+initialization fails with a misleading ERROR-level message. This is
+expected on every boot because the service ordering requires acpid to
+start before pcid-spawner. The AML interpreter initializes successfully
+after pcid registers via /scheme/acpi/register_pci.
+
+Changes:
+- aml_context_mut(): log at DEBUG instead of ERROR when PCI fd is None
+  (expected pre-registration state, not a fault)
+- Fadt::init(): skip \\_S5 evaluation when PCI is not yet registered,
+  since refresh_s5_values() is retried in register_pci_fd() after PCI
+  registration completes
+
+diff -urN a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -896,7 +896,11 @@
+             match self.init(pci_fd) {
+                 Ok(()) => (),
+                 Err(err) => {
+-                    log::error!("failed to initialize AML context: {}", err);
++                    if pci_fd.is_none() {
++                        log::debug!("AML init deferred until PCI registration: {}", err);
++                    } else {
++                        log::error!("failed to initialize AML context: {}", err);
++                    }
+                 }
+             }
+         }
+@@ -2004,8 +2008,12 @@
+ 
+         context.tables.push(dsdt_sdt);
+ 
+-        if let Err(error) = context.refresh_s5_values() {
+-            log::warn!("Failed to evaluate \\_S5 during FADT init: {error}");
++        if context.pci_ready() {
++            if let Err(error) = context.refresh_s5_values() {
++                log::warn!("Failed to evaluate \\_S5 during FADT init: {error}");
++            }
++        } else {
++            log::debug!("Deferring \\_S5 evaluation until PCI registration");
+         }
+     }
+ }

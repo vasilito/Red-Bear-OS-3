@@ -48,59 +48,7 @@ redbear-info = {}
 path = "/etc/netctl/active"
 data = "wired-dhcp\n"
 
-# minimal.toml: "inputd -A 2", "nowait getty 2", "nowait getty /scheme/debug/no-preserve -J"
-[[files]]
-path = "/usr/lib/init.d/30_console"
-data = """
-requires_weak 10_net
-inputd -A 2
-nowait getty 2
-nowait getty /scheme/debug/no-preserve -J
-"""
-
-[[files]]
-path = "/usr/lib/init.d/29_activate_console.service"
-data = """
-[unit]
-description = "Activate console VT"
-requires_weak = [
-    "10_net.target",
-]
-
-[service]
-cmd = "inputd"
-args = ["-A", "2"]
-type = "oneshot"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/30_console.service"
-data = """
-[unit]
-description = "Console terminals"
-requires_weak = [
-    "29_activate_console.service",
-]
-
-[service]
-cmd = "getty"
-args = ["2"]
-type = "oneshot_async"
-respawn = true
-"""
-
-[[files]]
-path = "/usr/lib/init.d/31_debug_console.service"
-data = """
-[unit]
-description = "Debug console"
-requires_weak = [
-    "10_net.target",
-]
-
-[service]
-cmd = "getty"
-args = ["/scheme/debug/no-preserve", "-J"]
-type = "oneshot_async"
-respawn = true
-"""
+# VT/getty/login chain is handled by the combination of:
+#   1. initfs (phase 1): inputd daemon, vesad, fbcond — register input/display/fbcon schemes
+#   2. minimal.toml legacy 30_console: inputd -A 2 + nowait getty 2 + nowait getty /scheme/debug
+# No additional rootfs service files needed — initfs + legacy script covers the full chain.

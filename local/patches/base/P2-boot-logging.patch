@@ -1,0 +1,308 @@
+diff --git a/drivers/common/src/logger.rs b/drivers/common/src/logger.rs
+index 82ec2bd0..a531edd9 100644
+--- a/drivers/common/src/logger.rs
++++ b/drivers/common/src/logger.rs
+@@ -44,6 +44,7 @@ pub fn setup_logging(
+         Ok(b) => {
+             logger = logger.with_output(b.with_filter(file_level).flush_on_newline(true).build())
+         }
++        Err(error) if error.raw_os_error() == Some(19) => {}
+         Err(error) => eprintln!("Failed to create {logfile_base}.log: {}", error),
+     }
+ 
+@@ -61,6 +62,7 @@ pub fn setup_logging(
+                     .build(),
+             )
+         }
++        Err(error) if error.raw_os_error() == Some(19) => {}
+         Err(error) => eprintln!("Failed to create {logfile_base}.ansi.log: {}", error),
+     }
+ 
+diff --git a/drivers/pcid-spawner/src/main.rs b/drivers/pcid-spawner/src/main.rs
+index a968f4d4..a39b2af8 100644
+--- a/drivers/pcid-spawner/src/main.rs
++++ b/drivers/pcid-spawner/src/main.rs
+@@ -1,11 +1,40 @@
++use std::env;
+ use std::fs;
+ use std::process::Command;
++use std::thread;
+ 
+ use anyhow::{anyhow, Context, Result};
+ 
+ use pcid_interface::config::Config;
+ use pcid_interface::PciFunctionHandle;
+ 
++fn strict_usb_boot() -> bool {
++    matches!(
++        env::var("REDBEAR_STRICT_USB_BOOT")
++            .ok()
++            .as_deref()
++            .map(str::to_ascii_lowercase)
++            .as_deref(),
++        Some("1" | "true" | "yes" | "on")
++    )
++}
++
++fn should_detach_in_initfs(initfs: bool, class: u8, subclass: u8, strict_usb_boot: bool) -> bool {
++    if !initfs {
++        return false;
++    }
++
++    if class == 0x01 {
++        return false;
++    }
++
++    if strict_usb_boot && class == 0x0C && subclass == 0x03 {
++        return false;
++    }
++
++    true
++}
++
+ fn main() -> Result<()> {
+     let mut args = pico_args::Arguments::from_env();
+     let initfs = args.contains("--initfs");
+@@ -30,6 +59,12 @@ fn main() -> Result<()> {
+     }
+ 
+     let config: Config = toml::from_str(&config_data)?;
++    let strict_usb_boot = strict_usb_boot();
++
++    log::info!(
++        "pcid-spawner: starting (initfs={}, strict_usb_boot={})",
++        initfs, strict_usb_boot
++    );
+ 
+     for entry in fs::read_dir("/scheme/pci")? {
+         let entry = entry.context("failed to get entry")?;
+@@ -55,10 +90,11 @@ fn main() -> Result<()> {
+         };
+ 
+         let full_device_id = handle.config().func.full_device_id;
++        let device_addr = handle.config().func.addr;
+ 
+         log::debug!(
+             "pcid-spawner enumerated: PCI {} {}",
+-            handle.config().func.addr,
++            device_addr,
+             full_device_id.display()
+         );
+ 
+@@ -67,7 +103,7 @@ fn main() -> Result<()> {
+             .iter()
+             .find(|driver| driver.match_function(&full_device_id))
+         else {
+-            log::debug!("no driver for {}, continuing", handle.config().func.addr);
++            log::debug!("no driver for {}, continuing", device_addr);
+             continue;
+         };
+ 
+@@ -85,16 +121,93 @@ fn main() -> Result<()> {
+         let mut command = Command::new(program);
+         command.args(args);
+ 
+-        log::info!("pcid-spawner: spawn {:?}", command);
+-
+-        handle.enable_device();
++        log::info!(
++            "pcid-spawner: matched {} to driver {:?}",
++            device_addr,
++            driver.command
++        );
++        log::info!("pcid-spawner: enabling {} before spawn", device_addr);
++
++        if let Err(err) = handle.try_enable_device() {
++            log::error!(
++                "pcid-spawner: failed to enable {} before spawn: {}",
++                device_addr,
++                err
++            );
++            continue;
++        }
+ 
+         let channel_fd = handle.into_inner_fd();
+         command.env("PCID_CLIENT_CHANNEL", channel_fd.to_string());
+ 
++        log::info!("pcid-spawner: spawn {:?}", command);
+         #[allow(deprecated, reason = "we can't yet move this to init")]
+-        daemon::Daemon::spawn(command);
+-        syscall::close(channel_fd as usize).unwrap();
++        if should_detach_in_initfs(
++            initfs,
++            full_device_id.class,
++            full_device_id.subclass,
++            strict_usb_boot,
++        ) {
++            log::warn!(
++                "pcid-spawner: detached initfs spawn for {} to avoid blocking early boot",
++                device_addr
++            );
++
++            let device_addr = device_addr.to_string();
++            thread::spawn(move || {
++                #[allow(deprecated, reason = "we can't yet move this to init")]
++                if let Err(err) = daemon::Daemon::spawn(command) {
++                    log::error!(
++                        "pcid-spawner: spawn/readiness failed for {}: {}",
++                        device_addr,
++                        err
++                    );
++                    log::error!(
++                        "pcid-spawner: {} remains enabled without a confirmed ready driver",
++                        device_addr
++                    );
++                }
++                if let Err(err) = syscall::close(channel_fd as usize) {
++                    log::error!(
++                        "pcid-spawner: failed to close channel fd {} for {}: {}",
++                        channel_fd,
++                        device_addr,
++                        err
++                    );
++                }
++            });
++        } else {
++            log::info!(
++                "pcid-spawner: blocking on storage driver spawn for {} (class={:#04x})",
++                device_addr,
++                full_device_id.class
++            );
++            #[allow(deprecated, reason = "we can't yet move this to init")]
++            if let Err(err) = daemon::Daemon::spawn(command) {
++                log::error!(
++                    "pcid-spawner: spawn/readiness failed for {}: {}",
++                    device_addr,
++                    err
++                );
++                log::error!(
++                    "pcid-spawner: {} remains enabled without a confirmed ready driver",
++                    device_addr
++                );
++            } else {
++                log::info!(
++                    "pcid-spawner: storage driver ready for {}",
++                    device_addr
++                );
++            }
++            if let Err(err) = syscall::close(channel_fd as usize) {
++                log::error!(
++                    "pcid-spawner: failed to close channel fd {} for {}: {}",
++                    channel_fd,
++                    device_addr,
++                    err
++                );
++            }
++        }
+     }
+ 
+     Ok(())
+diff --git a/init/src/main.rs b/init/src/main.rs
+index 5682cf44..ed436619 100644
+--- a/init/src/main.rs
++++ b/init/src/main.rs
+@@ -117,6 +117,8 @@ fn main() {
+     let mut unit_store = UnitStore::new();
+     let mut scheduler = Scheduler::new();
+ 
++    eprintln!("init: phase 1 — initfs boot");
++
+     switch_root(
+         &mut unit_store,
+         &mut init_config,
+@@ -125,6 +127,7 @@ fn main() {
+     );
+ 
+     // Start logd first such that we can pass /scheme/log as stdio to all other services
++    eprintln!("init: starting logd");
+     scheduler
+         .schedule_start_and_report_errors(&mut unit_store, UnitId("00_logd.service".to_owned()));
+     scheduler.step(&mut unit_store, &mut init_config);
+@@ -132,14 +135,18 @@ fn main() {
+         eprintln!("init: failed to switch stdio to '/scheme/log': {err}");
+     }
+ 
++    eprintln!("init: starting runtime target");
+     let runtime_target = UnitId("00_runtime.target".to_owned());
+     scheduler.schedule_start_and_report_errors(&mut unit_store, runtime_target.clone());
+     unit_store.set_runtime_target(runtime_target);
+ 
++    eprintln!("init: starting initfs drivers target");
+     scheduler
+         .schedule_start_and_report_errors(&mut unit_store, UnitId("90_initfs.target".to_owned()));
+     scheduler.step(&mut unit_store, &mut init_config);
++    eprintln!("init: initfs drivers target step() complete");
+ 
++    eprintln!("init: phase 2 — switchroot to /usr");
+     switch_root(
+         &mut unit_store,
+         &mut init_config,
+@@ -162,23 +169,64 @@ fn main() {
+                         .collect::<Vec<_>>()
+                         .join(", ")
+                 );
+-                return;
++                Vec::new()
+             }
+         };
++        eprintln!("init: scheduling {} rootfs units", entries.len());
+         for entry in entries {
++            let name = match entry.file_name().and_then(|n| n.to_str()) {
++                Some(name) => name,
++                None => {
++                    eprintln!("init: skipping config entry with non-UTF-8 filename");
++                    continue;
++                }
++            };
+             scheduler.schedule_start_and_report_errors(
+                 &mut unit_store,
+-                UnitId(entry.file_name().unwrap().to_str().unwrap().to_owned()),
++                UnitId(name.to_owned()),
+             );
+         }
+     };
+ 
+     scheduler.step(&mut unit_store, &mut init_config);
++    eprintln!("init: phase 3 — rootfs services started");
++
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("init: failed to enter null namespace: {err}");
++    }
+ 
+-    libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
++    eprintln!("init: boot complete — entering waitpid loop");
++
++    let mut respawn_map: BTreeMap<u32, UnitId> = BTreeMap::new();
++    for (unit_id, pid) in scheduler.respawn_pids {
++        respawn_map.insert(pid, unit_id);
++    }
+ 
+     loop {
+         let mut status = 0;
+-        libredox::call::waitpid(0, &mut status, 0).unwrap();
++        match libredox::call::waitpid(0, &mut status, 0) {
++            Ok(pid) => {
++                if let Some(unit_id) = respawn_map.remove(&(pid as u32)) {
++                    eprintln!("init: respawning {} (pid {} exited)", unit_id.0, pid);
++                    let mut resp_scheduler = Scheduler::new();
++                    resp_scheduler.schedule_start_and_report_errors(
++                        &mut unit_store,
++                        unit_id.clone(),
++                    );
++                    resp_scheduler.step(&mut unit_store, &mut init_config);
++                    for (uid, new_pid) in resp_scheduler.respawn_pids {
++                        respawn_map.insert(new_pid, uid);
++                    }
++                }
++            }
++            Err(err) => {
++                // EAGAIN is normal (no child exited yet). Other errors are
++                // unexpected but init must never crash — log and continue.
++                if err.errno() != syscall::EAGAIN {
++                    eprintln!("init: waitpid error: {err}");
++                }
++                std::thread::sleep(std::time::Duration::from_millis(100));
++            }
++        }
+     }
+ }

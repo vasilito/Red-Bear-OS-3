@@ -5,8 +5,9 @@
 #
 # Target contract:
 # - keep a text-login live/recovery surface only
+# - use boot framebuffer for VT text consoles via vesad + fbcond
 # - avoid the shared firmware/input/device-service stack from redbear-minimal
-# - ship no graphics packages/services and no linux-firmware payload
+# - ship no linux-firmware payload
 
 include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml"]
 
@@ -34,65 +35,12 @@ redbear-info = {}
 # Keep package builder utility in live environment.
 cub = {}
 
+# VT/getty/login chain: initfs starts inputd + vesad + fbcond in phase 1,
+# then minimal.toml legacy 30_console runs inputd -A 2 + getty 2 + getty debug.
+
 [[files]]
 path = "/etc/netctl/active"
 data = "wired-dhcp\n"
-
-[[files]]
-path = "/usr/lib/init.d/30_console"
-data = """
-requires_weak 10_net
-inputd -A 2
-nowait getty 2
-nowait getty /scheme/debug/no-preserve -J
-"""
-
-[[files]]
-path = "/usr/lib/init.d/29_activate_console.service"
-data = """
-[unit]
-description = "Activate console VT"
-requires_weak = [
-    "10_net.target",
-]
-
-[service]
-cmd = "inputd"
-args = ["-A", "2"]
-type = "oneshot"
-"""
-
-[[files]]
-path = "/usr/lib/init.d/30_console.service"
-data = """
-[unit]
-description = "Console terminals"
-requires_weak = [
-    "29_activate_console.service",
-]
-
-[service]
-cmd = "getty"
-args = ["2"]
-type = "oneshot_async"
-respawn = true
-"""
-
-[[files]]
-path = "/usr/lib/init.d/31_debug_console.service"
-data = """
-[unit]
-description = "Debug console"
-requires_weak = [
-    "10_net.target",
-]
-
-[service]
-cmd = "getty"
-args = ["/scheme/debug/no-preserve", "-J"]
-type = "oneshot_async"
-respawn = true
-"""
 
 [[files]]
 path = "/etc/init.d/10_smolnetd.service"
@@ -145,22 +93,6 @@ requires_weak = [
 [service]
 cmd = "audiod"
 type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/01_debug_console.service"
-data = """
-[unit]
-description = "Debug serial login"
-requires_weak = [
-    "00_ptyd.service",
-]
-
-[service]
-cmd = "getty"
-args = ["/scheme/debug/no-preserve", "-J"]
-type = "oneshot_async"
-respawn = true
 """
 
 [[files]]
@@ -283,10 +215,5 @@ data = """
 [[files]]
 path = "/etc/pcid.d/00_text_mode_gpu_mask.toml"
 data = """
-# redbear-live-mini: force text-only mode by consuming all display-class PCI devices
-# with a no-op command, before any graphics-capable driver rules are evaluated.
-[[drivers]]
-name = "Text-only live-mini display mask"
-class = 0x03
-command = ["/bin/true"]
+# redbear-live-mini: no display driver matched; class 0x03 devices are skipped
 """
