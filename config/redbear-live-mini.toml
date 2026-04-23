@@ -75,6 +75,7 @@ requires_weak = [
 cmd = "getty"
 args = ["2"]
 type = "oneshot_async"
+respawn = true
 """
 
 [[files]]
@@ -90,6 +91,7 @@ requires_weak = [
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
 type = "oneshot_async"
+respawn = true
 """
 
 [[files]]
@@ -118,96 +120,6 @@ requires_weak = [
 [service]
 cmd = "dhcpd"
 args = ["-f"]
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_i2cd.service"
-data = """
-[unit]
-description = "I2C adapter registry (non-blocking on live-mini)"
-requires_weak = [
-    "00_base.target",
-]
-
-[service]
-cmd = "i2cd"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_i2c-hidd.service"
-data = """
-[unit]
-description = "ACPI I2C HID bring-up daemon (non-blocking on live-mini)"
-requires_weak = [
-    "00_i2cd.service",
-    "00_i2c-dw-acpi.service",
-    "00_intel-gpiod.service",
-    "00_i2c-gpio-expanderd.service",
-]
-
-[service]
-cmd = "i2c-hidd"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_i2c-gpio-expanderd.service"
-data = """
-[unit]
-description = "I2C GPIO expander companion bridge (non-blocking on live-mini)"
-requires_weak = [
-    "00_i2cd.service",
-    "00_gpiod.service",
-]
-
-[service]
-cmd = "i2c-gpio-expanderd"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_ucsid.service"
-data = """
-[unit]
-description = "USB-C UCSI topology detector (non-blocking on live-mini)"
-requires_weak = [
-    "00_base.target",
-    "00_i2cd.service",
-]
-
-[service]
-cmd = "ucsid"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_gpiod.service"
-data = """
-[unit]
-description = "GPIO controller registry (non-blocking on live-mini)"
-requires_weak = [
-    "00_base.target",
-]
-
-[service]
-cmd = "gpiod"
-type = "oneshot_async"
-"""
-
-[[files]]
-path = "/etc/init.d/00_intel-gpiod.service"
-data = """
-[unit]
-description = "Intel ACPI GPIO registrar (non-blocking on live-mini)"
-requires_weak = [
-    "00_gpiod.service",
-    "00_i2cd.service",
-]
-
-[service]
-cmd = "intel-gpiod"
 type = "oneshot_async"
 """
 
@@ -248,6 +160,7 @@ requires_weak = [
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
 type = "oneshot_async"
+respawn = true
 """
 
 [[files]]
@@ -263,6 +176,96 @@ requires_weak = [
 cmd = "ion"
 args = ["-c", "echo RB_SERIAL_PROBE_OK"]
 type = "oneshot"
+"""
+
+[[files]]
+path = "/etc/init.d/00_gpiod.service"
+data = """
+[unit]
+description = "GPIO controller registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "gpiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2cd.service"
+data = """
+[unit]
+description = "I2C adapter registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "i2cd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_intel-gpiod.service"
+data = """
+[unit]
+description = "Intel ACPI GPIO registrar (non-blocking on live-mini)"
+requires_weak = [
+    "00_gpiod.service",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "intel-gpiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-gpio-expanderd.service"
+data = """
+[unit]
+description = "I2C GPIO expander companion bridge (non-blocking on live-mini)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_gpiod.service",
+]
+
+[service]
+cmd = "i2c-gpio-expanderd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-hidd.service"
+data = """
+[unit]
+description = "ACPI I2C HID bring-up daemon (non-blocking on live-mini)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_i2c-dw-acpi.service",
+    "00_intel-gpiod.service",
+    "00_i2c-gpio-expanderd.service",
+]
+
+[service]
+cmd = "i2c-hidd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_ucsid.service"
+data = """
+[unit]
+description = "USB-C UCSI topology detector (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "ucsid"
+type = "oneshot_async"
 """
 
 [[files]]

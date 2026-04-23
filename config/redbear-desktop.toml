@@ -83,6 +83,7 @@ requires_weak = [
 cmd = "getty"
 args = ["2"]
 type = "oneshot_async"
+respawn = true
 """
 
 [[files]]
@@ -113,6 +114,7 @@ requires_weak = [
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
 type = "oneshot_async"
+respawn = true
 """
 
 [[files]]

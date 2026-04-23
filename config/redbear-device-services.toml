@@ -8,6 +8,16 @@ pciids = {}
 fatd = {}
 
 [[files]]
+path = "/usr/lib/init.d/12_boot-late.target"
+data = """
+[unit]
+description = "Late boot services target"
+requires_weak = [
+    "00_base.target",
+]
+"""
+
+[[files]]
 path = "/lib/firmware"
 data = ""
 directory = true
