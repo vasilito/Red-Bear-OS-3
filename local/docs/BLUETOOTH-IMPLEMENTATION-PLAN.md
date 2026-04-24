@@ -74,8 +74,8 @@ one more driver.” The feasible first target is a deliberately small subsystem 
 
 | Area | State | Notes |
 |---|---|---|
-| Bluetooth controller support | **experimental, USB discovery real** | `redbear-btusb` now probes `/scheme/usb/` for real Bluetooth class devices (USB class 0xE0/0x01/0x01 with vendor-ID fallback), parses descriptor files, assigns `hciN` names deterministically, and writes real adapter metadata into the status file. Daemon re-probes periodically. 8 tests pass including mock-filesystem USB discovery tests. |
-| Bluetooth host stack | **experimental bounded slice** | `redbear-btctl` provides a BLE-first CLI/scheme surface with stub-backed scan plus bounded connect/disconnect control for stored bond IDs; the packaged checker and QEMU harness now exist for repeated guest validation, but the end-to-end QEMU proof is still in progress |
+| Bluetooth controller support | **experimental, scheme interface live** | `redbear-btusb` now probes USB for Bluetooth class devices, parses descriptors, runs HCI init sequence (Reset → Read BD Addr → Read Local Version), and serves `scheme:hciN` with full SchemeSync implementation (status, info, command, events, ACL, LE scan/connect/disconnect). 125 tests pass including scheme and transport tests. |
+| Bluetooth host stack | **experimental, scheme-backed backend** | `redbear-btctl` now has `HciBackend` that implements the Backend trait by reading/writing `scheme:hciN` files. Backend selection via `REDBEAR_BTCTL_BACKEND=hci` env var. `StubBackend` remains default. 45 tests pass. |
 | Pairing / bond database | **experimental bounded slice** | `redbear-btctl` now persists conservative stub bond records under `/var/lib/bluetooth/<adapter>/bonds/`; connect/disconnect control targets those records, and the checker now verifies cleanup honesty, but this is still storage/control plumbing only, not real pairing or generic reconnect validation |
 | Desktop Bluetooth API | **missing** | D-Bus exists generally, but no Bluetooth API/service exists |
 | Bluetooth HID | **missing** | Could later build on input modernization work |
@@ -399,6 +399,13 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 - attach/detach behavior is good enough that controller disappearance does not require reboot to
   recover the service path
 
+**B1 COMPLETION EVIDENCE (2026-04-24)**:
+- `local/recipes/drivers/redbear-btusb/source/src/hci.rs` — HCI protocol types (55+ constants), command builders (Reset, Read BD Addr, Read Local Version, LE scan, LE create connection, disconnect), event parsers, structured result types
+- `local/recipes/drivers/redbear-btusb/source/src/usb_transport.rs` — UsbHciTransport trait, StubTransport, UsbTransportConfig
+- `local/recipes/drivers/redbear-btusb/source/src/main.rs` — USB descriptor parsing, HCI init sequence, ControllerState state machine, daemon_main with scheme server
+- 125 tests passing (hci, transport, scheme, endpoint parsing, state machine)
+- Commit: `f392c7bf7`
+
 ---
 
 ### Phase B2 — Minimal Host Daemon
@@ -436,6 +443,21 @@ not a recommendation to edit upstream-managed trees outside Red Bear's normal ov
 - the bounded connect path only targets existing stub bond records and keeps connected bond IDs in daemon memory per adapter
 - `redbear-info` now reports the bond-store path/count plus bounded connection/result metadata conservatively
 - this is explicitly **not** real pairing, link-key exchange, trusted-device policy, validated reconnect behavior, real device traffic, or B3 BLE workload support
+
+**B2 COMPLETION EVIDENCE (2026-04-24)**:
+- `local/recipes/drivers/redbear-btusb/source/src/scheme.rs` — Full SchemeSync implementation serving `scheme:hciN`. 12 handle kinds: status, info, command, events, acl-in, acl-out, le-scan, le-scan-results, connect, disconnect, connections. 34 scheme tests.
+- `local/recipes/system/redbear-btctl/source/src/hci_backend.rs` — HciBackend implementing Backend trait via scheme filesystem I/O. SchemeFs trait with StdFs (tests) and RedoxSchemeFs (production). 18 backend tests.
+- Backend selection: `REDBEAR_BTCTL_BACKEND=hci` env var, StubBackend remains default
+- daemon_main fixed to use correct redox-scheme 0.11 API
+- 172 total tests passing (125 btusb + 45 btctl + 2 wifictl)
+- Commit: `8ff8c084f`
+
+**B2 exit criteria assessment**:
+- ✅ one host daemon now owns adapter state through the scheme interface
+- ✅ scanning and connect/disconnect control is wired through the scheme (scan writes to le-scan, connect writes addr to connect, disconnect resolves handle from connections)
+- ✅ bond storage is persistent via BondStore
+- ✅ the control surface is small and Red Bear-native
+- 🚧 "daemon can rediscover and reconnect to at least one target device class across repeated runs" — not yet runtime-validated with real hardware
 
 **Exit criteria**:
 
@@ -608,6 +630,10 @@ Until B1 through B3 exist, Red Bear should use language such as:
 - “only the bounded experimental Bluetooth slice exists in-tree”
 - “Bluetooth remains a future implementation workstream beyond the documented first slice”
 
+Once B1 and B2 have landed:
+- "experimental Bluetooth bring-up exists for one controller family, with a scheme-based transport bridge"
+- "Bluetooth support is limited to the documented workload and profile; host daemon communicates via scheme:hciN"
+
 Once B1 through B3 begin to land, prefer:
 
 - “experimental Bluetooth bring-up exists for one controller family”
@@ -632,6 +658,11 @@ that only targets those stored stub bond IDs, plus one experimental battery-sens
 read result for the exact Battery Service / Battery Level UUID pair above. That slice can now be
 built, booted in QEMU, and exercised by the packaged `redbear-bluetooth-battery-check` helper; the
 repeated end-to-end QEMU proof is still being stabilized before it should be described as validated.
+
+B0 scope freeze is now **complete**. B1 controller transport baseline is **complete** with full scheme
+interface live and 125 tests passing. B2 minimal host daemon with scheme transport bridge is
+**software-complete** (172 tests passing) but awaits runtime validation with real hardware. B3
+BLE-first user value is in progress with ATT/GATT groundwork underway.
 
 What makes it feasible is not any existing Bluetooth stack, but the surrounding Red Bear
 architecture: userspace daemons, runtime services, diagnostic discipline, profile-scoped support

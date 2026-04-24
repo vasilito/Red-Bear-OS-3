@@ -692,6 +692,339 @@ pub fn parse_le_buffer_size(event: &HciEvent) -> Option<LeBufferSizeResult> {
 }
 
 // ---------------------------------------------------------------------------
+// ATT (Attribute Protocol) Constants
+// ---------------------------------------------------------------------------
+
+// ATT opcodes
+pub const ATT_ERROR_RSP: u8 = 0x01;
+pub const ATT_EXCHANGE_MTU_REQ: u8 = 0x02;
+pub const ATT_EXCHANGE_MTU_RSP: u8 = 0x03;
+pub const ATT_FIND_INFORMATION_REQ: u8 = 0x04;
+pub const ATT_FIND_INFORMATION_RSP: u8 = 0x05;
+pub const ATT_FIND_BY_TYPE_VALUE_REQ: u8 = 0x06;
+pub const ATT_FIND_BY_TYPE_VALUE_RSP: u8 = 0x07;
+pub const ATT_READ_BY_TYPE_REQ: u8 = 0x08;
+pub const ATT_READ_BY_TYPE_RSP: u8 = 0x09;
+pub const ATT_READ_REQ: u8 = 0x0A;
+pub const ATT_READ_RSP: u8 = 0x0B;
+pub const ATT_READ_BLOB_REQ: u8 = 0x0C;
+pub const ATT_READ_BLOB_RSP: u8 = 0x0D;
+pub const ATT_READ_MULTIPLE_REQ: u8 = 0x0E;
+pub const ATT_READ_MULTIPLE_RSP: u8 = 0x0F;
+pub const ATT_READ_BY_GROUP_TYPE_REQ: u8 = 0x10;
+pub const ATT_READ_BY_GROUP_TYPE_RSP: u8 = 0x11;
+pub const ATT_WRITE_REQ: u8 = 0x12;
+pub const ATT_WRITE_RSP: u8 = 0x13;
+pub const ATT_WRITE_CMD: u8 = 0x52;
+pub const ATT_SIGNED_WRITE_CMD: u8 = 0xD2;
+pub const ATT_PREPARE_WRITE_REQ: u8 = 0x16;
+pub const ATT_PREPARE_WRITE_RSP: u8 = 0x17;
+pub const ATT_EXECUTE_WRITE_REQ: u8 = 0x18;
+pub const ATT_EXECUTE_WRITE_RSP: u8 = 0x19;
+pub const ATT_HANDLE_VALUE_NTF: u8 = 0x1B;
+pub const ATT_HANDLE_VALUE_IND: u8 = 0x1D;
+pub const ATT_HANDLE_VALUE_CFM: u8 = 0x1E;
+
+// ATT error codes
+pub const ATT_ERR_INVALID_HANDLE: u8 = 0x01;
+pub const ATT_ERR_READ_NOT_PERMITTED: u8 = 0x02;
+pub const ATT_ERR_WRITE_NOT_PERMITTED: u8 = 0x03;
+pub const ATT_ERR_INVALID_PDU: u8 = 0x04;
+pub const ATT_ERR_REQUEST_NOT_SUPPORTED: u8 = 0x06;
+pub const ATT_ERR_INVALID_OFFSET: u8 = 0x07;
+pub const ATT_ERR_ATTRIBUTE_NOT_FOUND: u8 = 0x0A;
+pub const ATT_ERR_INVALID_ATTRIBUTE_LENGTH: u8 = 0x0D;
+pub const ATT_ERR_UNLIKELY: u8 = 0x0E;
+pub const ATT_ERR_UNSUPPORTED_GROUP_TYPE: u8 = 0x10;
+pub const ATT_ERR_INSUFFICIENT_RESOURCES: u8 = 0x11;
+
+// Default BLE ATT MTU
+pub const ATT_DEFAULT_MTU: u16 = 23;
+
+// ---------------------------------------------------------------------------
+// GATT Service / Characteristic UUIDs (16-bit)
+// ---------------------------------------------------------------------------
+
+// Well-known GATT UUIDs (Bluetooth Base UUID: 0000XXXX-0000-1000-8000-00805f9b34fb)
+pub const UUID_GAP_SERVICE: u16 = 0x1800;
+pub const UUID_GATT_SERVICE: u16 = 0x1801;
+pub const UUID_BATTERY_SERVICE: u16 = 0x180F;
+pub const UUID_HEART_RATE_SERVICE: u16 = 0x180D;
+pub const UUID_DEVICE_INFO_SERVICE: u16 = 0x180A;
+
+// Characteristic UUIDs
+pub const UUID_BATTERY_LEVEL: u16 = 0x2A19;
+pub const UUID_HEART_RATE_MEASUREMENT: u16 = 0x2A37;
+pub const UUID_SYSTEM_ID: u16 = 0x2A23;
+pub const UUID_MODEL_NUMBER: u16 = 0x2A24;
+pub const UUID_FIRMWARE_REVISION: u16 = 0x2A26;
+pub const UUID_MANUFACTURER_NAME: u16 = 0x2A29;
+
+// GATT declaration types
+pub const UUID_PRIMARY_SERVICE: u16 = 0x2800;
+pub const UUID_SECONDARY_SERVICE: u16 = 0x2801;
+pub const UUID_CHARACTERISTIC: u16 = 0x2803;
+
+// GATT client characteristic configuration
+pub const UUID_CLIENT_CHAR_CONFIG: u16 = 0x2902;
+pub const CCC_NOTIFICATIONS_ENABLED: &[u8; 2] = &[0x01, 0x00];
+pub const CCC_INDICATIONS_ENABLED: &[u8; 2] = &[0x02, 0x00];
+
+// Characteristic property flags
+pub const CHAR_PROP_BROADCAST: u8 = 0x01;
+pub const CHAR_PROP_READ: u8 = 0x02;
+pub const CHAR_PROP_WRITE_NO_RSP: u8 = 0x04;
+pub const CHAR_PROP_WRITE: u8 = 0x08;
+pub const CHAR_PROP_NOTIFY: u8 = 0x10;
+pub const CHAR_PROP_INDICATE: u8 = 0x20;
+pub const CHAR_PROP_AUTHENTICATED_WRITE: u8 = 0x40;
+pub const CHAR_PROP_EXTENDED_PROPERTIES: u8 = 0x80;
+
+// L2CAP channel ID for ATT
+pub const L2CAP_ATT_CID: u16 = 0x0004;
+
+// ---------------------------------------------------------------------------
+// ATT PDU
+// ---------------------------------------------------------------------------
+
+/// An ATT protocol data unit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttPdu {
+    pub opcode: u8,
+    pub parameters: Vec<u8>,
+}
+
+impl AttPdu {
+    pub fn new(opcode: u8, parameters: Vec<u8>) -> Self {
+        Self { opcode, parameters }
+    }
+
+    /// Build an ATT Read By Type Request for a given 16-bit UUID.
+    pub fn read_by_type_req(start_handle: u16, end_handle: u16, uuid: u16) -> Self {
+        let mut params = Vec::with_capacity(6);
+        params.extend_from_slice(&start_handle.to_le_bytes());
+        params.extend_from_slice(&end_handle.to_le_bytes());
+        params.extend_from_slice(&uuid.to_le_bytes());
+        Self::new(ATT_READ_BY_TYPE_REQ, params)
+    }
+
+    /// Build an ATT Read By Type Request with 128-bit UUID.
+    pub fn read_by_type_req_128(start_handle: u16, end_handle: u16, uuid: &[u8; 16]) -> Self {
+        let mut params = Vec::with_capacity(20);
+        params.extend_from_slice(&start_handle.to_le_bytes());
+        params.extend_from_slice(&end_handle.to_le_bytes());
+        params.extend_from_slice(uuid);
+        Self::new(ATT_READ_BY_TYPE_REQ, params)
+    }
+
+    /// Build an ATT Read Request for a given handle.
+    pub fn read_req(handle: u16) -> Self {
+        Self::new(ATT_READ_REQ, handle.to_le_bytes().to_vec())
+    }
+
+    /// Build an ATT Write Request for a given handle.
+    pub fn write_req(handle: u16, value: &[u8]) -> Self {
+        let mut params = Vec::with_capacity(2 + value.len());
+        params.extend_from_slice(&handle.to_le_bytes());
+        params.extend_from_slice(value);
+        Self::new(ATT_WRITE_REQ, params)
+    }
+
+    /// Build an ATT Read By Group Type Request (discover primary services).
+    pub fn read_by_group_type_req(start_handle: u16, end_handle: u16) -> Self {
+        let mut params = Vec::with_capacity(6);
+        params.extend_from_slice(&start_handle.to_le_bytes());
+        params.extend_from_slice(&end_handle.to_le_bytes());
+        params.extend_from_slice(&UUID_PRIMARY_SERVICE.to_le_bytes());
+        Self::new(ATT_READ_BY_GROUP_TYPE_REQ, params)
+    }
+
+    /// Build an ATT Find By Type Value Request.
+    pub fn find_by_type_value_req(
+        start_handle: u16,
+        end_handle: u16,
+        uuid: u16,
+        value: &[u8],
+    ) -> Self {
+        let mut params = Vec::with_capacity(6 + value.len());
+        params.extend_from_slice(&start_handle.to_le_bytes());
+        params.extend_from_slice(&end_handle.to_le_bytes());
+        params.extend_from_slice(&uuid.to_le_bytes());
+        params.extend_from_slice(value);
+        Self::new(ATT_FIND_BY_TYPE_VALUE_REQ, params)
+    }
+
+    /// Build an ATT Exchange MTU Request.
+    pub fn exchange_mtu_req(mtu: u16) -> Self {
+        Self::new(ATT_EXCHANGE_MTU_REQ, mtu.to_le_bytes().to_vec())
+    }
+
+    /// Serialize ATT PDU to bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(1 + self.parameters.len());
+        buf.push(self.opcode);
+        buf.extend_from_slice(&self.parameters);
+        buf
+    }
+
+    /// Parse ATT PDU from bytes.
+    pub fn from_bytes(data: &[u8]) -> Option<Self> {
+        if data.is_empty() {
+            return None;
+        }
+        Some(Self::new(data[0], data[1..].to_vec()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GATT Discovery Types
+// ---------------------------------------------------------------------------
+
+/// A discovered GATT service (from Read By Group Type Response).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GattService {
+    pub start_handle: u16,
+    pub end_handle: u16,
+    pub uuid: Vec<u8>, // 2 bytes for 16-bit UUID, 16 bytes for 128-bit
+}
+
+/// A discovered GATT characteristic (from Read By Type Response).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GattCharacteristic {
+    pub handle: u16,
+    pub properties: u8,
+    pub value_handle: u16,
+    pub uuid: Vec<u8>,
+}
+
+// ---------------------------------------------------------------------------
+// ATT Response Parsers
+// ---------------------------------------------------------------------------
+
+/// Parse an ATT Read By Type Response to extract GATT characteristics.
+pub fn parse_read_by_type_rsp(pdu: &AttPdu) -> Result<Vec<GattCharacteristic>, String> {
+    if pdu.opcode != ATT_READ_BY_TYPE_RSP {
+        return Err(format!(
+            "expected ATT_READ_BY_TYPE_RSP (0x{:02X}), got 0x{:02X}",
+            ATT_READ_BY_TYPE_RSP, pdu.opcode
+        ));
+    }
+    if pdu.parameters.len() < 2 {
+        return Err("response too short".to_string());
+    }
+    let length = pdu.parameters[0] as usize;
+    if length < 5 || pdu.parameters.len() < 1 + length {
+        return Err(format!("invalid entry length {length}"));
+    }
+    let mut chars = Vec::new();
+    let mut offset = 1;
+    while offset + length <= pdu.parameters.len() {
+        let entry = &pdu.parameters[offset..offset + length];
+        let properties = entry[0];
+        let value_handle = u16::from_le_bytes([entry[1], entry[2]]);
+        let uuid = entry[3..].to_vec();
+        chars.push(GattCharacteristic {
+            handle: u16::from_le_bytes([entry[1], entry[2]]).wrapping_sub(1),
+            properties,
+            value_handle,
+            uuid,
+        });
+        offset += length;
+    }
+    Ok(chars)
+}
+
+/// Parse an ATT Read By Group Type Response to extract services.
+pub fn parse_read_by_group_type_rsp(pdu: &AttPdu) -> Result<Vec<GattService>, String> {
+    if pdu.opcode != ATT_READ_BY_GROUP_TYPE_RSP {
+        return Err(format!(
+            "expected ATT_READ_BY_GROUP_TYPE_RSP (0x{:02X}), got 0x{:02X}",
+            ATT_READ_BY_GROUP_TYPE_RSP, pdu.opcode
+        ));
+    }
+    if pdu.parameters.len() < 2 {
+        return Err("response too short".to_string());
+    }
+    let length = pdu.parameters[0] as usize;
+    if length < 6 || pdu.parameters.len() < 1 + length {
+        return Err(format!("invalid entry length {length}"));
+    }
+    let mut services = Vec::new();
+    let mut offset = 1;
+    while offset + length <= pdu.parameters.len() {
+        let entry = &pdu.parameters[offset..offset + length];
+        let start_handle = u16::from_le_bytes([entry[0], entry[1]]);
+        let end_handle = u16::from_le_bytes([entry[2], entry[3]]);
+        let uuid = entry[4..].to_vec();
+        services.push(GattService {
+            start_handle,
+            end_handle,
+            uuid,
+        });
+        offset += length;
+    }
+    Ok(services)
+}
+
+/// Parse an ATT Read Response (returns raw value bytes).
+pub fn parse_read_rsp(pdu: &AttPdu) -> Result<Vec<u8>, String> {
+    if pdu.opcode != ATT_READ_RSP {
+        return Err(format!(
+            "expected ATT_READ_RSP (0x{:02X}), got 0x{:02X}",
+            ATT_READ_RSP, pdu.opcode
+        ));
+    }
+    Ok(pdu.parameters.clone())
+}
+
+/// Check if an ATT PDU is an error response.
+pub fn is_att_error(pdu: &AttPdu) -> bool {
+    pdu.opcode == ATT_ERROR_RSP
+}
+
+/// Parse ATT error response into (request_opcode, handle, error_code).
+pub fn parse_att_error(pdu: &AttPdu) -> Option<(u8, u16, u8)> {
+    if pdu.opcode != ATT_ERROR_RSP || pdu.parameters.len() < 5 {
+        return None;
+    }
+    let req_opcode = pdu.parameters[0];
+    let handle = u16::from_le_bytes([pdu.parameters[1], pdu.parameters[2]]);
+    let error_code = pdu.parameters[3];
+    Some((req_opcode, handle, error_code))
+}
+
+// ---------------------------------------------------------------------------
+// ATT-over-ACL Helpers
+// ---------------------------------------------------------------------------
+
+/// Wrap an ATT PDU in an L2CAP/ACL packet for sending.
+pub fn att_to_acl(connection_handle: u16, att: &AttPdu) -> HciAcl {
+    let att_bytes = att.to_bytes();
+    let l2cap_len = (att_bytes.len() as u16).to_le_bytes();
+    let cid = L2CAP_ATT_CID.to_le_bytes();
+
+    let mut payload = Vec::with_capacity(4 + att_bytes.len());
+    payload.extend_from_slice(&l2cap_len);
+    payload.extend_from_slice(&cid);
+    payload.extend_from_slice(&att_bytes);
+
+    HciAcl::new(connection_handle, 0x00, 0x00, payload)
+}
+
+/// Extract ATT PDU from an incoming ACL/L2CAP packet.
+pub fn acl_to_att(acl: &HciAcl) -> Option<AttPdu> {
+    if acl.data.len() < 4 {
+        return None;
+    }
+    let _l2cap_len = u16::from_le_bytes([acl.data[0], acl.data[1]]);
+    let cid = u16::from_le_bytes([acl.data[2], acl.data[3]]);
+    if cid != L2CAP_ATT_CID {
+        return None;
+    }
+    AttPdu::from_bytes(&acl.data[4..])
+}
+
+// ---------------------------------------------------------------------------
 // Unit Tests
 // ---------------------------------------------------------------------------
 
@@ -1376,5 +1709,140 @@ mod tests {
             parameters: vec![],
         };
         assert!(parse_le_advertising_reports(&event).is_none());
+    }
+
+    // -- ATT/GATT tests -------------------------------------------------------
+
+    #[test]
+    fn att_pdu_to_bytes_round_trip() {
+        let pdu = AttPdu::new(ATT_READ_REQ, vec![0x0A, 0x00]);
+        let bytes = pdu.to_bytes();
+        assert_eq!(bytes, vec![ATT_READ_REQ, 0x0A, 0x00]);
+        let restored = AttPdu::from_bytes(&bytes).unwrap();
+        assert_eq!(restored, pdu);
+    }
+
+    #[test]
+    fn att_read_by_type_req_builds_correct_params() {
+        let pdu = AttPdu::read_by_type_req(0x0001, 0xFFFF, UUID_BATTERY_LEVEL);
+        assert_eq!(pdu.opcode, ATT_READ_BY_TYPE_REQ);
+        assert_eq!(pdu.parameters.len(), 6);
+        assert_eq!(u16::from_le_bytes([pdu.parameters[0], pdu.parameters[1]]), 0x0001);
+        assert_eq!(u16::from_le_bytes([pdu.parameters[2], pdu.parameters[3]]), 0xFFFF);
+        assert_eq!(u16::from_le_bytes([pdu.parameters[4], pdu.parameters[5]]), UUID_BATTERY_LEVEL);
+    }
+
+    #[test]
+    fn att_read_req_builds_correct_handle() {
+        let pdu = AttPdu::read_req(0x0025);
+        assert_eq!(pdu.opcode, ATT_READ_REQ);
+        assert_eq!(pdu.parameters, vec![0x25, 0x00]);
+    }
+
+    #[test]
+    fn att_write_req_builds_correct_handle_and_value() {
+        let pdu = AttPdu::write_req(0x002A, &[0x01, 0x00]);
+        assert_eq!(pdu.opcode, ATT_WRITE_REQ);
+        assert_eq!(pdu.parameters.len(), 4);
+        assert_eq!(u16::from_le_bytes([pdu.parameters[0], pdu.parameters[1]]), 0x002A);
+        assert_eq!(&pdu.parameters[2..], &[0x01, 0x00]);
+    }
+
+    #[test]
+    fn att_read_by_group_type_req_uses_primary_service_uuid() {
+        let pdu = AttPdu::read_by_group_type_req(0x0001, 0xFFFF);
+        assert_eq!(pdu.opcode, ATT_READ_BY_GROUP_TYPE_REQ);
+        assert_eq!(pdu.parameters.len(), 6);
+        assert_eq!(
+            u16::from_le_bytes([pdu.parameters[4], pdu.parameters[5]]),
+            UUID_PRIMARY_SERVICE
+        );
+    }
+
+    #[test]
+    fn att_to_acl_wraps_in_l2cap_att_channel() {
+        let att = AttPdu::read_req(0x0003);
+        let acl = att_to_acl(0x0042, &att);
+        assert_eq!(acl.handle, 0x0042);
+        assert_eq!(acl.pb_flag, 0x00);
+        assert_eq!(acl.bc_flag, 0x00);
+        // data = l2cap_len(2) + cid(2) + att_bytes
+        assert!(acl.data.len() >= 4);
+        let cid = u16::from_le_bytes([acl.data[2], acl.data[3]]);
+        assert_eq!(cid, L2CAP_ATT_CID);
+        let l2cap_len = u16::from_le_bytes([acl.data[0], acl.data[1]]) as usize;
+        assert_eq!(l2cap_len, acl.data.len() - 4);
+    }
+
+    #[test]
+    fn acl_to_att_extracts_att_pdu() {
+        let original = AttPdu::write_req(0x0029, &[0xAA, 0xBB]);
+        let acl = att_to_acl(0x0001, &original);
+        let extracted = acl_to_att(&acl).unwrap();
+        assert_eq!(extracted, original);
+    }
+
+    #[test]
+    fn acl_to_att_returns_none_for_non_att_cid() {
+        let acl = HciAcl::new(0x0001, 0x00, 0x00, vec![0x01, 0x00, 0x05, 0x00, 0xFF]);
+        assert!(acl_to_att(&acl).is_none());
+    }
+
+    #[test]
+    fn parse_read_by_type_rsp_extracts_characteristics() {
+        let mut params = vec![5]; // length: props(1) + handle(2) + uuid(2) = 5
+        params.push(CHAR_PROP_READ | CHAR_PROP_NOTIFY); // properties
+        params.extend_from_slice(&0x0010u16.to_le_bytes()); // value_handle
+        params.extend_from_slice(&UUID_BATTERY_LEVEL.to_le_bytes()); // uuid
+        let pdu = AttPdu::new(ATT_READ_BY_TYPE_RSP, params);
+        let chars = parse_read_by_type_rsp(&pdu).unwrap();
+        assert_eq!(chars.len(), 1);
+        assert_eq!(chars[0].properties, CHAR_PROP_READ | CHAR_PROP_NOTIFY);
+        assert_eq!(chars[0].value_handle, 0x0010);
+        assert_eq!(chars[0].handle, 0x000F);
+        assert_eq!(
+            u16::from_le_bytes([chars[0].uuid[0], chars[0].uuid[1]]),
+            UUID_BATTERY_LEVEL
+        );
+    }
+
+    #[test]
+    fn parse_read_by_group_type_rsp_extracts_services() {
+        let mut params = vec![6]; // length: start(2) + end(2) + uuid(2) = 6
+        params.extend_from_slice(&0x0001u16.to_le_bytes()); // start_handle
+        params.extend_from_slice(&0x0005u16.to_le_bytes()); // end_handle
+        params.extend_from_slice(&UUID_BATTERY_SERVICE.to_le_bytes()); // uuid
+        let pdu = AttPdu::new(ATT_READ_BY_GROUP_TYPE_RSP, params);
+        let services = parse_read_by_group_type_rsp(&pdu).unwrap();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].start_handle, 0x0001);
+        assert_eq!(services[0].end_handle, 0x0005);
+        assert_eq!(
+            u16::from_le_bytes([services[0].uuid[0], services[0].uuid[1]]),
+            UUID_BATTERY_SERVICE
+        );
+    }
+
+    #[test]
+    fn parse_att_error_extracts_fields() {
+        let params = vec![
+            ATT_READ_REQ,       // request opcode
+            0x0A, 0x00,         // handle (0x000A)
+            ATT_ERR_ATTRIBUTE_NOT_FOUND, // error code
+            0x00,               // padding to satisfy len < 5 check
+        ];
+        let pdu = AttPdu::new(ATT_ERROR_RSP, params);
+        let result = parse_att_error(&pdu).unwrap();
+        assert_eq!(result.0, ATT_READ_REQ);
+        assert_eq!(result.1, 0x000A);
+        assert_eq!(result.2, ATT_ERR_ATTRIBUTE_NOT_FOUND);
+    }
+
+    #[test]
+    fn is_att_error_identifies_error_responses() {
+        let err = AttPdu::new(ATT_ERROR_RSP, vec![0x08, 0x01, 0x00, 0x0A, 0x00]);
+        assert!(is_att_error(&err));
+        let not_err = AttPdu::new(ATT_READ_RSP, vec![0x42]);
+        assert!(!is_att_error(&not_err));
     }
 }
