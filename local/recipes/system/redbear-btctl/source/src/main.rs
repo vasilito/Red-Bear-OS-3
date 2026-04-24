@@ -14,6 +14,8 @@ use backend::connection_state_lines;
 use backend::{Backend, StubBackend};
 use bond_store::BondRecord;
 #[cfg(target_os = "redox")]
+use log::error;
+#[cfg(target_os = "redox")]
 use log::info;
 #[cfg(target_os = "redox")]
 use log::warn;
@@ -47,12 +49,14 @@ fn notify_scheme_ready(notify_fd: Option<RawFd>, socket: &Socket, scheme: &mut B
         return;
     };
 
-    let cap_id = scheme
-        .scheme_root()
-        .expect("redbear-btctl: scheme_root failed");
-    let cap_fd = socket
-        .create_this_scheme_fd(0, cap_id, 0, 0)
-        .expect("redbear-btctl: create_this_scheme_fd failed");
+    let Ok(cap_id) = scheme.scheme_root() else {
+        warn!("redbear-btctl: scheme_root failed; continuing without scheme notification");
+        return;
+    };
+    let Ok(cap_fd) = socket.create_this_scheme_fd(0, cap_id, 0, 0) else {
+        warn!("redbear-btctl: create_this_scheme_fd failed; continuing without scheme notification");
+        return;
+    };
 
     if let Err(err) = syscall::call_wo(
         notify_fd as usize,
@@ -435,27 +439,53 @@ fn main() {
     #[cfg(target_os = "redox")]
     {
         let notify_fd = unsafe { get_init_notify_fd() };
-        let socket = Socket::create().expect("redbear-btctl: failed to create scheme socket");
+        let socket = match Socket::create() {
+            Ok(s) => s,
+            Err(err) => {
+                error!("redbear-btctl: failed to create scheme socket: {err}");
+                process::exit(1);
+            }
+        };
         let mut scheme = BtCtlScheme::new(build_backend());
         let mut state = redox_scheme::scheme::SchemeState::new();
 
         notify_scheme_ready(notify_fd, &socket, &mut scheme);
-        libredox::call::setrens(0, 0).expect("redbear-btctl: failed to enter null namespace");
-        info!("redbear-btctl: registered scheme:btctl");
-
-        while let Some(request) = socket
-            .next_request(SignalBehavior::Restart)
-            .expect("redbear-btctl: failed to read scheme request")
-        {
-            if let redox_scheme::RequestKind::Call(request) = request.kind() {
-                let response = request.handle_sync(&mut scheme, &mut state);
-                socket
-                    .write_response(response, SignalBehavior::Restart)
-                    .expect("redbear-btctl: failed to write response");
+        match libredox::call::setrens(0, 0) {
+            Ok(_) => info!("redbear-btctl: registered scheme:btctl"),
+            Err(err) => {
+                error!("redbear-btctl: failed to enter null namespace: {err}");
+                process::exit(1);
             }
         }
 
-        process::exit(0);
+        let mut exit_code = 0;
+        loop {
+            let request = match socket.next_request(SignalBehavior::Restart) {
+                Ok(Some(req)) => req,
+                Ok(None) => {
+                    info!("redbear-btctl: scheme socket closed, shutting down");
+                    break;
+                }
+                Err(err) => {
+                    error!("redbear-btctl: failed to read scheme request: {err}");
+                    exit_code = 1;
+                    break;
+                }
+            };
+            match request.kind() {
+                redox_scheme::RequestKind::Call(request) => {
+                    let response = request.handle_sync(&mut scheme, &mut state);
+                    if let Err(err) = socket.write_response(response, SignalBehavior::Restart) {
+                        error!("redbear-btctl: failed to write response: {err}");
+                        exit_code = 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        process::exit(exit_code);
     }
 }
 

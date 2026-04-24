@@ -21,33 +21,44 @@ fn init_logging(level: LevelFilter) {
 }
 
 #[cfg(target_os = "redox")]
-unsafe fn get_init_notify_fd() -> RawFd {
-    let fd: RawFd = env::var("INIT_NOTIFY")
-        .expect("redbear-wifictl: INIT_NOTIFY not set")
-        .parse()
-        .expect("redbear-wifictl: INIT_NOTIFY is not a valid fd");
+unsafe fn get_init_notify_fd() -> Option<RawFd> {
+    let Ok(value) = env::var("INIT_NOTIFY") else {
+        return None;
+    };
+    let Ok(fd) = value.parse::<RawFd>() else {
+        return None;
+    };
     unsafe {
         libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
     }
-    fd
+    Some(fd)
 }
 
 #[cfg(target_os = "redox")]
-fn notify_scheme_ready(notify_fd: RawFd, socket: &Socket, scheme: &mut WifiCtlScheme) {
-    let cap_id = scheme
-        .scheme_root()
-        .expect("redbear-wifictl: scheme_root failed");
-    let cap_fd = socket
-        .create_this_scheme_fd(0, cap_id, 0, 0)
-        .expect("redbear-wifictl: create_this_scheme_fd failed");
+fn notify_scheme_ready(notify_fd: Option<RawFd>, socket: &Socket, scheme: &mut WifiCtlScheme) {
+    let Some(notify_fd) = notify_fd else {
+        return;
+    };
 
-    syscall::call_wo(
+    let Ok(cap_id) = scheme.scheme_root() else {
+        log::warn!("redbear-wifictl: scheme_root failed; continuing without scheme notification");
+        return;
+    };
+    let Ok(cap_fd) = socket.create_this_scheme_fd(0, cap_id, 0, 0) else {
+        log::warn!("redbear-wifictl: create_this_scheme_fd failed; continuing without scheme notification");
+        return;
+    };
+
+    if let Err(err) = syscall::call_wo(
         notify_fd as usize,
         &libredox::Fd::new(cap_fd).into_raw().to_ne_bytes(),
         syscall::CallFlags::FD,
         &[],
-    )
-    .expect("redbear-wifictl: failed to notify init that scheme is ready");
+    ) {
+        log::warn!(
+            "redbear-wifictl: failed to notify init that scheme is ready ({err}); continuing with manual startup"
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
