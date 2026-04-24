@@ -1,0 +1,44 @@
+# Audio controller and codec quirks.
+# These apply to HDA controllers and codec devices.
+
+# Intel ICH8 HDA — force EAPD on outputs
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x284b
+flags = ["audio_force_eapd"]
+
+# Intel ICH9 HDA (QEMU) — use immediate command interface
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x293e
+flags = ["audio_single_cmd"]
+
+# Intel 6-series PCH HDA — position fix LPIB
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x1c20
+flags = ["audio_position_fix_lpib"]
+
+# Intel 7-series PCH HDA — position fix LPIB
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x1e20
+flags = ["audio_position_fix_lpib"]
+
+# Intel Sunrise Point HDA — position fix LPIB
+[[pci_quirk]]
+vendor = 0x8086
+device = 0xa170
+flags = ["audio_position_fix_lpib"]
+
+# Intel Cannon Point HDA — position fix LPIB
+[[pci_quirk]]
+vendor = 0x8086
+device = 0x9dc8
+flags = ["audio_position_fix_lpib"]
+
+# AMD FCH HDA — single command fallback
+[[pci_quirk]]
+vendor = 0x1022
+device = 0x1457
+flags = ["audio_single_cmd"]

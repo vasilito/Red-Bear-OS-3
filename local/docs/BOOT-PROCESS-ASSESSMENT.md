@@ -1,8 +1,8 @@
 # Red Bear OS Boot Process Assessment & Improvement Plan
 
 **Generated:** 2026-04-23
-**Updated:** 2026-04-23
-**Status:** Phase 1 ✅, Phase 2 ✅, Phase 3 ✅, Phase 4 ✅ (docs + known gaps), Phase 5 ✅
+**Updated:** 2026-04-24
+**Status:** Phase 1 ✅, Phase 2 ✅, Phase 3 ✅, Phase 4 ✅ (docs + known gaps), Phase 5 ✅, Phase 6 ✅ (boot to login confirmed)
 **Scope:** Comprehensive assessment of boot completeness, mistakes, robustness, resilience, and quality
 
 ## Boot Chain Overview
@@ -128,12 +128,12 @@ Bare-metal testing requires physical hardware. Current validation is:
 ## Phase 5: Validation Matrix ✅
 
 ### Build Verification
-| Target | Build | QEMU Boot | Notes |
-|--------|-------|-----------|-------|
-| redbear-minimal | ✅ harddrive.img (2 GB) | ✅ Stage 2 (kernel loaded) | Login renders to framebuffer, not serial |
-| redbear-full | ✅ harddrive.img (4 GB) | ✅ (prior session) | Greeter services load |
-| redbear-live-mini | ✅ ISO (384 MB) | — | ISO for bare-metal boot |
-| redbear-live | ✅ ISO (3.0 GB) | — | ISO for bare-metal boot |
+| Target | Build | QEMU Boot | Bare-Metal Boot | Notes |
+|--------|-------|-----------|-----------------|-------|
+| redbear-mini | ✅ harddrive.img (2 GB) | ✅ Login prompt | — | Framebuffer console login |
+| redbear-full | ✅ harddrive.img (4 GB) | ✅ Login prompt | — | Desktop packages included |
+| redbear-live-mini | ✅ ISO (384 MB) | — | ✅ Login prompt | ISO for bare-metal boot |
+| redbear-live-full | ✅ ISO (3.0 GB) | — | — | ISO for bare-metal boot |
 
 ### Compilation Verification
 - `cargo check --workspace` in base source: **0 errors**
@@ -179,6 +179,82 @@ CI=1 make all CONFIG_NAME=redbear-minimal ARCH=x86_64
 
 ## Key Technical Findings
 
+### Bare-Metal Boot Log Analysis (2026-04-24)
+
+AMD machine boot log shows initfs phase starts but never completes:
+- Kernel boots: ACPI, IOAPIC, timer, memory all OK
+- vesad initializes: 1280x1024 at 0xA0000000 (FRAMEBUFFER_* from UEFI bootloader)
+- fbbootlogd maps display
+- ps2d: keyboard works, mouse BAT fails (no PS/2 mouse port — expected on modern hardware)
+- pcid begins PCI enumeration
+- acpid starts, AML interpreter initializes
+- **MISSING**: "init: initfs drivers target step() complete" — scheduler.step() never returns
+- **MISSING**: "init: phase 2 — switchroot to /usr" — rootfs phase never starts
+- **MISSING**: any getty or login output
+
+Root cause hypothesis (unproven): a service with `type = "notify"`, `type = { scheme = "..." }`,
+or `type = "oneshot"` in the initfs phase does not signal readiness or does not exit,
+causing init's scheduler.step() to block forever. All three service types wait synchronously
+in `service.rs`. Possible blockers include:
+- A `notify` service that hangs before calling `daemon::Daemon::ready()`
+- A `scheme` service that hangs before calling `daemon::SchemeDaemon::ready_*()`
+- An `oneshot` service like `pcid-spawner --initfs` that hangs during PCI enumeration
+With the new per-service logging (Phase 6A + 6C), the next boot will show exactly which
+service blocks — the last `init: starting ...` line before the hang identifies the blocker.
+
+### Bare-Metal/QEMU Boot Log Analysis (2026-04-24, second test with Phase 6 logging)
+
+The enhanced logging proved the initfs phase completes successfully. The actual blocker is
+in the rootfs phase:
+
+- Initfs phase: ✅ all services start and signal readiness/exit correctly
+- `init: phase 2 - switchroot to /usr` ✅
+- `init: scheduling 22 rootfs units` ✅
+- `init: starting PCI driver spawner (pcid-spawner)` ← **BLOCKS HERE**
+- pcid-spawner (rootfs, `type = "oneshot"`) spawns e1000d (ok), ihdad (fails with RIRB timeout)
+- Then hangs — no further output for 30+ seconds while system is alive (keyboard works)
+- Init never reaches `30_console` → getty → login
+
+Root cause (confirmed): rootfs `00_pcid-spawner.service` uses `type = "oneshot"`, which
+causes init to block until pcid-spawner exits. On real hardware and QEMU, pcid-spawner
+can hang waiting for a PCI device driver that never responds, blocking the entire rootfs
+phase including getty/login.
+
+Fix: override `00_pcid-spawner.service` to `type = "oneshot_async"` in
+`config/redbear-legacy-base.toml`. Drivers spawn in the background while init proceeds
+to start console services. Network services that depend on specific drivers handle their
+own timing (they connect to driver schemes when ready).
+
+**Confirmed working**: Both QEMU and bare-metal boot to login prompt after this fix.
+
+### Phase 6: Boot Visibility & Service Cleanup ✅
+
+**Status: Confirmed working — system boots to login prompt on both QEMU and bare metal.**
+
+**6A: Init service start logging (always visible)**
+`init/src/scheduler.rs`: Service and target start messages promoted from DEBUG to always-visible.
+Every service now logs `init: starting <description> (<cmd>)` before spawning and
+`init: started <description> (pid <N>)` after a respawnable process is created.
+
+**6B: Legacy init script cleanup**
+`config/redbear-legacy-base.toml`:
+- `00_base`: Removed dead `notify ipcd` / `notify ptyd` calls.
+  The `notify` binary does not exist anywhere in the build tree — these calls always failed
+  silently. ipcd and ptyd are started by the base recipe's systemd-style services
+  (`00_ipcd.service`, `00_ptyd.service`). sudo --daemon is kept because `00_sudo.service`
+  exists in the base recipe but is not wired into any target that gets scheduled.
+  The script now does tmpdir setup + sudo --daemon.
+- `00_drivers`: Blanked (was redundant — pcid-spawner starts via `00_pcid-spawner.service`).
+
+**6C: Service readiness completion logging**
+`init/src/service.rs`: Added success log after each blocking wait completes:
+- `notify` services: `init: <cmd> ready (notify)` after readiness byte received
+- `scheme` services: `init: <cmd> ready (scheme <name>)` after scheme registered
+- `oneshot` services: `init: <cmd> done (oneshot)` after process exits successfully
+Combined with 6A's `init: starting ...` before spawn, the boot log now shows the full
+lifecycle of every blocking service — any gap between "starting" and "ready/done" pinpoints
+the blocker.
+
 ### Serde `deny_unknown_fields` Behavior
 `UnitInfo` and `Service` structs use `#[serde(deny_unknown_fields)]`. Any unrecognized field in `[unit]` or `[service]` sections causes the ENTIRE service file to fail deserialization. The init system logs the error and skips the service — it never starts.
 
@@ -192,10 +268,18 @@ Services with `type = "oneshot_async"` are fire-and-forget by default. Init spaw
 
 ### Config Include Chain
 ```
-redbear-minimal.toml → minimal.toml, redbear-legacy-base.toml, redbear-device-services.toml, redbear-netctl.toml
-redbear-full.toml → desktop.toml, redbear-desktop.toml, redbear-greeter-services.toml, ...
+redbear-live-full.toml → redbear-live.toml
+redbear-live.toml → redbear-full.toml
+redbear-full.toml → desktop.toml, redbear-legacy-base.toml, redbear-legacy-desktop.toml,
+                     redbear-device-services.toml, redbear-netctl.toml, redbear-greeter-services.toml
+desktop.toml → desktop-minimal.toml, server.toml
+desktop-minimal.toml → minimal.toml
+server.toml → minimal.toml
+minimal.toml → base.toml
+
 redbear-live-mini.toml → minimal.toml, redbear-legacy-base.toml, redbear-netctl.toml
-redbear-live.toml → redbear-full.toml, ...
+redbear-mini → redbear-minimal.toml → minimal.toml, redbear-legacy-base.toml,
+                redbear-device-services.toml, redbear-netctl.toml
 ```
 
 ### Upstream Targets (not Red Bear defined)
@@ -266,3 +350,117 @@ redbear-live.toml → redbear-full.toml, ...
 - `local/scripts/validate-service-files.sh` — manual service schema validation (redbear-*.toml only)
 - `local/docs/BOOT-PROCESS-ASSESSMENT.md` — this document
 - `recipes/core/base/source/init.initfs.d/41_acpid.service` — acpid in initfs (boot race fix)
+
+## Boot Procedure
+
+### Supported compile targets
+
+| Target | Purpose | Output |
+|--------|---------|--------|
+| `redbear-mini` | Minimal non-desktop (QEMU + bare metal) | `build/x86_64/harddrive.img` |
+| `redbear-live-mini` | Minimal live ISO (bare metal only) | `build/x86_64/redbear-live-mini.iso` |
+| `redbear-full` | Desktop/graphics (QEMU + bare metal) | `build/x86_64/harddrive.img` |
+| `redbear-live-full` / `redbear-live` | Desktop/graphics live ISO (bare metal only) | `build/x86_64/redbear-live-full.iso` |
+
+### Build commands
+
+```bash
+# Minimal target (QEMU testing)
+CI=1 make all CONFIG_NAME=redbear-mini ARCH=x86_64
+
+# Minimal live ISO (bare-metal boot)
+CI=1 make live CONFIG_NAME=redbear-live-mini ARCH=x86_64
+
+# Desktop/graphics target (QEMU testing)
+CI=1 make all CONFIG_NAME=redbear-full ARCH=x86_64
+
+# Desktop/graphics live ISO (bare-metal boot)
+CI=1 make live CONFIG_NAME=redbear-live-full ARCH=x86_64
+```
+
+### QEMU boot (harddrive.img)
+
+```bash
+# Boot the minimal target in QEMU
+make qemu CONFIG_NAME=redbear-mini
+
+# Boot with more RAM
+make qemu CONFIG_NAME=redbear-mini QEMUFLAGS="-m 4G"
+
+# Boot desktop target
+make qemu CONFIG_NAME=redbear-full
+```
+
+QEMU boots from `harddrive.img` (not the live ISO). The `-serial mon:stdio` flag provides
+the serial console, but Red Bear uses the framebuffer console for login — type at the
+graphical console, not serial.
+
+### Bare-metal boot (live ISO)
+
+1. **Build the ISO:**
+   ```bash
+   CI=1 make live CONFIG_NAME=redbear-live-mini ARCH=x86_64
+   ```
+
+2. **Write ISO to USB drive:**
+   ```bash
+   sudo dd if=build/x86_64/redbear-live-mini.iso of=/dev/sdX bs=4M status=progress && sync
+   ```
+   Replace `/dev/sdX` with your USB device. Use `lsblk` to identify it.
+
+3. **Boot from USB:**
+   - Insert USB into target machine
+   - Power on, enter UEFI boot menu (typically F12, F8, or Esc)
+   - Select the USB device as boot target
+   - Red Bear OS boots from UEFI → bootloader → kernel → init → login prompt
+
+4. **Login:**
+   - Default user: `root`, no password
+   - The framebuffer console displays the login prompt after boot completes
+
+### What happens during boot
+
+```
+UEFI firmware
+  → Red Bear bootloader (loaded from EFI system partition)
+    → Kernel (kstart → start → kmain)
+      → userspace_init → bootstrap (forks initfs/procmgr/initnsmgr)
+        → Initfs phase:
+            logd, inputd, vesad (framebuffer), fbcond, fbbootlogd,
+            ps2d (keyboard), acpid, pcid-spawner-initfs (initfs PCI drivers), lived, redoxfs
+        → switchroot /usr
+        → Rootfs phase:
+            00_base (tmpdir + sudo --daemon)
+            00_ipcd.service, 00_ptyd.service
+            00_pcid-spawner.service (async — spawns PCI drivers in background)
+            30_console (getty with respawn)
+        → Login prompt on framebuffer console
+```
+
+### Boot log markers
+
+The init system logs the following always-visible markers. If boot hangs, the last visible
+marker identifies the blocker:
+
+```
+init: phase 1 — initfs boot
+init: starting <description> (<cmd>)          # before each service spawn
+init: <cmd> ready (notify)                     # notify-type service ready
+init: <cmd> ready (scheme <name>)              # scheme-type service ready
+init: <cmd> done (oneshot)                     # oneshot service exited
+init: phase 2 — switchroot to /usr
+init: scheduling N rootfs units
+init: reached target <description>
+init: phase 3 — rootfs services started
+init: boot complete — entering waitpid loop
+```
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| No display output | UEFI framebuffer not provided | Try different USB port or disable CSM in UEFI settings |
+| Boot hangs after "scheduling N rootfs units" | A blocking service hangs | Check last "starting" line; `pcid-spawner` was previously the blocker |
+| Keyboard not working | PS/2 unavailable, USB not ready | Modern hardware uses USB — ensure xHCI controller is functional |
+| No login prompt | Getty not starting | Check `30_console` service in config; verify getty respawn is set |
+| "missing field `unit`" parse error | Invalid service TOML | Run `./local/scripts/validate-service-files.sh config/` |

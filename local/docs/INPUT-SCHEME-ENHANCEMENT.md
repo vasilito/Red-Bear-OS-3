@@ -26,11 +26,11 @@ The current `inputd` implementation in `recipes/core/base/source/drivers/inputd/
 - `SchemeRoot` exists, but it is not a real directory yet: it does not enumerate entries.
 - `lib.rs` only exposes `ProducerHandle`, `ConsumerHandle`, `DisplayHandle`, and `ControlHandle`.
 
-Current callers confirm the limitation:
+Current callers after migration:
 
-- `ps2d` opens one `ProducerHandle` and sends both keyboard and mouse events into the same stream.
-- `usbhidd` also opens one `ProducerHandle` and sends keyboard/mouse/button/scroll data into the same stream.
-- local `evdevd` reads `/scheme/input/consumer`, receives anonymous mixed `orbclient::Event` values, and manually translates them.
+- `ps2d` opens two `InputProducer` instances (`ps2-keyboard`, `ps2-mouse`) with legacy fallback, routing keyboard scancodes to the keyboard producer and mouse events to the mouse producer.
+- `usbhidd` opens one `InputProducer` per interface instance (`usb-{port}-if{n}`) with legacy fallback.
+- local `evdevd` reads `/scheme/input/consumer`, receives anonymous mixed `orbclient::Event` values, and manually translates them (not yet migrated to per-device streams).
 
 ## 3. Design Principles
 
@@ -454,23 +454,20 @@ This keeps `DeviceConsumer` simple and avoids introducing a second handle teardo
 
 ## 13. Migration Path
 
-### 13.1 `ps2d`
+### 13.1 `ps2d` — MIGRATED
 
-`ps2d` is the first caller that should adopt the new API because it already has a clean split between keyboard and mouse sources.
+`ps2d` now uses two `InputProducer` instances with named-first, legacy-fallback strategy:
 
-Recommended startup logic:
-
-1. Try `NamedProducerHandle::new("ps2-keyboard")`
-2. Try `NamedProducerHandle::new("ps2-mouse")`
-3. If both succeed, run in named mode
-4. If either fails, close any partially opened named handle and fall back to one legacy `ProducerHandle::new()`
+1. Try `InputProducer::new_named_or_fallback("ps2-keyboard")` → falls back to legacy on error
+2. Try `InputProducer::new_named_or_fallback("ps2-mouse")` → falls back to legacy on error
+3. `Ps2d` struct holds `keyboard_input: InputProducer` + `mouse_input: InputProducer`
 
 Routing:
 
-- keyboard scancodes → `ps2-keyboard`
-- mouse move / absolute move / button / scroll events → `ps2-mouse`
+- keyboard scancodes → `self.keyboard_input`
+- mouse move / absolute move / button / scroll events → `self.mouse_input`
 
-This preserves compatibility with old `inputd` while immediately enabling per-device consumers on new `inputd`.
+This preserves compatibility with old `inputd` while enabling per-device consumers on new `inputd`.
 
 ### 13.2 `evdevd`
 
@@ -482,9 +479,15 @@ Once the scheme exists, local `evdevd` can move from `/scheme/input/consumer` to
 
 It can keep the legacy consumer path as a fallback for older systems.
 
-### 13.3 `usbhidd`
+### 13.3 `usbhidd` — MIGRATED
 
-`usbhidd` can remain legacy initially, then later migrate to named producers such as `usb-hid0`, `usb-hid1`, or more specific per-interface names.
+`usbhidd` now uses one `InputProducer` per interface instance with named-first, legacy-fallback strategy:
+
+1. Opens `InputProducer::new_named_or_fallback(&format!("usb-{}-if{}", port, interface_num))`
+2. Falls back to legacy on error
+3. All event writes go through the same `write_event()` method
+
+Producer names: `usb-{port}-if{interface_num}` (e.g., `usb-1-if0`, `usb-1-if1`).
 
 ## 14. Backward Compatibility Requirements
 
@@ -520,16 +523,17 @@ This design does **not** include:
 
 Another developer implementing this design should be able to proceed in this order:
 
-1. extend `Handle` and `InputScheme` state
-2. teach `openat()` to parse `producer/{name}`, `events`, and dynamic device names
-3. add root `getdents()` support for `SchemeRoot`
-4. refactor `write()` so producer type is detected before routing
-5. fan out named-producer events to matching `DeviceConsumer` handles and the existing legacy path
-6. add hotplug queue serialization helpers
-7. extend `fevent()` and daemon notification loop for `DeviceConsumer` and `HotplugEvents`
-8. add cleanup in `on_close()` for `NamedProducer`
-9. extend `lib.rs` with the new handle types and directory lister
-10. migrate `ps2d` with a named-producer-first, legacy-fallback strategy
+1. extend `Handle` and `InputScheme` state ✅
+2. teach `openat()` to parse `producer/{name}`, `events`, and dynamic device names ✅
+3. add root `getdents()` support for `SchemeRoot` ✅
+4. refactor `write()` so producer type is detected before routing ✅
+5. fan out named-producer events to matching `DeviceConsumer` handles and the existing legacy path ✅
+6. add hotplug queue serialization helpers ✅
+7. extend `fevent()` and daemon notification loop for `DeviceConsumer` and `HotplugEvents` ✅
+8. add cleanup in `on_close()` for `NamedProducer` ✅
+9. extend `lib.rs` with the new handle types and directory lister ✅
+10. migrate `ps2d` with a named-producer-first, legacy-fallback strategy ✅
+11. migrate `usbhidd` with a named-producer-first, legacy-fallback strategy ✅
 
 ## 17. Final Outcome
 

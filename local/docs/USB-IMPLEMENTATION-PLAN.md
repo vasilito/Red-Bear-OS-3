@@ -27,7 +27,7 @@ This repo should not treat **builds** or **enumerates** as equivalent to **valid
 
 USB driver code lives in `recipes/core/base/source/drivers/usb/`, which is an upstream-managed git
 working copy. Red Bear carries all USB modifications through `local/patches/base/redox.patch`
-(currently 5029 lines, 23 diff sections, 16 USB/HID/storage-related).
+(currently ~17000 lines across ~100 diff sections).
 
 **Upstream state** — the unpatched source snapshot that `make fetch` produces — has significant
 error handling gaps and several correctness bugs. Red Bear's patch layer fixes these, but the fixes
@@ -124,7 +124,7 @@ source:
 
 Even with the Red Bear patch applied:
 
-- HID is still wired through the legacy mixed-stream `inputd` path
+- HID is now wired through named producers (`ps2-keyboard`, `ps2-mouse`, `usb-{port}-if{n}`); named producers always fan out to both per-device consumers and the legacy VT consumer path; the `InputProducer` wrapper falls back to an anonymous legacy `ProducerHandle` if the named path is unavailable (e.g., older `inputd` build)
 - external USB keyboard fallback is not guaranteed on bare metal unless the keyboard reaches the
   xHCI runtime path
 - EHCI/UHCI/OHCI are not yet full runtime host-controller implementations
@@ -151,11 +151,11 @@ Even with the Red Bear patch applied:
 | xHCI controller | **builds / QEMU-validated** | Red Bear patch: 88 error handling fixes, ERDP split, endp_direction fix, cfg_idx fix, real grow_event_ring, mutex poison recovery on all hot-path locks; no real hardware validation yet |
 | EHCI/UHCI/OHCI | **builds / enumerates** | Ownership, port handling, and logging exist, but they are not yet full runtime enumeration paths |
 | Hub handling | **builds / good quality** | `usbhubd`: all `expect()` eliminated, interrupt-driven change detection with polling fallback, graceful per-port error handling |
-| HID | **builds / QEMU-validated in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via legacy input path, no panics in report loop; keyboard LED sync exists as a bounded per-device best-effort path |
+| HID | **builds / QEMU-validated in narrow path** | `usbhidd` handles keyboard/mouse/button/scroll via named producer path (`usb-{port}-if{n}`) with legacy fallback, no panics in report loop; keyboard LED sync exists as a bounded per-device best-effort path |
 | Mass storage | **builds / good quality** | `usbscsid`: typed `ScsiError`, fallible parsing, `ReadCapacity16` for >2TB, stall recovery, resilient event loop |
 | Native tooling | **builds / enumerates** | `lsusb`, `usbctl`, `redbear-info`, `redbear-usb-check` provide observability |
 | Low-level userspace API | **builds** | `xhcid_interface` with `UsbSpeed` enum, `attach_with_speed()` |
-| Validation | **builds / QEMU-only** | 3 harness scripts + in-guest checker; no real hardware validation scripts |
+| Validation | **builds / QEMU-only** | 4 harness scripts + in-guest checker; no real hardware validation scripts |
 | Hardware quirks | **builds** | `redox-driver-sys` quirk tables with 146 compiled-in USB quirk entries (mined from Linux 7.0) + 22 USB quirk flags; runtime TOML loading for `/etc/quirks.d/` |
 
 ## Code Quality by Daemon
@@ -183,7 +183,7 @@ Key files and their sizes:
 | Daemon | Lines | Error Handling Quality | Remaining unwrap/expect | Key Gaps |
 |---|---|---|---|---|
 | `usbhubd` | ~430 | **Good** — `Result<(), Box<dyn Error>>`, all `expect()` eliminated, interrupt-driven change detection | 0 | 1-second polling fallback if interrupt EP unavailable |
-| `usbhidd` | 576 | **Good** — `anyhow::Result` with context, zero `unwrap()`/`expect()` | 0 | Hardcoded 1ms poll rate; mouse ×2 multiplier workaround; X scroll missing |
+| `usbhidd` | 576 | **Good** — `anyhow::Result` with context, no panics in report loop; `expect()` remains in arg parsing and descriptor setup (pre-existing) | 7 `expect()` + 1 `assert_eq!` (pre-existing, arg parsing/descriptor setup) | Hardcoded 1ms poll rate; mouse ×2 multiplier workaround; X scroll missing |
 | `usbscsid` | ~1800 | **Good** — `ScsiError` typed errors, fallible `parse_bytes`/`parse_mut_bytes` helpers, resilient event loop, `ReadCapacity16` | 0 | — |
 
 ## Validation Infrastructure
@@ -301,8 +301,19 @@ hardware; controller enumerates attached devices reliably across repeated boot c
 
 **Remaining**:
 - Validate repeated attach/detach/reset behavior under stress (requires real hardware)
-- Support non-default configurations and alternate settings (requires xHCI config logic in scheme.rs)
-- Improve composite-device handling and endpoint selection across interfaces (requires xHCI config logic in scheme.rs)
+
+**Completed (Red Bear patch, this session)**:
+- `configure_endpoints_once()` now filters endpoints by specific interface+alternate when
+  `req.interface_desc` is set, enabling composite-device drivers to claim individual interfaces
+  without programming endpoints from other interfaces
+- When `interface_desc` is `None` (initial device setup), endpoints are collected from all
+  default-alternate (alt 0) interfaces, preserving backward compatibility
+- `PortState.active_ifaces: BTreeMap<u8, u8>` tracks which interface numbers are active and
+  which alternate setting each is using
+- `set_interface()` now updates `active_ifaces` after a successful SET_INTERFACE control request
+- `spawn_drivers()` logs non-default alternates at debug level instead of warning, documenting
+  that non-default alternates are selected by drivers via SET_INTERFACE rather than auto-spawn
+- Initial configuration populates `active_ifaces` with all default-alternate interfaces
 
 **Where**: `recipes/core/base/source/drivers/usb/usbhubd/`, `xhcid/src/xhci/scheme.rs`
 
@@ -316,14 +327,25 @@ least one composite device configures correctly beyond the simplest path.
 **Status**: Partially complete.
 
 **Completed (Red Bear patch)**:
-- `usbhidd` error handling improved — `anyhow::Result` with context, no panics in report loop, zero `unwrap()`/`expect()` calls
-- `assert_eq!` replaced with `anyhow::bail!`
+- `usbhidd` error handling improved — `anyhow::Result` with context, no panics in report loop; `expect()`/`assert_eq!` remain in arg parsing and descriptor setup (pre-existing)
 - Display write failures logged as warnings instead of panicking
+- `inputd` scheme enhancement: named producers (`/scheme/input/producer/{name}`), per-device
+  consumer streams (`/scheme/input/{device_name}`), hotplug event stream (`/scheme/input/events`),
+  root directory enumeration (static entries + dynamic device names)
+- Named producer events fan out to both matching DeviceConsumers and the legacy VT consumer path
+- Hotplug binary format: 16-byte header (kind, device_id, name_len, reserved) + UTF-8 name
+- Device IDs allocated monotonically, never reused
+- Public API: `NamedProducerHandle`, `DeviceConsumerHandle`, `HotplugHandle`, `InputDeviceLister`,
+  `InputProducer` (named-first, legacy-fallback convenience wrapper)
+- All legacy paths, event payloads, VT behavior, and display/control behavior preserved unchanged
+- `ps2d` migrated: two `InputProducer` instances (`ps2-keyboard`, `ps2-mouse`), keyboard events
+  route to `keyboard_input`, mouse events to `mouse_input`, named-first with legacy fallback
+- `usbhidd` migrated: one `InputProducer` per interface instance (`usb-{port}-if{n}`), named-first
+  with legacy fallback
 
-**Remaining** (all require architectural changes to `inputd`, not USB-internal code):
-- Migrate `usbhidd` toward named producers and per-device streams (requires inputd redesign)
-- Expose hotplug add/remove behavior cleanly to downstream consumers (requires inputd redesign)
-- Align USB HID with the `inputd` enhancement design already documented in-tree (cross-cutting)
+**Remaining** (requires downstream consumer/driver migration, not inputd scheme changes):
+- Migrate `i2c-hidd` to named producers (still uses legacy `ProducerHandle`)
+- Expose hotplug add/remove behavior to downstream consumers via `evdevd` migration
 
 **Where**: `recipes/core/base/source/drivers/input/usbhidd/`, `inputd/`,
 `local/docs/INPUT-SCHEME-ENHANCEMENT.md`
@@ -685,7 +707,7 @@ The remaining gaps now fall into two categories:
 **Broader architectural work (cross-cutting, not a small bounded USB-only fix):**
 - Any remaining USB composite/device-model issues now belong to wider device-model/design cleanup
   rather than one more isolated helper patch.
-- HID producer modernization: per-device streams, hotplug add/remove (requires inputd redesign)
+- HID producer modernization: per-device streams via named producers, hotplug add/remove (inputd redesign complete, ps2d and usbhidd migrated)
 - Userspace USB API: `libusb` WIP, no coherent native story
 
 **Hardware-dependent or design decisions:**

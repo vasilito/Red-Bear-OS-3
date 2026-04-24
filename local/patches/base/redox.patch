@@ -8517,6 +8517,40 @@ index d7af4cba..638b7cc1 100644
              }
          }
  
+diff --git a/drivers/input/ps2d/src/main.rs b/drivers/input/ps2d/src/main.rs
+index db17de2a..1ae055e4 100644
+--- a/drivers/input/ps2d/src/main.rs
++++ b/drivers/input/ps2d/src/main.rs
+@@ -11,7 +11,7 @@ use std::process;
+ 
+ use common::acquire_port_io_rights;
+ use event::{user_data, EventQueue};
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ 
+ use crate::state::Ps2d;
+ 
+@@ -31,7 +31,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     acquire_port_io_rights().expect("ps2d: failed to get I/O permission");
+ 
+-    let input = ProducerHandle::new().expect("ps2d: failed to open input producer");
++    let keyboard_input = InputProducer::new_named_or_fallback("ps2-keyboard")
++        .expect("ps2d: failed to open input producer");
++    let mouse_input = InputProducer::new_named_or_fallback("ps2-mouse")
++        .expect("ps2d: failed to open input producer");
+ 
+     user_data! {
+         enum Source {
+@@ -93,7 +96,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     daemon.ready();
+ 
+-    let mut ps2d = Ps2d::new(input, time_file);
++    let mut ps2d = Ps2d::new(keyboard_input, mouse_input, time_file);
+ 
+     let mut data = [0; 256];
+     for event in event_queue.map(|e| e.expect("ps2d: failed to get next event").user_data) {
 diff --git a/drivers/input/ps2d/src/mouse.rs b/drivers/input/ps2d/src/mouse.rs
 index 9e95ab88..8087c8c4 100644
 --- a/drivers/input/ps2d/src/mouse.rs
@@ -8651,12 +8685,31 @@ index 9e95ab88..8087c8c4 100644
              MouseState::Streaming { id } => {
                  MouseResult::Packet(data, id == MouseId::Intellimouse1 as u8)
 diff --git a/drivers/input/ps2d/src/state.rs b/drivers/input/ps2d/src/state.rs
-index 9018dc6b..9e37b937 100644
+index 9018dc6b..da304e05 100644
 --- a/drivers/input/ps2d/src/state.rs
 +++ b/drivers/input/ps2d/src/state.rs
-@@ -61,7 +61,9 @@ pub struct Ps2d {
+@@ -1,4 +1,4 @@
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ use log::{error, warn};
+ use orbclient::{ButtonEvent, KeyEvent, MouseEvent, MouseRelativeEvent, ScrollEvent};
+ use std::{
+@@ -44,7 +44,8 @@ pub struct Ps2d {
+     ps2: Ps2,
+     vmmouse: bool,
+     vmmouse_relative: bool,
+-    input: ProducerHandle,
++    keyboard_input: InputProducer,
++    mouse_input: InputProducer,
+     time_file: File,
+     extended: bool,
+     mouse_x: i32,
+@@ -59,9 +60,11 @@ pub struct Ps2d {
+ }
+ 
  impl Ps2d {
-     pub fn new(input: ProducerHandle, time_file: File) -> Self {
+-    pub fn new(input: ProducerHandle, time_file: File) -> Self {
++    pub fn new(keyboard_input: InputProducer, mouse_input: InputProducer, time_file: File) -> Self {
          let mut ps2 = Ps2::new();
 -        ps2.init().expect("failed to initialize");
 +        if let Err(err) = ps2.init() {
@@ -8665,8 +8718,120 @@ index 9018dc6b..9e37b937 100644
  
          // FIXME add an option for orbital to disable this when an app captures the mouse.
          let vmmouse_relative = false;
+@@ -77,7 +80,8 @@ impl Ps2d {
+             ps2,
+             vmmouse,
+             vmmouse_relative,
+-            input,
++            keyboard_input,
++            mouse_input,
+             time_file,
+             extended: false,
+             mouse_x: 0,
+@@ -273,7 +277,7 @@ impl Ps2d {
+                 };
+ 
+                 if scancode != 0 {
+-                    self.input
++                    self.keyboard_input
+                         .write_event(
+                             KeyEvent {
+                                 character: '\0',
+@@ -304,7 +308,7 @@ impl Ps2d {
+ 
+                 if self.vmmouse_relative {
+                     if dx != 0 || dy != 0 {
+-                        self.input
++                        self.mouse_input
+                             .write_event(
+                                 MouseRelativeEvent {
+                                     dx: dx as i32,
+@@ -320,14 +324,14 @@ impl Ps2d {
+                     if x != self.mouse_x || y != self.mouse_y {
+                         self.mouse_x = x;
+                         self.mouse_y = y;
+-                        self.input
++                        self.mouse_input
+                             .write_event(MouseEvent { x, y }.to_event())
+                             .expect("ps2d: failed to write mouse event");
+                     }
+                 };
+ 
+                 if dz != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ScrollEvent {
+                                 x: 0,
+@@ -348,7 +352,7 @@ impl Ps2d {
+                     self.mouse_left = left;
+                     self.mouse_middle = middle;
+                     self.mouse_right = right;
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ButtonEvent {
+                                 left,
+@@ -441,13 +445,13 @@ impl Ps2d {
+                 }
+ 
+                 if dx != 0 || dy != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(MouseRelativeEvent { dx, dy }.to_event())
+                         .expect("ps2d: failed to write mouse event");
+                 }
+ 
+                 if dz != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(ScrollEvent { x: 0, y: dz }.to_event())
+                         .expect("ps2d: failed to write scroll event");
+                 }
+@@ -462,7 +466,7 @@ impl Ps2d {
+                     self.mouse_left = left;
+                     self.mouse_middle = middle;
+                     self.mouse_right = right;
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ButtonEvent {
+                                 left,
+diff --git a/drivers/input/usbhidd/src/main.rs b/drivers/input/usbhidd/src/main.rs
+index 15c5b778..706c4008 100644
+--- a/drivers/input/usbhidd/src/main.rs
++++ b/drivers/input/usbhidd/src/main.rs
+@@ -1,7 +1,7 @@
+ use anyhow::{Context, Result};
+ use std::{env, thread, time};
+ 
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ use orbclient::KeyEvent as OrbKeyEvent;
+ use rehid::{
+     report_desc::{ReportTy, REPORT_DESC_TY},
+@@ -15,7 +15,7 @@ use xhcid_interface::{
+ 
+ mod reqs;
+ 
+-fn send_key_event(display: &mut ProducerHandle, usage_page: u16, usage: u16, pressed: bool) {
++fn send_key_event(display: &mut InputProducer, usage_page: u16, usage: u16, pressed: bool) {
+     let scancode = match usage_page {
+         0x07 => match usage {
+             0x04 => orbclient::K_A,
+@@ -272,7 +272,9 @@ fn main() -> Result<()> {
+     let report_ty = ReportTy::Input;
+     let report_id = 0;
+ 
+-    let mut display = ProducerHandle::new().context("Failed to open input socket")?;
++    let producer_name = format!("usb-{}-if{}", port, interface_num);
++    let mut display = InputProducer::new_named_or_fallback(&producer_name)
++        .context("Failed to open input socket")?;
+     let mut endpoint_opt = match endp_desc_opt {
+         Some((endp_num, _endp_desc)) => match handle.open_endpoint(endp_num as u8) {
+             Ok(ok) => Some(ok),
 diff --git a/drivers/inputd/src/lib.rs b/drivers/inputd/src/lib.rs
-index b68e8211..0627f301 100644
+index b68e8211..f07a411d 100644
 --- a/drivers/inputd/src/lib.rs
 +++ b/drivers/inputd/src/lib.rs
 @@ -64,25 +64,53 @@ impl ConsumerHandle {
@@ -8753,11 +8918,452 @@ index b68e8211..0627f301 100644
              Ok(Some(event))
          }
      }
+@@ -171,13 +203,11 @@ impl ControlHandle {
+         Ok(Self(File::open(path)?))
+     }
+ 
+-    /// Sent to Handle::Display
+     pub fn activate_vt(&mut self, vt: usize) -> io::Result<usize> {
+         let cmd = ControlEvent::from(VtActivate { vt });
+         self.0.write(unsafe { any_as_u8_slice(&cmd) })
+     }
+ 
+-    /// Sent to Handle::Producer
+     pub fn activate_keymap(&mut self, keymap: usize) -> io::Result<usize> {
+         let cmd = ControlEvent::from(KeymapActivate { keymap });
+         self.0.write(unsafe { any_as_u8_slice(&cmd) })
+@@ -209,3 +239,195 @@ impl ProducerHandle {
+         Ok(())
+     }
+ }
++
++pub struct NamedProducerHandle(File);
++
++impl NamedProducerHandle {
++    pub fn new(name: &str) -> io::Result<Self> {
++        let path = format!("/scheme/input/producer/{name}");
++        Ok(Self(File::open(path)?))
++    }
++
++    pub fn write_event(&mut self, event: orbclient::Event) -> io::Result<()> {
++        self.0.write(&event)?;
++        Ok(())
++    }
++}
++
++/// Convenience wrapper that tries a named producer first,
++/// falling back to the legacy anonymous producer on failure.
++pub enum InputProducer {
++    Named(NamedProducerHandle),
++    Legacy(ProducerHandle),
++}
++
++impl InputProducer {
++    /// Open a named producer (`/scheme/input/producer/{name}`).
++    /// If the named path is unavailable, fall back to the legacy
++    /// `/scheme/input/producer` path so the driver keeps working on
++    /// older inputd builds or degraded schemes.
++    pub fn new_named_or_fallback(name: &str) -> io::Result<Self> {
++        match NamedProducerHandle::new(name) {
++            Ok(named) => Ok(InputProducer::Named(named)),
++            Err(named_err) => {
++                log::debug!(
++                    "inputd: named producer '{}' unavailable ({}), falling back to legacy",
++                    name,
++                    named_err
++                );
++                ProducerHandle::new().map(InputProducer::Legacy)
++            }
++        }
++    }
++
++    /// Open the legacy anonymous producer directly.
++    pub fn new_legacy() -> io::Result<Self> {
++        ProducerHandle::new().map(InputProducer::Legacy)
++    }
++
++    pub fn write_event(&mut self, event: orbclient::Event) -> io::Result<()> {
++        match self {
++            InputProducer::Named(h) => h.write_event(event),
++            InputProducer::Legacy(h) => h.write_event(event),
++        }
++    }
++}
++
++pub struct DeviceConsumerHandle(File);
++
++pub enum DeviceConsumerHandleEvent<'a> {
++    Events(&'a [Event]),
++}
++
++impl DeviceConsumerHandle {
++    pub fn new(device_name: &str) -> io::Result<Self> {
++        let path = format!("/scheme/input/{device_name}");
++        Ok(Self(File::open(path)?))
++    }
++
++    pub fn event_handle(&self) -> BorrowedFd<'_> {
++        self.0.as_fd()
++    }
++
++    pub fn read_events<'a>(
++        &self,
++        events: &'a mut [Event],
++    ) -> io::Result<DeviceConsumerHandleEvent<'a>> {
++        match read_to_slice(self.0.as_fd(), events) {
++            Ok(count) => Ok(DeviceConsumerHandleEvent::Events(&events[..count])),
++            Err(err) => Err(err.into()),
++        }
++    }
++}
++
++#[derive(Debug, Clone)]
++#[repr(C)]
++pub struct HotplugEventHeader {
++    pub kind: u32,
++    pub device_id: u32,
++    pub name_len: u32,
++    pub reserved: u32,
++}
++
++#[derive(Debug, Clone)]
++pub struct HotplugEvent {
++    pub kind: u32,
++    pub device_id: u32,
++    pub name: String,
++}
++
++pub struct HotplugHandle {
++    file: File,
++    partial: Vec<u8>,
++}
++
++impl HotplugHandle {
++    pub fn new() -> io::Result<Self> {
++        let file = File::open("/scheme/input/events")?;
++        Ok(Self {
++            file,
++            partial: Vec::new(),
++        })
++    }
++
++    pub fn event_handle(&self) -> BorrowedFd<'_> {
++        self.file.as_fd()
++    }
++
++    pub fn read_event(&mut self) -> io::Result<Option<HotplugEvent>> {
++        let mut tmp = [0u8; 256];
++        match self.file.read(&mut tmp) {
++            Ok(0) => {}
++            Ok(n) => self.partial.extend_from_slice(&tmp[..n]),
++            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
++            Err(e) => return Err(e),
++        }
++
++        if self.partial.len() < 16 {
++            return Ok(None);
++        }
++
++        let header = HotplugEventHeader {
++            kind: u32::from_ne_bytes(self.partial[0..4].try_into().map_err(|_| {
++                io::Error::new(io::ErrorKind::InvalidData, "header parse failed")
++            })?),
++            device_id: u32::from_ne_bytes(self.partial[4..8].try_into().map_err(|_| {
++                io::Error::new(io::ErrorKind::InvalidData, "header parse failed")
++            })?),
++            name_len: u32::from_ne_bytes(self.partial[8..12].try_into().map_err(|_| {
++                io::Error::new(io::ErrorKind::InvalidData, "header parse failed")
++            })?),
++            reserved: 0,
++        };
++
++        let total_len = 16 + header.name_len as usize;
++        if self.partial.len() < total_len {
++            return Ok(None);
++        }
++
++        let name = String::from_utf8(self.partial[16..total_len].to_vec()).map_err(|e| {
++            io::Error::new(io::ErrorKind::InvalidData, format!("invalid UTF-8: {e}"))
++        })?;
++
++        self.partial.drain(..total_len);
++
++        Ok(Some(HotplugEvent {
++            kind: header.kind,
++            device_id: header.device_id,
++            name,
++        }))
++    }
++}
++
++pub const RESERVED_DEVICE_NAMES: &[&str] = &[
++    "producer",
++    "consumer",
++    "consumer_bootlog",
++    "events",
++    "handle",
++    "handle_early",
++    "control",
++];
++
++pub struct InputDeviceLister;
++
++impl InputDeviceLister {
++    pub fn list() -> io::Result<Vec<String>> {
++        let mut dir = std::fs::read_dir("/scheme/input/")?;
++        let mut devices = Vec::new();
++        loop {
++            match dir.next() {
++                Some(Ok(entry)) => {
++                    if let Some(name) = entry.file_name().to_str() {
++                        if !RESERVED_DEVICE_NAMES.contains(&name) {
++                            devices.push(name.to_owned());
++                        }
++                    }
++                }
++                Some(Err(e)) => return Err(e),
++                None => break,
++            }
++        }
++        Ok(devices)
++    }
++}
 diff --git a/drivers/inputd/src/main.rs b/drivers/inputd/src/main.rs
-index 07aa943e..61641b9f 100644
+index 07aa943e..89018568 100644
 --- a/drivers/inputd/src/main.rs
 +++ b/drivers/inputd/src/main.rs
-@@ -274,7 +274,7 @@ impl SchemeSync for InputScheme {
+@@ -13,7 +13,7 @@
+ 
+ use core::mem::size_of;
+ use std::borrow::Cow;
+-use std::collections::BTreeSet;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::mem::transmute;
+ use std::ops::ControlFlow;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+@@ -26,8 +26,9 @@ use redox_scheme::{CallerCtx, OpenResult, Response, SignalBehavior, Socket};
+ 
+ use orbclient::{Event, EventOption};
+ use scheme_utils::{Blocking, FpathWriter, HandleMap};
++use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
+ use syscall::schemev2::NewFdFlags;
+-use syscall::{Error as SysError, EventFlags, EACCES, EBADF, EEXIST, EINVAL};
++use syscall::{Error as SysError, EventFlags, EACCES, EBADF, EEXIST, EINVAL, ENOENT, ENOTDIR};
+ 
+ pub mod keymap;
+ 
+@@ -35,8 +36,57 @@ use keymap::KeymapKind;
+ 
+ use crate::keymap::KeymapData;
+ 
++const DEVICE_ADD: u32 = 1;
++const DEVICE_REMOVE: u32 = 2;
++
++fn validate_producer_name(name: &str) -> Result<(), SysError> {
++    if name.is_empty() || name.contains('/') {
++        return Err(SysError::new(EINVAL));
++    }
++    if inputd::RESERVED_DEVICE_NAMES.contains(&name) {
++        return Err(SysError::new(EINVAL));
++    }
++    Ok(())
++}
++
++fn serialize_hotplug(kind: u32, device_id: u32, name: &str) -> Vec<u8> {
++    let name_bytes = name.as_bytes();
++    let header = HotplugHeader {
++        kind,
++        device_id,
++        name_len: name_bytes.len() as u32,
++        _reserved: 0,
++    };
++    let mut out = Vec::with_capacity(16 + name_bytes.len());
++    out.extend_from_slice(&header.to_bytes());
++    out.extend_from_slice(name_bytes);
++    out
++}
++
++#[repr(C)]
++struct HotplugHeader {
++    kind: u32,
++    device_id: u32,
++    name_len: u32,
++    _reserved: u32,
++}
++
++impl HotplugHeader {
++    fn to_bytes(&self) -> [u8; 16] {
++        let mut buf = [0u8; 16];
++        buf[0..4].copy_from_slice(&self.kind.to_ne_bytes());
++        buf[4..8].copy_from_slice(&self.device_id.to_ne_bytes());
++        buf[8..12].copy_from_slice(&self.name_len.to_ne_bytes());
++        buf[12..16].copy_from_slice(&self._reserved.to_ne_bytes());
++        buf
++    }
++}
++
+ enum Handle {
+     Producer,
++    NamedProducer {
++        name: String,
++    },
+     Consumer {
+         events: EventFlags,
+         pending: Vec<u8>,
+@@ -46,6 +96,17 @@ enum Handle {
+         notified: bool,
+         vt: usize,
+     },
++    DeviceConsumer {
++        device_name: String,
++        events: EventFlags,
++        pending: Vec<u8>,
++        notified: bool,
++    },
++    HotplugEvents {
++        events: EventFlags,
++        pending: Vec<u8>,
++        notified: bool,
++    },
+     Display {
+         events: EventFlags,
+         pending: Vec<VtEvent>,
+@@ -72,6 +133,9 @@ struct InputScheme {
+     rshift: bool,
+ 
+     has_new_events: bool,
++
++    devices: BTreeMap<String, u32>,
++    next_device_id: AtomicUsize,
+ }
+ 
+ impl InputScheme {
+@@ -90,9 +154,28 @@ impl InputScheme {
+             lshift: false,
+             rshift: false,
+             has_new_events: false,
++
++            devices: BTreeMap::new(),
++            next_device_id: AtomicUsize::new(1),
+         }
+     }
+ 
++    fn emit_hotplug(&mut self, kind: u32, device_id: u32, name: &str) {
++        let record = serialize_hotplug(kind, device_id, name);
++        for handle in self.handles.values_mut() {
++            if let Handle::HotplugEvents {
++                pending,
++                notified,
++                ..
++            } = handle
++            {
++                pending.extend_from_slice(&record);
++                *notified = false;
++            }
++        }
++        self.has_new_events = true;
++    }
++
+     fn switch_vt(&mut self, new_active: usize) {
+         if let Some(active_vt) = self.active_vt {
+             if new_active == active_vt {
+@@ -146,6 +229,43 @@ impl InputScheme {
+ 
+         self.active_keymap = KeymapData::new(new_active.into());
+     }
++
++    fn deliver_to_legacy_consumers(&mut self, buf: &[u8]) {
++        if let Some(active_vt) = self.active_vt {
++            for handle in self.handles.values_mut() {
++                if let Handle::Consumer {
++                    pending,
++                    notified,
++                    vt,
++                    ..
++                } = handle
++                {
++                    if *vt != active_vt {
++                        continue;
++                    }
++                    pending.extend_from_slice(buf);
++                    *notified = false;
++                }
++            }
++        }
++    }
++
++    fn deliver_to_device_consumers(&mut self, name: &str, buf: &[u8]) {
++        for handle in self.handles.values_mut() {
++            if let Handle::DeviceConsumer {
++                device_name,
++                pending,
++                notified,
++                ..
++            } = handle
++            {
++                if device_name == name {
++                    pending.extend_from_slice(buf);
++                    *notified = false;
++                }
++            }
++        }
++    }
+ }
+ 
+ impl SchemeSync for InputScheme {
+@@ -170,7 +290,23 @@ impl SchemeSync for InputScheme {
+         let command = path_parts.next().ok_or(SysError::new(EINVAL))?;
+ 
+         let handle_ty = match command {
+-            "producer" => Handle::Producer,
++            "producer" => {
++                if let Some(name) = path_parts.next() {
++                    validate_producer_name(name)?;
++                    if self.devices.contains_key(name) {
++                        return Err(SysError::new(EEXIST));
++                    }
++                    let device_id = self.next_device_id.fetch_add(1, Ordering::SeqCst) as u32;
++                    self.devices.insert(name.to_owned(), device_id);
++                    let handle = Handle::NamedProducer {
++                        name: name.to_owned(),
++                    };
++                    self.emit_hotplug(DEVICE_ADD, device_id, name);
++                    handle
++                } else {
++                    Handle::Producer
++                }
++            }
+             "consumer" => {
+                 let vt = self.next_vt_id.fetch_add(1, Ordering::Relaxed);
+                 self.vts.insert(vt);
+@@ -253,9 +389,23 @@ impl SchemeSync for InputScheme {
+             }
+             "control" => Handle::Control,
+ 
+-            _ => {
+-                log::error!("invalid path '{path}'");
+-                return Err(SysError::new(EINVAL));
++            "events" => Handle::HotplugEvents {
++                events: EventFlags::empty(),
++                pending: Vec::new(),
++                notified: false,
++            },
++
++            // dynamic device consumer: must be a currently registered device
++            name => {
++                if !self.devices.contains_key(name) {
++                    return Err(SysError::new(ENOENT));
++                }
++                Handle::DeviceConsumer {
++                    device_name: name.to_owned(),
++                    events: EventFlags::empty(),
++                    pending: Vec::new(),
++                    notified: false,
++                }
+             }
+         };
+ 
+@@ -274,7 +424,7 @@ impl SchemeSync for InputScheme {
              let handle = self.handles.get(id)?;
  
              if let Handle::Consumer { vt, .. } = handle {
@@ -8766,18 +9372,205 @@ index 07aa943e..61641b9f 100644
                  Ok(())
              } else {
                  Err(SysError::new(EINVAL))
-@@ -438,7 +438,9 @@ impl SchemeSync for InputScheme {
+@@ -282,6 +432,50 @@ impl SchemeSync for InputScheme {
+         })
+     }
+ 
++    fn getdents<'buf>(
++        &mut self,
++        id: usize,
++        mut buf: DirentBuf<&'buf mut [u8]>,
++        opaque_offset: u64,
++    ) -> syscall::Result<DirentBuf<&'buf mut [u8]>> {
++        let handle = self.handles.get(id)?;
++        if !matches!(handle, Handle::SchemeRoot) {
++            return Err(SysError::new(ENOTDIR));
++        }
++
++        let static_entries: &[&str] = &[
++            "producer",
++            "consumer",
++            "consumer_bootlog",
++            "events",
++            "handle",
++            "handle_early",
++            "control",
++        ];
++
++        let device_names: Vec<&str> = self.devices.keys().map(|s| s.as_str()).collect();
++
++        let all_entries: Vec<(&str, DirentKind)> = static_entries
++            .iter()
++            .map(|&name| (name, DirentKind::Directory))
++            .chain(device_names.iter().map(|&name| (name, DirentKind::Unspecified)))
++            .collect();
++
++        for (idx, (name, kind)) in all_entries
++            .iter()
++            .enumerate()
++            .skip(opaque_offset as usize)
++        {
++            buf.entry(DirEntry {
++                inode: 0,
++                next_opaque_id: idx as u64 + 1,
++                name,
++                kind: *kind,
++            })?;
++        }
++        Ok(buf)
++    }
++
+     fn read(
+         &mut self,
+         id: usize,
+@@ -313,6 +507,22 @@ impl SchemeSync for InputScheme {
+                 Ok(copy)
+             }
+ 
++            Handle::DeviceConsumer { pending, .. } => {
++                let copy = core::cmp::min(pending.len(), buf.len());
++                for (i, byte) in pending.drain(..copy).enumerate() {
++                    buf[i] = byte;
++                }
++                Ok(copy)
++            }
++
++            Handle::HotplugEvents { pending, .. } => {
++                let copy = core::cmp::min(pending.len(), buf.len());
++                for (i, byte) in pending.drain(..copy).enumerate() {
++                    buf[i] = byte;
++                }
++                Ok(copy)
++            }
++
+             Handle::Display { pending, .. } => {
+                 if buf.len() % size_of::<VtEvent>() == 0 {
+                     let copy = core::cmp::min(pending.len(), buf.len() / size_of::<VtEvent>());
+@@ -334,6 +544,10 @@ impl SchemeSync for InputScheme {
+                 log::error!("producer tried to read");
+                 return Err(SysError::new(EINVAL));
+             }
++            Handle::NamedProducer { .. } => {
++                log::error!("named producer tried to read");
++                return Err(SysError::new(EINVAL));
++            }
+             Handle::Control => {
+                 log::error!("control tried to read");
+                 return Err(SysError::new(EINVAL));
+@@ -379,11 +593,20 @@ impl SchemeSync for InputScheme {
+                 log::error!("consumer tried to write");
+                 return Err(SysError::new(EINVAL));
+             }
++            Handle::DeviceConsumer { .. } => {
++                log::error!("device consumer tried to write");
++                return Err(SysError::new(EINVAL));
++            }
++            Handle::HotplugEvents { .. } => {
++                log::error!("hotplug events tried to write");
++                return Err(SysError::new(EINVAL));
++            }
+             Handle::Display { .. } => {
+                 log::error!("display tried to write");
+                 return Err(SysError::new(EINVAL));
+             }
+             Handle::Producer => {}
++            Handle::NamedProducer { .. } => {}
+             Handle::SchemeRoot => return Err(SysError::new(EBADF)),
          }
  
-         let handle = self.handles.get_mut(id)?;
--        assert!(matches!(handle, Handle::Producer));
-+        if !matches!(handle, Handle::Producer) {
-+            return Err(SysError::new(EBADF));
-+        }
+@@ -397,6 +620,11 @@ impl SchemeSync for InputScheme {
+                 buf.len() / size_of::<Event>(),
+             )
+         });
++        let producer_name = match self.handles.get(id)? {
++            Handle::NamedProducer { ref name } => Some(name.clone()),
++            Handle::Producer => None,
++            _ => return Err(SysError::new(EBADF)),
++        };
  
-         let buf = unsafe {
+         for i in 0..events.len() {
+             let mut new_active_opt = None;
+@@ -437,38 +665,21 @@ impl SchemeSync for InputScheme {
+             }
+         }
+ 
+-        let handle = self.handles.get_mut(id)?;
+-        assert!(matches!(handle, Handle::Producer));
+-
+-        let buf = unsafe {
++        let serialized = unsafe {
              core::slice::from_raw_parts(
-@@ -505,8 +507,8 @@ impl SchemeSync for InputScheme {
+                 (events.as_ptr()) as *const u8,
+                 events.len() * size_of::<Event>(),
+             )
+         };
+ 
+-        if let Some(active_vt) = self.active_vt {
+-            for handle in self.handles.values_mut() {
+-                match handle {
+-                    Handle::Consumer {
+-                        pending,
+-                        notified,
+-                        vt,
+-                        ..
+-                    } => {
+-                        if *vt != active_vt {
+-                            continue;
+-                        }
+-
+-                        pending.extend_from_slice(buf);
+-                        *notified = false;
+-                    }
+-                    _ => continue,
+-                }
+-            }
++        if let Some(ref name) = producer_name {
++            self.deliver_to_device_consumers(name, serialized);
+         }
+ 
+-        Ok(buf.len())
++        // named producers also feed the legacy path; legacy producers only feed legacy
++        self.deliver_to_legacy_consumers(serialized);
++
++        Ok(serialized.len())
+     }
+ 
+     fn fevent(
+@@ -487,6 +698,24 @@ impl SchemeSync for InputScheme {
+                 *notified = false;
+                 Ok(EventFlags::empty())
+             }
++            Handle::DeviceConsumer {
++                ref mut events,
++                ref mut notified,
++                ..
++            } => {
++                *events = flags;
++                *notified = false;
++                Ok(EventFlags::empty())
++            }
++            Handle::HotplugEvents {
++                ref mut events,
++                ref mut notified,
++                ..
++            } => {
++                *events = flags;
++                *notified = false;
++                Ok(EventFlags::empty())
++            }
+             Handle::Display {
+                 ref mut events,
+                 ref mut notified,
+@@ -496,7 +725,7 @@ impl SchemeSync for InputScheme {
+                 *notified = false;
+                 Ok(EventFlags::empty())
+             }
+-            Handle::Producer | Handle::Control => {
++            Handle::Producer | Handle::NamedProducer { .. } | Handle::Control => {
+                 log::error!("producer or control tried to use an event queue");
+                 Err(SysError::new(EINVAL))
+             }
+@@ -505,8 +734,8 @@ impl SchemeSync for InputScheme {
      }
  
      fn on_close(&mut self, id: usize) {
@@ -8788,11 +9581,16 @@ index 07aa943e..61641b9f 100644
                  self.vts.remove(&vt);
                  if self.active_vt == Some(vt) {
                      if let Some(&new_vt) = self.vts.last() {
-@@ -516,7 +518,10 @@ impl SchemeSync for InputScheme {
+@@ -516,7 +745,15 @@ impl SchemeSync for InputScheme {
                      }
                  }
              }
 -            _ => {}
++            Some(Handle::NamedProducer { name, .. }) => {
++                if let Some(device_id) = self.devices.remove(&name) {
++                    self.emit_hotplug(DEVICE_REMOVE, device_id, &name);
++                }
++            }
 +            Some(_) => {}
 +            None => {
 +                log::warn!("inputd: on_close called with unknown handle id {id}");
@@ -8800,7 +9598,47 @@ index 07aa943e..61641b9f 100644
          }
      }
  }
-@@ -589,8 +594,11 @@ fn deamon(daemon: daemon::SchemeDaemon) -> anyhow::Result<()> {
+@@ -564,6 +801,39 @@ fn deamon(daemon: daemon::SchemeDaemon) -> anyhow::Result<()> {
+ 
+                     *notified = true;
+                 }
++                Handle::DeviceConsumer {
++                    events,
++                    pending,
++                    ref mut notified,
++                    ..
++                } => {
++                    if pending.is_empty() || *notified || !events.contains(EventFlags::EVENT_READ) {
++                        continue;
++                    }
++
++                    socket_file.write_response(
++                        Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
++                        SignalBehavior::Restart,
++                    )?;
++
++                    *notified = true;
++                }
++                Handle::HotplugEvents {
++                    events,
++                    pending,
++                    ref mut notified,
++                } => {
++                    if pending.is_empty() || *notified || !events.contains(EventFlags::EVENT_READ) {
++                        continue;
++                    }
++
++                    socket_file.write_response(
++                        Response::post_fevent(*id, EventFlags::EVENT_READ.bits()),
++                        SignalBehavior::Restart,
++                    )?;
++
++                    *notified = true;
++                }
+                 Handle::Display {
+                     events,
+                     pending,
+@@ -589,8 +859,11 @@ fn deamon(daemon: daemon::SchemeDaemon) -> anyhow::Result<()> {
  }
  
  fn daemon_runner(daemon: daemon::SchemeDaemon) -> ! {
@@ -8814,7 +9652,7 @@ index 07aa943e..61641b9f 100644
  }
  
  const HELP: &str = r#"
-@@ -608,13 +616,26 @@ fn main() {
+@@ -608,13 +881,26 @@ fn main() {
          match val.as_ref() {
              // Activates a VT.
              "-A" => {
@@ -8847,7 +9685,7 @@ index 07aa943e..61641b9f 100644
              }
              // Activates a keymap.
              "-K" => {
-@@ -630,11 +651,17 @@ fn main() {
+@@ -630,11 +916,17 @@ fn main() {
                      std::process::exit(1);
                  });
  
@@ -8870,7 +9708,7 @@ index 07aa943e..61641b9f 100644
              }
              // List available keymaps
              "--keymaps" => {
-@@ -647,7 +674,10 @@ fn main() {
+@@ -647,7 +939,10 @@ fn main() {
                  println!("{}", HELP);
              }
  
@@ -13384,7 +14222,7 @@ index ac492d5b..310fe51f 100644
  
          let ring_ref = match endpoint_state.transfer {
 diff --git a/drivers/usb/xhcid/src/xhci/mod.rs b/drivers/usb/xhcid/src/xhci/mod.rs
-index f2143676..9ce15161 100644
+index f2143676..0d2ec432 100644
 --- a/drivers/usb/xhcid/src/xhci/mod.rs
 +++ b/drivers/usb/xhcid/src/xhci/mod.rs
 @@ -11,12 +11,13 @@
@@ -13484,7 +14322,11 @@ index f2143676..9ce15161 100644
      drivers: CHashMap<PortId, Vec<process::Child>>,
      scheme_name: String,
  
-@@ -311,6 +368,93 @@ struct PortState<const N: usize> {
+@@ -308,9 +365,97 @@ struct PortState<const N: usize> {
+     slot: u8,
+     protocol_speed: &'static ProtocolSpeed,
+     cfg_idx: Option<u8>,
++    active_ifaces: BTreeMap<u8, u8>, // iface number → active alternate setting
      input_context: Mutex<Dma<InputContext<N>>>,
      dev_desc: Option<DevDesc>,
      endpoint_states: BTreeMap<u8, EndpointState>,
@@ -13578,7 +14420,7 @@ index f2143676..9ce15161 100644
  }
  
  impl<const N: usize> PortState<N> {
-@@ -463,6 +607,7 @@ impl<const N: usize> Xhci<N> {
+@@ -463,6 +608,7 @@ impl<const N: usize> Xhci<N> {
              handles: CHashMap::new(),
              next_handle: AtomicUsize::new(0),
              port_states: CHashMap::new(),
@@ -13586,7 +14428,7 @@ index f2143676..9ce15161 100644
              drivers: CHashMap::new(),
              scheme_name,
  
-@@ -793,11 +938,14 @@ impl<const N: usize> Xhci<N> {
+@@ -793,11 +939,14 @@ impl<const N: usize> Xhci<N> {
      }
  
      pub async fn attach_device(&self, port_id: PortId) -> syscall::Result<()> {
@@ -13602,7 +14444,7 @@ index f2143676..9ce15161 100644
          let (data, state, speed, flags) = {
              let port = &self.ports.lock().unwrap()[port_id.root_hub_port_index()];
              (port.read(), port.state(), port.speed(), port.flags())
-@@ -808,74 +956,101 @@ impl<const N: usize> Xhci<N> {
+@@ -808,74 +957,102 @@ impl<const N: usize> Xhci<N> {
              port_id, data, state, speed, flags
          );
  
@@ -13729,6 +14571,7 @@ index f2143676..9ce15161 100644
 +            input_context: Mutex::new(input),
 +            dev_desc: None,
 +            cfg_idx: None,
++            active_ifaces: BTreeMap::new(),
 +            endpoint_states: std::iter::once((
 +                0,
 +                EndpointState {
@@ -13760,7 +14603,7 @@ index f2143676..9ce15161 100644
  
                  self.update_max_packet_size(&mut *input, slot, dev_desc_8_byte)
                      .await?;
-@@ -885,97 +1060,175 @@ impl<const N: usize> Xhci<N> {
+@@ -885,97 +1062,175 @@ impl<const N: usize> Xhci<N> {
  
              let dev_desc = self.get_desc(port_id, slot).await?;
              debug!("Got the full device descriptor!");
@@ -13796,7 +14639,11 @@ index f2143676..9ce15161 100644
 +            Ok(())
 +        }
 +        .await;
-+
+ 
+-            match self.spawn_drivers(port_id) {
+-                Ok(()) => (),
+-                Err(err) => {
+-                    error!("Failed to spawn driver for port {}: `{}`", port_id, err)
 +        match attach_result {
 +            Ok(()) => {
 +                if let Some(delay_ms) =
@@ -13807,19 +14654,15 @@ index f2143676..9ce15161 100644
 +                        port_id, delay_ms
 +                    );
 +                    thread::sleep(Duration::from_millis(delay_ms));
-+                }
- 
--            match self.spawn_drivers(port_id) {
--                Ok(()) => (),
--                Err(err) => {
--                    error!("Failed to spawn driver for port {}: `{}`", port_id, err)
+                 }
++
 +                if lifecycle.finish_attach_success() != PortLifecycleState::Attached {
 +                    warn!(
 +                        "attach for port {} completed after detach already started; skipping publication",
 +                        port_id
 +                    );
 +                    return Err(Error::new(EBUSY));
-                 }
++                }
 +
 +                let staged_port_state = self
 +                    .staged_port_states
@@ -13999,6 +14842,26 @@ index f2143676..9ce15161 100644
          }
      }
  
+@@ -1246,14 +1501,12 @@ impl<const N: usize> Xhci<N> {
+         let drivers_usercfg: &DriversConfig = &DRIVERS_CONFIG;
+ 
+         for ifdesc in config_desc.interface_descs.iter() {
+-            //TODO: support alternate settings
+-            // This is difficult because the device driver must know which alternate
+-            // to use, but if alternates can have different classes, then a different
+-            // device driver may be required for each alternate. For now, we will use
+-            // only the default alternate setting (0)
++            // Only auto-spawn drivers for the default alternate setting (0).
++            // Non-default alternates are selected later by the device driver
++            // via SET_INTERFACE + configure_endpoints with specific alternate_setting.
+             if ifdesc.alternate_setting != 0 {
+-                warn!(
+-                    "ignoring port {} iface {} alternate {} class {}.{} proto {}",
++                debug!(
++                    "skipping port {} iface {} alternate {} class {}.{} proto {} (non-default alternate)",
+                     port,
+                     ifdesc.number,
+                     ifdesc.alternate_setting,
 @@ -1458,6 +1711,53 @@ pub fn start_device_enumerator<const N: usize>(hci: &Arc<Xhci<N>>) {
      }));
  }
@@ -14054,7 +14917,7 @@ index f2143676..9ce15161 100644
  struct DriverConfig {
      name: String,
 diff --git a/drivers/usb/xhcid/src/xhci/scheme.rs b/drivers/usb/xhcid/src/xhci/scheme.rs
-index ca27b3fe..468a98ae 100644
+index ca27b3fe..29437294 100644
 --- a/drivers/usb/xhcid/src/xhci/scheme.rs
 +++ b/drivers/usb/xhcid/src/xhci/scheme.rs
 @@ -20,6 +20,7 @@ use std::convert::TryFrom;
@@ -14266,7 +15129,19 @@ index ca27b3fe..468a98ae 100644
          let endp_idx = endp_num.checked_sub(1).ok_or(Error::new(EIO))?;
          let mut port_state = self.port_state_mut(port_num)?;
  
-@@ -950,35 +1030,102 @@ impl<const N: usize> Xhci<N> {
+@@ -835,7 +915,10 @@ impl<const N: usize> Xhci<N> {
+             port,
+             usb::Setup::set_interface(interface_num, alternate_setting),
+         )
+-        .await
++        .await?;
++        let mut port_state = self.port_states.get_mut(&port).ok_or(Error::new(EBADFD))?;
++        port_state.active_ifaces.insert(interface_num, alternate_setting);
++        Ok(())
+     }
+ 
+     async fn reset_endpoint(&self, port_num: PortId, endp_num: u8, tsp: bool) -> Result<()> {
+@@ -950,35 +1033,114 @@ impl<const N: usize> Xhci<N> {
          self.port_states.get_mut(&port).ok_or(Error::new(EBADF))
      }
  
@@ -14372,11 +15247,23 @@ index ca27b3fe..468a98ae 100644
 -                        new_context_entries = entry;
 -                    }
 +            let configuration_value = config_desc.configuration_value;
-+            let endpoint_descs = config_desc
-+                .interface_descs
-+                .iter()
-+                .flat_map(|if_desc| if_desc.endpoints.iter().copied())
-+                .collect::<Vec<_>>();
++
++            let endpoint_descs = if let Some(iface_num) = req.interface_desc {
++                let alt = req.alternate_setting.unwrap_or(0);
++                config_desc
++                    .interface_descs
++                    .iter()
++                    .filter(|if_desc| if_desc.number == iface_num && if_desc.alternate_setting == alt)
++                    .flat_map(|if_desc| if_desc.endpoints.iter().copied())
++                    .collect::<Vec<_>>()
++            } else {
++                config_desc
++                    .interface_descs
++                    .iter()
++                    .filter(|if_desc| if_desc.alternate_setting == 0)
++                    .flat_map(|if_desc| if_desc.endpoints.iter().copied())
++                    .collect::<Vec<_>>()
++            };
 +
 +            let endp_desc_count = endpoint_descs.len();
 +            let mut new_context_entries = 1u8;
@@ -14387,7 +15274,7 @@ index ca27b3fe..468a98ae 100644
                  }
              }
              new_context_entries += 1;
-@@ -989,74 +1136,22 @@ impl<const N: usize> Xhci<N> {
+@@ -989,74 +1151,22 @@ impl<const N: usize> Xhci<N> {
              }
  
              (
@@ -14451,7 +15338,9 @@ index ca27b3fe..468a98ae 100644
 -            };
 -            input_context.control.write(control);
 -        }
--
++        let mut staged_endpoint_states = BTreeMap::new();
++        let mut endpoint_programs = Vec::new();
+ 
 -        for endp_idx in 0..endp_desc_count as u8 {
 -            let endp_num = endp_idx + 1;
 -
@@ -14461,9 +15350,7 @@ index ca27b3fe..468a98ae 100644
 -                warn!("failed to find endpoint {}", endp_idx);
 -                Error::new(EIO)
 -            })?;
-+        let mut staged_endpoint_states = BTreeMap::new();
-+        let mut endpoint_programs = Vec::new();
- 
+-
 -            let endp_num_xhc = Self::endp_num_to_dci(endp_num, endp_desc);
 +        for (endp_idx, endp_desc) in endpoint_descs.iter().copied().enumerate() {
 +            let endp_num = endp_idx as u8 + 1;
@@ -14471,7 +15358,7 @@ index ca27b3fe..468a98ae 100644
  
              let usb_log_max_streams = endp_desc.log_max_streams();
  
-@@ -1078,20 +1173,20 @@ impl<const N: usize> Xhci<N> {
+@@ -1078,20 +1188,20 @@ impl<const N: usize> Xhci<N> {
  
              let mult = endp_desc.isoch_mult(lec);
  
@@ -14497,7 +15384,7 @@ index ca27b3fe..468a98ae 100644
  
              let max_error_count = 3;
              let ep_ty = endp_desc.xhci_ep_type()?;
-@@ -1114,7 +1209,7 @@ impl<const N: usize> Xhci<N> {
+@@ -1114,7 +1224,7 @@ impl<const N: usize> Xhci<N> {
              assert_eq!(max_error_count & 0x3, max_error_count);
              assert_ne!(ep_ty, 0); // 0 means invalid.
  
@@ -14506,7 +15393,7 @@ index ca27b3fe..468a98ae 100644
                  let mut array =
                      StreamContextArray::new::<N>(self.cap.ac64(), 1 << (primary_streams + 1))?;
  
-@@ -1127,15 +1222,13 @@ impl<const N: usize> Xhci<N> {
+@@ -1127,15 +1237,13 @@ impl<const N: usize> Xhci<N> {
                      array_ptr,
                      "stream ctx ptr not aligned to 16 bytes"
                  );
@@ -14525,7 +15412,7 @@ index ca27b3fe..468a98ae 100644
              } else {
                  let ring = Ring::new::<N>(self.cap.ac64(), 16, true)?;
                  let ring_ptr = ring.register();
-@@ -1145,68 +1238,185 @@ impl<const N: usize> Xhci<N> {
+@@ -1145,68 +1253,205 @@ impl<const N: usize> Xhci<N> {
                      ring_ptr,
                      "ring pointer not aligned to 16 bytes"
                  );
@@ -14621,13 +15508,12 @@ index ca27b3fe..468a98ae 100644
                  })
 -                .await;
 +                .collect::<Vec<_>>();
- 
--            //self.event_handler_finished();
++
 +            // Configure the slot context as well, which holds the last index of the endp descs.
 +            input_context.add_context.write(1);
 +            input_context.drop_context.write(0);
  
--            handle_event_trb("CONFIGURE_ENDPOINT", &event_trb, &command_trb)?;
+-            //self.event_handler_finished();
 +            const CONTEXT_ENTRIES_MASK: u32 = 0xF800_0000;
 +            const CONTEXT_ENTRIES_SHIFT: u8 = 27;
 +
@@ -14689,10 +15575,8 @@ index ca27b3fe..468a98ae 100644
 +            )
 +            .await;
 +            return Err(err);
-         }
- 
--        // Tell the device about this configuration.
--        self.set_configuration(port, configuration_value).await?;
++        }
++
 +        if self.consume_test_hook("fail_after_configure_endpoint") {
 +            info!(
 +                "xhcid: test hook injecting failure after CONFIGURE_ENDPOINT for port {}",
@@ -14720,7 +15604,8 @@ index ca27b3fe..468a98ae 100644
 +            .await;
 +            return Err(err);
 +        }
-+
+ 
+-            handle_event_trb("CONFIGURE_ENDPOINT", &event_trb, &command_trb)?;
 +        if self.consume_test_hook("fail_after_set_configuration") {
 +            info!(
 +                "xhcid: test hook injecting failure after SET_CONFIGURATION for port {}",
@@ -14735,8 +15620,10 @@ index ca27b3fe..468a98ae 100644
 +            )
 +            .await;
 +            return Err(Error::new(EIO));
-+        }
-+
+         }
+ 
+-        // Tell the device about this configuration.
+-        self.set_configuration(port, configuration_value).await?;
 +        {
 +            let mut port_state = self.port_states.get_mut(&port).ok_or(Error::new(EBADFD))?;
 +            port_state.cfg_idx = Some(configuration_value);
@@ -14744,11 +15631,31 @@ index ca27b3fe..468a98ae 100644
 +            for (endp_num, endpoint_state) in staged_endpoint_states {
 +                port_state.endpoint_states.insert(endp_num, endpoint_state);
 +            }
++            if let Some(iface_num) = req.interface_desc {
++                let alt = req.alternate_setting.unwrap_or(0);
++                port_state.active_ifaces.insert(iface_num, alt);
++            } else if port_state.active_ifaces.is_empty() {
++                let default_iface_entries: Vec<(u8, u8)> = port_state
++                    .dev_desc
++                    .as_ref()
++                    .and_then(|dd| dd.config_descs.iter().find(|cd| cd.configuration_value == configuration_value))
++                    .map(|cd| {
++                        cd.interface_descs
++                            .iter()
++                            .filter(|if_desc| if_desc.alternate_setting == 0)
++                            .map(|if_desc| (if_desc.number, 0u8))
++                            .collect()
++                    })
++                    .unwrap_or_default();
++                for (iface_num, alt) in default_iface_entries {
++                    port_state.active_ifaces.insert(iface_num, alt);
++                }
++            }
 +        }
  
          Ok(())
      }
-@@ -1857,7 +2067,7 @@ impl<const N: usize> Xhci<N> {
+@@ -1857,7 +2102,7 @@ impl<const N: usize> Xhci<N> {
          if (flags & O_DIRECTORY != 0) || (flags & O_STAT != 0) {
              let mut contents = Vec::new();
  
@@ -14757,7 +15664,7 @@ index ca27b3fe..468a98ae 100644
  
              if self.slot_state(
                  self.port_states
-@@ -1894,6 +2104,14 @@ impl<const N: usize> Xhci<N> {
+@@ -1894,6 +2139,14 @@ impl<const N: usize> Xhci<N> {
          Ok(Handle::PortState(port_num))
      }
  
@@ -14772,7 +15679,7 @@ index ca27b3fe..468a98ae 100644
      /// implements open() for /port<n>/endpoints
      ///
      /// # Arguments
-@@ -2088,6 +2306,30 @@ impl<const N: usize> Xhci<N> {
+@@ -2088,6 +2341,30 @@ impl<const N: usize> Xhci<N> {
          Ok(Handle::DetachDevice(port_num))
      }
  
@@ -14803,7 +15710,7 @@ index ca27b3fe..468a98ae 100644
      /// implements open() for /port<n>/request
      ///
      /// # Arguments
-@@ -2156,6 +2398,9 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2156,6 +2433,9 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
              SchemeParameters::PortState(port_number) => {
                  self.open_handle_port_state(port_number, flags)?
              }
@@ -14813,7 +15720,7 @@ index ca27b3fe..468a98ae 100644
              SchemeParameters::PortReq(port_number) => {
                  self.open_handle_port_request(port_number, flags)?
              }
-@@ -2174,6 +2419,12 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2174,6 +2454,12 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
              SchemeParameters::DetachDevice(port_number) => {
                  self.open_handle_detach_device(port_number, flags)?
              }
@@ -14826,7 +15733,7 @@ index ca27b3fe..468a98ae 100644
          };
  
          let fd = self.next_handle.fetch_add(1, atomic::Ordering::Relaxed);
-@@ -2204,7 +2455,11 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2204,7 +2490,11 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
  
          //If we have a handle to the configure scheme, we need to mark it as write only.
          match &*guard {
@@ -14839,7 +15746,7 @@ index ca27b3fe..468a98ae 100644
                  stat.st_mode = stat.st_mode | 0o200;
              }
              _ => {}
-@@ -2254,6 +2509,8 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2254,6 +2544,8 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
              Handle::ConfigureEndpoints(_) => Err(Error::new(EBADF)),
              Handle::AttachDevice(_) => Err(Error::new(EBADF)),
              Handle::DetachDevice(_) => Err(Error::new(EBADF)),
@@ -14848,7 +15755,7 @@ index ca27b3fe..468a98ae 100644
              Handle::SchemeRoot => Err(Error::new(EBADF)),
  
              &mut Handle::Endpoint(port_num, endp_num, ref mut st) => match st {
-@@ -2285,6 +2542,10 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2285,6 +2577,10 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
  
                  Ok(Xhci::<N>::write_dyn_string(string, buf, offset))
              }
@@ -14859,7 +15766,7 @@ index ca27b3fe..468a98ae 100644
              &mut Handle::PortReq(port_num, ref mut st) => {
                  let state = std::mem::replace(st, PortReqState::Tmp);
                  drop(guard); // release the lock
-@@ -2324,6 +2585,14 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2324,6 +2620,14 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
                  block_on(self.detach_device(port_num))?;
                  Ok(buf.len())
              }
@@ -14874,7 +15781,7 @@ index ca27b3fe..468a98ae 100644
              &mut Handle::Endpoint(port_num, endp_num, ref ep_file_ty) => match ep_file_ty {
                  EndpointHandleTy::Ctl => block_on(self.on_write_endp_ctl(port_num, endp_num, buf)),
                  EndpointHandleTy::Data => {
-@@ -2348,6 +2617,54 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
+@@ -2348,6 +2652,54 @@ impl<const N: usize> SchemeSync for &Xhci<N> {
  }
  
  impl<const N: usize> Xhci<N> {
@@ -14929,7 +15836,7 @@ index ca27b3fe..468a98ae 100644
      pub fn get_endp_status(&self, port_num: PortId, endp_num: u8) -> Result<EndpointStatus> {
          let port_state = self.port_states.get(&port_num).ok_or(Error::new(EBADFD))?;
  
-@@ -2398,6 +2715,8 @@ impl<const N: usize> Xhci<N> {
+@@ -2398,6 +2750,8 @@ impl<const N: usize> Xhci<N> {
          endp_num: u8,
          clear_feature: bool,
      ) -> Result<()> {
@@ -15487,7 +16394,7 @@ index 5682cf44..ed436619 100644
      }
  }
 diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
-index d42a4e57..782ca1ba 100644
+index d42a4e57..64e64e1e 100644
 --- a/init/src/scheduler.rs
 +++ b/init/src/scheduler.rs
 @@ -5,6 +5,7 @@ use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
@@ -15550,32 +16457,51 @@ index d42a4e57..782ca1ba 100644
      match &unit.kind {
          UnitKind::LegacyScript { script } => {
              for cmd in script.clone() {
-@@ -93,7 +104,7 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+@@ -92,25 +103,30 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+         }
          UnitKind::Service { service } => {
              if config.skip_cmd.contains(&service.cmd) {
-                 eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
+-                eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
 -                return;
++                eprintln!("init: skipping {} {}", service.cmd, service.args.join(" "));
 +                return None;
              }
-             if config.log_debug {
+-            if config.log_debug {
++            eprintln!(
++                "init: starting {} ({})",
++                unit.info.description.as_ref().unwrap_or(&unit.id.0),
++                service.cmd,
++            );
++            let pid = service.spawn(&config.envs);
++            if pid.is_some() {
                  eprintln!(
-@@ -102,7 +113,7 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
-                     service.cmd,
+-                    "Starting {} ({})",
++                    "init: started {} (pid {})",
+                     unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                    service.cmd,
++                    pid.unwrap_or(0),
                  );
              }
 -            service.spawn(&config.envs);
-+            return service.spawn(&config.envs);
++            return pid;
          }
          UnitKind::Target {} => {
-             if config.log_debug {
-@@ -113,4 +124,5 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
-             }
+-            if config.log_debug {
+-                eprintln!(
+-                    "Reached target {}",
+-                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                );
+-            }
++            eprintln!(
++                "init: reached target {}",
++                unit.info.description.as_ref().unwrap_or(&unit.id.0),
++            );
          }
      }
 +    None
  }
 diff --git a/init/src/service.rs b/init/src/service.rs
-index ed0023e9..e06e1b16 100644
+index ed0023e9..cc95d02b 100644
 --- a/init/src/service.rs
 +++ b/init/src/service.rs
 @@ -22,6 +22,8 @@ pub struct Service {
@@ -15596,7 +16522,7 @@ index ed0023e9..e06e1b16 100644
          let mut command = Command::new(&self.cmd);
          command.args(self.args.iter().map(|arg| subst_env(arg)));
          command.env_clear();
-@@ -46,14 +48,20 @@ impl Service {
+@@ -46,20 +48,28 @@ impl Service {
          }
          command.envs(base_envs).envs(&self.envs);
  
@@ -15619,7 +16545,16 @@ index ed0023e9..e06e1b16 100644
              }
          };
  
-@@ -81,23 +89,32 @@ impl Service {
+         match &self.type_ {
+             ServiceType::Notify => match read_pipe.read_exact(&mut [0]) {
+-                Ok(()) => {}
++                Ok(()) => {
++                    eprintln!("init: {} ready (notify)", self.cmd);
++                }
+                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+                     eprintln!("init: {command:?} exited without notifying readiness");
+                 }
+@@ -81,23 +91,34 @@ impl Service {
                          }) => continue,
                          Ok(0) => {
                              eprintln!("init: {command:?} exited without notifying readiness");
@@ -15654,11 +16589,22 @@ index ed0023e9..e06e1b16 100644
 +                    libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
 +                {
 +                    eprintln!("init: failed to register scheme {scheme:?} for {command:?}: {err}");
++                } else {
++                    eprintln!("init: {} ready (scheme {})", self.cmd, scheme);
 +                }
              }
              ServiceType::Oneshot => {
                  drop(read_pipe);
-@@ -112,8 +129,13 @@ impl Service {
+@@ -105,6 +126,8 @@ impl Service {
+                     Ok(exit_status) => {
+                         if !exit_status.success() {
+                             eprintln!("init: {command:?} failed with {exit_status}");
++                        } else {
++                            eprintln!("init: {} done (oneshot)", self.cmd);
+                         }
+                     }
+                     Err(err) => {
+@@ -112,8 +135,13 @@ impl Service {
                      }
                  }
              }
