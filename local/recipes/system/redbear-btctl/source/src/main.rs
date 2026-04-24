@@ -1,5 +1,6 @@
 mod backend;
 mod bond_store;
+mod hci_backend;
 mod scheme;
 
 use std::env;
@@ -71,7 +72,12 @@ fn notify_scheme_ready(notify_fd: Option<RawFd>, socket: &Socket, scheme: &mut B
 }
 
 fn build_backend() -> Box<dyn Backend> {
-    Box::new(StubBackend::from_env())
+    let backend_type = env::var("REDBEAR_BTCTL_BACKEND")
+        .unwrap_or_else(|_| "stub".to_string());
+    match backend_type.as_str() {
+        "hci" => Box::new(hci_backend::HciBackend::from_env()),
+        _ => Box::new(StubBackend::from_env()),
+    }
 }
 
 fn default_adapter(backend: &dyn Backend) -> String {

@@ -1,4 +1,5 @@
 mod hci;
+mod scheme;
 mod usb_transport;
 
 use std::fs;
@@ -761,6 +762,10 @@ fn daemon_main(_config: &TransportConfig) -> Result<(), String> {
 
 #[cfg(target_os = "redox")]
 fn daemon_main(config: &TransportConfig) -> Result<(), String> {
+    use scheme::HciScheme;
+    use redox_scheme::Socket;
+    use redox_scheme::SignalBehavior;
+
     struct StatusFileGuard<'a> {
         path: &'a Path,
     }
@@ -772,6 +777,9 @@ fn daemon_main(config: &TransportConfig) -> Result<(), String> {
     }
 
     let mut runtime_config = config.refreshed();
+    let mut controller_info = ControllerInfo::default();
+
+    let mut transport: Option<Box<dyn UsbHciTransport>> = None;
 
     for adapter in &runtime_config.adapters {
         let transport_config = UsbTransportConfig {
@@ -783,32 +791,74 @@ fn daemon_main(config: &TransportConfig) -> Result<(), String> {
             bulk_out_endpoint: adapter.endpoints.acl_out_endpoint,
         };
 
-        let mut transport = StubTransport::new(transport_config);
+        let mut t = StubTransport::new(transport_config);
 
-        match hci_init_sequence(&mut transport) {
+        match hci_init_sequence(&mut t) {
             Ok(info) => {
-                runtime_config.controller_info = info;
+                controller_info = info;
             }
             Err(err) => {
-                runtime_config.controller_info.state = ControllerState::Error;
-                runtime_config.controller_info.init_error = Some(err);
+                controller_info.state = ControllerState::Error;
+                controller_info.init_error = Some(err);
             }
         }
+        transport = Some(Box::new(t) as Box<dyn UsbHciTransport>);
         break;
     }
 
+    runtime_config.controller_info = controller_info.clone();
     runtime_config.write_status_file()?;
     let _status_file_guard = StatusFileGuard {
         path: &config.status_file,
     };
 
-    loop {
-        thread::sleep(Duration::from_secs(30));
-        let controller_info = runtime_config.controller_info.clone();
-        runtime_config = config.refreshed();
-        runtime_config.controller_info = controller_info;
-        runtime_config.write_status_file()?;
+    let Some(t) = transport else {
+        loop {
+            thread::sleep(Duration::from_secs(30));
+            let ci = runtime_config.controller_info.clone();
+            runtime_config = config.refreshed();
+            runtime_config.controller_info = ci;
+            runtime_config.write_status_file()?;
+        }
+    };
+
+    let scheme = HciScheme::new(t, controller_info);
+    let socket = Socket::create()
+        .map_err(|err| format!("failed to create scheme socket: {err}"))?;
+    let mut scheme_state = redox_scheme::scheme::SchemeState::new();
+
+    match libredox::call::setrens(0, 0) {
+        Ok(_) => log::info!("redbear-btusb: registered HCI scheme"),
+        Err(err) => {
+            return Err(format!("failed to enter null namespace: {err}"));
+        }
     }
+
+    loop {
+        let request = match socket.next_request(SignalBehavior::Restart) {
+            Ok(Some(req)) => req,
+            Ok(None) => {
+                log::info!("redbear-btusb: scheme socket closed, shutting down");
+                break;
+            }
+            Err(err) => {
+                log::error!("redbear-btusb: failed to read scheme request: {err}");
+                break;
+            }
+        };
+        match request.kind() {
+            redox_scheme::RequestKind::Call(request) => {
+                let response = request.handle_sync(&mut scheme, &mut scheme_state);
+                if let Err(err) = socket.write_response(response, SignalBehavior::Restart) {
+                    log::error!("redbear-btusb: failed to write response: {err}");
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
