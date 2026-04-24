@@ -72,13 +72,20 @@ type = "oneshot_async"
 """
 
 [[files]]
+path = "/etc/issue"
+data = """
+########## Red Bear OS #########
+# Login with the following:    #
+# `user`                       #
+# `root`:`password`            #
+################################
+"""
+
+[[files]]
 path = "/etc/motd"
 data = """
-########## Red Bear OS ##########
-# Login with the following:      #
-# `user`                         #
-# `root`:`password`              #
-##################################
+  Red Bear OS v0.1.0 "Denali" — Built on Redox OS
+  Type 'help' for available commands.
 """
 
 [[files]]
