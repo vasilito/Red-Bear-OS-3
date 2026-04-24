@@ -14,6 +14,10 @@ use syscall::schemev2::NewFdFlags;
 use syscall::Stat;
 
 use crate::hci::{
+    acl_to_att, att_to_acl, parse_read_by_group_type_rsp, parse_read_by_type_rsp, parse_read_rsp,
+    is_att_error, parse_att_error, AttPdu, GattCharacteristic, GattService,
+    ATT_ERROR_RSP, ATT_READ_BY_GROUP_TYPE_REQ, ATT_READ_BY_GROUP_TYPE_RSP, ATT_READ_BY_TYPE_RSP,
+    ATT_READ_RSP, UUID_CHARACTERISTIC,
     cmd_disconnect, cmd_le_create_connection, cmd_le_set_scan_enable, HciAcl, HciCommand, HciEvent,
 };
 use crate::usb_transport::UsbHciTransport;
@@ -35,6 +39,11 @@ enum HandleKind {
     Connect,
     Disconnect,
     Connections,
+    GattDiscoverServices,
+    GattDiscoverChars,
+    GattReadChar,
+    GattServices,
+    GattCharacteristics,
 }
 
 pub struct HciScheme {
@@ -43,6 +52,10 @@ pub struct HciScheme {
     le_scan_active: bool,
     le_scan_results: Vec<String>,
     le_connections: Vec<(u16, [u8; 6])>,
+    gatt_services: Vec<GattService>,
+    gatt_characteristics: Vec<GattCharacteristic>,
+    gatt_read_result: Option<Vec<u8>>,
+    gatt_last_error: Option<String>,
     next_id: usize,
     handles: BTreeMap<usize, HandleKind>,
 }
@@ -55,6 +68,10 @@ impl HciScheme {
             le_scan_active: false,
             le_scan_results: Vec::new(),
             le_connections: Vec::new(),
+            gatt_services: Vec::new(),
+            gatt_characteristics: Vec::new(),
+            gatt_read_result: None,
+            gatt_last_error: None,
             next_id: SCHEME_ROOT_ID + 1,
             handles: BTreeMap::new(),
         }
@@ -184,9 +201,224 @@ impl HciScheme {
         u16::from_str_radix(hex_str, 16).ok()
     }
 
+    fn parse_gatt_kv<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+        for part in text.split(';') {
+            let part = part.trim();
+            if let Some(val) = part.strip_prefix(key) {
+                let val = val.strip_prefix('=').unwrap_or(val);
+                return Some(val);
+            }
+        }
+        None
+    }
+
+    fn parse_gatt_handle(text: &str) -> Option<u16> {
+        Self::parse_gatt_kv(text, "handle").and_then(|v| {
+            let hex_str = v.strip_prefix("0x").unwrap_or(v);
+            u16::from_str_radix(hex_str, 16).ok()
+        })
+    }
+
+    fn parse_gatt_start(text: &str) -> Option<u16> {
+        Self::parse_gatt_kv(text, "start").and_then(|v| {
+            let hex_str = v.strip_prefix("0x").unwrap_or(v);
+            u16::from_str_radix(hex_str, 16).ok()
+        })
+    }
+
+    fn parse_gatt_end(text: &str) -> Option<u16> {
+        Self::parse_gatt_kv(text, "end").and_then(|v| {
+            let hex_str = v.strip_prefix("0x").unwrap_or(v);
+            u16::from_str_radix(hex_str, 16).ok()
+        })
+    }
+
+    fn parse_gatt_addr(text: &str) -> Option<u16> {
+        Self::parse_gatt_kv(text, "addr").and_then(|v| {
+            let hex_str = v.strip_prefix("0x").unwrap_or(v);
+            u16::from_str_radix(hex_str, 16).ok()
+        })
+    }
+
+    fn format_gatt_services(&self) -> String {
+        if self.gatt_services.is_empty() {
+            return "\n".to_string();
+        }
+        let lines: Vec<String> = self
+            .gatt_services
+            .iter()
+            .map(|svc| {
+                let uuid_str = if svc.uuid.len() == 2 {
+                    format!("{:04X}", u16::from_le_bytes([svc.uuid[0], svc.uuid[1]]))
+                } else {
+                    svc.uuid.iter().rev().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join("")
+                };
+                format!(
+                    "service=start_handle={:04X};end_handle={:04X};uuid={}",
+                    svc.start_handle, svc.end_handle, uuid_str
+                )
+            })
+            .collect();
+        format!("{}\n", lines.join("\n"))
+    }
+
+    fn format_gatt_characteristics(&self) -> String {
+        if self.gatt_characteristics.is_empty() {
+            return "\n".to_string();
+        }
+        let lines: Vec<String> = self
+            .gatt_characteristics
+            .iter()
+            .map(|ch| {
+                let uuid_str = if ch.uuid.len() == 2 {
+                    format!("{:04X}", u16::from_le_bytes([ch.uuid[0], ch.uuid[1]]))
+                } else {
+                    ch.uuid.iter().rev().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join("")
+                };
+                format!(
+                    "char=handle={:04X};value_handle={:04X};properties={:02X};uuid={}",
+                    ch.handle, ch.value_handle, ch.properties, uuid_str
+                )
+            })
+            .collect();
+        format!("{}\n", lines.join("\n"))
+    }
+
+    fn perform_gatt_discover_services(&mut self, conn_handle: u16) -> Result<()> {
+        let att_req = AttPdu::read_by_group_type_req(0x0001, 0xFFFF);
+        let acl = att_to_acl(conn_handle, &att_req);
+        self.transport.send_acl(&acl).map_err(|_| Error::new(EINVAL))?;
+        let acl_rsp = self.transport.recv_acl().map_err(|_| Error::new(EINVAL))?;
+        match acl_rsp {
+            Some(acl_rsp) => {
+                match acl_to_att(&acl_rsp) {
+                    Some(att_rsp) => {
+                        if is_att_error(&att_rsp) {
+                            if let Some((_req_op, handle, err_code)) = parse_att_error(&att_rsp) {
+                                self.gatt_last_error = Some(format!(
+                                    "ATT error: req_opcode=0x{:02X} handle=0x{:04X} error_code=0x{:02X}",
+                                    _req_op, handle, err_code
+                                ));
+                            }
+                            self.gatt_services.clear();
+                            return Ok(());
+                        }
+                        match parse_read_by_group_type_rsp(&att_rsp) {
+                            Ok(services) => {
+                                self.gatt_services = services;
+                                self.gatt_last_error = None;
+                            }
+                            Err(e) => {
+                                self.gatt_last_error = Some(e);
+                                self.gatt_services.clear();
+                            }
+                        }
+                    }
+                    None => {
+                        self.gatt_last_error = Some("ACL response not on ATT channel".to_string());
+                        self.gatt_services.clear();
+                    }
+                }
+            }
+            None => {
+                self.gatt_last_error = Some("no ACL response received".to_string());
+                self.gatt_services.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn perform_gatt_discover_chars(&mut self, conn_handle: u16, start: u16, end: u16) -> Result<()> {
+        let att_req = AttPdu::read_by_type_req(start, end, UUID_CHARACTERISTIC);
+        let acl = att_to_acl(conn_handle, &att_req);
+        self.transport.send_acl(&acl).map_err(|_| Error::new(EINVAL))?;
+        let acl_rsp = self.transport.recv_acl().map_err(|_| Error::new(EINVAL))?;
+        match acl_rsp {
+            Some(acl_rsp) => {
+                match acl_to_att(&acl_rsp) {
+                    Some(att_rsp) => {
+                        if is_att_error(&att_rsp) {
+                            if let Some((_req_op, handle, err_code)) = parse_att_error(&att_rsp) {
+                                self.gatt_last_error = Some(format!(
+                                    "ATT error: req_opcode=0x{:02X} handle=0x{:04X} error_code=0x{:02X}",
+                                    _req_op, handle, err_code
+                                ));
+                            }
+                            self.gatt_characteristics.clear();
+                            return Ok(());
+                        }
+                        match parse_read_by_type_rsp(&att_rsp) {
+                            Ok(chars) => {
+                                self.gatt_characteristics = chars;
+                                self.gatt_last_error = None;
+                            }
+                            Err(e) => {
+                                self.gatt_last_error = Some(e);
+                                self.gatt_characteristics.clear();
+                            }
+                        }
+                    }
+                    None => {
+                        self.gatt_last_error = Some("ACL response not on ATT channel".to_string());
+                        self.gatt_characteristics.clear();
+                    }
+                }
+            }
+            None => {
+                self.gatt_last_error = Some("no ACL response received".to_string());
+                self.gatt_characteristics.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn perform_gatt_read_char(&mut self, conn_handle: u16, attr_handle: u16) -> Result<()> {
+        let att_req = AttPdu::read_req(attr_handle);
+        let acl = att_to_acl(conn_handle, &att_req);
+        self.transport.send_acl(&acl).map_err(|_| Error::new(EINVAL))?;
+        let acl_rsp = self.transport.recv_acl().map_err(|_| Error::new(EINVAL))?;
+        match acl_rsp {
+            Some(acl_rsp) => {
+                match acl_to_att(&acl_rsp) {
+                    Some(att_rsp) => {
+                        if is_att_error(&att_rsp) {
+                            if let Some((_req_op, handle, err_code)) = parse_att_error(&att_rsp) {
+                                self.gatt_last_error = Some(format!(
+                                    "ATT error: req_opcode=0x{:02X} handle=0x{:04X} error_code=0x{:02X}",
+                                    _req_op, handle, err_code
+                                ));
+                            }
+                            self.gatt_read_result = None;
+                            return Ok(());
+                        }
+                        match parse_read_rsp(&att_rsp) {
+                            Ok(value) => {
+                                self.gatt_read_result = Some(value);
+                                self.gatt_last_error = None;
+                            }
+                            Err(e) => {
+                                self.gatt_last_error = Some(e);
+                                self.gatt_read_result = None;
+                            }
+                        }
+                    }
+                    None => {
+                        self.gatt_last_error = Some("ACL response not on ATT channel".to_string());
+                        self.gatt_read_result = None;
+                    }
+                }
+            }
+            None => {
+                self.gatt_last_error = Some("no ACL response received".to_string());
+                self.gatt_read_result = None;
+            }
+        }
+        Ok(())
+    }
+
     fn read_handle(&mut self, kind: &HandleKind) -> Result<Vec<u8>> {
         match kind {
-            HandleKind::Root => Ok("status\ninfo\ncommand\nevents\nacl-out\nacl-in\nle-scan\nle-scan-results\nconnect\ndisconnect\nconnections\n".to_string().into_bytes()),
+            HandleKind::Root => Ok("status\ninfo\ncommand\nevents\nacl-out\nacl-in\nle-scan\nle-scan-results\nconnect\ndisconnect\nconnections\ngatt-discover-services\ngatt-discover-chars\ngatt-read-char\ngatt-services\ngatt-characteristics\n".to_string().into_bytes()),
             HandleKind::Status => Ok(self.format_status().into_bytes()),
             HandleKind::Info => Ok(self.format_info().into_bytes()),
             HandleKind::LeScanResults => Ok(self.format_scan_results().into_bytes()),
@@ -205,6 +437,18 @@ impl HciScheme {
                 let acl = self.transport.recv_acl().map_err(|_| Error::new(EINVAL))?;
                 match acl {
                     Some(acl) => Ok(acl.to_bytes()),
+                    None => Ok(Vec::new()),
+                }
+            }
+            HandleKind::GattDiscoverServices | HandleKind::GattServices => {
+                Ok(self.format_gatt_services().into_bytes())
+            }
+            HandleKind::GattDiscoverChars | HandleKind::GattCharacteristics => {
+                Ok(self.format_gatt_characteristics().into_bytes())
+            }
+            HandleKind::GattReadChar => {
+                match &self.gatt_read_result {
+                    Some(data) => Ok(data.clone()),
                     None => Ok(Vec::new()),
                 }
             }
@@ -275,6 +519,27 @@ impl HciScheme {
                     .map_err(|_| Error::new(EINVAL))?;
                 Ok(())
             }
+            HandleKind::GattDiscoverServices => {
+                let text =
+                    std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL))?;
+                let conn_handle = Self::parse_handle(text).ok_or(Error::new(EINVAL))?;
+                self.perform_gatt_discover_services(conn_handle)
+            }
+            HandleKind::GattDiscoverChars => {
+                let text =
+                    std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL))?;
+                let conn_handle = Self::parse_gatt_handle(text).ok_or(Error::new(EINVAL))?;
+                let start = Self::parse_gatt_start(text).ok_or(Error::new(EINVAL))?;
+                let end = Self::parse_gatt_end(text).ok_or(Error::new(EINVAL))?;
+                self.perform_gatt_discover_chars(conn_handle, start, end)
+            }
+            HandleKind::GattReadChar => {
+                let text =
+                    std::str::from_utf8(buf).map_err(|_| Error::new(EINVAL))?;
+                let conn_handle = Self::parse_gatt_handle(text).ok_or(Error::new(EINVAL))?;
+                let addr = Self::parse_gatt_addr(text).ok_or(Error::new(EINVAL))?;
+                self.perform_gatt_read_char(conn_handle, addr)
+            }
             _ => Err(Error::new(EROFS)),
         }
     }
@@ -316,6 +581,11 @@ impl SchemeSync for HciScheme {
                 "connect" => HandleKind::Connect,
                 "disconnect" => HandleKind::Disconnect,
                 "connections" => HandleKind::Connections,
+                "gatt-discover-services" => HandleKind::GattDiscoverServices,
+                "gatt-discover-chars" => HandleKind::GattDiscoverChars,
+                "gatt-read-char" => HandleKind::GattReadChar,
+                "gatt-services" => HandleKind::GattServices,
+                "gatt-characteristics" => HandleKind::GattCharacteristics,
                 _ => return Err(Error::new(ENOENT)),
             }
         } else {
@@ -333,6 +603,11 @@ impl SchemeSync for HciScheme {
                     "connect" => HandleKind::Connect,
                     "disconnect" => HandleKind::Disconnect,
                     "connections" => HandleKind::Connections,
+                    "gatt-discover-services" => HandleKind::GattDiscoverServices,
+                    "gatt-discover-chars" => HandleKind::GattDiscoverChars,
+                    "gatt-read-char" => HandleKind::GattReadChar,
+                    "gatt-services" => HandleKind::GattServices,
+                    "gatt-characteristics" => HandleKind::GattCharacteristics,
                     _ => return Err(Error::new(ENOENT)),
                 },
                 _ => return Err(Error::new(EINVAL)),
@@ -406,6 +681,11 @@ impl SchemeSync for HciScheme {
             HandleKind::Connect => "hci0:/connect".to_string(),
             HandleKind::Disconnect => "hci0:/disconnect".to_string(),
             HandleKind::Connections => "hci0:/connections".to_string(),
+            HandleKind::GattDiscoverServices => "hci0:/gatt-discover-services".to_string(),
+            HandleKind::GattDiscoverChars => "hci0:/gatt-discover-chars".to_string(),
+            HandleKind::GattReadChar => "hci0:/gatt-read-char".to_string(),
+            HandleKind::GattServices => "hci0:/gatt-services".to_string(),
+            HandleKind::GattCharacteristics => "hci0:/gatt-characteristics".to_string(),
         };
         let bytes = path.as_bytes();
         let count = bytes.len().min(buf.len());
@@ -846,5 +1126,199 @@ mod tests {
         };
         let bytes = event_to_bytes(&event);
         assert_eq!(bytes, vec![EVT_COMMAND_COMPLETE, 0x03, 0x01, 0x02, 0x03]);
+    }
+
+    // -- GATT scheme tests -----------------------------------------------------
+
+    /// Helper: build an ACL packet wrapping an ATT PDU over L2CAP ATT CID.
+    fn make_acl_att_response(conn_handle: u16, att_opcode: u8, att_data: &[u8]) -> HciAcl {
+        let att_len = (1 + att_data.len()) as u16; // opcode + params
+        let l2cap_payload_len = 2 + 2 + 1 + att_data.len(); // l2cap_len + cid + opcode + data
+        let mut payload = Vec::with_capacity(l2cap_payload_len);
+        payload.extend_from_slice(&att_len.to_le_bytes()); // L2CAP length
+        payload.extend_from_slice(&0x0004u16.to_le_bytes()); // ATT CID
+        payload.push(att_opcode);
+        payload.extend_from_slice(att_data);
+        HciAcl::new(conn_handle, 0x00, 0x00, payload)
+    }
+
+    #[test]
+    fn gatt_discover_services_sends_acl_and_caches_results() {
+        let inner = Rc::new(RefCell::new(TestTransportInner::new()));
+        // Build ATT Read By Group Type Response with one service:
+        //   length=6 (2 start + 2 end + 2 uuid16), entry: start=0x0001, end=0x0005, uuid=0x180F
+        let mut rsp_data = Vec::new();
+        rsp_data.push(0x06); // length
+        rsp_data.extend_from_slice(&0x0001u16.to_le_bytes()); // start handle
+        rsp_data.extend_from_slice(&0x0005u16.to_le_bytes()); // end handle
+        rsp_data.extend_from_slice(&0x180Fu16.to_le_bytes()); // UUID (Battery Service)
+        inner.borrow_mut().pending_acl.push(
+            make_acl_att_response(0x0042, ATT_READ_BY_GROUP_TYPE_RSP, &rsp_data)
+        );
+        let mut scheme = HciScheme::new_for_test(
+            Box::new(TestTransport::new(&inner)),
+            active_info(),
+        );
+        scheme.write_handle(&HandleKind::GattDiscoverServices, b"handle=0042").unwrap();
+        assert_eq!(scheme.gatt_services.len(), 1);
+        assert_eq!(scheme.gatt_services[0].start_handle, 0x0001);
+        assert_eq!(scheme.gatt_services[0].end_handle, 0x0005);
+        assert_eq!(scheme.gatt_services[0].uuid, vec![0x0F, 0x18]);
+    }
+
+    #[test]
+    fn gatt_discover_services_read_formats_text() {
+        let mut scheme = make_scheme();
+        scheme.gatt_services.push(GattService {
+            start_handle: 0x0001,
+            end_handle: 0xFFFF,
+            uuid: vec![0x0F, 0x18],
+        });
+        scheme.gatt_services.push(GattService {
+            start_handle: 0x0010,
+            end_handle: 0x0020,
+            uuid: vec![0x0A, 0x18],
+        });
+        let data = scheme.read_handle(&HandleKind::GattDiscoverServices).unwrap();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("service=start_handle=0001;end_handle=FFFF;uuid=180F"));
+        assert!(text.contains("service=start_handle=0010;end_handle=0020;uuid=180A"));
+    }
+
+    #[test]
+    fn gatt_discover_chars_sends_acl_and_caches_results() {
+        let inner = Rc::new(RefCell::new(TestTransportInner::new()));
+        // Build ATT Read By Type Response with one characteristic:
+        //   length=7 (1 props + 2 value_handle + 2 uuid + 2 extra... standard 16-bit: 7 bytes)
+        //   Actually per spec: length = 1(props) + 2(value_handle) + 2(uuid16) = 5 for 16-bit UUID
+        //   BUT parse_read_by_type_rsp expects: entry[0]=props, entry[1..3]=value_handle, entry[3..]=uuid
+        //   So length=5 gives entry[0]=props, entry[1,2]=value_handle, entry[3,4]=uuid
+        let mut rsp_data = Vec::new();
+        rsp_data.push(0x05); // length
+        rsp_data.push(0x12); // properties
+        rsp_data.extend_from_slice(&0x0016u16.to_le_bytes()); // value handle
+        rsp_data.extend_from_slice(&0x2A19u16.to_le_bytes()); // UUID (Battery Level)
+        inner.borrow_mut().pending_acl.push(
+            make_acl_att_response(0x0042, ATT_READ_BY_TYPE_RSP, &rsp_data)
+        );
+        let mut scheme = HciScheme::new_for_test(
+            Box::new(TestTransport::new(&inner)),
+            active_info(),
+        );
+        scheme.write_handle(&HandleKind::GattDiscoverChars, b"handle=0042;start=0001;end=FFFF").unwrap();
+        assert_eq!(scheme.gatt_characteristics.len(), 1);
+        assert_eq!(scheme.gatt_characteristics[0].properties, 0x12);
+        assert_eq!(scheme.gatt_characteristics[0].value_handle, 0x0016);
+        assert_eq!(scheme.gatt_characteristics[0].uuid, vec![0x19, 0x2A]);
+    }
+
+    #[test]
+    fn gatt_discover_chars_read_formats_text() {
+        let mut scheme = make_scheme();
+        scheme.gatt_characteristics.push(GattCharacteristic {
+            handle: 0x0015,
+            properties: 0x12,
+            value_handle: 0x0016,
+            uuid: vec![0x19, 0x2A],
+        });
+        let data = scheme.read_handle(&HandleKind::GattDiscoverChars).unwrap();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("char=handle=0015;value_handle=0016;properties=12;uuid=2A19"));
+    }
+
+    #[test]
+    fn gatt_read_char_sends_att_read_and_caches_value() {
+        let inner = Rc::new(RefCell::new(TestTransportInner::new()));
+        // Build ATT Read Response with value bytes
+        inner.borrow_mut().pending_acl.push(
+            make_acl_att_response(0x0042, ATT_READ_RSP, &[0x64, 0x00])
+        );
+        let mut scheme = HciScheme::new_for_test(
+            Box::new(TestTransport::new(&inner)),
+            active_info(),
+        );
+        scheme.write_handle(&HandleKind::GattReadChar, b"handle=0042;addr=0016").unwrap();
+        assert_eq!(scheme.gatt_read_result, Some(vec![0x64, 0x00]));
+    }
+
+    #[test]
+    fn gatt_read_char_read_returns_raw_bytes() {
+        let mut scheme = make_scheme();
+        scheme.gatt_read_result = Some(vec![0x64, 0x00, 0xFF]);
+        let data = scheme.read_handle(&HandleKind::GattReadChar).unwrap();
+        assert_eq!(data, vec![0x64, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn gatt_services_read_empty_returns_newline() {
+        let mut scheme = make_scheme();
+        let data = scheme.read_handle(&HandleKind::GattServices).unwrap();
+        assert_eq!(data, b"\n");
+    }
+
+    #[test]
+    fn gatt_characteristics_read_empty_returns_newline() {
+        let mut scheme = make_scheme();
+        let data = scheme.read_handle(&HandleKind::GattCharacteristics).unwrap();
+        assert_eq!(data, b"\n");
+    }
+
+    #[test]
+    fn gatt_discover_services_invalid_format_returns_einval() {
+        let mut scheme = make_scheme();
+        let result = scheme.write_handle(&HandleKind::GattDiscoverServices, b"invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn gatt_discover_chars_invalid_format_returns_einval() {
+        let mut scheme = make_scheme();
+        let result = scheme.write_handle(&HandleKind::GattDiscoverChars, b"invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn gatt_read_char_invalid_format_returns_einval() {
+        let mut scheme = make_scheme();
+        let result = scheme.write_handle(&HandleKind::GattReadChar, b"invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn gatt_discover_services_error_response_caches_error() {
+        let inner = Rc::new(RefCell::new(TestTransportInner::new()));
+        // ATT Error Response: req_opcode=0x10, handle=0x0001, error_code=0x0A (attribute not found)
+        let err_data = vec![ATT_READ_BY_GROUP_TYPE_REQ, 0x01, 0x00, 0x0A, 0x00];
+        inner.borrow_mut().pending_acl.push(
+            make_acl_att_response(0x0042, ATT_ERROR_RSP, &err_data)
+        );
+        let mut scheme = HciScheme::new_for_test(
+            Box::new(TestTransport::new(&inner)),
+            active_info(),
+        );
+        scheme.write_handle(&HandleKind::GattDiscoverServices, b"handle=0042").unwrap();
+        assert!(scheme.gatt_services.is_empty());
+        assert!(scheme.gatt_last_error.is_some());
+        let err = scheme.gatt_last_error.unwrap();
+        assert!(err.contains("ATT error"));
+    }
+
+    #[test]
+    fn root_lists_gatt_nodes() {
+        let mut scheme = make_scheme();
+        let data = scheme.read_handle(&HandleKind::Root).unwrap();
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("gatt-discover-services"));
+        assert!(text.contains("gatt-discover-chars"));
+        assert!(text.contains("gatt-read-char"));
+        assert!(text.contains("gatt-services"));
+        assert!(text.contains("gatt-characteristics"));
+    }
+
+    #[test]
+    fn gatt_read_char_read_empty_returns_empty_vec() {
+        let mut scheme = make_scheme();
+        let data = scheme.read_handle(&HandleKind::GattReadChar).unwrap();
+        assert!(data.is_empty());
     }
 }

@@ -8,7 +8,10 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::backend::{AdapterStatus, Backend};
-use crate::bond_store::{validate_adapter_name, BondRecord, BondStore, STUB_BOND_SOURCE};
+use crate::bond_store::{BondRecord, BondStore, STUB_BOND_SOURCE};
+
+#[cfg(test)]
+use crate::bond_store::validate_adapter_name;
 
 // ---------------------------------------------------------------------------
 // Scheme filesystem abstraction
@@ -126,6 +129,20 @@ fn success_read_char_result(bond_id: &str) -> String {
     )
 }
 
+fn gatt_success_read_char_result(bond_id: &str, value_hex: &str, value_percent: u8) -> String {
+    format!(
+        "read_char_result=gatt-value workload={} peripheral_class={} characteristic={} bond_id={} service_uuid={} char_uuid={} access=read-only value_hex={} value_percent={}",
+        EXPERIMENTAL_WORKLOAD,
+        EXPERIMENTAL_PERIPHERAL_CLASS,
+        EXPERIMENTAL_CHARACTERISTIC,
+        bond_id,
+        EXPERIMENTAL_SERVICE_UUID,
+        EXPERIMENTAL_CHAR_UUID,
+        value_hex,
+        value_percent
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Per-adapter runtime state
 // ---------------------------------------------------------------------------
@@ -147,6 +164,96 @@ impl AdapterRuntimeState {
             ..Self::default()
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// GATT data structures and parsing
+// ---------------------------------------------------------------------------
+
+struct GattService {
+    start_handle: String,
+    end_handle: String,
+    uuid: String,
+}
+
+struct GattCharacteristic {
+    #[allow(dead_code)]
+    handle: String,
+    value_handle: String,
+    #[allow(dead_code)]
+    properties: String,
+    uuid: String,
+}
+
+/// Parse GATT service entries from text.
+///
+/// Expected format per line: `service=start_handle=XXXX;end_handle=XXXX;uuid=XXXX`
+fn parse_gatt_services(content: &str) -> Vec<GattService> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("service="))
+        .filter_map(|line| {
+            let entry = line.strip_prefix("service=")?;
+            let mut start_handle = None;
+            let mut end_handle = None;
+            let mut uuid = None;
+            for part in entry.split(';') {
+                if let Some(v) = part.strip_prefix("start_handle=") {
+                    start_handle = Some(v.to_string());
+                }
+                if let Some(v) = part.strip_prefix("end_handle=") {
+                    end_handle = Some(v.to_string());
+                }
+                if let Some(v) = part.strip_prefix("uuid=") {
+                    uuid = Some(v.to_string());
+                }
+            }
+            Some(GattService {
+                start_handle: start_handle?,
+                end_handle: end_handle?,
+                uuid: uuid?,
+            })
+        })
+        .collect()
+}
+
+/// Parse GATT characteristic entries from text.
+///
+/// Expected format per line: `char=handle=XXXX;value_handle=XXXX;properties=XX;uuid=XXXX`
+fn parse_gatt_characteristics(content: &str) -> Vec<GattCharacteristic> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("char="))
+        .filter_map(|line| {
+            let entry = line.strip_prefix("char=")?;
+            let mut handle = None;
+            let mut value_handle = None;
+            let mut properties = None;
+            let mut uuid = None;
+            for part in entry.split(';') {
+                if let Some(v) = part.strip_prefix("handle=") {
+                    handle = Some(v.to_string());
+                }
+                if let Some(v) = part.strip_prefix("value_handle=") {
+                    value_handle = Some(v.to_string());
+                }
+                if let Some(v) = part.strip_prefix("properties=") {
+                    properties = Some(v.to_string());
+                }
+                if let Some(v) = part.strip_prefix("uuid=") {
+                    uuid = Some(v.to_string());
+                }
+            }
+            Some(GattCharacteristic {
+                handle: handle?,
+                value_handle: value_handle?,
+                properties: properties?,
+                uuid: uuid?,
+            })
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +417,82 @@ impl HciBackend {
             }
         }
         Err(format!("bond {bond_id} not found in active connections"))
+    }
+
+    fn resolve_conn_handle(&self, bond_id: &str) -> Result<String, String> {
+        self.resolve_handle(bond_id)
+    }
+
+    fn read_scheme_bytes(&self, relative: &str) -> Result<Vec<u8>, String> {
+        let path = self.scheme_path.join(relative);
+        self.fs
+            .read_file(&path)
+            .map_err(|err| format!("failed to read {}: {err}", path.display()))
+    }
+
+    fn discover_gatt_services(&self, conn_handle: &str) -> Result<Vec<GattService>, String> {
+        self.write_scheme(
+            "gatt-discover-services",
+            format!("handle={conn_handle}").as_bytes(),
+        )?;
+        let content = self.read_scheme_text("gatt-services")?;
+        Ok(parse_gatt_services(&content))
+    }
+
+    fn discover_gatt_characteristics(
+        &self,
+        conn_handle: &str,
+        start_handle: &str,
+        end_handle: &str,
+    ) -> Result<Vec<GattCharacteristic>, String> {
+        self.write_scheme(
+            "gatt-discover-chars",
+            format!("handle={conn_handle};start={start_handle};end={end_handle}").as_bytes(),
+        )?;
+        let content = self.read_scheme_text("gatt-characteristics")?;
+        Ok(parse_gatt_characteristics(&content))
+    }
+
+    fn read_gatt_char_value(
+        &self,
+        conn_handle: &str,
+        value_handle: &str,
+    ) -> Result<Vec<u8>, String> {
+        self.write_scheme(
+            "gatt-read-char",
+            format!("handle={conn_handle};addr={value_handle}").as_bytes(),
+        )?;
+        self.read_scheme_bytes("gatt-read-char")
+    }
+
+    fn try_gatt_read(
+        &self,
+        bond_id: &str,
+        service_uuid: &str,
+        char_uuid: &str,
+    ) -> Result<(String, u8), String> {
+        let conn_handle = self.resolve_conn_handle(bond_id)?;
+
+        let services = self.discover_gatt_services(&conn_handle)?;
+        let target_svc = normalize_uuid(service_uuid);
+        let service = services
+            .iter()
+            .find(|s| normalize_uuid(&s.uuid) == target_svc)
+            .ok_or_else(|| format!("service {service_uuid} not found in GATT services"))?;
+
+        let chars =
+            self.discover_gatt_characteristics(&conn_handle, &service.start_handle, &service.end_handle)?;
+        let target_ch = normalize_uuid(char_uuid);
+        let char_entry = chars
+            .iter()
+            .find(|c| normalize_uuid(&c.uuid) == target_ch)
+            .ok_or_else(|| format!("characteristic {char_uuid} not found in GATT characteristics"))?;
+
+        let raw_bytes = self.read_gatt_char_value(&conn_handle, &char_entry.value_handle)?;
+        let value_percent = raw_bytes.first().copied().unwrap_or(0);
+        let value_hex = format!("{value_percent:02x}");
+
+        Ok((value_hex, value_percent))
     }
 }
 
@@ -509,7 +692,17 @@ impl Backend for HciBackend {
                 EXPERIMENTAL_WORKLOAD, EXPERIMENTAL_SERVICE_UUID, EXPERIMENTAL_CHAR_UUID
             ));
         }
-        self.runtime_state_mut(adapter)?.last_read_char_result = success_read_char_result(bond_id);
+
+        match self.try_gatt_read(bond_id, service_uuid, char_uuid) {
+            Ok((value_hex, value_percent)) => {
+                self.runtime_state_mut(adapter)?.last_read_char_result =
+                    gatt_success_read_char_result(bond_id, &value_hex, value_percent);
+            }
+            Err(_) => {
+                self.runtime_state_mut(adapter)?.last_read_char_result =
+                    success_read_char_result(bond_id);
+            }
+        }
         Ok(())
     }
 
@@ -927,6 +1120,312 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.contains("run --connect"));
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(bond_store).ok();
+    }
+
+    // -- GATT parsing --
+
+    #[test]
+    fn parse_gatt_services_extracts_handle_range_and_uuid() {
+        let content = format!(
+            "service=start_handle=0001;end_handle=0005;uuid={EXPERIMENTAL_SERVICE_UUID}\n\
+             service=start_handle=0010;end_handle=0020;uuid=00001800-0000-1000-8000-00805f9b34fb\n"
+        );
+        let services = parse_gatt_services(&content);
+        assert_eq!(services.len(), 2);
+        assert_eq!(services[0].start_handle, "0001");
+        assert_eq!(services[0].end_handle, "0005");
+        assert_eq!(services[0].uuid, EXPERIMENTAL_SERVICE_UUID);
+        assert_eq!(services[1].start_handle, "0010");
+    }
+
+    #[test]
+    fn parse_gatt_services_ignores_malformed_lines() {
+        let content = "not-a-service-line\nservice=start_handle=0001;end_handle=0005;uuid=abcd\n";
+        let services = parse_gatt_services(content);
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].start_handle, "0001");
+    }
+
+    #[test]
+    fn parse_gatt_services_handles_empty_input() {
+        let services = parse_gatt_services("");
+        assert!(services.is_empty());
+    }
+
+    #[test]
+    fn parse_gatt_characteristics_extracts_handles_and_uuid() {
+        let content = format!(
+            "char=handle=0002;value_handle=0003;properties=12;uuid={EXPERIMENTAL_CHAR_UUID}\n\
+             char=handle=0005;value_handle=0006;properties=02;uuid=00002a00-0000-1000-8000-00805f9b34fb\n"
+        );
+        let chars = parse_gatt_characteristics(&content);
+        assert_eq!(chars.len(), 2);
+        assert_eq!(chars[0].handle, "0002");
+        assert_eq!(chars[0].value_handle, "0003");
+        assert_eq!(chars[0].properties, "12");
+        assert_eq!(chars[0].uuid, EXPERIMENTAL_CHAR_UUID);
+        assert_eq!(chars[1].value_handle, "0006");
+    }
+
+    #[test]
+    fn parse_gatt_characteristics_ignores_malformed_lines() {
+        let content = "garbage\nchar=handle=0002;value_handle=0003;properties=12;uuid=abcd\n";
+        let chars = parse_gatt_characteristics(content);
+        assert_eq!(chars.len(), 1);
+    }
+
+    #[test]
+    fn parse_gatt_characteristics_handles_empty_input() {
+        let chars = parse_gatt_characteristics("");
+        assert!(chars.is_empty());
+    }
+
+    // -- GATT workflow through scheme files --
+
+    #[test]
+    fn hci_read_char_uses_gatt_workflow_when_scheme_files_present() {
+        let root = temp_path("rbos-hci-gatt");
+        let adapter_dir = setup_scheme(&root, "hci0");
+        let bond_store = temp_path("rbos-hci-gatt-bonds");
+
+        fs::write(
+            adapter_dir.join("connections"),
+            "handle=0001 addr=AA:BB:CC:DD:EE:FF\n",
+        )
+        .unwrap();
+        fs::write(
+            adapter_dir.join("gatt-services"),
+            format!("service=start_handle=0001;end_handle=0005;uuid={EXPERIMENTAL_SERVICE_UUID}\n"),
+        )
+        .unwrap();
+        fs::write(
+            adapter_dir.join("gatt-characteristics"),
+            format!(
+                "char=handle=0002;value_handle=0003;properties=12;uuid={EXPERIMENTAL_CHAR_UUID}\n"
+            ),
+        )
+        .unwrap();
+        // The write to gatt-read-char overwrites this file; the read returns the command bytes.
+        fs::write(adapter_dir.join("gatt-read-char"), &[0x57u8]).unwrap();
+
+        let mut backend =
+            HciBackend::new_for_test(root.clone(), "hci0".to_string(), bond_store.clone());
+        backend
+            .add_stub_bond("hci0", "AA:BB:CC:DD:EE:FF", Some("battery"))
+            .unwrap();
+        backend.connect("hci0", "AA:BB:CC:DD:EE:FF").unwrap();
+        backend
+            .read_char(
+                "hci0",
+                "AA:BB:CC:DD:EE:FF",
+                EXPERIMENTAL_SERVICE_UUID,
+                EXPERIMENTAL_CHAR_UUID,
+            )
+            .unwrap();
+
+        let result = backend.read_char_result("hci0").unwrap();
+        assert!(
+            result.contains("gatt-value"),
+            "expected gatt-value in result, got: {result}"
+        );
+
+        // Verify the GATT commands were written to scheme files.
+        let discover_svc = fs::read_to_string(adapter_dir.join("gatt-discover-services")).unwrap();
+        assert_eq!(discover_svc, "handle=0001");
+
+        let discover_ch = fs::read_to_string(adapter_dir.join("gatt-discover-chars")).unwrap();
+        assert_eq!(discover_ch, "handle=0001;start=0001;end=0005");
+
+        let read_cmd = fs::read_to_string(adapter_dir.join("gatt-read-char")).unwrap();
+        assert_eq!(read_cmd, "handle=0001;addr=0003");
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(bond_store).ok();
+    }
+
+    #[test]
+    fn hci_read_char_falls_back_to_stub_when_no_connections_file() {
+        let root = temp_path("rbos-hci-gatt-noconn");
+        let adapter_dir = setup_scheme(&root, "hci0");
+        let bond_store = temp_path("rbos-hci-gatt-noconn-bonds");
+
+        // Provide gatt files but no connections file — resolve_conn_handle will fail.
+        fs::write(
+            adapter_dir.join("gatt-services"),
+            format!("service=start_handle=0001;end_handle=0005;uuid={EXPERIMENTAL_SERVICE_UUID}\n"),
+        )
+        .unwrap();
+
+        let mut backend =
+            HciBackend::new_for_test(root.clone(), "hci0".to_string(), bond_store.clone());
+        backend
+            .add_stub_bond("hci0", "AA:BB:CC:DD:EE:FF", Some("battery"))
+            .unwrap();
+        backend.connect("hci0", "AA:BB:CC:DD:EE:FF").unwrap();
+        backend
+            .read_char(
+                "hci0",
+                "AA:BB:CC:DD:EE:FF",
+                EXPERIMENTAL_SERVICE_UUID,
+                EXPERIMENTAL_CHAR_UUID,
+            )
+            .unwrap();
+
+        let result = backend.read_char_result("hci0").unwrap();
+        assert!(
+            result.contains("stub-value"),
+            "expected stub-value fallback, got: {result}"
+        );
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(bond_store).ok();
+    }
+
+    #[test]
+    fn hci_read_char_falls_back_to_stub_when_service_not_found() {
+        let root = temp_path("rbos-hci-gatt-nosvc");
+        let adapter_dir = setup_scheme(&root, "hci0");
+        let bond_store = temp_path("rbos-hci-gatt-nosvc-bonds");
+
+        fs::write(
+            adapter_dir.join("connections"),
+            "handle=0001 addr=AA:BB:CC:DD:EE:FF\n",
+        )
+        .unwrap();
+        // Service list does not contain the battery service UUID.
+        fs::write(
+            adapter_dir.join("gatt-services"),
+            "service=start_handle=0010;end_handle=0020;uuid=00001800-0000-1000-8000-00805f9b34fb\n",
+        )
+        .unwrap();
+
+        let mut backend =
+            HciBackend::new_for_test(root.clone(), "hci0".to_string(), bond_store.clone());
+        backend
+            .add_stub_bond("hci0", "AA:BB:CC:DD:EE:FF", None)
+            .unwrap();
+        backend.connect("hci0", "AA:BB:CC:DD:EE:FF").unwrap();
+        backend
+            .read_char(
+                "hci0",
+                "AA:BB:CC:DD:EE:FF",
+                EXPERIMENTAL_SERVICE_UUID,
+                EXPERIMENTAL_CHAR_UUID,
+            )
+            .unwrap();
+
+        let result = backend.read_char_result("hci0").unwrap();
+        assert!(
+            result.contains("stub-value"),
+            "expected stub-value fallback when service missing, got: {result}"
+        );
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(bond_store).ok();
+    }
+
+    #[test]
+    fn hci_read_char_falls_back_to_stub_when_characteristic_not_found() {
+        let root = temp_path("rbos-hci-gatt-nochar");
+        let adapter_dir = setup_scheme(&root, "hci0");
+        let bond_store = temp_path("rbos-hci-gatt-nochar-bonds");
+
+        fs::write(
+            adapter_dir.join("connections"),
+            "handle=0001 addr=AA:BB:CC:DD:EE:FF\n",
+        )
+        .unwrap();
+        fs::write(
+            adapter_dir.join("gatt-services"),
+            format!("service=start_handle=0001;end_handle=0005;uuid={EXPERIMENTAL_SERVICE_UUID}\n"),
+        )
+        .unwrap();
+        // Characteristic list does not contain the battery level UUID.
+        fs::write(
+            adapter_dir.join("gatt-characteristics"),
+            "char=handle=0002;value_handle=0003;properties=02;uuid=00002a00-0000-1000-8000-00805f9b34fb\n",
+        )
+        .unwrap();
+
+        let mut backend =
+            HciBackend::new_for_test(root.clone(), "hci0".to_string(), bond_store.clone());
+        backend
+            .add_stub_bond("hci0", "AA:BB:CC:DD:EE:FF", None)
+            .unwrap();
+        backend.connect("hci0", "AA:BB:CC:DD:EE:FF").unwrap();
+        backend
+            .read_char(
+                "hci0",
+                "AA:BB:CC:DD:EE:FF",
+                EXPERIMENTAL_SERVICE_UUID,
+                EXPERIMENTAL_CHAR_UUID,
+            )
+            .unwrap();
+
+        let result = backend.read_char_result("hci0").unwrap();
+        assert!(
+            result.contains("stub-value"),
+            "expected stub-value fallback when char missing, got: {result}"
+        );
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(bond_store).ok();
+    }
+
+    #[test]
+    fn hci_read_char_gatt_value_formats_battery_percent() {
+        let root = temp_path("rbos-hci-gatt-fmt");
+        let adapter_dir = setup_scheme(&root, "hci0");
+        let bond_store = temp_path("rbos-hci-gatt-fmt-bonds");
+
+        fs::write(
+            adapter_dir.join("connections"),
+            "handle=00ab addr=AA:BB:CC:DD:EE:FF\n",
+        )
+        .unwrap();
+        fs::write(
+            adapter_dir.join("gatt-services"),
+            format!("service=start_handle=0050;end_handle=00ff;uuid={EXPERIMENTAL_SERVICE_UUID}\n"),
+        )
+        .unwrap();
+        fs::write(
+            adapter_dir.join("gatt-characteristics"),
+            format!(
+                "char=handle=0060;value_handle=0061;properties=12;uuid={EXPERIMENTAL_CHAR_UUID}\n"
+            ),
+        )
+        .unwrap();
+        // Write will overwrite with command; read gets command bytes.
+        // Command "handle=00ab;addr=0061" — first byte 'h' = 0x68 = 104.
+        fs::write(adapter_dir.join("gatt-read-char"), &[0x00u8]).unwrap();
+
+        let mut backend =
+            HciBackend::new_for_test(root.clone(), "hci0".to_string(), bond_store.clone());
+        backend
+            .add_stub_bond("hci0", "AA:BB:CC:DD:EE:FF", Some("battery"))
+            .unwrap();
+        backend.connect("hci0", "AA:BB:CC:DD:EE:FF").unwrap();
+        backend
+            .read_char(
+                "hci0",
+                "AA:BB:CC:DD:EE:FF",
+                EXPERIMENTAL_SERVICE_UUID,
+                EXPERIMENTAL_CHAR_UUID,
+            )
+            .unwrap();
+
+        let result = backend.read_char_result("hci0").unwrap();
+        assert!(result.contains("gatt-value"));
+        // Verify the full GATT command chain used the correct handles.
+        let disc_svc = fs::read_to_string(adapter_dir.join("gatt-discover-services")).unwrap();
+        assert_eq!(disc_svc, "handle=00ab");
+        let disc_ch = fs::read_to_string(adapter_dir.join("gatt-discover-chars")).unwrap();
+        assert_eq!(disc_ch, "handle=00ab;start=0050;end=00ff");
+        let read_cmd = fs::read_to_string(adapter_dir.join("gatt-read-char")).unwrap();
+        assert_eq!(read_cmd, "handle=00ab;addr=0061");
+
         fs::remove_dir_all(root).ok();
         fs::remove_dir_all(bond_store).ok();
     }
