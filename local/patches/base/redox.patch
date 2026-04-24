@@ -8280,15 +8280,24 @@ index 3da41d63..12d26261 100644
 +    is_elan_touchpad_id(id) || is_cypress_touchpad_id(id) || is_synaptics_rmi_id(id)
 +}
 diff --git a/drivers/hwd/src/main.rs b/drivers/hwd/src/main.rs
-index 79360e34..4a2b9469 100644
+index 79360e34..f58ec825 100644
 --- a/drivers/hwd/src/main.rs
 +++ b/drivers/hwd/src/main.rs
-@@ -38,7 +38,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+@@ -37,8 +37,15 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
      //TODO: launch pcid based on backend information?
      // Must launch after acpid but before probe calls /scheme/acpi/symbols
-     #[allow(deprecated, reason = "we can't yet move this to init")]
+-    #[allow(deprecated, reason = "we can't yet move this to init")]
 -    daemon::Daemon::spawn(process::Command::new("pcid"));
-+    let _ = daemon::Daemon::spawn(process::Command::new("pcid"));
++    // Fire-and-forget: daemon::Daemon::spawn blocks until pcid signals readiness,
++    // but pcid only signals after full PCI enumeration. If enumeration hangs on
++    // real hardware (unresponsive device, complex AML), hwd deadlocks initfs.
++    match std::process::Command::new("pcid").spawn() {
++        Ok(_child) => {}
++        Err(err) => {
++            log::error!("hwd: failed to spawn pcid: {}", err);
++        }
++    }
  
      daemon.ready();
  
@@ -12257,7 +12266,7 @@ index 0ca68ec5..cd2fd701 100644
  pub struct MsixTableEntry {
      pub addr_lo: Mmio<u32>,
 diff --git a/drivers/pcid/src/main.rs b/drivers/pcid/src/main.rs
-index 61cd9a78..56ae816a 100644
+index 61cd9a78..8840e141 100644
 --- a/drivers/pcid/src/main.rs
 +++ b/drivers/pcid/src/main.rs
 @@ -12,6 +12,7 @@ use pci_types::{
@@ -12334,9 +12343,16 @@ index 61cd9a78..56ae816a 100644
              }
              Err(err) => {
                  if err.errno() == libredox::errno::ENODEV {
-@@ -304,14 +325,18 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+@@ -302,16 +323,24 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+             );
+         }
      }
-     debug!("Enumeration complete, now starting pci scheme");
+-    debug!("Enumeration complete, now starting pci scheme");
++    info!(
++        "PCI enumeration complete: {} devices, {} buses",
++        scheme.tree.len(),
++        bus_nums.len()
++    );
  
 -    register_sync_scheme(&socket, "pci", &mut scheme)
 -        .expect("failed to register pci scheme to namespace");
@@ -12358,7 +12374,7 @@ index 61cd9a78..56ae816a 100644
  }
  
  fn scan_device(
-@@ -350,16 +375,16 @@ fn scan_device(
+@@ -350,16 +379,16 @@ fn scan_device(
  
          match header.header_type(pcie) {
              HeaderType::Endpoint => {
