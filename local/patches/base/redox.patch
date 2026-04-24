@@ -392,6 +392,46 @@ index 9f507221..a0ba9d88 100644
          }
      }
  }
+@@ -94,12 +105,22 @@ impl SchemeDaemon {
+ 
+     /// Notify the process that the scheme daemon is ready to accept requests.
+     pub fn ready_with_fd(self, cap_fd: Fd) -> syscall::Result<()> {
+-        syscall::call_wo(
++        match syscall::call_wo(
+             self.write_pipe.as_raw_fd() as usize,
+             &cap_fd.into_raw().to_ne_bytes(),
+             syscall::CallFlags::FD,
+             &[],
+-        )?;
+-        Ok(())
++        ) {
++            Ok(_) => Ok(()),
++            Err(err) if err.errno == syscall::EPIPE => Ok(()),
++            Err(err) => Err(err),
++        }
+     }
+ 
+     /// Notify the process that the synchronous scheme daemon is ready to accept requests.
+diff --git a/audiod/src/main.rs b/audiod/src/main.rs
+index 5a8c8d06..c3a1d4f0 100644
+--- a/audiod/src/main.rs
++++ b/audiod/src/main.rs
+@@ -48,7 +48,14 @@ fn daemon(daemon: SchemeDaemon) -> anyhow::Result<()> {
+ 
+     let pid = libredox::call::getpid()?;
+ 
+-    let hw_file = Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0)?;
++    let hw_file = match Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0) {
++        Ok(fd) => fd,
++        Err(err) if err.errno() == syscall::ENODEV => {
++            eprintln!("audiod: no audio hardware detected");
++            return Ok(());
++        }
++        Err(err) => return Err(err).context("failed to open /scheme/audiohw"),
++    };
+ 
+     let socket = Socket::create().context("failed to create scheme")?;
+ 
 diff --git a/drivers/acpid/Cargo.toml b/drivers/acpid/Cargo.toml
 index 2d22a8f9..712b6d6e 100644
 --- a/drivers/acpid/Cargo.toml
