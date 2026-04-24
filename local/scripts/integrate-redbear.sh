@@ -232,6 +232,11 @@ declare -a redbear_configs=(
     "config/redbear-full.toml"
     "config/redbear-wayland.toml"
     "config/redbear-live.toml"
+    "config/redbear-live-mini.toml"
+    "config/redbear-live-full.toml"
+    "config/redbear-grub-live-mini.toml"
+    "config/redbear-grub-live-full.toml"
+    "config/redbear-grub.toml"
 )
 declare -a found_configs=()
 

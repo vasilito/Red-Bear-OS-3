@@ -92,13 +92,23 @@ echo 'PODMAN_BUILD?=0' > .config          # Native build (no container)
 echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 
 # Build Red Bear OS
-# Supported compile targets: redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
-# Desktop/graphics are available only on redbear-full and redbear-live-full.
-make all CONFIG_NAME=redbear-full         # Desktop/graphics-enabled Red Bear target → harddrive.img
-make live CONFIG_NAME=redbear-live-full   # Desktop/graphics live ISO for real bare metal
-make all CONFIG_NAME=redbear-mini         # Minimal non-desktop Red Bear target
-make live CONFIG_NAME=redbear-live-mini   # Minimal live ISO for real bare metal
-CI=1 make all CONFIG_NAME=redbear-mini    # CI mode (disables TUI, for non-interactive)
+# Supported compile targets:
+#   redbear-full         desktop/graphics harddrive.img
+#   redbear-live         full desktop live ISO (greeter + text fallback)
+#   redbear-live-mini    text-only mini live ISO for recovery/bare metal
+#   redbear-full-grub    desktop target with GRUB boot manager
+#   redbear-grub-live-full  full desktop live ISO with GRUB
+#   redbear-grub-live-mini  text-only mini live ISO with GRUB
+# Desktop/graphics targets: redbear-full, redbear-full-grub, redbear-live, redbear-grub-live-full
+# Text-only targets: redbear-live-mini, redbear-grub-live-mini
+# NOTE: redbear-kde and redbear-live-full are historical/staging, not supported compile targets
+make all CONFIG_NAME=redbear-full         # Desktop/graphics-enabled target → harddrive.img
+make live CONFIG_NAME=redbear-live        # Full desktop live ISO (greeter + text fallback)
+make live CONFIG_NAME=redbear-live-mini    # Text-only mini live ISO for recovery/bare metal
+make all CONFIG_NAME=redbear-full-grub    # Desktop target with GRUB boot manager → harddrive.img
+make live CONFIG_NAME=redbear-grub-live-full   # Full desktop live ISO with GRUB
+make live CONFIG_NAME=redbear-grub-live-mini   # Text-only mini live ISO with GRUB
+CI=1 make all CONFIG_NAME=redbear-mini     # CI mode (disables TUI, for non-interactive)
 
 # Run
 make qemu                                 # Boot in QEMU

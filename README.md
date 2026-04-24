@@ -175,11 +175,23 @@ Current validation language should be read this way:
 Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. See the [Redox Build Instructions](https://doc.redox-os.org/book/podman-build.html) for full prerequisites.
 
 ```bash
+# Non-live (harddrive.img for QEMU / development)
 make all CONFIG_NAME=redbear-full        # Tracked desktop-capable target
-make all CONFIG_NAME=redbear-mini        # Tracked minimal non-desktop target
-make all CONFIG_NAME=redbear-full-grub   # Broader integration slice with GRUB boot manager
-make live CONFIG_NAME=redbear-live       # Full live ISO for real bare metal
-make live CONFIG_NAME=redbear-live-mini  # Tiny bare-metal live ISO for minimal/recovery use (~256 MiB image)
+make all CONFIG_NAME=redbear-full-grub   # Desktop target with GRUB boot manager
+
+# Live ISO (for real bare metal)
+make live CONFIG_NAME=redbear-live       # Full desktop live ISO (greeter + text fallback)
+make live CONFIG_NAME=redbear-live-mini  # Text-only mini live ISO for recovery (~384 MiB)
+make live CONFIG_NAME=redbear-grub-live-full   # Full desktop live ISO with GRUB
+make live CONFIG_NAME=redbear-grub-live-mini   # Text-only mini live ISO with GRUB
+
+# Or use the helper script
+scripts/build-iso.sh redbear-live              # Full desktop live ISO
+scripts/build-iso.sh redbear-live-mini         # Text-only mini
+scripts/build-iso.sh redbear-grub-live-full    # Full desktop + GRUB
+scripts/build-iso.sh redbear-grub-live-mini    # Text-only + GRUB
+
+# QEMU (uses harddrive.img, not live ISO)
 make qemu CONFIG_NAME=redbear-full       # Boot the tracked desktop-capable target in QEMU
 ```
 

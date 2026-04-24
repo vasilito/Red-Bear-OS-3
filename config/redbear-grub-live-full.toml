@@ -1,0 +1,14 @@
+# Red Bear OS GRUB Live Full Configuration
+# Canonical GRUB-backed live ISO for the full desktop/session target.
+#
+# Build: make live CONFIG_NAME=redbear-grub-live-full
+#
+# Boot flow: UEFI → GRUB (menu) → chainload EFI/REDBEAR/redbear.efi → Redox bootloader → kernel
+# Session: graphical greeter on VT 3, text login fallback on VT 2, debug console on /scheme/debug
+#
+# The installer reads bootloader = "grub" from this config and writes:
+#   EFI/BOOT/BOOTX64.EFI     — GRUB EFI binary (primary bootloader)
+#   EFI/BOOT/grub.cfg        — GRUB menu config
+#   EFI/REDBEAR/redbear.efi  — Redox bootloader (chainload target)
+
+include = ["redbear-live.toml", "redbear-grub.toml"]

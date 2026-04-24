@@ -14,6 +14,12 @@ canonicalize_live_config() {
         redbear-live-mini-grub)
             printf '%s\n' "redbear-grub-live-mini"
             ;;
+        redbear-live-full-grub)
+            printf '%s\n' "redbear-grub-live-full"
+            ;;
+        redbear-grub-live-full)
+            printf '%s\n' "redbear-grub-live-full"
+            ;;
         *)
             printf '%s\n' "$1"
             ;;
@@ -35,13 +41,15 @@ Options:
   -h, --help          Show this help
 
 Supported live ISO targets:
-  redbear-live           Full live ISO
-  redbear-live-mini      Text-only mini live ISO
-  redbear-grub-live-mini Text-only mini live ISO with GRUB bootloader
+  redbear-live              Full live ISO (graphical greeter + text fallback)
+  redbear-live-mini         Text-only mini live ISO
+  redbear-grub-live-mini    Text-only mini live ISO with GRUB bootloader
+  redbear-grub-live-full    Full live ISO with GRUB bootloader
 
 Legacy compatibility aliases:
-  redbear-live-full
-  redbear-live-mini-grub
+  redbear-live-full         → redbear-live
+  redbear-live-mini-grub    → redbear-grub-live-mini
+  redbear-live-full-grub    → redbear-grub-live-full
 
 Defaults:
   CONFIG_NAME=redbear-live
@@ -88,7 +96,7 @@ fi
 CONFIG_NAME="$(canonicalize_live_config "$CONFIG_NAME")"
 
 case "$CONFIG_NAME" in
-    redbear-live|redbear-live-mini|redbear-grub-live-mini)
+    redbear-live|redbear-live-mini|redbear-grub-live-mini|redbear-grub-live-full)
         ;;
     *)
         echo "ERROR: Unsupported live ISO target '$CONFIG_NAME'" >&2

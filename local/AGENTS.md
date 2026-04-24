@@ -39,12 +39,22 @@ make all CONFIG_NAME=redbear-full         # Rebuild the active desktop/graphics 
 
 The supported compile targets are exactly:
 
-- `redbear-mini`
-- `redbear-live-mini`
-- `redbear-full`
-- `redbear-live-full`
+Non-live (harddrive.img for QEMU / development):
+- `redbear-full`          — Desktop/graphics-enabled target
+- `redbear-full-grub`     — Desktop/graphics with GRUB boot manager
 
-Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
+Live (ISO for real bare metal):
+- `redbear-live`          — Full desktop live ISO (graphical greeter + text fallback)
+- `redbear-live-mini`     — Text-only mini live ISO for recovery/bare metal
+- `redbear-grub-live-full` — Full desktop live ISO with GRUB boot manager
+- `redbear-grub-live-mini` — Text-only mini live ISO with GRUB
+
+Legacy aliases (accepted by build-iso.sh):
+- `redbear-live-full`       → `redbear-live`
+- `redbear-live-mini-grub`  → `redbear-grub-live-mini`
+- `redbear-live-full-grub`  → `redbear-grub-live-full`
+
+Desktop/graphics are available only on `redbear-full`, `redbear-live`, `redbear-full-grub`, and `redbear-grub-live-full`.
 
 Names such as `redbear-kde`, `redbear-wayland`, and `redbear-minimal` may still appear in older
 docs, legacy validation notes, or in-repo staging configs, but they should not be treated as the
@@ -237,8 +247,16 @@ redox-master/                  ← git pull updates mainline Redox
 ./local/scripts/build-redbear.sh redbear-mini
 
 # Live images
-./local/scripts/build-redbear.sh redbear-live-full && make live CONFIG_NAME=redbear-live-full
+./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-live
 ./local/scripts/build-redbear.sh redbear-live-mini && make live CONFIG_NAME=redbear-live-mini
+./local/scripts/build-redbear.sh redbear-live-mini && make live CONFIG_NAME=redbear-grub-live-mini
+./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-grub-live-full
+
+# Or using the helper:
+scripts/build-iso.sh redbear-live
+scripts/build-iso.sh redbear-live-mini
+scripts/build-iso.sh redbear-grub-live-mini
+scripts/build-iso.sh redbear-grub-live-full
 
 # VM-network baseline validation helpers
 ./local/scripts/validate-vm-network-baseline.sh
@@ -564,16 +582,29 @@ local/Assets/
 
 Active compile targets:
 
-- `redbear-mini`
-- `redbear-live-mini`
+Non-live (harddrive.img for QEMU / development):
 - `redbear-full`
-- `redbear-live-full`
+- `redbear-full-grub`
+
+Live (ISO for real bare metal):
+- `redbear-live`
+- `redbear-live-mini`
+- `redbear-grub-live-full`
+- `redbear-grub-live-mini`
 
 Desktop/graphics are available only on the `full` targets. Older names such as `redbear-kde`,
 `redbear-wayland`, `redbear-minimal`, and `redbear-live-minimal` may still exist in the tree as
 legacy or staging artifacts, but they are not the supported compile-target surface.
 
 ```
+redbear-grub-live-full.toml
+  └── redbear-live.toml (full desktop base)
+  └── redbear-grub.toml (GRUB policy: bootloader = "grub", efi_partition_size = 16)
+
+redbear-grub-live-mini.toml
+  └── redbear-live-mini.toml (text-only live base)
+  └── redbear-grub.toml (GRUB policy)
+
 redbear-live-full.toml
   └── redbear-full.toml
         ├── desktop.toml (mainline)
@@ -591,6 +622,19 @@ redbear-live-full.toml
         NOTE: redbear-meta is explicitly included in redbear-full.toml; keep broader inclusion deliberate.
         NOTE: redbear-live-full inherits from redbear-full.toml.
 
+redbear-live.toml
+  └── redbear-full.toml
+        ├── desktop.toml (mainline)
+        ├── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
+        ├── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
+        ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
+        ├── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
+        └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
+                       firmware-loader, evdevd, udev-shim, redbear-info,
+                       redbear-sessiond, redbear-authd, redbear-session-launch,
+                       redbear-greeter, redbear-meta, cub
+        NOTE: Desktop/graphics are available on redbear-live.
+
 redbear-full.toml
   └── desktop.toml (mainline)
   └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
@@ -599,9 +643,17 @@ redbear-full.toml
   └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
   └── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring
 
+redbear-full-grub.toml
+  └── redbear-full.toml
+  └── redbear-grub.toml (GRUB policy: bootloader = "grub", efi_partition_size = 16)
+
 redbear-live-mini.toml
   └── minimal non-desktop live target
   └── desktop/graphics intentionally absent
+
+redbear-grub-live-mini.toml
+  └── redbear-live-mini.toml (text-only live base)
+  └── redbear-grub.toml (GRUB policy)
 
 redbear-mini
   └── legacy/staging config files in-tree still use the older `redbear-minimal*` names
@@ -618,12 +670,15 @@ redbear-minimal.toml (legacy/staging naming still present in tree)
 ```
 
 Config comparison:
-| Config | GPU Stack | Desktop | Branding | ext4d | filesystem_size |
-|--------|-----------|---------|----------|-------|-----------------|
-| redbear-full | Full | Yes | Yes | ✅ (via desktop.toml) | 4096 MiB |
-| redbear-live-full | Full | Yes | Yes | ✅ (via redbear-full.toml) | 4096 MiB |
-| redbear-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-minimal*` files | legacy/staging |
-| redbear-live-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-live-minimal*` files | legacy/staging |
+| Config | GPU Stack | Desktop | Branding | ext4d | GRUB | filesystem_size |
+|--------|-----------|---------|----------|-------|------|-----------------|
+| redbear-full | Full | Yes | Yes | ✅ (via desktop.toml) | No | 4096 MiB |
+| redbear-full-grub | Full | Yes | Yes | ✅ (via redbear-full.toml) | Yes | 4096 MiB |
+| redbear-live | Full | Yes | Yes | ✅ (via redbear-full.toml) | No | 4096 MiB |
+| redbear-grub-live-full | Full | Yes | Yes | ✅ (via redbear-full.toml) | Yes | 4096 MiB |
+| redbear-live-mini | None | None | Yes | legacy/staging | No | legacy/staging |
+| redbear-grub-live-mini | None | None | Yes | legacy/staging | Yes | legacy/staging |
+| redbear-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-minimal*` files | No | legacy/staging |
 
 ## ANTI-PATTERNS (COMMIT POLICY)
 
