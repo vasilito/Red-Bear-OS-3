@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::process;
 
@@ -103,13 +104,61 @@ fn lookup_quirks(
     lookup_pci_quirks(&info)
 }
 
+fn collect_runtime_irq_modes() -> HashMap<String, String> {
+    let mut modes = HashMap::new();
+    for dir in [
+        "/tmp/redbear-irq-report",
+        "/tmp/run/redbear-irq-report",
+        "/run/redbear-irq-report",
+    ] {
+        let entries = match fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if !name.ends_with(".env") {
+                continue;
+            }
+            let content = match fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let mut device = None;
+            let mut mode = None;
+            let mut pid = None;
+            for line in content.lines() {
+                if let Some((k, v)) = line.split_once('=') {
+                    match k.trim() {
+                        "device" => device = Some(v.trim().to_string()),
+                        "mode" => mode = Some(v.trim().to_string()),
+                        "pid" => pid = v.trim().parse::<u32>().ok(),
+                        _ => {}
+                    }
+                }
+            }
+            if let (Some(device), Some(mode), Some(pid)) = (device, mode, pid) {
+                if std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                    modes.insert(device, mode);
+                }
+            }
+        }
+    }
+    modes
+}
+
 fn run() -> Result<(), String> {
     parse_args("lspci", USAGE, std::env::args())?;
+
+    let runtime_modes = collect_runtime_irq_modes();
 
     let mut devices = collect_devices()?;
     devices.sort_by_key(|d| d.location);
 
-    for device in devices {
+    for device in &devices {
         print!(
             "{} class {:02x}:{:02x}.{:02x} vendor {:04x} device {:04x} rev {:02x}",
             device.location,
@@ -134,6 +183,10 @@ fn run() -> Result<(), String> {
         }
         if let Some(reason) = &device.irq_reason {
             print!(" reason={reason}");
+        }
+        let loc_key = device.location.to_string().replace(':', "--");
+        if let Some(mode) = runtime_modes.get(&loc_key) {
+            print!(" runtime-mode: {mode}");
         }
         println!();
     }
