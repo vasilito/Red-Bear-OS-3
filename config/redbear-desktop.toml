@@ -40,8 +40,20 @@ udev-shim = {}
 # Diagnostic tool
 redbear-info = {}
 
+# Process monitor
+htop = {}
+
 # IOMMU validation surface
 iommu = {}
+
+# D-Bus IPC and session services
+dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
+redbear-notifications = {}
+redbear-upower = {}
+redbear-udisks = {}
+redbear-polkit = {}
 
 # Terminal file manager (Midnight Commander port)
 mc = {}
@@ -130,3 +142,105 @@ requires_weak = [
 cmd = "/usr/bin/iommu"
 type = "oneshot_async"
 """
+
+[[files]]
+path = "/usr/lib/init.d/12_dbus.service"
+data = """
+[unit]
+description = "D-Bus system bus"
+requires_weak = [
+    "12_boot-late.target",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-sessiond",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-upower",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-udisks",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-polkit",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
