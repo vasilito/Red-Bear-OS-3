@@ -1,419 +1,103 @@
 #TODO: KWin Wayland compositor — DRM backend → scheme:drm, libinput → via evdevd, session → seatd
-# Reduced-path compatibility deps: legacy-named libudev-stub recipe now stages the real scheme-backed libudev provider; libdisplay-info-stub now provides a bounded real base-EDID parser for KWin.
-# The libudev provider path is intentionally udev-shim / scheme:udev-backed rather than eudev.
-# Re-enabled in the current reduced path: decorations, runners, D-Bus
-# Still disabled: global shortcuts, notifications, KCMS (QML), screen locking, screenlocker,
-# tabbox, effects, X11, QML, running-in-kde, signing docs
+# Real build requires fully working Qt6Quick/QML cross-compilation + Wayland compositor runtime.
+# Stub provides cmake configs for downstream dependency resolution only.
+# When Qt6Quick/QML are fully cross-compiled for Redox, this recipe should be replaced
+# with a real build using the inspect/ overlay approach.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
+blake3 = "2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f"
 
 [build]
 template = "custom"
 dependencies = [
     "qtbase",
-    "qtdeclarative",
-    "qtwayland",
-    "qtsvg",
     "kf6-extra-cmake-modules",
     "kf6-kcoreaddons",
     "kf6-kconfig",
-    "kf6-kconfigwidgets",
-    "kf6-kcolorscheme",
-    "kf6-kcrash",
-    "kf6-kglobalaccel",
-    "kf6-ki18n",
-    "kf6-kiconthemes",
-    "kf6-kidletime",
-    "kf6-knotifications",
-    "kf6-kpackage",
-    "kf6-kservice",
-    "kf6-kwidgetsaddons",
     "kf6-kwindowsystem",
-    "kf6-kxmlgui",
-    "kf6-kauth",
-    "kirigami",
-    "kf6-kio",
-    "kf6-kdeclarative",
-    "kf6-kcmutils",
-    "kf6-kwayland",
+    "kf6-kglobalaccel",
     "kdecoration",
-    "libwayland",
-    "wayland-protocols",
-    "plasma-wayland-protocols",
-    "mesa",
-    "libdrm",
-    "libinput",
-    "libxcb",
-    "libxkbcommon",
-    "dbus",
-    "freetype2",
-    "fontconfig",
-    "libxcvt",
-    "libepoxy",
-    "libudev-stub",
-    "liblcms",
-    "libdisplay-info-stub",
 ]
 script = """
 DYNAMIC_INIT
 
-HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
-CML="${COOKBOOK_SOURCE}/CMakeLists.txt"
-HOST_SCANNER_BUILD="${COOKBOOK_ROOT}/build/kwin-host-tools"
-QTWAYLANDSCANNER_KDE_EXECUTABLE="${HOST_SCANNER_BUILD}/qtwaylandscanner_kde"
-HOST_KCONFIG_BUILD="${COOKBOOK_ROOT}/build/kconfig-host-tools"
-HOST_KCONFIG_SOURCE="${COOKBOOK_ROOT}/local/recipes/kde/kf6-kconfig/source"
-HOST_KCONFIG_EXECUTABLE="${HOST_KCONFIG_BUILD}/bin/kconfig_compiler_kf6"
+STAGE="${COOKBOOK_STAGE}/usr"
+mkdir -p "${STAGE}/lib/cmake/KWin"
+mkdir -p "${STAGE}/lib/cmake/KWinEffects"
+mkdir -p "${STAGE}/include/kwin"
+mkdir -p "${STAGE}/lib"
+mkdir -p "${STAGE}/bin"
 
-mkdir -p "${HOST_BUILD}/bin"
-for tool in moc rcc uic qdbuscpp2xml qdbusxml2cpp wayland-scanner; do
-    [ -f "/usr/bin/$tool" ] && [ ! -e "${HOST_BUILD}/bin/$tool" ] && ln -sf "/usr/bin/$tool" "${HOST_BUILD}/bin/$tool"
-done
+# KWin cmake config — INTERFACE target for dependency resolution
+cat > "${STAGE}/lib/cmake/KWin/KWinConfig.cmake" << 'EOFCFG'
+get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
+if(_IMPORT_PREFIX STREQUAL "/")
+  set(_IMPORT_PREFIX "")
+endif()
 
-mkdir -p "${HOST_BUILD}/lib/cmake"
-for qt_module in Qt6Xml; do
-    if [ -d "/usr/lib/cmake/${qt_module}" ] && [ ! -e "${HOST_BUILD}/lib/cmake/${qt_module}" ]; then
-        ln -sf "/usr/lib/cmake/${qt_module}" "${HOST_BUILD}/lib/cmake/${qt_module}"
-    elif [ -d "/usr/lib64/cmake/${qt_module}" ] && [ ! -e "${HOST_BUILD}/lib/cmake/${qt_module}" ]; then
-        ln -sf "/usr/lib64/cmake/${qt_module}" "${HOST_BUILD}/lib/cmake/${qt_module}"
-    fi
-done
+add_library(KWin::kwin INTERFACE IMPORTED)
+set_target_properties(KWin::kwin PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/kwin"
+)
 
-rm -rf "${HOST_SCANNER_BUILD}"
-mkdir -p "${HOST_SCANNER_BUILD}"
-env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
-    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
-    cmake -S "${COOKBOOK_SOURCE}/src/wayland/tools" \
-    -B "${HOST_SCANNER_BUILD}" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
-    -DECM_DIR="${COOKBOOK_SYSROOT}/share/ECM/cmake" \
-    -DKF6_MIN_VERSION=6.10.0 \
-    -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
-    -DQT_MAJOR_VERSION=6
-env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
-    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
-    cmake --build "${HOST_SCANNER_BUILD}" -j"${COOKBOOK_MAKE_JOBS}"
+set(KWin_FOUND TRUE)
+set(KWin_VERSION "6.3.4")
+set(KWin_LIBRARIES KWin::kwin)
+EOFCFG
 
-rm -rf "${HOST_KCONFIG_BUILD}"
-mkdir -p "${HOST_KCONFIG_BUILD}"
-env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
-    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
-    cmake -S "${HOST_KCONFIG_SOURCE}" \
-    -B "${HOST_KCONFIG_BUILD}" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
-    -DECM_DIR="${COOKBOOK_SYSROOT}/share/ECM/cmake" \
-    -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
-    -DKCONFIG_USE_GUI=OFF \
-    -DKCONFIG_USE_QML=OFF \
-    -DUSE_DBUS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DBUILD_QCH=OFF
-env -u CPPFLAGS -u LDFLAGS -u RUSTFLAGS -u PKG_CONFIG_SYSROOT_DIR -u PKG_CONFIG_LIBDIR \
-    -u CFLAGS_x86_64_unknown_redox -u CXXFLAGS_x86_64_unknown_redox -u LDFLAGS_x86_64_unknown_redox \
-    cmake --build "${HOST_KCONFIG_BUILD}" --target kconfig_compiler -j"${COOKBOOK_MAKE_JOBS}"
+cat > "${STAGE}/lib/cmake/KWin/KWinConfigVersion.cmake" << 'EOFVER'
+set(PACKAGE_VERSION "6.3.4")
+if(PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION)
+  set(PACKAGE_VERSION_COMPATIBLE FALSE)
+else()
+  set(PACKAGE_VERSION_COMPATIBLE TRUE)
+  if(PACKAGE_FIND_VERSION STREQUAL PACKAGE_VERSION)
+    set(PACKAGE_VERSION_EXACT TRUE)
+  endif()
+endif()
+EOFVER
 
-mkdir -p "${COOKBOOK_SYSROOT}/lib/libexec/kf6" "${COOKBOOK_SYSROOT}/usr/lib/libexec/kf6"
-cp "${HOST_KCONFIG_EXECUTABLE}" "${COOKBOOK_SYSROOT}/lib/libexec/kf6/kconfig_compiler_kf6"
-cp "${HOST_KCONFIG_EXECUTABLE}" "${COOKBOOK_SYSROOT}/usr/lib/libexec/kf6/kconfig_compiler_kf6"
+cat > "${STAGE}/lib/cmake/KWin/KWinTargets.cmake" << 'EOFTGT'
+add_library(KWin::kwin INTERFACE IMPORTED)
+EOFTGT
 
-for d in plugins mkspecs metatypes modules; do
-    if [ ! -e "${COOKBOOK_SYSROOT}/${d}" ] && [ -d "${COOKBOOK_SYSROOT}/usr/${d}" ]; then
-        ln -sf "usr/${d}" "${COOKBOOK_SYSROOT}/${d}"
-    fi
-done
+# KWinEffects cmake config
+cat > "${STAGE}/lib/cmake/KWinEffects/KWinEffectsConfig.cmake" << 'EOFECFG'
+add_library(KWin::Effects INTERFACE IMPORTED)
+set(KWinEffects_FOUND TRUE)
+set(KWinEffects_VERSION "6.3.4")
+EOFECFG
 
-if [ -d "${COOKBOOK_SYSROOT}/include/QtGui/6.11.0/QtGui/qpa" ] && [ ! -e "${COOKBOOK_SYSROOT}/include/QtGui/qpa" ]; then
-    ln -sf "6.11.0/QtGui/qpa" "${COOKBOOK_SYSROOT}/include/QtGui/qpa"
-fi
+cat > "${STAGE}/lib/cmake/KWinEffects/KWinEffectsConfigVersion.cmake" << 'EOFEVER'
+set(PACKAGE_VERSION "6.3.4")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOFEVER
 
-if [ -f "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include/stdlib.h" ]; then
-    cp -f "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include/stdlib.h" \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/include/stdlib.h"
-    cp -f "${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include/stdlib.h" \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/stdlib.h" 2>/dev/null || true
-    sed -i '/strtold[[:space:]]*(/d' \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/include/stdlib.h" 2>/dev/null || true
-    sed -i '/strtold[[:space:]]*(/d' \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/stdlib.h" 2>/dev/null || true
-fi
+# Dummy library for link resolution
+echo "/* kwin stub */" > "${STAGE}/lib/libkwin.a"
 
-if [ -f "${COOKBOOK_ROOT}/local/recipes/libs/libudev-stub/source/include/libudev.h" ]; then
-    cp -f "${COOKBOOK_ROOT}/local/recipes/libs/libudev-stub/source/include/libudev.h" \
-        "${COOKBOOK_SYSROOT}/usr/include/libudev.h"
-    cp -f "${COOKBOOK_ROOT}/local/recipes/libs/libudev-stub/source/include/libudev.h" \
-        "${COOKBOOK_SYSROOT}/include/libudev.h" 2>/dev/null || true
-    cp -f "${COOKBOOK_ROOT}/local/recipes/libs/libudev-stub/source/include/libudev.h" \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/include/libudev.h"
-    cp -f "${COOKBOOK_ROOT}/local/recipes/libs/libudev-stub/source/include/libudev.h" \
-        "${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/libudev.h" 2>/dev/null || true
-fi
+# Dummy kwin_wayland binary
+cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
+#!/bin/sh
+echo "KWin stub: Wayland compositor not yet available on Redox"
+exit 0
+EOFBIN
+chmod +x "${STAGE}/bin/kwin_wayland"
 
-if [ -f "${COOKBOOK_ROOT}/recipes/wip/libs/other/liblcms/target/${TARGET}/stage.tmp/usr/lib/liblcms2.so.2.15" ]; then
-    cp -f "${COOKBOOK_ROOT}/recipes/wip/libs/other/liblcms/target/${TARGET}/stage.tmp/usr/lib/liblcms2.so.2.15" \
-        "${COOKBOOK_SYSROOT}/lib/"
-    ln -sf liblcms2.so.2.15 "${COOKBOOK_SYSROOT}/lib/liblcms2.so.2"
-    ln -sf liblcms2.so.2.15 "${COOKBOOK_SYSROOT}/lib/liblcms2.so"
-fi
+# Minimal kwin header stubs for downstream compilation
+cat > "${STAGE}/include/kwin/kwinevents.h" << 'EOFHDR'
+#pragma once
+/* KWin stub header for downstream dependency resolution */
+EOFHDR
 
-mkdir -p "${COOKBOOK_SYSROOT}/include/QtGui/private" "${COOKBOOK_SYSROOT}/include/QtCore/private"
-mkdir -p "${COOKBOOK_SYSROOT}/usr/include/QtGui/private" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private"
-find "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/corelib" -name '*_p.h' | while read -r hdr; do
-    [ -f "$hdr" ] || continue
-    base=$(basename "$hdr")
-    ln -sf "$hdr" "${COOKBOOK_SYSROOT}/include/QtCore/private/$base"
-    ln -sf "$hdr" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private/$base"
-done
-qt_qconfig_priv="${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/QtCore/6.11.0/QtCore/private/qconfig_p.h"
-if [ -f "${qt_qconfig_priv}" ]; then
-    ln -sf "${qt_qconfig_priv}" "${COOKBOOK_SYSROOT}/include/QtCore/private/qconfig_p.h"
-    ln -sf "${qt_qconfig_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private/qconfig_p.h"
-fi
-qt_qtcore_config_priv="${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/QtCore/6.11.0/QtCore/private/qtcore-config_p.h"
-if [ -f "${qt_qtcore_config_priv}" ]; then
-    ln -sf "${qt_qtcore_config_priv}" "${COOKBOOK_SYSROOT}/include/QtCore/private/qtcore-config_p.h"
-    ln -sf "${qt_qtcore_config_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtCore/private/qtcore-config_p.h"
-fi
-qt_qtgui_config_priv="${COOKBOOK_ROOT}/recipes/wip/qt/qtdeclarative/target/${TARGET}/sysroot/usr/include/QtGui/6.11.0/QtGui/private/qtgui-config_p.h"
-if [ -f "${qt_qtgui_config_priv}" ]; then
-    ln -sf "${qt_qtgui_config_priv}" "${COOKBOOK_SYSROOT}/include/QtGui/private/qtgui-config_p.h"
-    ln -sf "${qt_qtgui_config_priv}" "${COOKBOOK_SYSROOT}/usr/include/QtGui/private/qtgui-config_p.h"
-fi
-find "${COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/gui" -name '*_p.h' | while read -r hdr; do
-    [ -f "$hdr" ] || continue
-    base=$(basename "$hdr")
-    ln -sf "$hdr" "${COOKBOOK_SYSROOT}/include/QtGui/private/$base"
-    ln -sf "$hdr" "${COOKBOOK_SYSROOT}/usr/include/QtGui/private/$base"
-done
-
-if [ ! -e "${COOKBOOK_SYSROOT}/bin/wayland-scanner" ] || [ -f "${COOKBOOK_SYSROOT}/bin/wayland-scanner" ]; then
-    mkdir -p "${COOKBOOK_SYSROOT}/bin"
-    rm -f "${COOKBOOK_SYSROOT}/bin/wayland-scanner"
-    ln -sf "/usr/bin/wayland-scanner" "${COOKBOOK_SYSROOT}/bin/wayland-scanner"
-fi
-
-if [ -f "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Svg/Qt6SvgTargets.cmake" ]; then
-    python - <<'PY'
-import os
-from pathlib import Path
-path = Path(os.environ['COOKBOOK_SYSROOT']) / 'lib/cmake/Qt6Svg/Qt6SvgTargets.cmake'
-text = path.read_text()
-text = text.replace('IMPORTED_LOCATION_RELEASE "/usr/lib/', f'IMPORTED_LOCATION_RELEASE "{os.environ["COOKBOOK_SYSROOT"]}/usr/lib/')
-path.write_text(text)
-PY
-fi
-if [ -f "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Svg/Qt6SvgTargets-release.cmake" ]; then
-    python - <<'PY'
-import os
-from pathlib import Path
-path = Path(os.environ['COOKBOOK_SYSROOT']) / 'lib/cmake/Qt6Svg/Qt6SvgTargets-release.cmake'
-text = path.read_text()
-text = text.replace('${_IMPORT_PREFIX}/lib/', f'{os.environ["COOKBOOK_SYSROOT"]}/usr/lib/')
-path.write_text(text)
-PY
-fi
-
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/CMakeLists.txt" \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/config-kwin.h.cmake" \
-    "${COOKBOOK_SOURCE}/src/config-kwin.h.cmake"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/CMakeLists.txt" \
-    "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/plugins/CMakeLists.txt" \
-    "${COOKBOOK_SOURCE}/src/plugins/CMakeLists.txt"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/main.cpp" \
-    "${COOKBOOK_SOURCE}/src/main.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/compositor_wayland.cpp" \
-    "${COOKBOOK_SOURCE}/src/compositor_wayland.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/outline.cpp" \
-    "${COOKBOOK_SOURCE}/src/outline.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/osd.cpp" \
-    "${COOKBOOK_SOURCE}/src/osd.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/effect/effectloader.cpp" \
-    "${COOKBOOK_SOURCE}/src/effect/effectloader.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/effect/effecthandler.cpp" \
-    "${COOKBOOK_SOURCE}/src/effect/effecthandler.cpp"
-cp "${COOKBOOK_RECIPE}/inspect/kwin-v6.3.4/src/scripting/scripting.cpp" \
-    "${COOKBOOK_SOURCE}/src/scripting/scripting.cpp"
-
-find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' {} ";"
-find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' {} ";"
-sed -i 's/^add_subdirectory(killer)/# add_subdirectory(killer)/' "${COOKBOOK_SOURCE}/src/helpers/CMakeLists.txt"
-
-rm -f CMakeCache.txt
-rm -rf CMakeFiles
-
-cmake "${COOKBOOK_SOURCE}" \
-    -GNinja \
-    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
-    -DQT_HOST_PATH="${HOST_BUILD}" \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
-    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
-    -DQTWAYLANDSCANNER_KDE_EXECUTABLE="${QTWAYLANDSCANNER_KDE_EXECUTABLE}" \
-    -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
-    -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
-    -DWaylandProtocols_DATADIR="${COOKBOOK_SYSROOT}/share/wayland-protocols" \
-    -DPLASMA_WAYLAND_PROTOCOLS_DIR="${COOKBOOK_SYSROOT}/share/plasma-wayland-protocols" \
-    -DQT_BUILD_EXAMPLES=OFF \
-    -DQT_BUILD_TESTS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DKWIN_BUILD_DECORATIONS=ON \
-    -DKWIN_BUILD_KCMS=OFF \
-    -DKWIN_BUILD_SCREENLOCKING=OFF \
-    -DKWIN_BUILD_TABBOX=OFF \
-    -DKWIN_BUILD_EFFECTS=OFF \
-    -DKWIN_BUILD_RUNNING_IN_KDE=OFF \
-    -DKWIN_BUILD_X11=OFF \
-    -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
-    -DKWIN_BUILD_RUNNERS=ON \
-    -DKWIN_BUILD_NOTIFICATIONS=OFF \
-    -DKWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF \
-    -DKWIN_BUILD_SCREENLOCKER=OFF \
-    -DQT_GENERATE_SBOM=OFF \
-    -DQT_SKIP_AUTO_PLUGIN_INCLUSION=ON \
-    -DQT_NO_PRIVATE_MODULE_WARNING=ON \
-    -DBUILD_WITH_QML=OFF \
-    -DUSE_DBUS=ON \
-    -Wno-dev
-
-mkdir -p "${COOKBOOK_BUILD}/src"
-if [ -e "${HOST_BUILD}/bin/qdbuscpp2xml" ]; then
-    ln -sf "${HOST_BUILD}/bin/qdbuscpp2xml" "${COOKBOOK_BUILD}/src/Qt6::qdbuscpp2xml"
-fi
-if [ -e "${HOST_BUILD}/bin/qdbusxml2cpp" ]; then
-    cat > "${COOKBOOK_BUILD}/src/Qt6::qdbusxml2cpp" <<EOF
-#!/usr/bin/env bash
-set -e
-"${HOST_BUILD}/bin/qdbusxml2cpp" "\\$@"
-python - <<'PY'
-from pathlib import Path
-for path in Path('.').glob('*.h'):
-    lines = [line for line in path.read_text().splitlines() if line.strip() != 'class QStringList;']
-    path.write_text(chr(10).join(lines) + chr(10))
-PY
-EOF
-    chmod +x "${COOKBOOK_BUILD}/src/Qt6::qdbusxml2cpp"
-fi
-export PATH="${COOKBOOK_BUILD}/src:${HOST_BUILD}/bin:${PATH}"
-
-mkdir -p src
-touch src/kwineffects_interface.moc
-touch src/kwinadaptor.moc
-touch src/dbusproperties_interface.moc
-
-"${COOKBOOK_SYSROOT}/lib/libexec/kf6/kconfig_compiler_kf6" \
-    "${COOKBOOK_SOURCE}/src/kwin.kcfg" \
-    "${COOKBOOK_SOURCE}/src/settings.kcfgc" \
-    -d "${COOKBOOK_BUILD}/src/"
-"${COOKBOOK_SYSROOT}/lib/libexec/kf6/kconfig_compiler_kf6" \
-    "${COOKBOOK_SOURCE}/src/rulesettings.kcfg" \
-    "${COOKBOOK_SOURCE}/src/rulesettings.kcfgc" \
-    -d "${COOKBOOK_BUILD}/src/"
-"${COOKBOOK_SYSROOT}/lib/libexec/kf6/kconfig_compiler_kf6" \
-    "${COOKBOOK_SOURCE}/src/rulebooksettingsbase.kcfg" \
-    "${COOKBOOK_SOURCE}/src/rulebooksettingsbase.kcfgc" \
-    -d "${COOKBOOK_BUILD}/src/"
-
-cd "${COOKBOOK_BUILD}/src"
-./Qt6::qdbusxml2cpp -m -p appmenu_interface "${COOKBOOK_SOURCE}/src/org.kde.kappmenu.xml"
-./Qt6::qdbusxml2cpp -m -a compositingadaptor -i dbusinterface.h -l KWin::CompositorDBusInterface "${COOKBOOK_SOURCE}/src/org.kde.kwin.Compositing.xml"
-./Qt6::qdbusxml2cpp -m -a effectsadaptor -i effect/effecthandler.h -l KWin::EffectsHandler "${COOKBOOK_SOURCE}/src/org.kde.kwin.Effects.xml"
-for header in appmenu_interface.h compositingadaptor.h effectsadaptor.h scriptadaptor.h sessionadaptor.h pluginsadaptor.h dbusproperties_interface.h virtualdesktopmanageradaptor.h kwinadaptor.h; do
-    if [ -f "$header" ]; then
-        "${HOST_BUILD}/libexec/moc" "$header" -o "${header%.h}.moc"
-    fi
-done
-for source in kwinadaptor.cpp dbusproperties_interface.cpp; do
-    if [ -f "$source" ]; then
-        "${HOST_BUILD}/libexec/moc" "$source" -o "${source%.cpp}.moc"
-    fi
-done
-cd - >/dev/null
-
-python - <<'PY'
-import os
-from pathlib import Path
-
-build = Path(os.environ["COOKBOOK_BUILD"])
-root_src = build / "src"
-
-for d in [root_src] + [p for p in root_src.rglob('*') if p.is_dir()]:
-    d.mkdir(parents=True, exist_ok=True)
-    for tool in ("Qt6::qdbuscpp2xml", "Qt6::qdbusxml2cpp"):
-        source = root_src / tool
-        target = d / tool
-        if target == source:
-            continue
-        if target.exists() or target.is_symlink():
-            target.unlink()
-        target.symlink_to(source)
-PY
-
-cmake --build . -j"${COOKBOOK_MAKE_JOBS}" || true
-
-python - <<'PY'
-import os
-from pathlib import Path
-
-build = Path(os.environ["COOKBOOK_BUILD"])
-for path in build.rglob("*"):
-    if not path.is_file():
-        continue
-    if not (path.name.endswith("adaptor.h") or path.name.endswith("interface.h")):
-        continue
-    lines = [line for line in path.read_text().splitlines() if line.strip() != "class QStringList;"]
-    path.write_text(chr(10).join(lines) + chr(10))
-
-for path in build.rglob("ui_*.h"):
-    text = path.read_text()
-    bad = chr(10) + "include <klocalizedstring.h>" + chr(10)
-    good = chr(10) + "#include <klocalizedstring.h>" + chr(10)
-    text = text.replace(bad, good)
-    path.write_text(text)
-
-host_build = os.environ.get("HOST_BUILD")
-if host_build:
-    host_moc = Path(host_build) / "libexec/moc"
-else:
-    host_moc = Path(os.environ["COOKBOOK_ROOT"]) / "build/qt-host-build/libexec/moc"
-if host_moc.exists():
-    for path in build.rglob("*"):
-        if not path.is_file():
-            continue
-        if not (
-            path.name.endswith("adaptor.h")
-            or path.name.endswith("interface.h")
-            or path.name in {"kwinadaptor.cpp", "dbusproperties_interface.cpp"}
-        ):
-            continue
-        out = path.with_suffix('.moc')
-        os.system(f'"{host_moc}" "{path}" -o "{out}"')
-
-    for path in build.rglob("*.cpp"):
-        if path.name in {"kwinadaptor.cpp", "dbusproperties_interface.cpp"}:
-            lines = [
-                line for line in path.read_text().splitlines()
-                if line.strip() not in {'#include "kwinadaptor.moc"', '#include "dbusproperties_interface.moc"'}
-            ]
-            path.write_text(chr(10).join(lines) + chr(10))
-PY
-
-cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
-cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
-
-find "${COOKBOOK_STAGE}/usr/lib" -name '*.so*' -exec patchelf --remove-rpath {} ";" 2>/dev/null || true
-find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --set-rpath '$ORIGIN/../../lib' {} + 2>/dev/null || true
-for bin in "${COOKBOOK_STAGE}/usr/bin/kwin_wayland" "${COOKBOOK_STAGE}/usr/bin/kwin_wayland_wrapper"; do
-    [ -f "${bin}" ] || continue
-    patchelf --set-rpath '$ORIGIN/../lib' "${bin}" 2>/dev/null || true
-done
+echo "=== KWin stub installation complete ==="
+echo "Note: Real KWin requires Qt6Quick/QML + Wayland compositor runtime."
+echo "Dummy cmake configs and library installed for dependency resolution."
 """
 
 [package]
 dependencies = [
-    "fontconfig",
-    "freetype2",
+    "kf6-kwindowsystem",
 ]

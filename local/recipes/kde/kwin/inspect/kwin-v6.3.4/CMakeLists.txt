@@ -66,11 +66,10 @@ endif()
 find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS
     Concurrent
     Core
-    Qml
     WaylandClient
     Widgets
     Svg
-)
+ )
 find_package(Qt6DBus ${QT_MIN_VERSION} CONFIG)
 
 if (KWIN_BUILD_QTQUICK)
@@ -99,7 +98,6 @@ find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
     ConfigWidgets
     CoreAddons
     Crash
-    Declarative
     GlobalAccel
     GuiAddons
     I18n
@@ -108,7 +106,7 @@ find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
     Service
     WidgetsAddons
     WindowSystem
-)
+ )
 find_package(KF6DBusAddons ${KF6_MIN_VERSION} CONFIG)
 # required frameworks by config modules
 if(KWIN_BUILD_KCMS)
