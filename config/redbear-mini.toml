@@ -1,18 +1,25 @@
-# Red Bear OS Live Mini Configuration
-# Live ISO variant for console/recovery/install on bare metal.
+# Red Bear OS Mini Configuration
+# Text-only ISO for console/recovery/install on bare metal.
 #
-# Build: make live CONFIG_NAME=redbear-live-mini
+# Build: make live CONFIG_NAME=redbear-mini
 #
 # Target contract:
-# - keep a text-login live/recovery surface only
-# - use boot framebuffer for VT text consoles via vesad + fbcond
-# - ship all non-graphics, non-firmware packages from the full profile
-# - ship no linux-firmware payload, no firmware-loader, no GPU/display drivers
+# - text-login live/recovery/install surface
+# - boot framebuffer for VT text consoles via vesad + fbcond
+# - all non-graphics, non-firmware packages from the full profile
+# - no linux-firmware payload, no firmware-loader, no GPU/display drivers
 
 include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml"]
 
 [general]
 filesystem_size = 1536
+
+[users.messagebus]
+uid = 100
+gid = 100
+name = "messagebus"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
 
 [packages]
 # Red Bear OS branding and host utilities.
@@ -189,10 +196,24 @@ type = "oneshot_async"
 """
 
 [[files]]
+path = "/etc/init.d/00_i2c-dw-acpi.service"
+data = """
+[unit]
+description = "DesignWare ACPI I2C controller (non-blocking)"
+requires_weak = [
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "dw-acpi-i2cd"
+type = "oneshot_async"
+"""
+
+[[files]]
 path = "/etc/init.d/00_intel-gpiod.service"
 data = """
 [unit]
-description = "Intel ACPI GPIO registrar (non-blocking on live-mini)"
+description = "Intel ACPI GPIO registrar (non-blocking)"
 requires_weak = [
     "00_gpiod.service",
     "00_i2cd.service",
@@ -222,7 +243,7 @@ type = "oneshot_async"
 path = "/etc/init.d/00_i2c-hidd.service"
 data = """
 [unit]
-description = "ACPI I2C HID bring-up daemon (non-blocking on live-mini)"
+description = "ACPI I2C HID bring-up daemon (non-blocking)"
 requires_weak = [
     "00_i2cd.service",
     "00_i2c-dw-acpi.service",

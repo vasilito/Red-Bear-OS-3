@@ -93,14 +93,13 @@ That means:
 The tracked Red Bear compile targets are:
 
 - `redbear-mini`
-- `redbear-live-mini`
 - `redbear-full`
-- `redbear-live-full`
+- `redbear-grub`
 
 These are the only supported compile targets. Older names such as `redbear-minimal`,
-`redbear-desktop`, `redbear-wayland`, `redbear-kde`, and `redbear-live` may still appear in
-historical notes or legacy implementation details, but they are not the current compile-target
-surface.
+`redbear-desktop`, `redbear-wayland`, `redbear-kde`, `redbear-live`, `redbear-live-mini`,
+and `redbear-live-full` may still appear in historical notes or legacy implementation details,
+but they are not the current compile-target surface.
 
 ### `redbear-mini`
 
@@ -125,31 +124,20 @@ Scope:
 - Qt base integration,
 - the active desktop-capable target surface.
 
-### `redbear-live-mini`
+### `redbear-grub`
 
-Live/demo/recovery form of the mini baseline for real bare metal.
-
-Scope:
-
-- diagnostics,
-- recovery workflows,
-- installability for the non-graphics target.
-
-### `redbear-live-full`
-
-Live/demo/recovery form of the full desktop target for real bare metal.
+Text-only console/recovery target with GRUB boot manager for real bare metal.
 
 Scope:
 
 - diagnostics,
 - recovery workflows,
-- installability,
-- live desktop-capable system identity.
+- multi-boot bare-metal install with GRUB chainload.
 
 ### Desktop policy
 
-- Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
-- Validation work that does not require graphics should prefer `redbear-mini` or `redbear-live-mini`.
+- Desktop/graphics are available only on `redbear-full`.
+- Validation work that does not require graphics should prefer `redbear-mini` or `redbear-grub`.
 - Live `.iso` outputs are for real bare-metal boot/install workflows, not for VM/QEMU execution; virtualization should use the `harddrive.img`-based target surface.
 
 ## Current State Baseline
@@ -384,9 +372,9 @@ Canonical references:
 
 Acceptance:
 
-- `redbear-wayland` remains the narrow runtime validation slice,
-- `redbear-full` remains the broader desktop/session plumbing slice,
-- the active desktop-capable tracked targets keep honest session-viability language tied to `redbear-full` / `redbear-live-full`, not older historical target names.
+- `redbear-full` remains the broader desktop/session plumbing slice (the Wayland validation slice
+  is handled within `redbear-full`),
+- the active desktop-capable tracked targets keep honest session-viability language tied to `redbear-full`, not older historical target names.
 
 ### 8. Hardware validation and support labeling
 

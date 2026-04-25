@@ -31,10 +31,11 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 ## Active Target Surface and Evidence Boundary
 
-- The supported compile targets are `redbear-mini`, `redbear-live-mini`, `redbear-full`, and `redbear-live-full`.
-- Desktop/graphics are available only on `redbear-full` and `redbear-live-full`.
-- Older names such as `redbear-kde`, `redbear-wayland`, and `redbear-minimal*` still appear in
-  historical or staging material, but they are not the supported compile-target surface.
+- The supported compile targets are `redbear-mini`, `redbear-full`, and `redbear-grub`.
+- Desktop/graphics are available only on `redbear-full`.
+- Older names such as `redbear-kde`, `redbear-wayland`, `redbear-minimal*`, `redbear-live-mini`,
+  and `redbear-live-full` still appear in historical or staging material, but they are not the
+  supported compile-target surface.
 - The greeter/login path is currently an **experimental build/integration surface** on `redbear-full`;
   it is not yet a runtime-validated end-to-end desktop-login claim.
 
@@ -51,8 +52,8 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
 | Input stack | **builds, enumerates** | evdevd (65 tests), libevdev, libinput, seatd present; evdevd registers scheme at boot; end-to-end compositor input path unproven |
-| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full`; session bus incomplete (redbear-sessiond login1 broker only) |
-| redbear-sessiond | **builds, scaffold** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; now includes runtime control updates used by the greeter/auth session handoff |
+| D-Bus | **builds, bounded (in improvement)** | System bus wired in `redbear-full`; session bus incomplete; Phase 3/4 improvement plan active; completeness: login1.Manager ~10%, login1.Session ~47%, login1.Seat ~20%, Notifications ~80%, UPower ~60%, UDisks2 ~50%, PolicyKit1 ~50%; `StatusNotifierWatcher` is the new service being added in Phase 4 |
+| redbear-sessiond | **builds, scaffold (Phase 3/4 improvement active)** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; Phase 3 hard gate is TakeDevice FD passing plus PauseDevice/ResumeDevice signal emission; Priority 1 in Phase 3/4 improvement plan |
 | redbear-authd | **builds** | Privileged local-user auth daemon; `/etc/passwd`/`/etc/shadow`/`/etc/group` parsing, SHA-256/SHA-512 crypt verification, bounded lockout, target-side recipe build proven |
 | redbear-session-launch | **builds** | User-session bootstrap tool; runtime-dir/env setup, uid/gid handoff, dbus-run-session → `redbear-kde-session`, target-side recipe build proven |
 | redbear-greeterd | **builds, experimental** | Root-owned greeter orchestrator; UI/auth socket protocol, bounded restart policy, return-to-greeter daemon logic, crate tests pass; end-to-end runtime proof still pending |
@@ -73,9 +74,8 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | validation compositor runtime | **experimental** | Reaches early init in QEMU; no complete session |
 | validation profile | **builds, boots** | Bounded Wayland runtime profile |
 | `redbear-full` profile | **builds, boots** | Active desktop/graphics compile surface; now owns the experimental greeter/auth/session-launch integration path |
-| `redbear-live-full` profile | **builds** | Live image following the active desktop/graphics target |
+| `redbear-grub` profile | **builds** | Text-only with GRUB chainload for bare-metal multi-boot |
 | `redbear-mini` profile | **builds** | Minimal non-desktop compile target |
-| `redbear-live-mini` profile | **builds** | Minimal live image target |
 | `redbear-hwutils` | **builds** | lspci/lsusb tools; 19 unit tests (PCI location parsing, USB device description, argument handling) |
 
 ## Profile View
@@ -87,23 +87,17 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 - **Use for:** Desktop integration testing, greeter/login bring-up, and bounded desktop/network plumbing validation
 - **Do not overclaim:** This profile proves bounded QEMU desktop/network plumbing only. It does not by itself close the Wi-Fi implementation plan's later real-hardware Phase W5 reporting/recovery gate.
 
-### `redbear-live-full`
+### `redbear-grub`
 
-- **Role:** Live/demo/recovery image layered on the active desktop target
-- **Current truth:** Follows `redbear-full`; desktop/graphics-capable live image, but the greeter/login surface remains experimental until end-to-end proof exists
-- **Use for:** Demo, install, and bounded live-media validation on the current desktop surface
+- **Role:** Text-only target with GRUB boot manager for bare-metal multi-boot
+- **Current truth:** Follows `redbear-mini`; text-only with GRUB chainload ESP layout, no desktop/graphics
+- **Use for:** Bare-metal multi-boot, recovery with GRUB menu, and install workflows requiring GRUB
 
 ### `redbear-mini`
 
 - **Role:** Minimal non-desktop target
 - **Current truth:** No desktop/graphics path; recovery and non-desktop integration surface only. TUI recovery is bound to VT activation through `29_activate_console.service` followed by `30_console.service`/`31_debug_console.service`.
 - **Use for:** Minimal runtime bring-up, subsystem validation, and non-desktop packaging checks
-
-### `redbear-live-mini`
-
-- **Role:** Minimal live image target
-- **Current truth:** No desktop/graphics path; live/recovery-oriented minimal image surface
-- **Use for:** Minimal live boot and recovery workflows
 
 ## Current Blockers
 
@@ -197,7 +191,7 @@ QtNetwork is intentionally disabled because relibc networking is too narrow. Thi
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
 - All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
-- Four supported compile targets exist, with desktop/graphics on `redbear-full` and `redbear-live-full`
+- Four supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`)
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 19, bluetooth/wifi 209)

@@ -56,7 +56,7 @@ This work must be treated as bare-metal boot-critical substrate, not as optional
   Emits RB_THC_QUICKI2C, RB_UCSI_* markers. Consumes `/scheme/ucsi/summary`.
 - **`amlserde`** — AML serialization/deserialization, including `AmlSerdeValue::Buffer`
   (needed for `_CRS`), `RegionSpace::GenericSerialBus` for I2C/SMBus opregions.
-- **Init services** — `redbear-live-mini.toml` wires `i2cd`, `i2c-hidd`, `i2c-dw-acpi`,
+- **Init services** — `redbear-mini.toml` wires `i2cd`, `i2c-hidd`, `i2c-dw-acpi`,
   `i2c-gpio-expanderd`, `intel-gpiod`, `ucsid` with non-blocking startup ordering.
 
 ### What is missing (active gaps)

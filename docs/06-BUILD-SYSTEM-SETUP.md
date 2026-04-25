@@ -105,7 +105,7 @@ echo 'PODMAN_BUILD?=0' > .config
 
 ### Select Build Configuration
 
-Tracked Red Bear work should normally be built and validated through the four supported
+Tracked Red Bear work should normally be built and validated through the three supported
 `redbear-*` compile targets. For desktop work specifically, `redbear-full` is the tracked
 desktop-capable target.
 
@@ -144,20 +144,19 @@ For the full layout and rationale, see `local/docs/EXTERNAL-TOOLCHAIN.md`.
 ```bash
 # Preferred Red Bear wrapper:
 ./local/scripts/build-redbear.sh redbear-mini
-./local/scripts/build-redbear.sh redbear-live-mini
 ./local/scripts/build-redbear.sh redbear-full
-./local/scripts/build-redbear.sh redbear-live-full
+./local/scripts/build-redbear.sh redbear-grub
 
 # Direct make is still valid when needed:
 make all CONFIG_NAME=redbear-full
 ```
 
-For tracked Red Bear work, prefer these four compile targets over older historical names.
+For tracked Red Bear work, prefer these three compile targets over older historical names.
 
 ### Build a Live ISO
 
 ```bash
-make live CONFIG_NAME=redbear-live-full
+make live CONFIG_NAME=redbear-full
 # Produces: build/x86_64/redbear-live.iso
 ```
 

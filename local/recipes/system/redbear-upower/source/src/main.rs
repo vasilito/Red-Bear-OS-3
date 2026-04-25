@@ -29,6 +29,8 @@ const DEVICE_STATE_DISCHARGING: u32 = 2;
 const DEVICE_STATE_EMPTY: u32 = 3;
 const DEVICE_STATE_FULLY_CHARGED: u32 = 4;
 
+const POLL_INTERVAL_SECS: u64 = 30;
+
 #[derive(Debug, Clone)]
 struct PowerRuntime {
     root: PathBuf,
@@ -59,20 +61,20 @@ enum DeviceDescriptor {
     Battery(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct AdapterState {
     native_path: String,
     online: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct BatteryState {
     native_path: String,
     state_bits: u64,
     percentage: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct PowerSnapshot {
     adapters: Vec<AdapterState>,
     batteries: Vec<BatteryState>,
@@ -328,31 +330,6 @@ impl PowerSnapshot {
     }
 }
 
-#[cfg(all(unix, not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    use tokio::signal::unix::{SignalKind, signal};
-
-    let mut terminate = signal(SignalKind::terminate())?;
-
-    tokio::select! {
-        _ = terminate.recv() => Ok(()),
-        _ = tokio::signal::ctrl_c() => Ok(()),
-    }
-}
-
-#[cfg(target_os = "redox")]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    std::future::pending::<()>().await;
-    #[allow(unreachable_code)]
-    Ok(())
-}
-
-#[cfg(all(not(unix), not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    tokio::signal::ctrl_c().await?;
-    Ok(())
-}
-
 #[interface(name = "org.freedesktop.UPower")]
 impl UPowerDaemon {
     fn enumerate_devices(&self) -> Vec<OwnedObjectPath> {
@@ -368,7 +345,7 @@ impl UPowerDaemon {
         String::from("0.1.0")
     }
 
-    #[zbus(property(emits_changed_signal = "const"), name = "OnBattery")]
+    #[zbus(property(emits_changed_signal = "false"), name = "OnBattery")]
     fn on_battery(&self) -> bool {
         self.runtime.snapshot().on_battery()
     }
@@ -476,6 +453,28 @@ impl PowerDevice {
     }
 }
 
+fn spawn_signal_handler(shutdown_tx: tokio::sync::watch::Sender<bool>) {
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                tokio::select! {
+                    _ = sigterm.recv() => {},
+                    _ = tokio::signal::ctrl_c() => {},
+                }
+            } else {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+        let _ = shutdown_tx.send(true);
+    });
+}
+
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
     wait_for_dbus_socket().await;
     let runtime = PowerRuntime::discover()?;
@@ -485,6 +484,9 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         );
     }
     let _display_device_path = parse_object_path(DISPLAY_DEVICE_PATH)?;
+
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    spawn_signal_handler(shutdown_tx);
 
     let mut last_err = None;
     for attempt in 1..=5 {
@@ -527,13 +529,44 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         match builder.build().await {
             Ok(connection) => {
                 eprintln!("redbear-upower: registered {BUS_NAME} on the system bus");
-                wait_for_shutdown().await?;
+
+                let upower_path = parse_object_path(UPOWER_PATH)?;
+                let signal_emitter = SignalEmitter::new(&connection, upower_path)?;
+
+                let mut last_snapshot = runtime.snapshot();
+                let mut poll_interval =
+                    tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
+
+                loop {
+                    tokio::select! {
+                        result = shutdown_rx.changed() => {
+                            if result.is_err() {
+                                eprintln!("redbear-upower: signal handler exited unexpectedly");
+                            }
+                            eprintln!("redbear-upower: shutdown signal received, exiting cleanly");
+                            break;
+                        }
+                        _ = poll_interval.tick() => {
+                            let current_snapshot = runtime.snapshot();
+                            if current_snapshot != last_snapshot {
+                                eprintln!(
+                                    "redbear-upower: power state changed, emitting Changed signal"
+                                );
+                                let _ = UPowerDaemon::changed(&signal_emitter).await;
+                                last_snapshot = current_snapshot;
+                            }
+                        }
+                    }
+                }
+
                 drop(connection);
                 return Ok(());
             }
             Err(err) => {
                 if attempt < 5 {
-                    eprintln!("redbear-upower: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    eprintln!(
+                        "redbear-upower: attempt {attempt}/5 failed ({err}), retrying in 2s..."
+                    );
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
                 last_err = Some(err.into());

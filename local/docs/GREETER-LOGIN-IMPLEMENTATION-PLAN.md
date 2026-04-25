@@ -75,9 +75,9 @@ recovery model.
 
 This plan assumes the Red Bear desktop direction converges on **one KDE-on-Wayland path**.
 
-Current implementation answer: the first tracked owner is `redbear-full` (and therefore
-`redbear-live-full` for live media). Older names such as `redbear-kde` may still appear in
-historical or staging material, but they are not the supported compile-target surface for this plan.
+Current implementation answer: the first tracked owner is `redbear-full`. Older names such
+as `redbear-kde` may still appear in historical or staging material, but they are not the
+supported compile-target surface for this plan.
 
 ---
 
@@ -866,8 +866,7 @@ The greeter **recipe**, not the config fragment, should own staged runtime artif
 4. Is `dbus-run-session` reliable enough on Red Bear, or should the current `dbus-launch` path remain the first shipped session-bus strategy?
 5. At what point should the project consider SDDM-class integration again, if ever?
 
-Current answer to (1): **`redbear-full` first**, with `redbear-live-full` inheriting that path for
-live media.
+Current answer to (1): **`redbear-full` first**.
 
 Current answer to (2): **traditional `/etc/shadow` SHA-512-crypt / SHA-256-crypt first** (`$6$` / `$5$`),
 with narrower support preferred over premature multi-format sprawl.

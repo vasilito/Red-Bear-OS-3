@@ -18,13 +18,11 @@ reproducible, reviewable, and upstream-friendly.
 
 Tracked Red Bear profiles are:
 
-- `redbear-minimal`
-- `redbear-bluetooth-experimental`
-- `redbear-desktop`
+- `redbear-mini`
 - `redbear-full`
-- `redbear-wayland`
-- `redbear-kde`
-- `redbear-live`
+- `redbear-grub`
+- `redbear-bluetooth-experimental`
+- `redbear-wifi-experimental`
 
 Every user-visible feature should name which profile(s) it belongs to.
 
@@ -62,7 +60,7 @@ why it is intentionally excluded.
 
 ## Profile Intent
 
-### `redbear-minimal`
+### `redbear-mini`
 
 Primary validation baseline: console, storage, package flow, and wired networking.
 
@@ -71,25 +69,18 @@ Primary validation baseline: console, storage, package flow, and wired networkin
 First bounded Bluetooth validation profile: explicit-startup, USB-attached, BLE-first, and
 experimental only.
 
-### `redbear-desktop`
-
-Supplementary integration support profile for shared Red Bear runtime services beneath the tracked KWin target.
-
 ### `redbear-full`
 
-Expanded integration slice that includes more runtime pieces and graphics-path bring-up beneath the tracked KWin target.
+Desktop-capable tracked target for the current Red Bear session/network/runtime plumbing surface,
+including graphics-path bring-up beneath the tracked KWin direction.
 
-### `redbear-wayland`
+### `redbear-grub`
 
-Dedicated Wayland runtime validation profile layered above the current Red Bear service baseline and subordinate to the tracked KWin direction.
+Text-only console/recovery target with GRUB boot manager for bare-metal multi-boot workflows.
 
-### `redbear-kde`
+### `redbear-wifi-experimental`
 
-Dedicated KDE/Plasma bring-up profile and tracked forward desktop target.
-
-### `redbear-live`
-
-Live and recovery variant layered on top of the tracked KWin desktop target.
+Bounded Intel Wi-Fi validation profile layered on the mini baseline.
 
 ## Change Checklist
 

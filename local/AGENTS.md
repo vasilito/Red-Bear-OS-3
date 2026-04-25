@@ -24,7 +24,7 @@ Build flow:
 ```
 make all CONFIG_NAME=redbear-full
   → mk/config.mk resolves to the active desktop/graphics compile target
-  → Desktop/graphics are available only on redbear-full and redbear-live-full
+  → Desktop/graphics are available only on redbear-full
   → repo cook builds all packages including our custom ones
   → mk/disk.mk creates harddrive.img with Red Bear branding
 ```
@@ -37,28 +37,14 @@ make all CONFIG_NAME=redbear-full         # Rebuild the active desktop/graphics 
 
 ## ACTIVE COMPILE TARGETS
 
-The supported compile targets are exactly:
+The supported compile targets are exactly three. All three work for both `make all` (harddrive.img)
+and `make live` (ISO):
 
-Non-live (harddrive.img for QEMU / development):
-- `redbear-full`          — Desktop/graphics-enabled target
-- `redbear-full-grub`     — Desktop/graphics with GRUB boot manager
+- `redbear-full`  — Desktop/graphics-enabled target (Wayland + KDE + GPU drivers)
+- `redbear-mini`  — Text-only console/recovery/install target
+- `redbear-grub`  — Text-only target with GRUB boot manager
 
-Live (ISO for real bare metal):
-- `redbear-live`          — Full desktop live ISO (graphical greeter + text fallback)
-- `redbear-live-mini`     — Text-only mini live ISO for recovery/bare metal
-- `redbear-grub-live-full` — Full desktop live ISO with GRUB boot manager
-- `redbear-grub-live-mini` — Text-only mini live ISO with GRUB
-
-Legacy aliases (accepted by build-iso.sh):
-- `redbear-live-full`       → `redbear-live`
-- `redbear-live-mini-grub`  → `redbear-grub-live-mini`
-- `redbear-live-full-grub`  → `redbear-grub-live-full`
-
-Desktop/graphics are available only on `redbear-full`, `redbear-live`, `redbear-full-grub`, and `redbear-grub-live-full`.
-
-Names such as `redbear-kde`, `redbear-wayland`, and `redbear-minimal` may still appear in older
-docs, legacy validation notes, or in-repo staging configs, but they should not be treated as the
-current supported compile targets.
+Desktop/graphics are available only on `redbear-full`.
 
 ## TRACKING UPSTREAM (SYNC WITH REDOX OS)
 
@@ -176,9 +162,10 @@ redox-master/                  ← git pull updates mainline Redox
 ├── config/
 │   ├── desktop.toml           ← mainline configs (untouched)
 │   ├── minimal.toml
-│   ├── redbear-full.toml      ← Active desktop/graphics target
-│   ├── redbear-live-full.toml ← Live desktop/graphics target
-│   ├── redbear-mini*.toml     ← Minimal target surface (legacy/staging naming may still vary in-tree)
+│   ├── redbear-full.toml      ← Desktop/graphics target
+│   ├── redbear-mini.toml      ← Text-only console/recovery target
+│   ├── redbear-grub.toml      ← Text-only with GRUB boot manager
+│   ├── redbear-grub-policy.toml ← GRUB policy fragment (bootloader = "grub", efi_partition_size = 16)
 │   └── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring fragment
 ├── recipes/                   ← mainline package recipes (untouched)
 ├── mk/                        ← mainline build system (untouched)
@@ -240,23 +227,25 @@ redox-master/                  ← git pull updates mainline Redox
 ## HOW TO BUILD RED BEAR OS
 
 ```bash
-# Active desktop/graphics target
-./local/scripts/build-redbear.sh redbear-full
+# Build targets (all three work for both `make all` and `make live`)
+./local/scripts/build-redbear.sh redbear-full     # Desktop/graphics target
+./local/scripts/build-redbear.sh redbear-mini     # Text-only console/recovery target
+./local/scripts/build-redbear.sh redbear-grub     # Text-only with GRUB boot manager
 
-# Minimal non-desktop target
-./local/scripts/build-redbear.sh redbear-mini
+# Or manually:
+make all CONFIG_NAME=redbear-full                 # Desktop/graphics → harddrive.img
+make all CONFIG_NAME=redbear-mini                 # Text-only → harddrive.img
+make all CONFIG_NAME=redbear-grub                 # Text-only + GRUB → harddrive.img
 
-# Live images
-./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-live
-./local/scripts/build-redbear.sh redbear-live-mini && make live CONFIG_NAME=redbear-live-mini
-./local/scripts/build-redbear.sh redbear-live-mini && make live CONFIG_NAME=redbear-grub-live-mini
-./local/scripts/build-redbear.sh redbear-live && make live CONFIG_NAME=redbear-grub-live-full
+# Live ISO (for real bare metal)
+make live CONFIG_NAME=redbear-full                # Full desktop live ISO
+make live CONFIG_NAME=redbear-mini                # Text-only mini live ISO
+make live CONFIG_NAME=redbear-grub                # Text-only mini live ISO with GRUB
 
 # Or using the helper:
-scripts/build-iso.sh redbear-live
-scripts/build-iso.sh redbear-live-mini
-scripts/build-iso.sh redbear-grub-live-mini
-scripts/build-iso.sh redbear-grub-live-full
+scripts/build-iso.sh redbear-full                 # Full desktop live ISO
+scripts/build-iso.sh redbear-mini                 # Text-only mini (default)
+scripts/build-iso.sh redbear-grub                 # Text-only + GRUB
 
 # VM-network baseline validation helpers
 ./local/scripts/validate-vm-network-baseline.sh
@@ -266,10 +255,9 @@ scripts/build-iso.sh redbear-grub-live-full
 
 # Phase 1 desktop-substrate validation (v2.0 plan: relibc headers, evdevd, udev-shim,
 # firmware-loader, DRM/KMS, health-check — covers 6 acceptance areas)
-./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-wayland
+./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-full
 
 # Legacy Phase 3 runtime-substrate validation (historical P0-P6 numbering; script still works)
-# Use the active desktop target when adapting historical validation flows.
 ./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-full
 
 # Low-level controller validation
@@ -296,7 +284,7 @@ scripts/build-iso.sh redbear-grub-live-full
 # The aggregate USB wrapper runs xHCI mode, full USB stack, and USB storage readback proofs in sequence.
 
 # Legacy Phase 4 Wayland runtime validation (historical P0-P6 numbering; script still works)
-./local/scripts/build-redbear.sh redbear-wayland
+./local/scripts/build-redbear.sh redbear-full
 ./local/scripts/test-phase4-wayland-qemu.sh
 # Then run inside the guest:
 #   redbear-phase4-wayland-check
@@ -338,18 +326,15 @@ scripts/build-iso.sh redbear-grub-live-full
 # redbear-netctl user-facing alias
 redbear-netctl --help
 
-# Or manually:
-make all CONFIG_NAME=redbear-full
-
 # Single custom recipe:
 ./target/release/repo cook local/recipes/branding/redbear-release
 ./target/release/repo cook local/recipes/system/redbear-meta
 ./target/release/repo cook local/recipes/core/ext4d
 ./target/release/repo cook local/recipes/core/grub  # GRUB bootloader (host build, produces EFI binary)
 
-# GRUB boot manager (installer-native, Phase 2):
+# GRUB boot manager (installer-native):
 make r.grub                                                   # Build GRUB recipe
-make all CONFIG_NAME=redbear-full-grub                        # Build with GRUB chainload
+make all CONFIG_NAME=redbear-grub                             # Build text-only target with GRUB
 # Linux-compatible CLI (add local/scripts to PATH):
 grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
 grub-mkconfig -o local/recipes/core/grub/grub.cfg
@@ -463,7 +448,7 @@ ext4d/source/
 recipes/core/ext4d → local/recipes/core/ext4d
 ```
 
-**Config**: ext4d is included in `config/desktop.toml` (mainline), which `redbear-desktop.toml` inherits.
+**Config**: ext4d is included in `config/desktop.toml` (mainline), which `redbear-full.toml` inherits.
 
 **Dependencies** (from workspace Cargo.toml):
 - `rsext4 = "0.3"` — Pure Rust ext4 filesystem implementation
@@ -528,7 +513,7 @@ recipes/core/fatd → ../../local/recipes/core/fatd
 ```
 
 **Config**: Packages included via `config/redbear-device-services.toml` (inherited by
-`redbear-desktop.toml` and `redbear-full.toml`). Init service at
+`redbear-full.toml` and `redbear-mini.toml`). Init service at
 `/usr/lib/init.d/15_fatd.service`.
 
 **Dependencies**: fatfs 0.3.6, fscommon 0.1.1, redox_syscall, redox-scheme, libredox, libc
@@ -580,105 +565,45 @@ local/Assets/
 
 ## RED BEAR OS CONFIG HIERARCHY
 
-Active compile targets:
+Active compile targets (all three work for both `make all` and `make live`):
 
-Non-live (harddrive.img for QEMU / development):
-- `redbear-full`
-- `redbear-full-grub`
+- `redbear-full`  — Desktop/graphics-enabled target
+- `redbear-mini`  — Text-only console/recovery target
+- `redbear-grub`  — Text-only with GRUB boot manager
 
-Live (ISO for real bare metal):
-- `redbear-live`
-- `redbear-live-mini`
-- `redbear-grub-live-full`
-- `redbear-grub-live-mini`
-
-Desktop/graphics are available only on the `full` targets. Older names such as `redbear-kde`,
-`redbear-wayland`, `redbear-minimal`, and `redbear-live-minimal` may still exist in the tree as
-legacy or staging artifacts, but they are not the supported compile-target surface.
+Desktop/graphics are available only on `redbear-full`.
 
 ```
-redbear-grub-live-full.toml
-  └── redbear-live.toml (full desktop base)
-  └── redbear-grub.toml (GRUB policy: bootloader = "grub", efi_partition_size = 16)
-
-redbear-grub-live-mini.toml
-  └── redbear-live-mini.toml (text-only live base)
-  └── redbear-grub.toml (GRUB policy)
-
-redbear-live-full.toml
-  └── redbear-full.toml
-        ├── desktop.toml (mainline)
-        ├── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
-        ├── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
-        ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-        ├── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
-        ├── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring for desktop targets
-        └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
-                       firmware-loader, evdevd, udev-shim, redbear-info,
-                       redbear-sessiond, redbear-authd, redbear-session-launch,
-                       redbear-greeter, redbear-meta, cub
-        NOTE: Desktop/graphics are available only on redbear-full and redbear-live-full.
-        NOTE: ext4d is inherited from desktop.toml (mainline package).
-        NOTE: redbear-meta is explicitly included in redbear-full.toml; keep broader inclusion deliberate.
-        NOTE: redbear-live-full inherits from redbear-full.toml.
-
-redbear-live.toml
-  └── redbear-full.toml
-        ├── desktop.toml (mainline)
-        ├── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
-        ├── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
-        ├── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-        ├── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
-        └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
-                       firmware-loader, evdevd, udev-shim, redbear-info,
-                       redbear-sessiond, redbear-authd, redbear-session-launch,
-                       redbear-greeter, redbear-meta, cub
-        NOTE: Desktop/graphics are available on redbear-live.
-
 redbear-full.toml
-  └── desktop.toml (mainline)
-  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
-  └── redbear-legacy-desktop.toml  ← Neutralize broken desktop legacy init scripts
-  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
-  └── redbear-greeter-services.toml ← Greeter/auth/session-launch wiring
+  └── redbear-mini.toml
+        ├── minimal.toml (mainline)
+        ├── redbear-legacy-base.toml
+        └── redbear-netctl.toml
+  └── [packages] firmware, GPU, Wayland, Qt6, KF6, KWin, greeter, fonts, icons
+  └── [services] D-Bus, seatd, greeter, console
+  └── [users] messagebus, greeter
+  NOTE: ext4d is inherited from desktop.toml (mainline package).
+  NOTE: redbear-meta is explicitly included; keep broader inclusion deliberate.
 
-redbear-full-grub.toml
-  └── redbear-full.toml
-  └── redbear-grub.toml (GRUB policy: bootloader = "grub", efi_partition_size = 16)
-
-redbear-live-mini.toml
-  └── minimal non-desktop live target
-  └── desktop/graphics intentionally absent
-
-redbear-grub-live-mini.toml
-  └── redbear-live-mini.toml (text-only live base)
-  └── redbear-grub.toml (GRUB policy)
-
-redbear-mini
-  └── legacy/staging config files in-tree still use the older `redbear-minimal*` names
-      in some places; do not treat those names as the supported compile-target surface
-
-redbear-minimal.toml (legacy/staging naming still present in tree)
+redbear-mini.toml
   └── minimal.toml (mainline)
-        └── base.toml
-  └── redbear-legacy-base.toml     ← Neutralize broken base legacy init scripts
-  └── redbear-device-services.toml ← Shared firmware-loader / evdevd / udev service wiring
-  └── redbear-netctl.toml          ← Shared Red Bear network profile files + netctl boot service
-  └── [packages] redbear-release, redbear-hwutils, redbear-netctl,
-                 firmware-loader, evdevd, udev-shim, redbear-info
+  └── redbear-legacy-base.toml
+  └── redbear-netctl.toml
+  └── [packages] pciids, redbear-hwutils, redbear-netctl, redbear-info, cub, etc.
+  └── [services] pcid-spawner, netctl boot, console, debug console
+
+redbear-grub.toml
+  └── redbear-mini.toml
+  └── redbear-grub-policy.toml (bootloader = "grub", efi_partition_size = 16)
+  └── [packages] grub
 ```
 
 Config comparison:
 | Config | GPU Stack | Desktop | Branding | ext4d | GRUB | filesystem_size |
 |--------|-----------|---------|----------|-------|------|-----------------|
-| redbear-full | Full | Yes | Yes | ✅ (via desktop.toml) | No | 4096 MiB |
-| redbear-full-grub | Full | Yes | Yes | ✅ (via redbear-full.toml) | Yes | 4096 MiB |
-| redbear-live | Full | Yes | Yes | ✅ (via redbear-full.toml) | No | 4096 MiB |
-| redbear-grub-live-full | Full | Yes | Yes | ✅ (via redbear-full.toml) | Yes | 4096 MiB |
-| redbear-live-mini | None | None | Yes | legacy/staging | No | legacy/staging |
-| redbear-grub-live-mini | None | None | Yes | legacy/staging | Yes | legacy/staging |
-| redbear-mini | None | None | Yes | legacy/staging naming in tree still maps through `redbear-minimal*` files | No | legacy/staging |
+| redbear-full | Full | Yes | Yes | ✅ | No | 4096 MiB |
+| redbear-mini | None | None | Yes | No | No | 1536 MiB |
+| redbear-grub | None | None | Yes | No | Yes | (from mini) |
 
 ## ANTI-PATTERNS (COMMIT POLICY)
 

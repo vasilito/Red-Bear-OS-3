@@ -40,13 +40,17 @@ impl Notifications {
         _app_icon: &str,
         summary: &str,
         body: &str,
-        _actions: Vec<String>,
+        actions: Vec<String>,
         _hints: HashMap<String, Value<'_>>,
         _expire_timeout: i32,
     ) -> u32 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 
         eprintln!("notification: [{app_name}] {summary}: {body}");
+
+        for chunk in actions.chunks_exact(2) {
+            eprintln!("notification {id}: action key '{}'", chunk[0]);
+        }
 
         id
     }
@@ -64,7 +68,11 @@ impl Notifications {
 
     #[zbus(name = "GetCapabilities")]
     fn get_capabilities(&self) -> Vec<String> {
-        vec!["body".to_owned()]
+        vec![
+            "body".to_owned(),
+            "body-markup".to_owned(),
+            "actions".to_owned(),
+        ]
     }
 
     #[zbus(name = "GetServerInformation")]
@@ -87,6 +95,13 @@ impl Notifications {
         signal_emitter: &SignalEmitter<'_>,
         id: u32,
         reason: u32,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal, name = "ActionInvoked")]
+    async fn action_invoked(
+        signal_emitter: &SignalEmitter<'_>,
+        id: u32,
+        action_key: &str,
     ) -> zbus::Result<()>;
 }
 
@@ -115,25 +130,32 @@ fn parse_args() -> Result<Command, String> {
     }
 }
 
-#[cfg(unix)]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    use tokio::signal::unix::{SignalKind, signal};
-
-    let mut terminate = signal(SignalKind::terminate())?;
-
-    tokio::select! {
-        _ = terminate.recv() => Ok(()),
-        _ = tokio::signal::ctrl_c() => Ok(()),
-    }
-}
-
-#[cfg(not(unix))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    tokio::signal::ctrl_c().await?;
-    Ok(())
+fn spawn_signal_handler(shutdown_tx: tokio::sync::watch::Sender<bool>) {
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                tokio::select! {
+                    _ = sigterm.recv() => {},
+                    _ = tokio::signal::ctrl_c() => {},
+                }
+            } else {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+        let _ = shutdown_tx.send(true);
+    });
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    spawn_signal_handler(shutdown_tx);
+
     let _connection = ConnectionBuilder::session()?
         .name(BUS_NAME)?
         .serve_at(OBJECT_PATH, Notifications::new())?
@@ -142,8 +164,8 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
 
     eprintln!("redbear-notifications: registered {BUS_NAME} on the session bus");
 
-    wait_for_shutdown().await?;
-    eprintln!("redbear-notifications: received shutdown signal, exiting cleanly");
+    let _ = shutdown_rx.changed().await;
+    eprintln!("redbear-notifications: shutdown signal received, exiting cleanly");
 
     Ok(())
 }

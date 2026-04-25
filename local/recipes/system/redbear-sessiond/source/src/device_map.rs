@@ -14,6 +14,7 @@ pub struct DeviceMap {
 }
 
 impl DeviceMap {
+    #[cfg(test)]
     pub fn new() -> Self {
         let static_paths = HashMap::from([
             ((226, 0), String::from("/scheme/drm/card0")),
@@ -29,6 +30,31 @@ impl DeviceMap {
         ]);
 
         Self { static_paths }
+    }
+
+    /// Build a device map that merges static entries with dynamically discovered
+    /// devices by scanning `/scheme/drm/card*` and `/dev/input/event*` at startup.
+    /// For each discovered path, stat is used to read the rdev (device number).
+    /// Entries with a nonzero rdev are inserted into the map; static entries are
+    /// kept as fallback when rdev is unavailable or zero.
+    pub fn discover() -> Self {
+        let mut paths = HashMap::from([
+            ((226, 0), String::from("/scheme/drm/card0")),
+            ((226, 1), String::from("/scheme/drm/card1")),
+            ((13, 64), String::from("/dev/input/event0")),
+            ((13, 65), String::from("/dev/input/event1")),
+            ((13, 66), String::from("/dev/input/event2")),
+            ((13, 67), String::from("/dev/input/event3")),
+            ((29, 0), String::from("/dev/fb0")),
+            ((1, 1), String::from("/scheme/null")),
+            ((1, 5), String::from("/scheme/zero")),
+            ((1, 8), String::from("/scheme/rand")),
+        ]);
+
+        discover_scheme_drm(&mut paths);
+        discover_dev_input(&mut paths);
+
+        Self { static_paths: paths }
     }
 
     pub fn resolve(&self, major: u32, minor: u32) -> Option<String> {
@@ -80,6 +106,74 @@ impl DeviceMap {
         }
 
         None
+    }
+}
+
+/// Scan `/scheme/drm/` for `card*` entries and merge any with a nonzero rdev
+/// into the provided map. Static entries are not overwritten.
+fn discover_scheme_drm(paths: &mut HashMap<(u32, u32), String>) {
+    let entries = match fs::read_dir("/scheme/drm") {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("card") {
+            continue;
+        }
+
+        #[cfg(unix)]
+        if let Ok(metadata) = fs::metadata(&path) {
+            let rdev = metadata.rdev();
+            if rdev != 0 {
+                let major = dev_major(rdev);
+                let minor = dev_minor(rdev);
+                paths
+                    .entry((major, minor))
+                    .or_insert_with(|| path.to_string_lossy().into_owned());
+            }
+        }
+
+        #[cfg(not(unix))]
+        let _ = &path;
+    }
+}
+
+/// Scan `/dev/input/` for `event*` entries and merge any with a nonzero rdev
+/// into the provided map. Static entries are not overwritten.
+fn discover_dev_input(paths: &mut HashMap<(u32, u32), String>) {
+    let entries = match fs::read_dir("/dev/input") {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("event") {
+            continue;
+        }
+
+        #[cfg(unix)]
+        if let Ok(metadata) = fs::metadata(&path) {
+            let rdev = metadata.rdev();
+            if rdev != 0 {
+                let major = dev_major(rdev);
+                let minor = dev_minor(rdev);
+                paths
+                    .entry((major, minor))
+                    .or_insert_with(|| path.to_string_lossy().into_owned());
+            }
+        }
+
+        #[cfg(not(unix))]
+        let _ = &path;
     }
 }
 
@@ -161,5 +255,13 @@ mod tests {
         let event = make_dev(13, 67);
         assert_eq!(dev_major(event), 13);
         assert_eq!(dev_minor(event), 67);
+    }
+
+    #[test]
+    fn discover_returns_static_entries_when_no_dirs() {
+        let map = super::DeviceMap::discover();
+        assert!(map.resolve(226, 0).is_some());
+        assert!(map.resolve(13, 64).is_some());
+        assert!(map.resolve(29, 0).is_some());
     }
 }

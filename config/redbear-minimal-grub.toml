@@ -1,6 +1,0 @@
-# Red Bear OS Minimal Configuration with GRUB Boot Manager
-# Minimal console/server target with installer-native GRUB chainload.
-#
-# Build: make all CONFIG_NAME=redbear-minimal-grub
-
-include = ["redbear-minimal.toml", "redbear-grub.toml"]

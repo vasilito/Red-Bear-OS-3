@@ -151,6 +151,54 @@ impl LoginSession {
         Ok(())
     }
 
+    fn set_idle_hint(&self, idle: bool) -> fdo::Result<()> {
+        let runtime = self.runtime()?;
+        let session_id = runtime.session_id.clone();
+        drop(runtime);
+
+        if let Ok(mut guard) = self.runtime.write() {
+            guard.idle_hint = idle;
+        }
+        eprintln!("redbear-sessiond: SetIdleHint({idle}) for session {session_id}");
+        Ok(())
+    }
+
+    fn set_locked_hint(&self, locked: bool) -> fdo::Result<()> {
+        let runtime = self.runtime()?;
+        let session_id = runtime.session_id.clone();
+        drop(runtime);
+
+        if let Ok(mut guard) = self.runtime.write() {
+            guard.locked_hint = locked;
+        }
+        eprintln!("redbear-sessiond: SetLockedHint({locked}) for session {session_id}");
+        Ok(())
+    }
+
+    fn set_type(&self, session_type: &str) -> fdo::Result<()> {
+        let runtime = self.runtime()?;
+        let session_id = runtime.session_id.clone();
+        drop(runtime);
+
+        if let Ok(mut guard) = self.runtime.write() {
+            guard.session_type = session_type.to_owned();
+        }
+        eprintln!("redbear-sessiond: SetType({session_type}) for session {session_id}");
+        Ok(())
+    }
+
+    fn terminate(&self) -> fdo::Result<()> {
+        let runtime = self.runtime()?;
+        let session_id = runtime.session_id.clone();
+        drop(runtime);
+
+        if let Ok(mut guard) = self.runtime.write() {
+            guard.state = String::from("closing");
+        }
+        eprintln!("redbear-sessiond: Terminate requested for session {session_id}");
+        Ok(())
+    }
+
     #[zbus(property(emits_changed_signal = "const"), name = "Active")]
     fn active(&self) -> bool {
         self.runtime().map(|runtime| runtime.active).unwrap_or(true)
@@ -161,9 +209,11 @@ impl LoginSession {
         false
     }
 
-    #[zbus(property(emits_changed_signal = "const"), name = "Type")]
+    #[zbus(property(emits_changed_signal = "false"), name = "Type")]
     fn kind(&self) -> String {
-        String::from("wayland")
+        self.runtime()
+            .map(|r| r.session_type.clone())
+            .unwrap_or_else(|_| String::from("wayland"))
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "Class")]
@@ -191,7 +241,7 @@ impl LoginSession {
         self.runtime().map(|runtime| runtime.session_id).unwrap_or_else(|_| String::from("c1"))
     }
 
-    #[zbus(property(emits_changed_signal = "const"), name = "State")]
+    #[zbus(property(emits_changed_signal = "false"), name = "State")]
     fn state(&self) -> String {
         self.runtime().map(|runtime| runtime.state).unwrap_or_else(|_| String::from("online"))
     }
@@ -244,14 +294,14 @@ impl LoginSession {
         String::new()
     }
 
-    #[zbus(property(emits_changed_signal = "const"), name = "IdleHint")]
+    #[zbus(property(emits_changed_signal = "false"), name = "IdleHint")]
     fn idle_hint(&self) -> bool {
-        false
+        self.runtime().map(|r| r.idle_hint).unwrap_or(false)
     }
 
-    #[zbus(property(emits_changed_signal = "const"), name = "LockedHint")]
+    #[zbus(property(emits_changed_signal = "false"), name = "LockedHint")]
     fn locked_hint(&self) -> bool {
-        false
+        self.runtime().map(|r| r.locked_hint).unwrap_or(false)
     }
 
     #[zbus(signal, name = "PauseDevice")]
@@ -269,4 +319,108 @@ impl LoginSession {
         minor: u32,
         fd: Fd<'_>,
     ) -> zbus::Result<()>;
+
+    #[zbus(signal, name = "Lock")]
+    async fn lock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    #[zbus(signal, name = "Unlock")]
+    async fn unlock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device_map::DeviceMap;
+    use crate::runtime_state::shared_runtime;
+
+    fn test_session() -> LoginSession {
+        LoginSession::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            DeviceMap::new(),
+            shared_runtime(),
+        )
+    }
+
+    #[test]
+    fn set_idle_hint_updates_runtime() {
+        let runtime = shared_runtime();
+        let session = LoginSession::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            DeviceMap::new(),
+            runtime.clone(),
+        );
+
+        assert!(!session.idle_hint());
+        session.set_idle_hint(true).unwrap();
+        assert!(session.idle_hint());
+
+        let guard = runtime.read().expect("lock");
+        assert!(guard.idle_hint);
+    }
+
+    #[test]
+    fn set_locked_hint_updates_runtime() {
+        let session = test_session();
+        assert!(!session.locked_hint());
+        session.set_locked_hint(true).unwrap();
+        assert!(session.locked_hint());
+    }
+
+    #[test]
+    fn set_type_updates_runtime() {
+        let runtime = shared_runtime();
+        let session = LoginSession::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            DeviceMap::new(),
+            runtime.clone(),
+        );
+
+        assert_eq!(session.kind(), "wayland");
+        session.set_type("x11").unwrap();
+        assert_eq!(session.kind(), "x11");
+
+        let guard = runtime.read().expect("lock");
+        assert_eq!(guard.session_type, "x11");
+    }
+
+    #[test]
+    fn terminate_sets_state_to_closing() {
+        let runtime = shared_runtime();
+        let session = LoginSession::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            DeviceMap::new(),
+            runtime.clone(),
+        );
+
+        assert_eq!(session.state(), "online");
+        session.terminate().unwrap();
+        assert_eq!(session.state(), "closing");
+    }
+
+    #[test]
+    fn take_control_then_take_device_rejects_duplicate() {
+        let session = test_session();
+        session.take_control(false).unwrap();
+        session.taken_devices().unwrap().insert((226, 0));
+        let err = session.take_device(226, 0).unwrap_err();
+        match err {
+            fdo::Error::Failed(msg) => assert!(msg.contains("already taken")),
+            other => panic!("expected Failed error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn release_device_rejects_unknown() {
+        let session = test_session();
+        session.take_control(false).unwrap();
+        let err = session.release_device(226, 99).unwrap_err();
+        match err {
+            fdo::Error::Failed(msg) => assert!(msg.contains("was not taken")),
+            other => panic!("expected Failed error, got {other:?}"),
+        }
+    }
 }

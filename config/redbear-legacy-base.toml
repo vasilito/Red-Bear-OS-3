@@ -23,8 +23,6 @@ data = """
 # clear and recreate tmpdir with 0o1777 permission
 rm -rf /tmp
 mkdir -m a=rwxt /tmp
-
-nowait sudo --daemon
 """
 
 [[files]]

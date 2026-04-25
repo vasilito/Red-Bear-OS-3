@@ -39,8 +39,8 @@ hardware GPU validation → KWin session bring-up → KDE Plasma session bring-u
 Out of scope: USB, Wi-Fi, Bluetooth (covered by their own subsystem plans).
 
 Tracked-default truth: this document is the canonical desktop-path plan, and the tracked desktop-
-capable surface is `redbear-full` / `redbear-live-full`. Older names such as `redbear-wayland` and
-`redbear-kde` should be read as historical or staging labels, not supported compile targets.
+capable surface is `redbear-full`. Older names such as `redbear-wayland` and `redbear-kde`
+should be read as historical or staging labels, not supported compile targets.
 
 ---
 
@@ -102,7 +102,7 @@ Rules:
 | kf6-kcmutils | builds | Widget-only build (QML stripped) | |
 | `redbear-wayland` profile | historical / staging | Bounded Wayland validation profile | Not a supported compile target |
 | `redbear-full` profile | builds, boots | Broader desktop plumbing profile | Session/network/runtime integration slice |
-| `redbear-kde` profile | historical / staging | Older KDE session-surface profile | Not a supported compile target; use `redbear-full` / `redbear-live-full` for the tracked desktop-capable surface |
+| `redbear-kde` profile | historical / staging | Older KDE session-surface profile | Not a supported compile target; use `redbear-full` for the tracked desktop-capable surface |
 | bounded compositor validation path | experimental | Reaches xkbcommon init + EGL platform selection in QEMU | No complete session |
 | qt6-wayland-smoke | builds, partial | Creates QWindow with colored background, runs 3 seconds | |
 | QEMU graphics | usable (bounded) | Renderer is llvmpipe | Not hardware acceleration |
@@ -132,7 +132,7 @@ The repo has crossed major build-side gates:
 3. **Wayland/graphics packages** — libwayland, wayland-protocols, Mesa EGL+GBM+GLES2, libdrm, libdrm_amdgpu
 4. **Qt6 + D-Bus** — qtbase (7 libs + 12 plugins), qtdeclarative (11 libs), qtsvg, qtwayland, D-Bus 1.16.2
 5. **KF6 + KDE-facing** — All 32 KF6 frameworks, kdecoration, plasma-wayland-protocols, kf6-kwayland, kf6-kcmutils
-6. **Tracked profiles** — redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
+6. **Tracked profiles** — redbear-mini, redbear-full, redbear-grub
 7. **Phase 1 test coverage** — 300+ unit tests across evdevd (65), udev-shim (15), firmware-loader (24), redox-drm (68), redbear-hwutils (19), and bluetooth/wifi daemons
 
 ### What is runtime-proven (limited scope)
@@ -622,7 +622,7 @@ continuity, not as future work.
 | All 32 KF6 frameworks | ✅ Builds complete | Prior to this plan |
 | Input stack (libevdev, libinput, evdevd, udev-shim) | ✅ Builds complete | Prior to this plan |
 | Mesa EGL/GBM/GLES2 + libdrm amdgpu | ✅ Builds complete | Prior to this plan |
-| Desktop profiles (`redbear-mini`, `redbear-live-mini`, `redbear-full`, `redbear-live-full`) | ✅ Builds complete | Prior to this plan |
+| Desktop profiles (`redbear-mini`, `redbear-full`, `redbear-grub`) | ✅ Builds complete | Prior to this plan |
 | `local/docs/DBUS-INTEGRATION-PLAN.md` | D-Bus architecture, service dependency map, and phased implementation |
 | PRIME/DMA-BUF scheme ioctls | ✅ Implemented | Prior to this plan |
 | KWin recipe with 5 re-enabled features | ✅ Partial build | Prior to this plan |

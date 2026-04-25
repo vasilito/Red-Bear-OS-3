@@ -78,7 +78,7 @@ Checks: [unit] section, [service] section, cmd field, non-empty data
 Note: Manual validation script covering `redbear-*.toml` configs. Not wired into the build system — run manually after config changes. Does not cover inherited mainline configs (minimal.toml, desktop.toml).
 
 ### 3C: Getty Supervisor ✅
-Init supports `respawn = true` in service TOML files. When a respawnable service's process exits, init automatically re-spawns it. All getty services across `redbear-minimal`, `redbear-desktop`, `redbear-greeter-services`, `redbear-live-mini`, `wayland`, and `redbear-kde` configs now have `respawn = true` set.
+Init supports `respawn = true` in service TOML files. When a respawnable service's process exits, init automatically re-spawns it. All getty services across `redbear-mini`, `redbear-full`, `redbear-greeter-services`, `redbear-grub`, and `wayland` configs now have `respawn = true` set.
 
 Implementation:
 - `service.rs`: Added `respawn: bool` field to `Service` (default false). `spawn()` returns `Option<u32>` (child PID) for respawnable oneshot_async services.
@@ -121,8 +121,8 @@ Status: Chain exists in rootfs only. On modern hardware without PS/2 ports, USB 
 
 ### Hardware Validation Requirements
 Bare-metal testing requires physical hardware. Current validation is:
-- **QEMU boot**: Verified for redbear-minimal and redbear-full (no panics, no parse errors, switchroot succeeds)
-- **Live ISO build**: redbear-live-mini and redbear-live build successfully
+- **QEMU boot**: Verified for redbear-mini and redbear-full (no panics, no parse errors, switchroot succeeds)
+- **Live ISO build**: redbear-mini and redbear-grub build successfully
 - **Interactive login**: Framebuffer login renders correctly (serial not available in headless QEMU)
 
 ## Phase 5: Validation Matrix ✅
@@ -132,8 +132,7 @@ Bare-metal testing requires physical hardware. Current validation is:
 |--------|-------|-----------|-----------------|-------|
 | redbear-mini | ✅ harddrive.img (2 GB) | ✅ Login prompt | — | Framebuffer console login |
 | redbear-full | ✅ harddrive.img (4 GB) | ✅ Login prompt | — | Desktop packages included |
-| redbear-live-mini | ✅ ISO (384 MB) | — | ✅ Login prompt | ISO for bare-metal boot |
-| redbear-live-full | ✅ ISO (3.0 GB) | — | — | ISO for bare-metal boot |
+| redbear-grub | ✅ harddrive.img | — | — | Text-only with GRUB chainload |
 
 ### Compilation Verification
 - `cargo check --workspace` in base source: **0 errors**
@@ -161,20 +160,20 @@ Bare-metal testing requires physical hardware. Current validation is:
 ### Validation Commands
 ```bash
 # Build
-CI=1 make all CONFIG_NAME=redbear-minimal ARCH=x86_64
+CI=1 make all CONFIG_NAME=redbear-mini ARCH=x86_64
 CI=1 make all CONFIG_NAME=redbear-full ARCH=x86_64
-CI=1 make live CONFIG_NAME=redbear-live-mini ARCH=x86_64
-CI=1 make live CONFIG_NAME=redbear-live-full ARCH=x86_64
+CI=1 make live CONFIG_NAME=redbear-mini ARCH=x86_64
+CI=1 make live CONFIG_NAME=redbear-full ARCH=x86_64
 
 # QEMU test
-make qemu CONFIG_NAME=redbear-minimal
+make qemu CONFIG_NAME=redbear-mini
 
 # Service file validation
 ./local/scripts/validate-service-files.sh config/
 
 # Clean rebuild + verify
-CI=1 make cr.base CONFIG_NAME=redbear-minimal ARCH=x86_64
-CI=1 make all CONFIG_NAME=redbear-minimal ARCH=x86_64
+CI=1 make cr.base CONFIG_NAME=redbear-mini ARCH=x86_64
+CI=1 make all CONFIG_NAME=redbear-mini ARCH=x86_64
 ```
 
 ## Key Technical Findings
@@ -268,16 +267,15 @@ Services with `type = "oneshot_async"` are fire-and-forget by default. Init spaw
 
 ### Config Include Chain
 ```
-redbear-live-full.toml → redbear-live.toml
-redbear-live.toml → redbear-full.toml
 redbear-full.toml → desktop.toml, redbear-legacy-base.toml, redbear-legacy-desktop.toml,
-                     redbear-device-services.toml, redbear-netctl.toml, redbear-greeter-services.toml
+                      redbear-device-services.toml, redbear-netctl.toml, redbear-greeter-services.toml
 desktop.toml → desktop-minimal.toml, server.toml
 desktop-minimal.toml → minimal.toml
 server.toml → minimal.toml
 minimal.toml → base.toml
 
-redbear-live-mini.toml → minimal.toml, redbear-legacy-base.toml, redbear-netctl.toml
+redbear-grub.toml → redbear-full.toml, redbear-grub-policy.toml
+
 redbear-mini → redbear-minimal.toml → minimal.toml, redbear-legacy-base.toml,
                 redbear-device-services.toml, redbear-netctl.toml
 ```
@@ -358,9 +356,8 @@ redbear-mini → redbear-minimal.toml → minimal.toml, redbear-legacy-base.toml
 | Target | Purpose | Output |
 |--------|---------|--------|
 | `redbear-mini` | Minimal non-desktop (QEMU + bare metal) | `build/x86_64/harddrive.img` |
-| `redbear-live-mini` | Minimal live ISO (bare metal only) | `build/x86_64/redbear-live-mini.iso` |
+| `redbear-grub` | Text-only with GRUB boot manager (bare metal) | `build/x86_64/harddrive.img` |
 | `redbear-full` | Desktop/graphics (QEMU + bare metal) | `build/x86_64/harddrive.img` |
-| `redbear-live-full` / `redbear-live` | Desktop/graphics live ISO (bare metal only) | `build/x86_64/redbear-live-full.iso` |
 
 ### Build commands
 
@@ -369,13 +366,13 @@ redbear-mini → redbear-minimal.toml → minimal.toml, redbear-legacy-base.toml
 CI=1 make all CONFIG_NAME=redbear-mini ARCH=x86_64
 
 # Minimal live ISO (bare-metal boot)
-CI=1 make live CONFIG_NAME=redbear-live-mini ARCH=x86_64
+CI=1 make live CONFIG_NAME=redbear-mini ARCH=x86_64
 
 # Desktop/graphics target (QEMU testing)
 CI=1 make all CONFIG_NAME=redbear-full ARCH=x86_64
 
 # Desktop/graphics live ISO (bare-metal boot)
-CI=1 make live CONFIG_NAME=redbear-live-full ARCH=x86_64
+CI=1 make live CONFIG_NAME=redbear-full ARCH=x86_64
 ```
 
 ### QEMU boot (harddrive.img)
@@ -399,12 +396,12 @@ graphical console, not serial.
 
 1. **Build the ISO:**
    ```bash
-   CI=1 make live CONFIG_NAME=redbear-live-mini ARCH=x86_64
+   CI=1 make live CONFIG_NAME=redbear-mini ARCH=x86_64
    ```
 
 2. **Write ISO to USB drive:**
    ```bash
-   sudo dd if=build/x86_64/redbear-live-mini.iso of=/dev/sdX bs=4M status=progress && sync
+   sudo dd if=build/x86_64/redbear-live.iso of=/dev/sdX bs=4M status=progress && sync
    ```
    Replace `/dev/sdX` with your USB device. Use `lsblk` to identify it.
 

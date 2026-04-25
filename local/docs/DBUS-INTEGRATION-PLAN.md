@@ -1084,3 +1084,102 @@ convenience layer. The remaining gap is the difference between **shipping minima
 implementations** and **shipping full desktop-complete service contracts** for login1,
 Notifications, UPower, UDisks2, and PolicyKit. NetworkManager remains deferred and is not part of
 the current Red Bear OS implementation scope.
+
+---
+
+## Phase 3/4 D-Bus Improvement Plan (2026-04-25 Assessment)
+
+**Assessment scope:** All Red Bear D-Bus service implementations (`redbear-sessiond`, `redbear-notifications`, `redbear-upower`, `redbear-udisks`, `redbear-polkit`), plus the dbus-daemon itself, conducted via 4 parallel evaluation agents (Oracle + 2 explore + librarian).
+
+**Key finding:** Phase 2 (`kwin_wayland --virtual`) should work without D-Bus changes. KWin falls back to NoopSession when logind is unavailable, and the Noop backend bypasses login1 entirely.
+
+**Key finding:** Phase 3 has one hard gate: `TakeDevice` FD passing. This cannot be bypassed.
+
+### Assessment Summary
+
+Fragility ratings across services:
+
+| Service | Rating | Primary concern |
+|---------|--------|-----------------|
+| `redbear-sessiond` | 5/5 | login1 is the critical path for DRM compositor |
+| `redbear-polkit` | 5/5 security | Always-permit is not a production security model |
+| `dbus-daemon` | 2/5 | 24-line patch is stable but not validated under real session bus load |
+| `redbear-notifications` | 2-3/5 | Logs to stderr only; no ActionInvoked signal |
+| `redbear-upower` | 2-3/5 | Provisional ACPI surface; no Changed signal; polling not implemented |
+| `redbear-udisks` | 2-3/5 | Read-only; no mount/unmount operations |
+
+**Phase 2 assessment:** D-Bus is NOT on the critical path for `kwin_wayland --virtual`. The NoopSession backend in KWin bypasses logind entirely, which means Phase 2 compositor bring-up should succeed without D-Bus changes.
+
+**Phase 3 hard gate:** `TakeDevice` FD passing + `PauseDevice`/`ResumeDevice` signal emission. This is required for KWin to own real DRM and input devices through the freedesktop session protocol. No bypass exists.
+
+**Phase 4 broader surface:** `kglobalaccel` binary, `kded6` binary, `StatusNotifierWatcher`, `Inhibit` methods, session identity derivation.
+
+### Phase 3 Gate (DRM Compositor) — Required D-Bus Changes
+
+Four fixes are required before KWin can use real hardware devices through login1:
+
+| # | Fix | Current state | Required change |
+|---|-----|---------------|-----------------|
+| 1 | `Manager.Inhibit` + `CanPowerOff`/`CanSuspend`/`CanHibernate` stubs | Missing | Return `"na"` string from each method; required by KDE's session management layer |
+| 2 | `PauseDevice`/`ResumeDevice` signal emission | Declared but not emitted | Emit `uus` (major, minor, type) for PauseDevice and `uuh` (major, minor, fd) for ResumeDevice in `session.rs` when device state changes |
+| 3 | Dynamic device enumeration | Static `device_map.rs` with hardcoded major/minor | Query udev-shim at runtime for major/minor -> scheme path mapping; remove hardcoded lookup table |
+| 4 | Missing Session methods | `SetIdleHint`, `SetLockedHint`, `SetType`, `Terminate` not implemented | Implement these or return errors; KDE session managers call these to track session state |
+
+### Phase 4 Gate (KDE Plasma Session) — Required D-Bus Changes
+
+| # | Improvement | Current state | Required change |
+|---|-------------|---------------|-----------------|
+| 1 | `StatusNotifierWatcher` implementation | New service needed | Register `org.freedesktop.StatusNotifierWatcher` on session bus; track registered items, emit `ItemRegistered`/`ItemUnregistered` signals |
+| 2 | `kglobalaccel` binary build | KDE app recipe builds library, daemon binary is a separate recipe step | Add `kglobalaccel` binary to `local/recipes/kde/kf6-kglobalaccel/` or create separate recipe |
+| 3 | `kded6` binary build | KDE app recipe builds library, daemon binary is a separate recipe step | Add `kded6` binary to `local/recipes/kde/kf6-kded6/` or create separate recipe |
+| 4 | Session identity derivation | Hardcoded to `c1`, `root`, `uid=0` | Query real session environment variables (`XDG_SESSION_ID`, `XDG_SEAT`) and derive identity from the actual login session |
+| 5 | `UPower Changed` signal emission + polling | No signals, no polling | Emit `Changed` signal when power state changes; implement property polling for `OnBattery`, `Percentage`, `TimeToEmpty` |
+| 6 | `Notifications ActionInvoked` signal + capabilities | Not implemented | Emit `ActionInvoked(uint32, string)` when user clicks notification action; expand `GetCapabilities` to include `body`, `actions`, `icon-static` |
+| 7 | Stoppable daemons | Services use `pending()` with no shutdown channel | Replace `pending()` in all services with proper shutdown signal channels; enable service restart and clean shutdown |
+
+### KWin Method-by-Method Readiness Matrix
+
+| KWin D-Bus call | Current impl | Phase 2 needed | Phase 3 needed |
+|-----------------|--------------|---------------|----------------|
+| `GetSession("auto")` | via NoopSession | No (bypasses logind) | Yes |
+| `TakeControl(false)` | Via login1 | No | Yes |
+| `TakeDevice(226, 0)` (DRM) | Via DeviceMap | No | Yes (critical) |
+| `TakeDevice(13, 64+)` (input) | Via DeviceMap | No | Yes (critical) |
+| `PauseDevice` signal | Declared, not emitted | No | Yes (critical) |
+| `ResumeDevice` signal | Declared, not emitted | No | Yes (critical) |
+| `Seat.SwitchTo` | Via login1 | No | Yes |
+| `Manager.Inhibit` | Missing | No | Yes |
+| `CanPowerOff`/`CanSuspend`/`CanHibernate` | Missing | No | Yes |
+| `PrepareForShutdown` | Via ACPI | No | Yes |
+| `PrepareForSleep` | Declared, not emitted | No | Yes |
+
+### Completeness by Service
+
+| Service | Methods real | Total expected | Completeness |
+|---------|-------------|---------------|--------------|
+| `login1.Manager` | 3 | ~30+ | ~10% |
+| `login1.Session` | 7 | ~15+ | ~47% |
+| `login1.Seat` | 1 | 5 | ~20% |
+| `Notifications` | 4 | ~5 | ~80% |
+| `UPower` | 3 | ~5 | ~60% |
+| `UDisks2` | 4 | ~8+ | ~50% |
+| `PolicyKit1` | 3 | ~6+ | ~50% |
+
+### Missing KDE D-Bus Services
+
+| Service | Used by | Status | Impact |
+|---------|---------|--------|--------|
+| `org.kde.kglobalaccel` | All KDE apps (global shortcuts) | Binary missing | HIGH |
+| `org.kde.kded6` | KDE daemon (status notifier, etc.) | Binary missing | HIGH |
+| `org.freedesktop.StatusNotifierWatcher` | System tray | New service needed | MEDIUM |
+| `org.kde.ksmserver` | Session management | Not implemented | MEDIUM |
+| `org.freedesktop.ScreenSaver` | Screen locking | Not implemented | MEDIUM |
+
+### Implementation Priority Order
+
+1. `redbear-sessiond` Phase 3 methods (enables DRM compositor session)
+2. Dynamic device enumeration (enables non-static hardware discovery)
+3. Stoppable daemons (enables testing and restart)
+4. `StatusNotifierWatcher` (enables system tray)
+5. `UPower` polling + signals (enables battery applet)
+6. Session identity improvements (enables non-root sessions)

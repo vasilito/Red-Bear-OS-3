@@ -1,0 +1,9 @@
+# Red Bear OS shared GRUB policy fragment
+# Use with any redbear-* profile to make GRUB first-class in installer flows.
+
+[general]
+bootloader = "grub"
+efi_partition_size = 16
+
+[packages]
+grub = {}

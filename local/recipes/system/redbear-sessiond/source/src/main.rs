@@ -84,7 +84,7 @@ fn system_connection_builder() -> Result<ConnectionBuilder<'static>, Box<dyn Err
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
+async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Result<(), Box<dyn Error>> {
     use tokio::signal::unix::{SignalKind, signal};
 
     let mut terminate = signal(SignalKind::terminate())?;
@@ -92,24 +92,32 @@ async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
     tokio::select! {
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
+        _ = shutdown_rx.changed() => Ok(()),
     }
 }
 
 #[cfg(target_os = "redox")]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    std::future::pending::<()>().await;
+async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Result<(), Box<dyn Error>> {
+    tokio::select! {
+        _ = std::future::pending::<()>() => Ok(()),
+        _ = shutdown_rx.changed() => Ok(()),
+    }
     #[allow(unreachable_code)]
     Ok(())
 }
 
 #[cfg(all(not(unix), not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    tokio::signal::ctrl_c().await?;
-    Ok(())
+async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Result<(), Box<dyn Error>> {
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => Ok(()),
+        _ = shutdown_rx.changed() => Ok(()),
+    }
 }
 
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
     wait_for_dbus_socket().await;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let mut last_err = None;
     for attempt in 1..=5 {
@@ -117,10 +125,11 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         let seat_path = parse_object_path(SEAT_PATH)?;
         let user_path = parse_object_path(USER_PATH)?;
         let runtime = shared_runtime();
+        let device_map = DeviceMap::discover();
 
-        let session = LoginSession::new(seat_path.clone(), user_path, DeviceMap::new(), runtime.clone());
+        let session = LoginSession::new(seat_path.clone(), user_path.clone(), device_map, runtime.clone());
         let seat = LoginSeat::new(session_path.clone(), runtime.clone());
-        let manager = LoginManager::new(session_path, seat_path, runtime.clone());
+        let manager = LoginManager::new(session_path, seat_path, user_path, runtime.clone());
 
         match system_connection_builder()?
             .name(BUS_NAME)?
@@ -132,9 +141,9 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         {
             Ok(connection) => {
                 eprintln!("redbear-sessiond: registered {BUS_NAME} on the system bus");
-                control::start_control_socket(runtime.clone());
+                control::start_control_socket(runtime.clone(), shutdown_tx.clone());
                 tokio::spawn(acpi_watcher::watch_and_emit(connection.clone(), runtime.clone()));
-                wait_for_shutdown().await?;
+                wait_for_shutdown(shutdown_rx).await?;
                 drop(connection);
                 return Ok(());
             }

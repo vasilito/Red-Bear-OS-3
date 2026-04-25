@@ -681,7 +681,7 @@ helper hardening comes before broad driver cleanup, and runtime-proof/observabil
 
 **Verification**
 
-- build passes: `CI=1 make r.base CONFIG_NAME=redbear-live-mini ARCH=x86_64`
+- build passes: `CI=1 make r.base CONFIG_NAME=redbear-mini ARCH=x86_64`
 - downstream consumers compile without errors
 
 ### Wave 4 — Convert highest-risk consumers
@@ -740,7 +740,7 @@ sites converted on the PCIe ECAM/DTB/MCFG startup path). Only Mutex `.lock().unw
 
 **Verification**
 
-- `CI=1 make cr.base CONFIG_NAME=redbear-live-mini ARCH=x86_64` — zero errors, build successful
+- `CI=1 make cr.base CONFIG_NAME=redbear-mini ARCH=x86_64` — zero errors, build successful
 - per-driver grep verified zero remaining panic-grade calls (only Mutex `.lock().unwrap()` kept)
 
 ### Wave 5 — Improve observability and proof

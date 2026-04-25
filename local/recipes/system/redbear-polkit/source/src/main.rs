@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, error::Error, path::Path, process, thread, time::Duration};
+use std::{collections::HashMap, env, error::Error, process, time::Duration};
 
 use tokio::runtime::Builder as RuntimeBuilder;
 use zbus::{
@@ -77,29 +77,26 @@ fn system_connection_builder() -> Result<ConnectionBuilder<'static>, Box<dyn Err
     }
 }
 
-#[cfg(all(unix, not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    use tokio::signal::unix::{SignalKind, signal};
-
-    let mut terminate = signal(SignalKind::terminate())?;
-
-    tokio::select! {
-        _ = terminate.recv() => Ok(()),
-        _ = tokio::signal::ctrl_c() => Ok(()),
-    }
-}
-
-#[cfg(target_os = "redox")]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    std::future::pending::<()>().await;
-    #[allow(unreachable_code)]
-    Ok(())
-}
-
-#[cfg(all(not(unix), not(target_os = "redox")))]
-async fn wait_for_shutdown() -> Result<(), Box<dyn Error>> {
-    tokio::signal::ctrl_c().await?;
-    Ok(())
+fn spawn_signal_handler(shutdown_tx: tokio::sync::watch::Sender<bool>) {
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            if let Ok(mut sigterm) = signal(SignalKind::terminate()) {
+                tokio::select! {
+                    _ = sigterm.recv() => {},
+                    _ = tokio::signal::ctrl_c() => {},
+                }
+            } else {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+        let _ = shutdown_tx.send(true);
+    });
 }
 
 #[interface(name = "org.freedesktop.PolicyKit1.Authority")]
@@ -151,6 +148,9 @@ impl PolicyKitAuthority {
 async fn run_daemon() -> Result<(), Box<dyn Error>> {
     wait_for_dbus_socket().await;
 
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    spawn_signal_handler(shutdown_tx);
+
     let mut last_err = None;
     for attempt in 1..=5 {
         let _authority_path = parse_object_path(AUTHORITY_PATH)?;
@@ -163,13 +163,16 @@ async fn run_daemon() -> Result<(), Box<dyn Error>> {
         {
             Ok(connection) => {
                 eprintln!("redbear-polkit: registered {BUS_NAME} on the system bus");
-                wait_for_shutdown().await?;
+                let _ = shutdown_rx.changed().await;
+                eprintln!("redbear-polkit: shutdown signal received, exiting cleanly");
                 drop(connection);
                 return Ok(());
             }
             Err(err) => {
                 if attempt < 5 {
-                    eprintln!("redbear-polkit: attempt {attempt}/5 failed ({err}), retrying in 2s...");
+                    eprintln!(
+                        "redbear-polkit: attempt {attempt}/5 failed ({err}), retrying in 2s..."
+                    );
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
                 last_err = Some(err.into());

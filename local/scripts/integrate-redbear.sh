@@ -226,16 +226,8 @@ echo ""
 
 section "Validating Red Bear configs..."
 declare -a redbear_configs=(
-    "config/redbear-desktop.toml"
-    "config/redbear-minimal.toml"
-    "config/redbear-bluetooth-experimental.toml"
+    "config/redbear-mini.toml"
     "config/redbear-full.toml"
-    "config/redbear-wayland.toml"
-    "config/redbear-live.toml"
-    "config/redbear-live-mini.toml"
-    "config/redbear-live-full.toml"
-    "config/redbear-grub-live-mini.toml"
-    "config/redbear-grub-live-full.toml"
     "config/redbear-grub.toml"
 )
 declare -a found_configs=()
@@ -247,9 +239,9 @@ for config_path in "${redbear_configs[@]}"; do
 done
 
 if [ "${#found_configs[@]}" -gt 0 ]; then
-    status "Found Red Bear config(s): ${found_configs[*]}"
+    status "Found Red Bear target config(s): ${found_configs[*]}"
 else
-    warn "No redbear config found in config/. Build may rely on a different config intentionally"
+    warn "No redbear target config found in config/"
 fi
 echo ""
 

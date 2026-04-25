@@ -107,8 +107,8 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
-- **Compile targets**: the supported compile targets are `redbear-mini`, `redbear-live-mini`, `redbear-full`, and `redbear-live-full`
-- **Live ISO policy**: live `.iso` outputs (`redbear-live-mini`, `redbear-live-full`) are for real bare-metal boot/install/recovery workflows, not the VM/QEMU execution surface.
+- **Compile targets**: the supported compile targets are `redbear-mini`, `redbear-full`, and `redbear-grub`
+- **Live ISO policy**: live `.iso` outputs (`make live`) are for real bare-metal boot/install/recovery workflows, not the VM/QEMU execution surface.
 - **Wayland**: libwayland + wayland-protocols built. A bounded greeter/compositor-backed login proof now passes, but broader compositor/runtime stability remains incomplete.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
@@ -120,7 +120,7 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **PCI / IRQ quality**: architecturally strong substrate exists, with bounded MSI-X, IOMMU, xHCI IRQ, and low-level-controller proof surfaces; broader hardware robustness is still intentionally tracked as open work in `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - **Wi-Fi profile target**: `config/redbear-wifi-experimental.toml` is the first explicit tracked image slice for bounded Intel Wi‑Fi validation, instead of spreading that claim across the generic desktop profiles.
 - **Bluetooth**: one bounded in-tree BLE-first experimental slice exists, and the Battery Level read-only workload now has a packaged in-guest checker plus a host QEMU harness; QEMU validation is still in progress, so broad desktop Bluetooth parity is still incomplete
-- **Desktop direction**: `redbear-full` / `redbear-live-full` carry the desktop-capable target surface; the bounded greeter/login slice now passes, while the wider desktop runtime stack is still incomplete.
+- **Desktop direction**: `redbear-full` carries the desktop-capable target surface; the bounded greeter/login slice now passes, while the wider desktop runtime stack is still incomplete.
 - **ACPI**: materially complete for the historical boot baseline, not release-grade complete; implemented: AML mutex real state, EC widened accesses via byte transactions, kstop-based shutdown eventing, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and real-but-provisional AML-backed power enumeration. **Known gaps**: the explicit boot-path producer contract for AML bootstrap is still underdocumented, `acpid` startup hardening remains open, shutdown/power reporting are still provisional, sleep state transitions and sleep eventing remain incomplete, DMAR ownership is still transitional, and bare-metal validation is still bounded. See `local/docs/ACPI-IMPROVEMENT-PLAN.md`.
 - **Linux driver compat**: linux-kpi now includes early wireless-subsystem compatibility scaffolding in addition to the earlier helper layer, redox-driver-sys and firmware-loader compile, and the bounded Intel Wi-Fi path now has host-tested scan/connect/disconnect/profile/reporting flows without claiming real hardware Wi-Fi connectivity.
 - **Wi-Fi validation tooling**: `redbear-phase5-wifi-check` and `redbear-phase5-wifi-capture` are now packaged in-guest helpers for bounded Intel Wi-Fi runtime validation and evidence capture on bare metal or VFIO-backed guests.

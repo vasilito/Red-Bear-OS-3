@@ -1,20 +1,4 @@
 #!/usr/bin/env bash
-# build-redbear.sh — Build Red Bear OS from upstream base + Red Bear overlay
-#
-# Usage:
-#   ./local/scripts/build-redbear.sh                                # Default: redbear-full
-#   ./local/scripts/build-redbear.sh redbear-mini                   # Minimal validation baseline
-#   ./local/scripts/build-redbear.sh redbear-full                   # Full Red Bear desktop/session target
-#   ./local/scripts/build-redbear.sh redbear-live                   # Canonical full live profile config
-#   ./local/scripts/build-redbear.sh redbear-live-mini              # Text-only mini live profile config
-#   ./local/scripts/build-redbear.sh redbear-grub-live-mini         # Text-only GRUB mini live profile config
-#   ./local/scripts/build-redbear.sh --upstream redbear-full        # Allow Redox/upstream recipe refresh
-#   APPLY_PATCHES=0 ./local/scripts/build-redbear.sh                # Skip patch application
-#
-# This script assumes the Red Bear overlay model:
-# - upstream-owned sources are refreshable working trees
-# - Red Bear-owned shipping deltas live in local/patches/ and local/recipes/
-# - upstream WIP recipes are not trusted as stable shipping inputs until upstream promotes them
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,23 +8,6 @@ CONFIG="redbear-full"
 JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
 ALLOW_UPSTREAM=0
-
-canonicalize_config() {
-    case "$1" in
-        redbear-mini)
-            printf '%s\n' "redbear-minimal"
-            ;;
-        redbear-live-full)
-            printf '%s\n' "redbear-live"
-            ;;
-        redbear-live-mini-grub)
-            printf '%s\n' "redbear-grub-live-mini"
-            ;;
-        *)
-            printf '%s\n' "$1"
-            ;;
-    esac
-}
 
 usage() {
     cat <<EOF
@@ -53,7 +20,9 @@ Options:
   -h, --help          Show this help
 
 Configs:
-  redbear-mini, redbear-full, redbear-live, redbear-live-mini, redbear-grub-live-mini
+  redbear-full        Desktop/graphics target (default)
+  redbear-mini        Text-only console/recovery target
+  redbear-grub        Text-only with GRUB boot manager
 EOF
 }
 
@@ -87,22 +56,12 @@ fi
 
 [ ${#POSITIONAL[@]} -eq 1 ] && CONFIG="${POSITIONAL[0]}"
 
-CONFIG="$(canonicalize_config "$CONFIG")"
-
 case "$CONFIG" in
-    redbear-minimal)
-        ;;
-    redbear-live)
-        ;;
-    redbear-live-mini)
-        ;;
-    redbear-grub-live-mini)
-        ;;
-    redbear-full)
+    redbear-full|redbear-mini|redbear-grub)
         ;;
     *)
-        echo "ERROR: Unknown config '$CONFIG'"
-        echo "Supported: redbear-mini, redbear-full, redbear-live, redbear-live-mini, redbear-grub-live-mini"
+        echo "ERROR: Unknown config '$CONFIG'" >&2
+        echo "Supported: redbear-full, redbear-mini, redbear-grub" >&2
         exit 1
         ;;
 esac
@@ -216,7 +175,6 @@ if [ "$APPLY_PATCHES" = "1" ]; then
     apply_patch_dir "$PROJECT_ROOT/local/patches/bootloader" "$PROJECT_ROOT/recipes/core/bootloader/source"  "bootloader"
     apply_patch_dir "$PROJECT_ROOT/local/patches/installer"  "$PROJECT_ROOT/recipes/core/installer/source"   "installer"
 
-    # repo cook can refetch nested sources when --upstream is enabled; keep relibc clean after patch application
     stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
     echo ""
 fi
@@ -232,12 +190,12 @@ if [ ! -f "target/release/repo" ]; then
     cargo build --release
 fi
 
-if [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-live" ]; then
+if [ "$CONFIG" = "redbear-full" ]; then
     ensure_relibc_desktop_surface
 fi
 
 FW_AMD_DIR="$PROJECT_ROOT/local/firmware/amdgpu"
-if [ "$CONFIG" != "redbear-minimal" ] && [ "$CONFIG" != "redbear-live-mini" ] && [ "$CONFIG" != "redbear-grub-live-mini" ]; then
+if [ "$CONFIG" = "redbear-full" ]; then
     if [ -d "$FW_AMD_DIR" ] && [ -n "$(ls -A "$FW_AMD_DIR" 2>/dev/null)" ]; then
         FW_COUNT=$(ls "$FW_AMD_DIR"/*.bin 2>/dev/null | wc -l)
         echo ">>> Found $FW_COUNT AMD firmware blobs"
@@ -268,38 +226,9 @@ echo "Image: build/$ARCH/$CONFIG/harddrive.img"
 echo ""
 echo "To run in QEMU:"
 echo "  make qemu QEMUFLAGS=\"-m 4G\""
-if [ "$CONFIG" = "redbear-minimal" ] || [ "$CONFIG" = "redbear-desktop" ]; then
-    echo ""
-    echo "To validate the Phase 2 VM network baseline:"
-    echo "  ./local/scripts/validate-vm-network-baseline.sh"
-    echo "  ./local/scripts/test-vm-network-qemu.sh $CONFIG"
-fi
-if [ "$CONFIG" = "redbear-desktop" ] || [ "$CONFIG" = "redbear-full" ] || [ "$CONFIG" = "redbear-wayland" ] || [ "$CONFIG" = "redbear-kde" ]; then
-    echo ""
-    echo "To validate bounded low-level controller proofs:"
-    echo "  ./local/scripts/test-lowlevel-controllers-qemu.sh $CONFIG"
-    echo "  # or run individual checks: test-xhci-irq-qemu.sh, test-iommu-qemu.sh, test-ps2-qemu.sh, test-timer-qemu.sh"
-    echo ""
-    echo "To validate bounded USB maturity proofs:"
-    echo "  ./local/scripts/test-usb-maturity-qemu.sh $CONFIG"
-    echo "  # or run individual checks: test-usb-qemu.sh --check, test-usb-storage-qemu.sh"
-fi
-if [ "$CONFIG" = "redbear-wayland" ]; then
-    echo ""
-    echo "To validate the bounded Phase 4 Wayland runtime harness:"
-    echo "  ./local/scripts/test-phase4-wayland-qemu.sh"
-    echo "  # in guest: redbear-drm-display-check --vendor amd|intel"
-fi
-if [ "$CONFIG" = "redbear-kde" ]; then
-    echo ""
-    echo "To validate the primary KWin Wayland desktop path:"
-    echo "  ./local/scripts/test-phase6-kde-qemu.sh --check"
-    echo "  # in guest: redbear-drm-display-check --vendor amd|intel"
-fi
 echo ""
 echo "To build live ISO:"
-echo "  make live CONFIG_NAME=$CONFIG"
-echo "  # live .iso outputs are for real bare metal, not VM/QEMU use"
+echo "  scripts/build-iso.sh $CONFIG"
 echo ""
 echo "To write a real bare-metal image to USB (verify device first!):"
 echo "  dd if=build/$ARCH/$CONFIG/harddrive.img of=/dev/sdX bs=4M status=progress"

@@ -1,6 +1,16 @@
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
+pub struct InhibitorEntry {
+    pub what: String,
+    pub who: String,
+    pub why: String,
+    pub mode: String,
+    pub pid: u32,
+    pub uid: u32,
+}
+
+#[derive(Clone, Debug)]
 pub struct SessionRuntime {
     pub session_id: String,
     pub seat_id: String,
@@ -11,6 +21,10 @@ pub struct SessionRuntime {
     pub state: String,
     pub active: bool,
     pub preparing_for_shutdown: bool,
+    pub idle_hint: bool,
+    pub locked_hint: bool,
+    pub session_type: String,
+    pub inhibitors: Vec<InhibitorEntry>,
 }
 
 impl Default for SessionRuntime {
@@ -25,6 +39,10 @@ impl Default for SessionRuntime {
             state: String::from("online"),
             active: true,
             preparing_for_shutdown: false,
+            idle_hint: false,
+            locked_hint: false,
+            session_type: String::from("wayland"),
+            inhibitors: Vec::new(),
         }
     }
 }

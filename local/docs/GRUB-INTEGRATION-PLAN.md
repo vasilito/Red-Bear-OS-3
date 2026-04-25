@@ -3,8 +3,8 @@
 **Date:** 2026-04-17
 **Status:** Fully implemented (build-tested, not yet runtime boot-tested). ESP formatted as FAT32
 per UEFI spec. Both Phase 1 (post-build script) and Phase 2 (installer-native) are wired.
-**Remaining:** Runtime UEFI boot validation in QEMU (`make all CONFIG_NAME=redbear-full-grub && make qemu`).
-**Prerequisite:** The `grub` package is included in `redbear-full-grub.toml` for clean-tree builds.
+**Remaining:** Runtime UEFI boot validation in QEMU (`make all CONFIG_NAME=redbear-grub && make qemu`).
+**Prerequisite:** The `grub` package is included in `redbear-grub.toml` for clean-tree builds.
 **Approach:** Option A — GRUB as boot manager, chainloading Redox bootloader
 
 ## Overview
@@ -257,7 +257,7 @@ ESP layout automatically.
 ### Config Usage
 
 ```toml
-# config/redbear-full-grub.toml
+# config/redbear-grub.toml
 include = ["redbear-full.toml"]
 
 [general]
@@ -271,7 +271,7 @@ Or via CLI (note: INSTALLER_OPTS replaces defaults, so --cookbook=. must be incl
 make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--cookbook=. --bootloader grub"
 ```
 
-**Note:** The config file approach (`redbear-full-grub.toml`) is preferred over the CLI flag
+**Note:** The config file approach (`redbear-grub.toml`) is preferred over the CLI flag
 because INSTALLER_OPTS completely replaces the default value (`--cookbook=.`) rather than
 appending to it. Omitting `--cookbook=.` breaks local package resolution for GRUB.
 
@@ -356,7 +356,7 @@ make qemu
 make r.grub
 
 # Build image with GRUB config (installer fetches GRUB automatically)
-make all CONFIG_NAME=redbear-full-grub
+make all CONFIG_NAME=redbear-grub
 
 # Or via CLI flag
 make all CONFIG_NAME=redbear-full INSTALLER_OPTS="--bootloader grub --cookbook=."
@@ -376,7 +376,7 @@ make qemu
 CI=1 ./target/release/repo cook grub
 
 # Verify host-side installer accepts --bootloader flag
-build/fstools/bin/redox_installer --bootloader=grub --config=config/redbear-full-grub.toml --list-packages
+build/fstools/bin/redox_installer --bootloader=grub --config=config/redbear-grub.toml --list-packages
 
 # Verify fat_tool.py operations
 python3 local/scripts/fat_tool.py --help

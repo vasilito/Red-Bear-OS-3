@@ -1,7 +1,0 @@
-# Red Bear OS Live Full Configuration with GRUB Boot Manager
-# Legacy compatibility alias for the canonical GRUB full live target.
-#
-# Preferred build: make live CONFIG_NAME=redbear-grub-live-full
-# Legacy build:    make live CONFIG_NAME=redbear-live-full-grub
-
-include = ["redbear-grub-live-full.toml"]

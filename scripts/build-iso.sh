@@ -2,29 +2,9 @@
 
 set -euo pipefail
 
-CONFIG_NAME="redbear-live"
+CONFIG_NAME="redbear-mini"
 ARCH="x86_64"
 ALLOW_UPSTREAM=0
-
-canonicalize_live_config() {
-    case "$1" in
-        redbear-live-full)
-            printf '%s\n' "redbear-live"
-            ;;
-        redbear-live-mini-grub)
-            printf '%s\n' "redbear-grub-live-mini"
-            ;;
-        redbear-live-full-grub)
-            printf '%s\n' "redbear-grub-live-full"
-            ;;
-        redbear-grub-live-full)
-            printf '%s\n' "redbear-grub-live-full"
-            ;;
-        *)
-            printf '%s\n' "$1"
-            ;;
-    esac
-}
 
 usage() {
     cat <<EOF
@@ -32,27 +12,17 @@ Usage: $(basename "$0") [OPTIONS] [CONFIG_NAME] [ARCH]
 
 Build a Red Bear OS live ISO for real bare metal.
 
-Important:
-  Live .iso outputs are for bare-metal boot/install/recovery workflows.
-  They are not the virtual/QEMU target surface; use harddrive.img + make qemu for virtualization.
-
 Options:
   --upstream          Allow Redox/upstream recipe source refresh during build
   -h, --help          Show this help
 
-Supported live ISO targets:
-  redbear-live              Full live ISO (graphical greeter + text fallback)
-  redbear-live-mini         Text-only mini live ISO
-  redbear-grub-live-mini    Text-only mini live ISO with GRUB bootloader
-  redbear-grub-live-full    Full live ISO with GRUB bootloader
-
-Legacy compatibility aliases:
-  redbear-live-full         → redbear-live
-  redbear-live-mini-grub    → redbear-grub-live-mini
-  redbear-live-full-grub    → redbear-grub-live-full
+Supported targets:
+  redbear-full        Full desktop ISO (Wayland + KDE + GPU drivers)
+  redbear-mini        Text-only ISO (default)
+  redbear-grub        Text-only ISO with GRUB boot manager
 
 Defaults:
-  CONFIG_NAME=redbear-live
+  CONFIG_NAME=redbear-mini
   ARCH=x86_64
 EOF
 }
@@ -93,14 +63,12 @@ fi
 [ ${#POSITIONAL[@]} -ge 1 ] && CONFIG_NAME="${POSITIONAL[0]}"
 [ ${#POSITIONAL[@]} -ge 2 ] && ARCH="${POSITIONAL[1]}"
 
-CONFIG_NAME="$(canonicalize_live_config "$CONFIG_NAME")"
-
 case "$CONFIG_NAME" in
-    redbear-live|redbear-live-mini|redbear-grub-live-mini|redbear-grub-live-full)
+    redbear-full|redbear-mini|redbear-grub)
         ;;
     *)
-        echo "ERROR: Unsupported live ISO target '$CONFIG_NAME'" >&2
-        usage >&2
+        echo "ERROR: Unsupported target '$CONFIG_NAME'" >&2
+        echo "Supported: redbear-full, redbear-mini, redbear-grub" >&2
         exit 1
         ;;
 esac
@@ -122,4 +90,3 @@ fi
 
 echo ""
 echo "Done: build/${ARCH}/${CONFIG_NAME}.iso"
-echo "Note: live .iso outputs are for real bare metal, not VM/QEMU use."

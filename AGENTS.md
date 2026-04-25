@@ -73,7 +73,7 @@ redox-master/
 | Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture (**GPU and Wi-Fi only — not USB**) |
 | Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 | Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
-| Display/session surface | `config/redbear-full.toml` | Active desktop/graphics compile surface; `redbear-kde` references elsewhere are historical/staging and not supported compile targets |
+| Display/session surface | `config/redbear-full.toml` | Active desktop/graphics compile surface |
 | GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
 | GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
 | D-Bus integration | `local/docs/DBUS-INTEGRATION-PLAN.md` | Architecture, gap analysis, phased implementation for KDE Plasma D-Bus |
@@ -93,27 +93,22 @@ echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 
 # Build Red Bear OS
 # Supported compile targets:
-#   redbear-full         desktop/graphics harddrive.img
-#   redbear-live         full desktop live ISO (greeter + text fallback)
-#   redbear-live-mini    text-only mini live ISO for recovery/bare metal
-#   redbear-full-grub    desktop target with GRUB boot manager
-#   redbear-grub-live-full  full desktop live ISO with GRUB
-#   redbear-grub-live-mini  text-only mini live ISO with GRUB
-# Desktop/graphics targets: redbear-full, redbear-full-grub, redbear-live, redbear-grub-live-full
-# Text-only targets: redbear-live-mini, redbear-grub-live-mini
-# NOTE: redbear-kde and redbear-live-full are historical/staging, not supported compile targets
-make all CONFIG_NAME=redbear-full         # Desktop/graphics-enabled target → harddrive.img
-make live CONFIG_NAME=redbear-live        # Full desktop live ISO (greeter + text fallback)
-make live CONFIG_NAME=redbear-live-mini    # Text-only mini live ISO for recovery/bare metal
-make all CONFIG_NAME=redbear-full-grub    # Desktop target with GRUB boot manager → harddrive.img
-make live CONFIG_NAME=redbear-grub-live-full   # Full desktop live ISO with GRUB
-make live CONFIG_NAME=redbear-grub-live-mini   # Text-only mini live ISO with GRUB
-CI=1 make all CONFIG_NAME=redbear-mini     # CI mode (disables TUI, for non-interactive)
+#   redbear-full         desktop/graphics target (harddrive.img or live ISO)
+#   redbear-mini         text-only console/recovery target (harddrive.img or live ISO)
+#   redbear-grub         text-only with GRUB boot manager (live ISO)
+# Desktop/graphics target: redbear-full
+# Text-only targets: redbear-mini, redbear-grub
+make all CONFIG_NAME=redbear-full         # Desktop/graphics target → harddrive.img
+make all CONFIG_NAME=redbear-mini         # Text-only target → harddrive.img
+make live CONFIG_NAME=redbear-full        # Full desktop live ISO
+make live CONFIG_NAME=redbear-mini        # Text-only mini live ISO
+make live CONFIG_NAME=redbear-grub        # Text-only mini live ISO with GRUB
+CI=1 make all CONFIG_NAME=redbear-mini    # CI mode (disables TUI, for non-interactive)
 
 # Run
 make qemu                                 # Boot in QEMU
 make qemu QEMUFLAGS="-m 4G"              # With more RAM
-make live                                 # Build live ISO for real bare metal → redbear-live.iso
+make live                                 # Build live ISO for real bare metal
 
 # Single recipe
 ./target/release/repo cook recipes/libs/mesa     # Build one recipe
@@ -136,7 +131,7 @@ make all
   → mk/fstools.mk (build cookbook repo binary + fstools)
   → mk/repo.mk (repo cook --filesystem=config/*.toml)
     → For each recipe: fetch source → apply patches → build → stage into sysroot
-  → mk/disk.mk (create filesystem.img, harddrive.img, redbear-live.iso)
+  → mk/disk.mk (create filesystem.img, harddrive.img, redbear-live.iso or harddrive.img)
     → redoxfs-mkfs → redox_installer → bootloader embedding
 ```
 

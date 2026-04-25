@@ -1,11 +1,16 @@
-# Red Bear OS shared GRUB policy fragment
-# Use with any redbear-* profile to make GRUB first-class in installer flows.
+# Red Bear OS GRUB Configuration
+# Text-only ISO with GRUB boot manager for bare metal.
+#
+# Build: make live CONFIG_NAME=redbear-grub
+#
+# Identical to redbear-mini but uses GNU GRUB as the boot manager
+# instead of the Redox EFI bootloader.
+
+include = ["redbear-mini.toml", "redbear-grub-policy.toml"]
 
 [general]
 bootloader = "grub"
-# Keep ESP large enough for GRUB EFI image + Red Bear bootloader + future growth.
 efi_partition_size = 16
 
 [packages]
-# Ensure GRUB artifacts are present for installer-native chainload layout.
 grub = {}

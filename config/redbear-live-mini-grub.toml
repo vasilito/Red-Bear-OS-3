@@ -1,7 +1,0 @@
-# Red Bear OS Live Mini Configuration with GRUB Boot Manager
-# Legacy compatibility alias for the canonical GRUB mini live target.
-#
-# Preferred build: make live CONFIG_NAME=redbear-grub-live-mini
-# Legacy build:    make live CONFIG_NAME=redbear-live-mini-grub
-
-include = ["redbear-grub-live-mini.toml"]

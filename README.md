@@ -78,7 +78,7 @@ Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets
 language in historical integration notes should be read as earlier sequencing context, not as the
 current platform policy.
 
-The tracked desktop-capable target surface is now `redbear-full` / `redbear-live`, and
+The tracked desktop-capable target surface is `redbear-full`, and
 runtime support claims remain evidence-qualified until compositor/session proof is stronger.
 
 ## Historical Phase Snapshot
@@ -176,23 +176,21 @@ Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. 
 
 ```bash
 # Non-live (harddrive.img for QEMU / development)
-make all CONFIG_NAME=redbear-full        # Tracked desktop-capable target
-make all CONFIG_NAME=redbear-full-grub   # Desktop target with GRUB boot manager
+make all CONFIG_NAME=redbear-full        # Desktop/graphics target
+make all CONFIG_NAME=redbear-mini        # Text-only console/recovery target
 
 # Live ISO (for real bare metal)
-make live CONFIG_NAME=redbear-live       # Full desktop live ISO (greeter + text fallback)
-make live CONFIG_NAME=redbear-live-mini  # Text-only mini live ISO for recovery (~384 MiB)
-make live CONFIG_NAME=redbear-grub-live-full   # Full desktop live ISO with GRUB
-make live CONFIG_NAME=redbear-grub-live-mini   # Text-only mini live ISO with GRUB
+make live CONFIG_NAME=redbear-full       # Full desktop live ISO
+make live CONFIG_NAME=redbear-mini       # Text-only mini live ISO for recovery
+make live CONFIG_NAME=redbear-grub       # Text-only mini live ISO with GRUB
 
 # Or use the helper script
-scripts/build-iso.sh redbear-live              # Full desktop live ISO
-scripts/build-iso.sh redbear-live-mini         # Text-only mini
-scripts/build-iso.sh redbear-grub-live-full    # Full desktop + GRUB
-scripts/build-iso.sh redbear-grub-live-mini    # Text-only + GRUB
+scripts/build-iso.sh redbear-full        # Full desktop live ISO
+scripts/build-iso.sh redbear-mini        # Text-only mini (default)
+scripts/build-iso.sh redbear-grub        # Text-only + GRUB
 
 # QEMU (uses harddrive.img, not live ISO)
-make qemu CONFIG_NAME=redbear-full       # Boot the tracked desktop-capable target in QEMU
+make qemu CONFIG_NAME=redbear-full       # Boot the desktop target in QEMU
 ```
 
 Live `.iso` outputs are for real bare-metal boot and install workflows. They are not the virtual/QEMU target surface; use `make qemu` and `harddrive.img`-based flows for virtualization.
@@ -202,7 +200,7 @@ Live `.iso` outputs are for real bare-metal boot and install workflows. They are
 Red Bear OS can use GNU GRUB as an alternative boot manager with Linux-compatible CLI:
 
 ```bash
-make all CONFIG_NAME=redbear-full-grub   # Build broader integration slice with GRUB chainload
+make all CONFIG_NAME=redbear-grub   # Build text-only target with GRUB chainload
 ./local/scripts/grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
 ./local/scripts/grub-mkconfig -o local/recipes/core/grub/grub.cfg
 ```

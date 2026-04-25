@@ -126,13 +126,12 @@ In-guest quick checks:
 
 ## Compile-target note
 
-Red Bear has exactly four compile targets:
+Red Bear has exactly three compile targets:
 
 - `redbear-mini`
-- `redbear-live-mini`
 - `redbear-full`
-- `redbear-live-full`
+- `redbear-grub`
 
-Older names such as `redbear-desktop`, `redbear-wayland`, `redbear-kde`, and `redbear-minimal` may
-still appear in historical notes or implementation details, but they are not the supported
-compile-target surface.
+Older names such as `redbear-desktop`, `redbear-wayland`, `redbear-kde`, `redbear-minimal`,
+`redbear-live-mini`, and `redbear-live-full` may still appear in historical notes or
+implementation details, but they are not the supported compile-target surface.
