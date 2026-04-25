@@ -113,3 +113,90 @@ pub trait GpuDriver: Send + Sync {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::mem::{discriminant, offset_of, size_of};
+
+    use super::*;
+
+    #[test]
+    fn redox_private_cs_submit_size() {
+        // src_handle(u32) + dst_handle(u32) + src_offset(u64) + dst_offset(u64) + byte_count(u64)
+        // = 4 + 4 + 8 + 8 + 8 = 32 bytes
+        assert_eq!(size_of::<RedoxPrivateCsSubmit>(), 32);
+    }
+
+    #[test]
+    fn redox_private_cs_submit_result_size() {
+        // seqno(u64) = 8 bytes
+        assert_eq!(size_of::<RedoxPrivateCsSubmitResult>(), 8);
+    }
+
+    #[test]
+    fn redox_private_cs_wait_size() {
+        // seqno(u64) + timeout_ns(u64) = 16 bytes
+        assert_eq!(size_of::<RedoxPrivateCsWait>(), 16);
+    }
+
+    #[test]
+    fn redox_private_cs_wait_result_size() {
+        // completed(bool) + 7 padding + completed_seqno(u64) = 16 bytes
+        assert_eq!(size_of::<RedoxPrivateCsWaitResult>(), 16);
+    }
+
+    #[test]
+    fn driver_event_vblank_size() {
+        let event = DriverEvent::Vblank {
+            crtc_id: 0xDEADBEEF,
+            count: 0x1234_5678_9ABC_DEF0,
+        };
+        match event {
+            DriverEvent::Vblank { crtc_id, count } => {
+                assert_eq!(crtc_id, 0xDEADBEEF);
+                assert_eq!(count, 0x1234_5678_9ABC_DEF0);
+            }
+            DriverEvent::Hotplug { .. } => panic!("expected Vblank, got Hotplug"),
+        }
+        let enum_size = size_of::<DriverEvent>();
+        assert!(enum_size > 0, "DriverEvent must be non-zero-sized");
+    }
+
+    #[test]
+    fn driver_event_hotplug_size() {
+        let event = DriverEvent::Hotplug {
+            connector_id: 0xCAFEBABE,
+        };
+        match event {
+            DriverEvent::Hotplug { connector_id } => {
+                assert_eq!(connector_id, 0xCAFEBABE);
+            }
+            DriverEvent::Vblank { .. } => panic!("expected Hotplug, got Vblank"),
+        }
+        let vblank = DriverEvent::Vblank {
+            crtc_id: 0,
+            count: 0,
+        };
+        let hotplug = DriverEvent::Hotplug { connector_id: 0 };
+        assert_ne!(
+            discriminant(&vblank),
+            discriminant(&hotplug),
+            "Vblank and Hotplug must have distinct discriminants"
+        );
+    }
+
+    #[test]
+    fn redox_private_cs_submit_is_repr_c() {
+        assert_eq!(offset_of!(RedoxPrivateCsSubmit, src_handle), 0);
+        assert_eq!(offset_of!(RedoxPrivateCsSubmit, dst_handle), 4);
+        assert_eq!(offset_of!(RedoxPrivateCsSubmit, src_offset), 8);
+        assert_eq!(offset_of!(RedoxPrivateCsSubmit, dst_offset), 16);
+        assert_eq!(offset_of!(RedoxPrivateCsSubmit, byte_count), 24);
+    }
+
+    #[test]
+    fn redox_private_cs_wait_is_repr_c() {
+        assert_eq!(offset_of!(RedoxPrivateCsWait, seqno), 0);
+        assert_eq!(offset_of!(RedoxPrivateCsWait, timeout_ns), 8);
+    }
+}

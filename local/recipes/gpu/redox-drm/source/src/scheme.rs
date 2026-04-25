@@ -2168,4 +2168,364 @@ mod tests {
 
         assert_eq!(err.errno, EINVAL);
     }
+
+    #[test]
+    fn gem_has_other_refs_returns_false_when_only_current_handle_owns_gem() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+
+        let gem_handle = created.handle;
+        assert!(
+            !scheme.gem_has_other_refs(card, gem_handle),
+            "only one handle owns the GEM, so gem_has_other_refs should be false"
+        );
+    }
+
+    #[test]
+    fn gem_has_other_refs_returns_true_when_another_handle_owns_gem() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card_a = open_card(&mut scheme);
+        let card_b = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card_a, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card_a);
+        let gem_handle = created.handle;
+
+        let export = DrmPrimeHandleToFdWire {
+            handle: gem_handle,
+            flags: 0,
+        };
+        write_ioctl(&mut scheme, card_a, DRM_IOCTL_PRIME_HANDLE_TO_FD, &export).unwrap();
+        let exported = read_response::<DrmPrimeHandleToFdResponseWire>(&mut scheme, card_a);
+
+        let import = DrmPrimeFdToHandleWire {
+            fd: exported.fd,
+            _pad: 0,
+        };
+        write_ioctl(&mut scheme, card_b, DRM_IOCTL_PRIME_FD_TO_HANDLE, &import).unwrap();
+        let imported = read_response::<DrmPrimeFdToHandleResponseWire>(&mut scheme, card_b);
+
+        assert!(
+            scheme.gem_has_other_refs(card_a, imported.handle),
+            "card_b owns the same GEM, so gem_has_other_refs from card_a should be true"
+        );
+    }
+
+    #[test]
+    fn gem_is_mapped_returns_false_initially() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+
+        assert!(
+            !scheme.gem_is_mapped(created.handle),
+            "freshly created GEM should not be mapped"
+        );
+    }
+
+    #[test]
+    fn gem_is_mapped_returns_true_after_pin() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        let gem_handle = created.handle;
+
+        scheme.pin_mapped_gem(card, gem_handle).unwrap();
+
+        assert!(
+            scheme.gem_is_mapped(gem_handle),
+            "GEM should be mapped after pin_mapped_gem"
+        );
+    }
+
+    #[test]
+    fn gem_export_refcount_starts_at_zero() {
+        let scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        assert_eq!(
+            scheme.gem_export_refcount(9999),
+            0,
+            "unknown GEM should have refcount 0"
+        );
+    }
+
+    #[test]
+    fn bump_export_ref_increments_from_zero_to_one() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let gem_handle: GemHandle = 42;
+
+        scheme.bump_export_ref(gem_handle);
+
+        assert_eq!(
+            scheme.gem_export_refcount(gem_handle),
+            1,
+            "bumping an unknown GEM should set its refcount to 1"
+        );
+    }
+
+    #[test]
+    fn bump_export_ref_saturates_on_overflow() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let gem_handle: GemHandle = 42;
+
+        scheme.gem_export_refs.insert(gem_handle, usize::MAX);
+
+        scheme.bump_export_ref(gem_handle);
+
+        assert_eq!(
+            scheme.gem_export_refcount(gem_handle),
+            usize::MAX,
+            "saturating add should keep refcount at usize::MAX"
+        );
+    }
+
+    #[test]
+    fn drop_export_ref_decrements_count() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let gem_handle: GemHandle = 42;
+
+        scheme.bump_export_ref(gem_handle);
+        scheme.bump_export_ref(gem_handle);
+        assert_eq!(scheme.gem_export_refcount(gem_handle), 2);
+
+        scheme.drop_export_ref(gem_handle);
+
+        assert_eq!(
+            scheme.gem_export_refcount(gem_handle),
+            1,
+            "dropping once should decrement from 2 to 1"
+        );
+    }
+
+    #[test]
+    fn drop_export_ref_removes_entry_when_count_reaches_zero() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let gem_handle: GemHandle = 42;
+
+        scheme.bump_export_ref(gem_handle);
+        assert_eq!(scheme.gem_export_refcount(gem_handle), 1);
+
+        scheme.drop_export_ref(gem_handle);
+
+        assert_eq!(
+            scheme.gem_export_refcount(gem_handle),
+            0,
+            "dropping the last ref should remove the entry"
+        );
+    }
+
+    #[test]
+    fn drop_export_ref_cleans_up_prime_exports() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let gem_handle: GemHandle = 77;
+        let export_token: u32 = 100;
+
+        scheme.prime_exports.insert(export_token, gem_handle);
+        scheme.bump_export_ref(gem_handle);
+        assert_eq!(scheme.gem_export_refcount(gem_handle), 1);
+        assert!(scheme.prime_exports.contains_key(&export_token));
+
+        scheme.drop_export_ref(gem_handle);
+
+        assert_eq!(scheme.gem_export_refcount(gem_handle), 0);
+        assert!(
+            !scheme.prime_exports.values().any(|&h| h == gem_handle),
+            "drop_export_ref should clean up prime_exports entries for this GEM"
+        );
+    }
+
+    #[test]
+    fn gem_can_close_returns_false_when_gem_backs_framebuffer() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 16384,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        let gem_handle = created.handle;
+
+        let addfb = DrmAddFbWire {
+            width: 64,
+            height: 64,
+            pitch: 256,
+            bpp: 32,
+            depth: 24,
+            handle: gem_handle,
+            fb_id: 0,
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_MODE_ADDFB, &addfb).unwrap();
+        let fb_resp = read_response::<DrmAddFbWire>(&mut scheme, card);
+
+        if let Some(handle) = scheme.handles.get_mut(&card) {
+            handle.owned_gems.retain(|&h| h != gem_handle);
+        }
+
+        assert!(
+            !scheme.gem_can_close(gem_handle),
+            "GEM backing a framebuffer should not be closeable"
+        );
+        assert!(scheme.fb_registry.contains_key(&fb_resp.fb_id));
+    }
+
+    #[test]
+    fn gem_can_close_returns_false_when_gem_is_mapped() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        let gem_handle = created.handle;
+
+        scheme.pin_mapped_gem(card, gem_handle).unwrap();
+
+        if let Some(handle) = scheme.handles.get_mut(&card) {
+            handle.owned_gems.retain(|&h| h != gem_handle);
+        }
+
+        assert!(
+            !scheme.gem_can_close(gem_handle),
+            "mapped GEM should not be closeable"
+        );
+    }
+
+    #[test]
+    fn gem_can_close_returns_true_when_unreferenced() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 4096,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        let gem_handle = created.handle;
+
+        if let Some(handle) = scheme.handles.get_mut(&card) {
+            handle.owned_gems.retain(|&h| h != gem_handle);
+        }
+
+        assert!(
+            scheme.gem_can_close(gem_handle),
+            "unreferenced, unmapped GEM with no FB or export refs should be closeable"
+        );
+    }
+
+    #[test]
+    fn allocate_handle_returns_sequential_ids() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        let id_a = scheme.allocate_handle(NodeKind::Card);
+        let id_b = scheme.allocate_handle(NodeKind::Card);
+
+        assert!(
+            id_b > id_a,
+            "second allocated handle ID ({id_b}) should be greater than first ({id_a})"
+        );
+    }
+
+    #[test]
+    fn is_fb_active_returns_false_for_unknown_fb() {
+        let scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        assert!(
+            !scheme.is_fb_active(12345),
+            "unknown fb_id should not be active"
+        );
+    }
+
+    #[test]
+    fn is_fb_active_returns_true_for_active_crtc_fb() {
+        let mut scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+        let card = open_card(&mut scheme);
+
+        let create = DrmGemCreateWire {
+            size: 640 * 480 * 4,
+            ..DrmGemCreateWire::default()
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_GEM_CREATE, &create).unwrap();
+        let created = read_response::<DrmGemCreateWire>(&mut scheme, card);
+        let gem_handle = created.handle;
+
+        let addfb = DrmAddFbWire {
+            width: 640,
+            height: 480,
+            pitch: 2560,
+            bpp: 32,
+            depth: 24,
+            handle: gem_handle,
+            fb_id: 0,
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_MODE_ADDFB, &addfb).unwrap();
+        let fb_resp = read_response::<DrmAddFbWire>(&mut scheme, card);
+        let fb_id = fb_resp.fb_id;
+
+        let mode = DrmModeWire {
+            clock: 25200,
+            hdisplay: 640,
+            hsync_start: 656,
+            hsync_end: 752,
+            htotal: 800,
+            vdisplay: 480,
+            vsync_start: 490,
+            vsync_end: 492,
+            vtotal: 525,
+            vrefresh: 60,
+            ..DrmModeWire::default()
+        };
+        let setcrtc = DrmSetCrtcWire {
+            crtc_id: 0,
+            fb_handle: fb_id,
+            connector_count: 0,
+            connectors: [0; 8],
+            mode,
+        };
+        write_ioctl(&mut scheme, card, DRM_IOCTL_MODE_SETCRTC, &setcrtc).unwrap();
+
+        assert!(
+            scheme.is_fb_active(fb_id),
+            "FB programmed on a CRTC should be active"
+        );
+    }
+
+    #[test]
+    fn validate_gem_create_size_rejects_zero() {
+        let scheme = DrmScheme::new(Arc::new(FakeDriver::new(false)));
+
+        let err = scheme
+            .validate_gem_create_size(0, "test-zero-size")
+            .unwrap_err();
+
+        assert_eq!(err.errno, EINVAL, "zero-sized GEM creation should return EINVAL");
+    }
 }

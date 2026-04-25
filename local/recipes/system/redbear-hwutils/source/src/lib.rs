@@ -165,7 +165,120 @@ pub fn lookup_pci_device_name(vendor_id: u16, device_id: u16) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pci_id_database;
+    use super::{describe_usb_device, parse_args, parse_pci_id_database, parse_pci_location};
+
+    // --- parse_pci_location tests ---
+
+    #[test]
+    fn parse_pci_location_valid_input() {
+        let loc = parse_pci_location("0000--00--1f.2").unwrap();
+        assert_eq!(loc.segment, 0x0000);
+        assert_eq!(loc.bus, 0x00);
+        assert_eq!(loc.device, 0x1f);
+        assert_eq!(loc.function, 2);
+    }
+
+    #[test]
+    fn parse_pci_location_scheme_path_format() {
+        let loc = parse_pci_location("0003--01--0a.3").unwrap();
+        assert_eq!(loc.scheme_path(), "/scheme/pci/0003--01--0a.3");
+    }
+
+    #[test]
+    fn parse_pci_location_display_format() {
+        let loc = parse_pci_location("00ff--02--1c.0").unwrap();
+        assert_eq!(format!("{loc}"), "00ff:02:1c.0");
+    }
+
+    #[test]
+    fn parse_pci_location_missing_double_dash_returns_none() {
+        assert!(parse_pci_location("0000.00--1f.2").is_none());
+    }
+
+    #[test]
+    fn parse_pci_location_missing_dot_returns_none() {
+        assert!(parse_pci_location("0000--00--1f-2").is_none());
+    }
+
+    #[test]
+    fn parse_pci_location_non_hex_segment_returns_none() {
+        assert!(parse_pci_location("zzzz--00--1f.2").is_none());
+    }
+
+    #[test]
+    fn parse_pci_location_empty_string_returns_none() {
+        assert!(parse_pci_location("").is_none());
+    }
+
+    // --- describe_usb_device tests ---
+
+    #[test]
+    fn describe_usb_device_both_fields() {
+        assert_eq!(
+            describe_usb_device(Some("Logitech"), Some("USB Mouse")),
+            "Logitech USB Mouse"
+        );
+    }
+
+    #[test]
+    fn describe_usb_device_manufacturer_only() {
+        assert_eq!(describe_usb_device(Some("Logitech"), None), "Logitech");
+    }
+
+    #[test]
+    fn describe_usb_device_product_only() {
+        assert_eq!(describe_usb_device(None, Some("USB Mouse")), "USB Mouse");
+    }
+
+    #[test]
+    fn describe_usb_device_both_none() {
+        assert_eq!(describe_usb_device(None, None), "USB device");
+    }
+
+    #[test]
+    fn describe_usb_device_empty_manufacturer_filtered() {
+        assert_eq!(describe_usb_device(Some(""), Some("USB Mouse")), "USB Mouse");
+    }
+
+    #[test]
+    fn describe_usb_device_empty_product_filtered() {
+        assert_eq!(describe_usb_device(Some("Logitech"), Some("")), "Logitech");
+    }
+
+    // --- parse_args tests ---
+
+    #[test]
+    fn parse_args_empty_extras_returns_ok() {
+        assert!(parse_args("prog", "usage", vec!["prog".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn parse_args_help_flag_returns_err_empty() {
+        let result = parse_args("prog", "usage text", vec!["prog".to_string(), "--help".to_string()]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "");
+    }
+
+    #[test]
+    fn parse_args_h_flag_returns_err_empty() {
+        let result = parse_args("prog", "usage text", vec!["prog".to_string(), "-h".to_string()]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "");
+    }
+
+    #[test]
+    fn parse_args_unknown_argument_returns_err_with_message() {
+        let result = parse_args(
+            "prog",
+            "usage text",
+            vec!["prog".to_string(), "bogus".to_string()],
+        );
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("unsupported arguments"), "expected 'unsupported arguments' in: {msg}");
+    }
+
+    // --- original pci_id_database tests ---
 
     #[test]
     fn parses_vendor_and_device_entries_from_pci_ids() {
