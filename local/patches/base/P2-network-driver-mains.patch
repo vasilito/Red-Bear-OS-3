@@ -1,0 +1,607 @@
+# P2-network-driver-mains.patch
+# Extract network driver main.rs hardening: replace panic/unwrap/expect with
+# proper error handling and graceful exits.
+#
+# Files: drivers/net/e1000d/src/main.rs, drivers/net/ixgbed/src/main.rs,
+#         drivers/net/rtl8139d/src/main.rs, drivers/net/rtl8168d/src/main.rs,
+#         drivers/net/virtio-netd/src/main.rs
+
+diff --git a/drivers/net/e1000d/src/main.rs b/drivers/net/e1000d/src/main.rs
+index 373ea9b3..8ff57b33 100644
+--- a/drivers/net/e1000d/src/main.rs
++++ b/drivers/net/e1000d/src/main.rs
+@@ -1,5 +1,6 @@
+ use std::io::{Read, Write};
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+@@ -25,10 +26,13 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         common::file_level(),
+     );
+ 
+-    let irq = pci_config
+-        .func
+-        .legacy_interrupt_line
+-        .expect("e1000d: no legacy interrupts supported");
++    let irq = match pci_config.func.legacy_interrupt_line {
++        Some(irq) => irq,
++        None => {
++            log::error!("e1000d: no legacy interrupts supported");
++            process::exit(1);
++        }
++    };
+ 
+     log::info!("E1000 {}", pci_config.func.display());
+ 
+@@ -38,7 +42,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Intel8254x::new(address).expect("e1000d: failed to allocate device")
++            device::Intel8254x::new(address).unwrap_or_else(|err| {
++                log::error!("e1000d: failed to allocate device: {err}");
++                process::exit(1);
++            })
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -51,7 +58,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("e1000d: failed to create event queue");
++    let mut event_queue = EventQueue::<Source>::new().unwrap_or_else(|err| {
++        log::error!("e1000d: failed to create event queue: {err}");
++        process::exit(1);
++    });
+ 
+     event_queue
+         .subscribe(
+@@ -59,32 +69,65 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .expect("e1000d: failed to subscribe to IRQ fd");
++        .unwrap_or_else(|err| {
++            log::error!("e1000d: failed to subscribe to IRQ fd: {err}");
++            process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .expect("e1000d: failed to subscribe to scheme fd");
+-
+-    libredox::call::setrens(0, 0).expect("e1000d: failed to enter null namespace");
+-
+-    scheme.tick().unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("e1000d: failed to subscribe to scheme fd: {err}");
++            process::exit(1);
++        });
++
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("e1000d: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
++
++    if let Err(err) = scheme.tick() {
++        log::error!("e1000d: failed initial scheme tick: {err}");
++        process::exit(1);
++    }
+ 
+-    for event in event_queue.map(|e| e.expect("e1000d: failed to get event")) {
++    loop {
++        let event = match event_queue.next() {
++            Some(Ok(event)) => event,
++            Some(Err(err)) => {
++                log::error!("e1000d: failed to get event: {err}");
++                continue;
++            }
++            None => break,
++        };
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    log::error!("e1000d: failed to read IRQ: {err}");
++                    continue;
++                }
+                 if unsafe { scheme.adapter().irq() } {
+-                    irq_file.write(&mut irq).unwrap();
+-
+-                    scheme.tick().expect("e1000d: failed to handle IRQ")
++                    if let Err(err) = irq_file.write(&mut irq) {
++                        log::error!("e1000d: failed to write IRQ: {err}");
++                        continue;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        log::error!("e1000d: failed to handle IRQ: {err}");
++                    }
++                }
++            }
++            Source::Scheme => {
++                if let Err(err) = scheme.tick() {
++                    log::error!("e1000d: failed to handle scheme op: {err}");
+                 }
+             }
+-            Source::Scheme => scheme.tick().expect("e1000d: failed to handle scheme op"),
+         }
+     }
+-    unreachable!()
++
++    process::exit(0);
+ }
+diff --git a/drivers/net/ixgbed/src/main.rs b/drivers/net/ixgbed/src/main.rs
+index 4a6ce74d..855d339d 100644
+--- a/drivers/net/ixgbed/src/main.rs
++++ b/drivers/net/ixgbed/src/main.rs
+@@ -1,5 +1,6 @@
+ use std::io::{Read, Write};
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+@@ -19,12 +20,23 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_ixgbe");
+ 
+-    let irq = pci_config
+-        .func
+-        .legacy_interrupt_line
+-        .expect("ixgbed: no legacy interrupts supported");
++    common::setup_logging(
++        "net",
++        "pci",
++        &name,
++        common::output_level(),
++        common::file_level(),
++    );
++
++    let irq = match pci_config.func.legacy_interrupt_line {
++        Some(irq) => irq,
++        None => {
++            log::error!("ixgbed: no legacy interrupts supported");
++            process::exit(1);
++        }
++    };
+ 
+-    println!(" + IXGBE {}", pci_config.func.display());
++    log::info!("IXGBE {}", pci_config.func.display());
+ 
+     let mut irq_file = irq.irq_handle("ixgbed");
+ 
+@@ -34,8 +46,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let mut scheme = NetworkScheme::new(
+         move || {
+-            device::Intel8259x::new(address as usize, size)
+-                .expect("ixgbed: failed to allocate device")
++            device::Intel8259x::new(address as usize, size).unwrap_or_else(|err| {
++                log::error!("ixgbed: failed to allocate device: {err}");
++                process::exit(1);
++            })
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -48,41 +62,77 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("ixgbed: Could not create event queue.");
++    let mut event_queue = EventQueue::<Source>::new().unwrap_or_else(|err| {
++        log::error!("ixgbed: failed to create event queue: {err}");
++        process::exit(1);
++    });
++
+     event_queue
+         .subscribe(
+             irq_file.as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("ixgbed: failed to subscribe to IRQ fd: {err}");
++            process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("ixgbed: failed to enter null namespace");
++        .unwrap_or_else(|err| {
++            log::error!("ixgbed: failed to subscribe to scheme fd: {err}");
++            process::exit(1);
++        });
++
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("ixgbed: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
++
++    if let Err(err) = scheme.tick() {
++        log::error!("ixgbed: failed initial scheme tick: {err}");
++        process::exit(1);
++    }
+ 
+-    scheme.tick().unwrap();
++    loop {
++        let event = match event_queue.next() {
++            Some(Ok(event)) => event,
++            Some(Err(err)) => {
++                log::error!("ixgbed: failed to get event: {err}");
++                continue;
++            }
++            None => break,
++        };
+ 
+-    for event in event_queue.map(|e| e.expect("ixgbed: failed to get next event")) {
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    log::error!("ixgbed: failed to read IRQ: {err}");
++                    continue;
++                }
+                 if scheme.adapter().irq() {
+-                    irq_file.write(&mut irq).unwrap();
+-
+-                    scheme.tick().unwrap();
++                    if let Err(err) = irq_file.write(&mut irq) {
++                        log::error!("ixgbed: failed to write IRQ: {err}");
++                        continue;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        log::error!("ixgbed: failed to handle IRQ: {err}");
++                    }
+                 }
+             }
+             Source::Scheme => {
+-                scheme.tick().unwrap();
++                if let Err(err) = scheme.tick() {
++                    log::error!("ixgbed: failed to handle scheme op: {err}");
++                }
+             }
+         }
+     }
+-    unreachable!()
++
++    process::exit(0);
+ }
+diff --git a/drivers/net/rtl8139d/src/main.rs b/drivers/net/rtl8139d/src/main.rs
+index d470e814..64335a23 100644
+--- a/drivers/net/rtl8139d/src/main.rs
++++ b/drivers/net/rtl8139d/src/main.rs
+@@ -1,5 +1,6 @@
+ use std::io::{Read, Write};
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+@@ -32,7 +33,8 @@ fn map_bar(pcid_handle: &mut PciFunctionHandle) -> *mut u8 {
+             other => log::warn!("BAR {} is {:?} instead of memory BAR", barnum, other),
+         }
+     }
+-    panic!("rtl8139d: failed to find BAR");
++    log::error!("rtl8139d: failed to find BAR");
++    process::exit(1);
+ }
+ 
+ fn main() {
+@@ -61,7 +63,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Rtl8139::new(bar as usize).expect("rtl8139d: failed to allocate device")
++            device::Rtl8139::new(bar as usize).unwrap_or_else(|err| {
++                log::error!("rtl8139d: failed to allocate device: {err}");
++                process::exit(1);
++            })
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -74,42 +79,76 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("rtl8139d: Could not create event queue.");
++    let mut event_queue = EventQueue::<Source>::new().unwrap_or_else(|err| {
++        log::error!("rtl8139d: failed to create event queue: {err}");
++        process::exit(1);
++    });
+     event_queue
+         .subscribe(
+             irq_file.irq_handle().as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("rtl8139d: failed to subscribe to IRQ fd: {err}");
++            process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("rtl8139d: failed to enter null namespace");
+-
+-    scheme.tick().unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("rtl8139d: failed to subscribe to scheme fd: {err}");
++            process::exit(1);
++        });
++
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("rtl8139d: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
++
++    if let Err(err) = scheme.tick() {
++        log::error!("rtl8139d: failed initial scheme tick: {err}");
++        process::exit(1);
++    }
+ 
+-    for event in event_queue.map(|e| e.expect("rtl8139d: failed to get next event")) {
++    loop {
++        let event = match event_queue.next() {
++            Some(Ok(event)) => event,
++            Some(Err(err)) => {
++                log::error!("rtl8139d: failed to get next event: {err}");
++                continue;
++            }
++            None => break,
++        };
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.irq_handle().read(&mut irq).unwrap();
++                if let Err(err) = irq_file.irq_handle().read(&mut irq) {
++                    log::error!("rtl8139d: failed to read IRQ: {err}");
++                    continue;
++                }
+                 //TODO: This may be causing spurious interrupts
+                 if unsafe { scheme.adapter_mut().irq() } {
+-                    irq_file.irq_handle().write(&mut irq).unwrap();
+-
+-                    scheme.tick().unwrap();
++                    if let Err(err) = irq_file.irq_handle().write(&mut irq) {
++                        log::error!("rtl8139d: failed to write IRQ: {err}");
++                        continue;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        log::error!("rtl8139d: failed to handle IRQ tick: {err}");
++                    }
+                 }
+             }
+             Source::Scheme => {
+-                scheme.tick().unwrap();
++                if let Err(err) = scheme.tick() {
++                    log::error!("rtl8139d: failed to handle scheme op: {err}");
++                }
+             }
+         }
+     }
+-    unreachable!()
++
++    process::exit(0);
+ }
+diff --git a/drivers/net/rtl8168d/src/main.rs b/drivers/net/rtl8168d/src/main.rs
+index 1d9963a3..bd2fcb1a 100644
+--- a/drivers/net/rtl8168d/src/main.rs
++++ b/drivers/net/rtl8168d/src/main.rs
+@@ -1,5 +1,6 @@
+ use std::io::{Read, Write};
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ 
+ use driver_network::NetworkScheme;
+ use event::{user_data, EventQueue};
+@@ -32,7 +33,8 @@ fn map_bar(pcid_handle: &mut PciFunctionHandle) -> *mut u8 {
+             other => log::warn!("BAR {} is {:?} instead of memory BAR", barnum, other),
+         }
+     }
+-    panic!("rtl8168d: failed to find BAR");
++    log::error!("rtl8168d: failed to find BAR");
++    process::exit(1);
+ }
+ 
+ fn main() {
+@@ -61,7 +63,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let mut scheme = NetworkScheme::new(
+         move || unsafe {
+-            device::Rtl8168::new(bar as usize).expect("rtl8168d: failed to allocate device")
++            device::Rtl8168::new(bar as usize).unwrap_or_else(|err| {
++                log::error!("rtl8168d: failed to allocate device: {err}");
++                process::exit(1);
++            })
+         },
+         daemon,
+         format!("network.{name}"),
+@@ -74,42 +79,76 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("rtl8168d: Could not create event queue.");
++    let mut event_queue = EventQueue::<Source>::new().unwrap_or_else(|err| {
++        log::error!("rtl8168d: failed to create event queue: {err}");
++        process::exit(1);
++    });
+     event_queue
+         .subscribe(
+             irq_file.irq_handle().as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("rtl8168d: failed to subscribe to IRQ fd: {err}");
++            process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             scheme.event_handle().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    libredox::call::setrens(0, 0).expect("rtl8168d: failed to enter null namespace");
+-
+-    scheme.tick().unwrap();
++        .unwrap_or_else(|err| {
++            log::error!("rtl8168d: failed to subscribe to scheme fd: {err}");
++            process::exit(1);
++        });
++
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("rtl8168d: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
++
++    if let Err(err) = scheme.tick() {
++        log::error!("rtl8168d: failed initial scheme tick: {err}");
++        process::exit(1);
++    }
+ 
+-    for event in event_queue.map(|e| e.expect("rtl8168d: failed to get next event")) {
++    loop {
++        let event = match event_queue.next() {
++            Some(Ok(event)) => event,
++            Some(Err(err)) => {
++                log::error!("rtl8168d: failed to get next event: {err}");
++                continue;
++            }
++            None => break,
++        };
+         match event.user_data {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.irq_handle().read(&mut irq).unwrap();
++                if let Err(err) = irq_file.irq_handle().read(&mut irq) {
++                    log::error!("rtl8168d: failed to read IRQ: {err}");
++                    continue;
++                }
+                 //TODO: This may be causing spurious interrupts
+                 if unsafe { scheme.adapter_mut().irq() } {
+-                    irq_file.irq_handle().write(&mut irq).unwrap();
+-
+-                    scheme.tick().unwrap();
++                    if let Err(err) = irq_file.irq_handle().write(&mut irq) {
++                        log::error!("rtl8168d: failed to write IRQ: {err}");
++                        continue;
++                    }
++
++                    if let Err(err) = scheme.tick() {
++                        log::error!("rtl8168d: failed to handle IRQ tick: {err}");
++                    }
+                 }
+             }
+             Source::Scheme => {
+-                scheme.tick().unwrap();
++                if let Err(err) = scheme.tick() {
++                    log::error!("rtl8168d: failed to handle scheme op: {err}");
++                }
+             }
+         }
+     }
+-    unreachable!()
++
++    process::exit(0);
+ }
+diff --git a/drivers/net/virtio-netd/src/main.rs b/drivers/net/virtio-netd/src/main.rs
+index 17d168ef..adbd1086 100644
+--- a/drivers/net/virtio-netd/src/main.rs
++++ b/drivers/net/virtio-netd/src/main.rs
+@@ -3,6 +3,7 @@ mod scheme;
+ use std::fs::File;
+ use std::io::{Read, Write};
+ use std::mem;
++use std::process;
+ 
+ use driver_network::NetworkScheme;
+ use pcid_interface::PciFunctionHandle;
+@@ -31,8 +32,11 @@ fn main() {
+ }
+ 
+ fn daemon_runner(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    deamon(daemon, pcid_handle).unwrap();
+-    unreachable!();
++    deamon(daemon, pcid_handle).unwrap_or_else(|err| {
++        log::error!("virtio-netd: daemon failed: {err}");
++        process::exit(1);
++    });
++    process::exit(0);
+ }
+ 
+ fn deamon(
+@@ -52,7 +56,10 @@ fn deamon(
+     // 0x1000 - virtio-net
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1000);
++    if pci_config.func.full_device_id.device_id != 0x1000 {
++        log::error!("virtio-netd: unexpected device ID {:#06x}, expected 0x1000", pci_config.func.full_device_id.device_id);
++        process::exit(1);
++    }
+     log::info!("virtio-net: initiating startup sequence :^)");
+ 
+     let device = virtio_core::probe_device(&mut pcid_handle)?;
+@@ -84,7 +91,8 @@ fn deamon(
+         device.transport.ack_driver_feature(VIRTIO_NET_F_MAC);
+         mac
+     } else {
+-        unimplemented!()
++        log::error!("virtio-netd: device does not support MAC feature");
++        return Err("virtio-netd: VIRTIO_NET_F_MAC not supported".into());
+     };
+ 
+     device.transport.finalize_features();
+@@ -126,12 +134,23 @@ fn deamon(
+         data: 0,
+     })?;
+ 
+-    libredox::call::setrens(0, 0).expect("virtio-netd: failed to enter null namespace");
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("virtio-netd: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
+ 
+-    scheme.tick()?;
++    if let Err(err) = scheme.tick() {
++        log::error!("virtio-netd: failed initial scheme tick: {err}");
++        process::exit(1);
++    }
+ 
+     loop {
+-        event_queue.read(&mut [0; mem::size_of::<syscall::Event>()])?; // Wait for event
+-        scheme.tick()?;
++        if let Err(err) = event_queue.read(&mut [0; mem::size_of::<syscall::Event>()]) {
++            log::error!("virtio-netd: failed to read event: {err}");
++            continue;
++        }
++        if let Err(err) = scheme.tick() {
++            log::error!("virtio-netd: failed to handle scheme event: {err}");
++        }
+     }

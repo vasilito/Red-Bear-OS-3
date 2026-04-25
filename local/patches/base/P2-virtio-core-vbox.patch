@@ -1,0 +1,413 @@
+# P2-virtio-core-vbox.patch
+# Extract virtio-core probe/transport hardening and VirtualBox guest driver
+# error handling improvements.
+#
+# Files: drivers/vboxd/src/main.rs, drivers/virtio-core/src/arch/x86.rs,
+#         drivers/virtio-core/src/probe.rs, drivers/virtio-core/src/spec/split_virtqueue.rs,
+#         drivers/virtio-core/src/transport.rs
+
+diff --git a/drivers/vboxd/src/main.rs b/drivers/vboxd/src/main.rs
+index bcb9bb15..b9e42d4a 100644
+--- a/drivers/vboxd/src/main.rs
++++ b/drivers/vboxd/src/main.rs
+@@ -199,16 +199,28 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_vbox");
+ 
+-    let bar0 = pci_config.func.bars[0].expect_port();
++    let bar0 = match pci_config.func.bars[0].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            eprintln!("vboxd: invalid BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("vboxd: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            eprintln!("vboxd: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     println!(" + VirtualBox {}", pci_config.func.display());
+ 
+-    common::acquire_port_io_rights().expect("vboxd: failed to get I/O permission");
++    if let Err(err) = common::acquire_port_io_rights() {
++        eprintln!("vboxd: failed to get I/O permission: {err}");
++        std::process::exit(1);
++    }
+ 
+     let mut width = 0;
+     let mut height = 0;
+@@ -233,25 +245,55 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let mut irq_file = irq.irq_handle("vboxd");
++    let mut irq_file = match irq.try_irq_handle("vboxd") {
++        Ok(file) => file,
++        Err(err) => {
++            eprintln!("vboxd: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let address = unsafe { pcid_handle.map_bar(1) }.ptr.as_ptr();
++    let address = match unsafe { pcid_handle.try_map_bar(1) } {
++        Ok(bar) => bar.ptr.as_ptr(),
++        Err(err) => {
++            eprintln!("vboxd: failed to map BAR1: {err}");
++            std::process::exit(1);
++        }
++    };
+     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+     {
+         let mut port = common::io::Pio::<u32>::new(bar0 as u16);
+ 
+         let vmmdev = unsafe { &mut *(address as *mut VboxVmmDev) };
+ 
+-        let mut guest_info = VboxGuestInfo::new().expect("vboxd: failed to map GuestInfo");
++        let mut guest_info = match VboxGuestInfo::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GuestInfo: {err}");
++                std::process::exit(1);
++            }
++        };
+         guest_info.version.write(VBOX_VMMDEV_VERSION);
+         guest_info.ostype.write(0x100);
+         port.write(guest_info.physical() as u32);
+ 
+-        let mut guest_caps = VboxGuestCaps::new().expect("vboxd: failed to map GuestCaps");
++        let mut guest_caps = match VboxGuestCaps::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GuestCaps: {err}");
++                std::process::exit(1);
++            }
++        };
+         guest_caps.caps.write(1 << 2);
+         port.write(guest_caps.physical() as u32);
+ 
+-        let mut set_mouse = VboxSetMouse::new().expect("vboxd: failed to map SetMouse");
++        let mut set_mouse = match VboxSetMouse::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map SetMouse: {err}");
++                std::process::exit(1);
++            }
++        };
+         set_mouse.features.write(1 << 4 | 1);
+         port.write(set_mouse.physical() as u32);
+ 
+@@ -265,34 +307,71 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             }
+         }
+ 
+-        let event_queue =
+-            EventQueue::<Source>::new().expect("vboxd: Could not create event queue.");
++        let event_queue = match EventQueue::<Source>::new() {
++            Ok(queue) => queue,
++            Err(err) => {
++                eprintln!("vboxd: could not create event queue: {err}");
++                std::process::exit(1);
++            }
++        };
+         event_queue
+             .subscribe(
+                 irq_file.as_raw_fd() as usize,
+                 Source::Irq,
+                 event::EventFlags::READ,
+             )
+-            .unwrap();
++            .unwrap_or_else(|err| {
++                eprintln!("vboxd: failed to subscribe IRQ fd: {err}");
++                std::process::exit(1);
++            });
+ 
+         daemon.ready();
+ 
+-        libredox::call::setrens(0, 0).expect("vboxd: failed to enter null namespace");
++        if let Err(err) = libredox::call::setrens(0, 0) {
++            eprintln!("vboxd: failed to enter null namespace: {err}");
++            std::process::exit(1);
++        }
+ 
+         let mut bga = crate::bga::Bga::new();
+-        let get_mouse = VboxGetMouse::new().expect("vboxd: failed to map GetMouse");
+-        let display_change = VboxDisplayChange::new().expect("vboxd: failed to map DisplayChange");
+-        let ack_events = VboxAckEvents::new().expect("vboxd: failed to map AckEvents");
++        let get_mouse = match VboxGetMouse::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map GetMouse: {err}");
++                std::process::exit(1);
++            }
++        };
++        let display_change = match VboxDisplayChange::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map DisplayChange: {err}");
++                std::process::exit(1);
++            }
++        };
++        let ack_events = match VboxAckEvents::new() {
++            Ok(value) => value,
++            Err(err) => {
++                eprintln!("vboxd: failed to map AckEvents: {err}");
++                std::process::exit(1);
++            }
++        };
+ 
+-        for Source::Irq in iter::once(Source::Irq)
+-            .chain(event_queue.map(|e| e.expect("vboxd: failed to get next event").user_data))
+-        {
++        for Source::Irq in iter::once(Source::Irq).chain(event_queue.map(|e| match e {
++            Ok(event) => event.user_data,
++            Err(err) => {
++                eprintln!("vboxd: failed to get next event: {err}");
++                std::process::exit(1);
++            }
++        })) {
+             let mut irq = [0; 8];
+-            if irq_file.read(&mut irq).unwrap() >= irq.len() {
++            match irq_file.read(&mut irq) {
++                Ok(read) if read >= irq.len() => {
+                 let host_events = vmmdev.host_events.read();
+                 if host_events != 0 {
+                     port.write(ack_events.physical() as u32);
+-                    irq_file.write(&irq).unwrap();
++                    if let Err(err) = irq_file.write(&irq) {
++                        eprintln!("vboxd: failed to acknowledge IRQ: {err}");
++                        std::process::exit(1);
++                    }
+ 
+                     if host_events & VBOX_EVENT_DISPLAY == VBOX_EVENT_DISPLAY {
+                         port.write(display_change.physical() as u32);
+@@ -326,8 +405,14 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+                     }
+                 }
+             }
++                Ok(_) => {}
++                Err(err) => {
++                    eprintln!("vboxd: failed to read IRQ file: {err}");
++                    std::process::exit(1);
++                }
++            }
+         }
+     }
+ 
+-    std::process::exit(0);
++    std::process::exit(1);
+ }
+diff --git a/drivers/virtio-core/src/arch/x86.rs b/drivers/virtio-core/src/arch/x86.rs
+index aea86c4a..c5b2767f 100644
+--- a/drivers/virtio-core/src/arch/x86.rs
++++ b/drivers/virtio-core/src/arch/x86.rs
+@@ -11,7 +11,10 @@ pub fn enable_msix(pcid_handle: &mut PciFunctionHandle) -> Result<File, Error> {
+     // Extended message signaled interrupts.
+     let msix_info = match pcid_handle.feature_info(PciFeature::MsiX) {
+         PciFeatureInfo::MsiX(capability) => capability,
+-        _ => unreachable!(),
++        _ => {
++            log::warn!("virtio_core::enable_msix: expected MSI-X feature info");
++            return Err(Error::Probe("unexpected PCI feature info for MSI-X"));
++        }
+     };
+     let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
+ 
+@@ -21,7 +24,10 @@ pub fn enable_msix(pcid_handle: &mut PciFunctionHandle) -> Result<File, Error> {
+     let interrupt_handle = {
+         let table_entry_pointer = info.table_entry_pointer(MSIX_PRIMARY_VECTOR as usize);
+ 
+-        let destination_id = read_bsp_apic_id().expect("virtio_core: `read_bsp_apic_id()` failed");
++        let destination_id = read_bsp_apic_id().map_err(|e| {
++            log::warn!("virtio_core::enable_msix: read_bsp_apic_id failed: {e}");
++            Error::Probe("read_bsp_apic_id failed")
++        })?;
+         let (msg_addr_and_data, interrupt_handle) =
+             allocate_single_interrupt_vector_for_msi(destination_id);
+         table_entry_pointer.write_addr_and_data(msg_addr_and_data);
+diff --git a/drivers/virtio-core/src/probe.rs b/drivers/virtio-core/src/probe.rs
+index 5631ef67..eaef1b96 100644
+--- a/drivers/virtio-core/src/probe.rs
++++ b/drivers/virtio-core/src/probe.rs
+@@ -31,16 +31,16 @@ pub const MSIX_PRIMARY_VECTOR: u16 = 0;
+ ///   before starting the device.
+ /// * Finally start the device (via [`StandardTransport::run_device`]). At this point, the device
+ ///   is alive.
+-///
+-/// ## Panics
+-/// This function panics if the device is not a virtio device.
+ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error> {
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(
+-        pci_config.func.full_device_id.vendor_id, 6900,
+-        "virtio_core::probe_device: not a virtio device"
+-    );
++    if pci_config.func.full_device_id.vendor_id != 6900 {
++        log::warn!(
++            "virtio_core::probe_device: skipping non-virtio device (vendor ID {:#06x})",
++            pci_config.func.full_device_id.vendor_id
++        );
++        return Err(Error::Probe("not a virtio device"));
++    }
+ 
+     let mut common_addr = None;
+     let mut notify_addr = None;
+@@ -55,7 +55,9 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+             _ => continue,
+         }
+ 
+-        let (addr, _) = pci_config.func.bars[capability.bar as usize].expect_mem();
++        let (addr, _) = pci_config.func.bars[capability.bar as usize]
++            .try_mem()
++            .map_err(|_| Error::Probe("BAR is not memory-mapped"))?;
+ 
+         let address = unsafe {
+             let addr = addr + capability.offset as usize;
+@@ -100,19 +102,23 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+                 device_addr = Some(address);
+             }
+ 
+-            _ => unreachable!(),
++            _ => continue,
+         }
+     }
+ 
+-    let common_addr = common_addr.expect("virtio common capability missing");
+-    let device_addr = device_addr.expect("virtio device capability missing");
+-    let (notify_addr, notify_multiplier) = notify_addr.expect("virtio notify capability missing");
+-
+-    // FIXME this is explicitly allowed by the virtio specification to happen
+-    assert!(
+-        notify_multiplier != 0,
+-        "virtio-core::device_probe: device uses the same Queue Notify addresses for all queues"
+-    );
++    let common_addr = common_addr.ok_or(Error::InCapable(CfgType::Common))?;
++    let device_addr = device_addr.ok_or(Error::InCapable(CfgType::Device))?;
++    let (notify_addr, notify_multiplier) =
++        notify_addr.ok_or(Error::InCapable(CfgType::Notify))?;
++
++    // The virtio specification explicitly allows a zero notify_off_multiplier,
++    // meaning all queues share the same notification address. Handle gracefully.
++    if notify_multiplier == 0 {
++        log::warn!(
++            "virtio_core::probe_device: device uses the same Queue Notify address for all queues"
++        );
++        return Err(Error::Probe("zero notify_off_multiplier"));
++    }
+ 
+     let common = unsafe { &mut *(common_addr as *mut CommonCfg) };
+     let device_space = unsafe { &mut *(device_addr as *mut u8) };
+@@ -128,8 +134,10 @@ pub fn probe_device(pcid_handle: &mut PciFunctionHandle) -> Result<Device, Error
+     let all_pci_features = pcid_handle.fetch_all_features();
+     let has_msix = all_pci_features.iter().any(|feature| feature.is_msix());
+ 
+-    // According to the virtio specification, the device REQUIRED to support MSI-X.
+-    assert!(has_msix, "virtio: device does not support MSI-X");
++    if !has_msix {
++        log::warn!("virtio_core::probe_device: device does not support MSI-X");
++        return Err(Error::Probe("device does not support MSI-X"));
++    }
+     let irq_handle = crate::arch::enable_msix(pcid_handle)?;
+ 
+     log::debug!("virtio: using standard PCI transport");
+diff --git a/drivers/virtio-core/src/spec/split_virtqueue.rs b/drivers/virtio-core/src/spec/split_virtqueue.rs
+index b9636711..23aa5484 100644
+--- a/drivers/virtio-core/src/spec/split_virtqueue.rs
++++ b/drivers/virtio-core/src/spec/split_virtqueue.rs
+@@ -197,9 +197,9 @@ impl ChainBuilder {
+     }
+ 
+     pub fn build(mut self) -> Vec<Buffer> {
+-        let last_buffer = self.buffers.last_mut().expect("virtio-core: empty chain");
+-        last_buffer.flags.remove(DescriptorFlags::NEXT);
+-
++        if let Some(last_buffer) = self.buffers.last_mut() {
++            last_buffer.flags.remove(DescriptorFlags::NEXT);
++        }
+         self.buffers
+     }
+ }
+diff --git a/drivers/virtio-core/src/transport.rs b/drivers/virtio-core/src/transport.rs
+index d3445d2d..99972c95 100644
+--- a/drivers/virtio-core/src/transport.rs
++++ b/drivers/virtio-core/src/transport.rs
+@@ -19,6 +19,8 @@ pub enum Error {
+     SyscallError(#[from] libredox::error::Error),
+     #[error("the device is incapable of {0:?}")]
+     InCapable(CfgType),
++    #[error("virtio probe: {0}")]
++    Probe(&'static str),
+ }
+ 
+ /// Returns the queue part sizes in bytes.
+@@ -59,14 +61,23 @@ pub fn spawn_irq_thread(irq_handle: &File, queue: &Arc<Queue<'static>>) {
+     let queue_copy = queue.clone();
+ 
+     std::thread::spawn(move || {
+-        let event_queue = RawEventQueue::new().unwrap();
++        let event_queue = match RawEventQueue::new() {
++            Ok(eq) => eq,
++            Err(err) => {
++                log::error!("virtio-core: failed to create event queue for IRQ thread: {err}");
++                return;
++            }
++        };
+ 
+-        event_queue
+-            .subscribe(irq_fd as usize, 0, event::EventFlags::READ)
+-            .unwrap();
++        if let Err(err) = event_queue.subscribe(irq_fd as usize, 0, event::EventFlags::READ) {
++            log::error!("virtio-core: failed to subscribe to IRQ fd: {err}");
++            return;
++        }
+ 
+-        for _ in event_queue.map(Result::unwrap) {
+-            // Wake up the tasks waiting on the queue.
++        for event_result in event_queue.map(|res| res) {
++            if event_result.is_err() {
++                break;
++            }
+             for (_, task) in queue_copy.waker.lock().unwrap().iter() {
+                 task.wake_by_ref();
+             }
+@@ -604,7 +615,9 @@ impl Transport for StandardTransport<'_> {
+         // Re-read device status to ensure the `FEATURES_OK` bit is still set: otherwise,
+         // the device does not support our subset of features and the device is unusable.
+         let confirm = common.device_status.get();
+-        assert!((confirm & DeviceStatusFlags::FEATURES_OK) == DeviceStatusFlags::FEATURES_OK);
++        if (confirm & DeviceStatusFlags::FEATURES_OK) != DeviceStatusFlags::FEATURES_OK {
++            log::error!("virtio-core: device rejected feature set (FEATURES_OK cleared after negotiation)");
++        }
+     }
+ 
+     fn setup_config_notify(&self, vector: u16) {
+@@ -640,7 +653,10 @@ impl Transport for StandardTransport<'_> {
+ 
+         // Set the MSI-X vector.
+         common.queue_msix_vector.set(vector);
+-        assert!(common.queue_msix_vector.get() == vector);
++        if common.queue_msix_vector.get() != vector {
++            log::error!("virtio-core: MSI-X vector {vector:#x} was not accepted by device for queue {queue_index}");
++            return Err(Error::SyscallError(libredox::error::Error::new(libredox::errno::EIO)));
++        }
+ 
+         // Enable the queue.
+         common.queue_enable.set(1);
+@@ -685,7 +701,9 @@ impl Transport for StandardTransport<'_> {
+ 
+         // Set the MSI-X vector.
+         common.queue_msix_vector.set(queue.vector);
+-        assert!(common.queue_msix_vector.get() == queue.vector);
++        if common.queue_msix_vector.get() != queue.vector {
++            log::error!("virtio-core: MSI-X vector {:#x} was not accepted during reinit for queue {}", queue.vector, queue.queue_index);
++        }
+ 
+         // Enable the queue.
+         common.queue_enable.set(1);

@@ -1,0 +1,1463 @@
+# P2-pcid-driver-interface.patch
+# Extract pcid driver interface hardening: vendor capability try_parse, BAR
+# try_port/try_mem, MSI/MSI-X error types, IRQ helper try_ variants, scheme
+# config endpoint, UnrecognizedRequest error variant, send/recv try_ variants.
+#
+# Files: drivers/pcid/src/driver_handler.rs, drivers/pcid/src/driver_interface/bar.rs,
+#         drivers/pcid/src/driver_interface/cap.rs, drivers/pcid/src/driver_interface/config.rs,
+#         drivers/pcid/src/driver_interface/irq_helpers.rs, drivers/pcid/src/driver_interface/mod.rs,
+#         drivers/pcid/src/driver_interface/msi.rs, drivers/pcid/src/scheme.rs
+
+diff --git a/drivers/pcid/src/driver_handler.rs b/drivers/pcid/src/driver_handler.rs
+index f70a7f6d..64701f6c 100644
+--- a/drivers/pcid/src/driver_handler.rs
++++ b/drivers/pcid/src/driver_handler.rs
+@@ -48,8 +48,18 @@ impl<'a> DriverHandler<'a> {
+                 self.capabilities
+                     .iter()
+                     .filter_map(|capability| match capability {
+-                        PciCapability::Vendor(addr) => unsafe {
+-                            Some(VendorSpecificCapability::parse(*addr, self.pcie))
++                        PciCapability::Vendor(addr) => match unsafe {
++                            VendorSpecificCapability::try_parse(*addr, self.pcie)
++                        } {
++                            Ok(capability) => Some(capability),
++                            Err(err) => {
++                                log::warn!(
++                                    "pcid: skipping malformed vendor capability at {:#x}: {}",
++                                    addr.offset,
++                                    err
++                                );
++                                None
++                            }
+                         },
+                         _ => None,
+                     })
+@@ -230,10 +240,14 @@ impl<'a> DriverHandler<'a> {
+                             }
+                             info.set_message_info(
+                                 message_addr,
+-                                message_addr_and_data
+-                                    .data
+-                                    .try_into()
+-                                    .expect("pcid: MSI message data too big"),
++                                match message_addr_and_data.data.try_into() {
++                                    Ok(d) => d,
++                                    Err(_) => {
++                                        return PcidClientResponse::Error(
++                                            PcidServerResponseError::InvalidBitPattern,
++                                        )
++                                    }
++                                },
+                                 self.pcie,
+                             );
+                         }
+@@ -266,7 +280,7 @@ impl<'a> DriverHandler<'a> {
+                         );
+                     }
+                 }
+-                _ => unreachable!(),
++                _ => PcidClientResponse::Error(PcidServerResponseError::UnrecognizedRequest),
+             },
+             PcidClientRequest::ReadConfig(offset) => {
+                 let value = unsafe { self.pcie.read(self.func.addr, offset) };
+@@ -278,7 +292,7 @@ impl<'a> DriverHandler<'a> {
+                 }
+                 return PcidClientResponse::WriteConfig;
+             }
+-            _ => unreachable!(),
++            _ => PcidClientResponse::Error(PcidServerResponseError::UnrecognizedRequest),
+         }
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/bar.rs b/drivers/pcid/src/driver_interface/bar.rs
+index b2c1d35b..3a83bb4d 100644
+--- a/drivers/pcid/src/driver_interface/bar.rs
++++ b/drivers/pcid/src/driver_interface/bar.rs
+@@ -1,7 +1,38 @@
+ use std::convert::TryInto;
++use std::fmt;
++use std::process;
+ 
+ use serde::{Deserialize, Serialize};
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum PciBarError {
++    Missing,
++    ExpectedPortFoundMemory,
++    ExpectedMemoryFoundPort,
++    AddressTooLarge,
++    SizeTooLarge,
++}
++
++impl fmt::Display for PciBarError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            PciBarError::Missing => write!(f, "expected BAR to exist"),
++            PciBarError::ExpectedPortFoundMemory => {
++                write!(f, "expected port BAR, found memory BAR")
++            }
++            PciBarError::ExpectedMemoryFoundPort => {
++                write!(f, "expected memory BAR, found port BAR")
++            }
++            PciBarError::AddressTooLarge => {
++                write!(f, "conversion from 64-bit BAR address to usize failed")
++            }
++            PciBarError::SizeTooLarge => {
++                write!(f, "conversion from 64-bit BAR size to usize failed")
++            }
++        }
++    }
++}
++
+ // This type is used instead of [pci_types::Bar] in the driver interface as the
+ // latter can't be serialized and is missing the convenience functions of [PciBar].
+ #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+@@ -30,26 +61,88 @@ impl PciBar {
+     }
+ 
+     pub fn expect_port(&self) -> u16 {
++        match self.try_port() {
++            Ok(port) => port,
++            Err(err) => {
++                log::error!("{err}");
++                process::exit(1);
++            }
++        }
++    }
++
++    pub fn try_port(&self) -> Result<u16, PciBarError> {
+         match *self {
+-            PciBar::Port(port) => port,
++            PciBar::Port(port) => Ok(port),
+             PciBar::Memory32 { .. } | PciBar::Memory64 { .. } => {
+-                panic!("expected port BAR, found memory BAR");
++                Err(PciBarError::ExpectedPortFoundMemory)
+             }
+-            PciBar::None => panic!("expected BAR to exist"),
++            PciBar::None => Err(PciBarError::Missing),
+         }
+     }
+ 
+     pub fn expect_mem(&self) -> (usize, usize) {
++        match self.try_mem() {
++            Ok(result) => result,
++            Err(err) => {
++                log::error!("{err}");
++                process::exit(1);
++            }
++        }
++    }
++
++    pub fn try_mem(&self) -> Result<(usize, usize), PciBarError> {
+         match *self {
+-            PciBar::Memory32 { addr, size } => (addr as usize, size as usize),
+-            PciBar::Memory64 { addr, size } => (
+-                addr.try_into()
+-                    .expect("conversion from 64bit BAR to usize failed"),
+-                size.try_into()
+-                    .expect("conversion from 64bit BAR size to usize failed"),
+-            ),
+-            PciBar::Port(_) => panic!("expected memory BAR, found port BAR"),
+-            PciBar::None => panic!("expected BAR to exist"),
++            PciBar::Memory32 { addr, size } => Ok((addr as usize, size as usize)),
++            PciBar::Memory64 { addr, size } => Ok((
++                addr.try_into().map_err(|_| PciBarError::AddressTooLarge)?,
++                size.try_into().map_err(|_| PciBarError::SizeTooLarge)?,
++            )),
++            PciBar::Port(_) => Err(PciBarError::ExpectedMemoryFoundPort),
++            PciBar::None => Err(PciBarError::Missing),
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::{PciBar, PciBarError};
++
++    #[test]
++    fn try_port_accepts_port_bar() {
++        assert_eq!(PciBar::Port(0x1234).try_port(), Ok(0x1234));
++    }
++
++    #[test]
++    fn try_port_rejects_non_port_bars() {
++        assert_eq!(
++            PciBar::Memory32 {
++                addr: 0x1000,
++                size: 0x100,
++            }
++            .try_port(),
++            Err(PciBarError::ExpectedPortFoundMemory)
++        );
++        assert_eq!(PciBar::None.try_port(), Err(PciBarError::Missing));
++    }
++
++    #[test]
++    fn try_mem_accepts_memory_bars() {
++        assert_eq!(
++            PciBar::Memory32 {
++                addr: 0x1000,
++                size: 0x200,
++            }
++            .try_mem(),
++            Ok((0x1000, 0x200))
++        );
++    }
++
++    #[test]
++    fn try_mem_rejects_non_memory_bars() {
++        assert_eq!(
++            PciBar::Port(0x1234).try_mem(),
++            Err(PciBarError::ExpectedMemoryFoundPort)
++        );
++        assert_eq!(PciBar::None.try_mem(), Err(PciBarError::Missing));
++    }
++}
+diff --git a/drivers/pcid/src/driver_interface/cap.rs b/drivers/pcid/src/driver_interface/cap.rs
+index 19521608..17c26c0c 100644
+--- a/drivers/pcid/src/driver_interface/cap.rs
++++ b/drivers/pcid/src/driver_interface/cap.rs
+@@ -1,14 +1,44 @@
+ use pci_types::capability::PciCapabilityAddress;
+ use pci_types::ConfigRegionAccess;
+ use serde::{Deserialize, Serialize};
++use std::fmt;
++use std::process;
+ 
+ #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+ pub struct VendorSpecificCapability {
+     pub data: Vec<u8>,
+ }
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum VendorSpecificCapabilityError {
++    InvalidLength(u16),
++}
++
++impl fmt::Display for VendorSpecificCapabilityError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            VendorSpecificCapabilityError::InvalidLength(length) => {
++                write!(f, "invalid vendor capability length: {length}")
++            }
++        }
++    }
++}
++
+ impl VendorSpecificCapability {
+     pub unsafe fn parse(addr: PciCapabilityAddress, access: &dyn ConfigRegionAccess) -> Self {
++        match Self::try_parse(addr, access) {
++            Ok(cap) => cap,
++            Err(err) => {
++                log::error!("{err}");
++                process::exit(1);
++            }
++        }
++    }
++
++    pub unsafe fn try_parse(
++        addr: PciCapabilityAddress,
++        access: &dyn ConfigRegionAccess,
++    ) -> Result<Self, VendorSpecificCapabilityError> {
+         let dword = access.read(addr.address, addr.offset);
+         let length = ((dword >> 16) & 0xFF) as u16;
+         // let next = (dword >> 8) & 0xFF;
+@@ -17,11 +47,9 @@ impl VendorSpecificCapability {
+         //     addr.offset
+         // );
+         let data = if length > 0 {
+-            assert!(
+-                length > 3 && length % 4 == 0,
+-                "invalid range length: {}",
+-                length
+-            );
++            if !(length > 3 && length % 4 == 0) {
++                return Err(VendorSpecificCapabilityError::InvalidLength(length));
++            }
+             let mut raw_data = {
+                 (addr.offset..addr.offset + length)
+                     .step_by(4)
+@@ -33,6 +61,75 @@ impl VendorSpecificCapability {
+             log::warn!("Vendor specific capability is invalid");
+             Vec::new()
+         };
+-        VendorSpecificCapability { data }
++        Ok(VendorSpecificCapability { data })
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{VendorSpecificCapability, VendorSpecificCapabilityError};
++    use pci_types::capability::PciCapabilityAddress;
++    use pci_types::{ConfigRegionAccess, PciAddress};
++    use std::collections::BTreeMap;
++    use std::sync::Mutex;
++
++    #[derive(Default)]
++    struct MockConfigRegionAccess {
++        values: Mutex<BTreeMap<(PciAddress, u16), u32>>,
++    }
++
++    impl MockConfigRegionAccess {
++        fn with_read(address: PciAddress, offset: u16, value: u32) -> Self {
++            let mut map = BTreeMap::new();
++            map.insert((address, offset), value);
++            Self {
++                values: Mutex::new(map),
++            }
++        }
++    }
++
++    impl ConfigRegionAccess for MockConfigRegionAccess {
++        unsafe fn read(&self, address: PciAddress, offset: u16) -> u32 {
++            self.values
++                .lock()
++                .expect("mock config lock poisoned")
++                .get(&(address, offset))
++                .copied()
++                .unwrap_or_default()
++        }
++
++        unsafe fn write(&self, _address: PciAddress, _offset: u16, _value: u32) {}
++    }
++
++    #[test]
++    fn try_parse_accepts_valid_vendor_capability() {
++        let address = PciAddress::new(0, 0, 1, 0);
++        let capability = PciCapabilityAddress {
++            address,
++            offset: 0x40,
++        };
++        let access = MockConfigRegionAccess::with_read(address, 0x40, 0x0010_0000);
++
++        let capability = unsafe { VendorSpecificCapability::try_parse(capability, &access) };
++        assert_eq!(
++            capability
++                .expect("valid vendor capability should parse")
++                .data
++                .len(),
++            13
++        );
++    }
++
++    #[test]
++    fn try_parse_rejects_invalid_length() {
++        let address = PciAddress::new(0, 0, 1, 0);
++        let capability = PciCapabilityAddress {
++            address,
++            offset: 0x40,
++        };
++        let access = MockConfigRegionAccess::with_read(address, 0x40, 0x0005_0000);
++
++        let error = unsafe { VendorSpecificCapability::try_parse(capability, &access) }.unwrap_err();
++        assert_eq!(error, VendorSpecificCapabilityError::InvalidLength(5));
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/config.rs b/drivers/pcid/src/driver_interface/config.rs
+index e148b26c..041f0ced 100644
+--- a/drivers/pcid/src/driver_interface/config.rs
++++ b/drivers/pcid/src/driver_interface/config.rs
+@@ -47,7 +47,13 @@ impl DriverConfig {
+             let mut device_found = false;
+             for (vendor, devices) in ids {
+                 let vendor_without_prefix = vendor.trim_start_matches("0x");
+-                let vendor = i64::from_str_radix(vendor_without_prefix, 16).unwrap() as u16;
++                let Ok(vendor_val) = i64::from_str_radix(vendor_without_prefix, 16) else {
++                    log::warn!(
++                        "invalid hex vendor ID '{vendor_without_prefix}' in driver config, skipping"
++                    );
++                    continue;
++                };
++                let vendor = vendor_val as u16;
+ 
+                 if vendor != id.vendor_id {
+                     continue;
+diff --git a/drivers/pcid/src/driver_interface/irq_helpers.rs b/drivers/pcid/src/driver_interface/irq_helpers.rs
+index 28ca077a..bff35650 100644
+--- a/drivers/pcid/src/driver_interface/irq_helpers.rs
++++ b/drivers/pcid/src/driver_interface/irq_helpers.rs
+@@ -7,6 +7,7 @@ use std::convert::TryFrom;
+ use std::fs::{self, File};
+ use std::io::{self, prelude::*};
+ use std::num::NonZeroU8;
++use std::process;
+ 
+ use crate::driver_interface::msi::{MsiAddrAndData, MsixTableEntry};
+ 
+@@ -24,11 +25,13 @@ pub fn read_bsp_apic_id() -> io::Result<usize> {
+             buffer[0], buffer[1], buffer[2], buffer[3],
+         ]))
+     } else {
+-        panic!(
+-            "`/scheme/irq` scheme responded with {} bytes, expected {}",
+-            bytes_read,
+-            std::mem::size_of::<usize>()
+-        );
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            format!(
++                "`/scheme/irq` scheme responded with {bytes_read} bytes, expected {}",
++                std::mem::size_of::<usize>()
++            ),
++        ));
+     })
+     .or(Err(io::Error::new(
+         io::ErrorKind::InvalidData,
+@@ -83,7 +86,12 @@ pub fn allocate_aligned_interrupt_vectors(
+     alignment: NonZeroU8,
+     count: u8,
+ ) -> io::Result<Option<(u8, Vec<File>)>> {
+-    let cpu_id = u8::try_from(cpu_id).expect("usize cpu ids not implemented yet");
++    let cpu_id = u8::try_from(cpu_id).map_err(|_| {
++        io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!("CPU id {cpu_id} too large for u8 (usize cpu ids not supported)"),
++        )
++    })?;
+     if count == 0 {
+         return Ok(None);
+     }
+@@ -163,7 +171,7 @@ pub fn allocate_aligned_interrupt_vectors(
+ /// Allocate at most `count` interrupt vectors, which can start at any offset. Unless MSI is used
+ /// and an entire aligned range of vectors is needed, this function should be used.
+ pub fn allocate_interrupt_vectors(cpu_id: usize, count: u8) -> io::Result<Option<(u8, Vec<File>)>> {
+-    allocate_aligned_interrupt_vectors(cpu_id, NonZeroU8::new(1).unwrap(), count)
++    allocate_aligned_interrupt_vectors(cpu_id, NonZeroU8::MIN, count)
+ }
+ 
+ /// Allocate a single interrupt vector, returning both the vector number (starting from 32 up to
+@@ -176,44 +184,66 @@ pub fn allocate_single_interrupt_vector(cpu_id: usize) -> io::Result<Option<(u8,
+         Err(err) => return Err(err),
+     };
+     assert_eq!(files.len(), 1);
+-    Ok(Some((base, files.pop().unwrap())))
++    let handle = files.pop().ok_or_else(|| {
++        io::Error::new(
++            io::ErrorKind::Other,
++            "allocate_interrupt_vectors returned empty file list despite count=1",
++        )
++    })?;
++    Ok(Some((base, handle)))
+ }
+ 
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn allocate_single_interrupt_vector_for_msi(cpu_id: usize) -> (MsiAddrAndData, File) {
++pub fn try_allocate_single_interrupt_vector_for_msi(
++    cpu_id: usize,
++) -> io::Result<(MsiAddrAndData, File)> {
+     use crate::driver_interface::msi::x86 as x86_msix;
+ 
+-    // FIXME for cpu_id >255 we need to use the IOMMU to use IRQ remapping
+-    let lapic_id = u8::try_from(cpu_id).expect("CPU id couldn't fit inside u8");
++    let lapic_id = u8::try_from(cpu_id).map_err(|_| {
++        io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!("CPU id {cpu_id} could not fit inside u8"),
++        )
++    })?;
+     let rh = false;
+     let dm = false;
+     let addr = x86_msix::message_address(lapic_id, rh, dm);
+ 
+-    let (vector, interrupt_handle) = allocate_single_interrupt_vector(cpu_id)
+-        .expect("failed to allocate interrupt vector")
+-        .expect("no interrupt vectors left");
++    let (vector, interrupt_handle) = allocate_single_interrupt_vector(cpu_id)?
++        .ok_or_else(|| io::Error::other("no interrupt vectors left"))?;
+     let msg_data = x86_msix::message_data_edge_triggered(x86_msix::DeliveryMode::Fixed, vector);
+ 
+-    (
++    Ok((
+         MsiAddrAndData {
+             addr,
+             data: msg_data,
+         },
+         interrupt_handle,
+-    )
++    ))
+ }
+ 
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn allocate_first_msi_interrupt_on_bsp(
++pub fn allocate_single_interrupt_vector_for_msi(cpu_id: usize) -> (MsiAddrAndData, File) {
++    match try_allocate_single_interrupt_vector_for_msi(cpu_id) {
++        Ok(result) => result,
++        Err(err) => {
++            log::error!("failed to allocate MSI interrupt vector: {err}");
++            process::exit(1);
++        }
++    }
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++pub fn try_allocate_first_msi_interrupt_on_bsp(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+-) -> File {
++) -> Result<File, InterruptVectorError> {
+     use crate::driver_interface::{MsiSetFeatureInfo, PciFeature, SetFeatureInfo};
+ 
+-    // TODO: Allow allocation of up to 32 vectors.
+-
+-    let destination_id = read_bsp_apic_id().expect("failed to read BSP apic id");
+-    let (msg_addr_and_data, interrupt_handle) =
+-        allocate_single_interrupt_vector_for_msi(destination_id);
++    let destination_id = read_bsp_apic_id().map_err(InterruptVectorError::ApicId)?;
++    let (msg_addr_and_data, interrupt_handle) = try_allocate_single_interrupt_vector_for_msi(
++        destination_id,
++    )
++    .map_err(InterruptVectorError::Allocate)?;
+ 
+     let set_feature_info = MsiSetFeatureInfo {
+         multi_message_enable: Some(0),
+@@ -222,10 +252,25 @@ pub fn allocate_first_msi_interrupt_on_bsp(
+     };
+     pcid_handle.set_feature_info(SetFeatureInfo::Msi(set_feature_info));
+ 
+-    pcid_handle.enable_feature(PciFeature::Msi);
++    pcid_handle
++        .try_enable_feature(PciFeature::Msi)
++        .map_err(InterruptVectorError::IrqHandle)?;
+     log::debug!("Enabled MSI");
+ 
+-    interrupt_handle
++    Ok(interrupt_handle)
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++pub fn allocate_first_msi_interrupt_on_bsp(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++) -> File {
++    match try_allocate_first_msi_interrupt_on_bsp(pcid_handle) {
++        Ok(handle) => handle,
++        Err(err) => {
++            log::error!("failed to allocate first MSI interrupt on BSP: {err}");
++            process::exit(1);
++        }
++    }
+ }
+ 
+ pub struct InterruptVector {
+@@ -234,6 +279,39 @@ pub struct InterruptVector {
+     kind: InterruptVectorKind,
+ }
+ 
++#[derive(Debug)]
++pub enum InterruptVectorError {
++    MissingMsixFeature,
++    MissingLegacyInterrupt,
++    ApicId(io::Error),
++    Allocate(io::Error),
++    IrqHandle(io::Error),
++    MsixMap(super::msi::MsixMapError),
++}
++
++impl std::fmt::Display for InterruptVectorError {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            InterruptVectorError::MissingMsixFeature => {
++                write!(f, "missing MSI-X feature information")
++            }
++            InterruptVectorError::MissingLegacyInterrupt => {
++                write!(f, "no interrupts supported at all")
++            }
++            InterruptVectorError::ApicId(err) => write!(f, "failed to read BSP APIC ID: {err}"),
++            InterruptVectorError::Allocate(err) => {
++                write!(f, "failed to allocate interrupt vector: {err}")
++            }
++            InterruptVectorError::IrqHandle(err) => {
++                write!(f, "failed to open IRQ handle: {err}")
++            }
++            InterruptVectorError::MsixMap(err) => {
++                write!(f, "failed to map MSI-X registers: {err}")
++            }
++        }
++    }
++}
++
+ enum InterruptVectorKind {
+     Legacy,
+     Msi,
+@@ -266,10 +344,10 @@ impl InterruptVector {
+ // FIXME allow allocating multiple interrupt vectors
+ // FIXME move MSI-X IRQ allocation to pcid
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-pub fn pci_allocate_interrupt_vector(
++pub fn try_pci_allocate_interrupt_vector(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+     driver: &str,
+-) -> InterruptVector {
++) -> Result<InterruptVector, InterruptVectorError> {
+     let features = pcid_handle.fetch_all_features();
+ 
+     let has_msi = features.iter().any(|feature| feature.is_msi());
+@@ -278,57 +356,89 @@ pub fn pci_allocate_interrupt_vector(
+     if has_msix {
+         let msix_info = match pcid_handle.feature_info(super::PciFeature::MsiX) {
+             super::PciFeatureInfo::MsiX(msix) => msix,
+-            _ => unreachable!(),
++            _ => return Err(InterruptVectorError::MissingMsixFeature),
+         };
+-        let mut info = unsafe { msix_info.map_and_mask_all(pcid_handle) };
++        let mut info = unsafe { msix_info.try_map_and_mask_all(pcid_handle) }
++            .map_err(InterruptVectorError::MsixMap)?;
+ 
+         pcid_handle.enable_feature(crate::driver_interface::PciFeature::MsiX);
+ 
+         let entry = info.table_entry_pointer(0);
+ 
+-        let bsp_cpu_id = read_bsp_apic_id()
+-            .unwrap_or_else(|err| panic!("{driver}: failed to read BSP APIC ID: {err}"));
+-        let (msg_addr_and_data, irq_handle) = allocate_single_interrupt_vector_for_msi(bsp_cpu_id);
++        let bsp_cpu_id = read_bsp_apic_id().map_err(InterruptVectorError::ApicId)?;
++        let (msg_addr_and_data, irq_handle) =
++            try_allocate_single_interrupt_vector_for_msi(bsp_cpu_id)
++                .map_err(InterruptVectorError::Allocate)?;
+         entry.write_addr_and_data(msg_addr_and_data);
+         entry.unmask();
+ 
+-        InterruptVector {
++        Ok(InterruptVector {
+             irq_handle,
+             vector: 0,
+             kind: InterruptVectorKind::MsiX { table_entry: entry },
+-        }
++        })
+     } else if has_msi {
+-        InterruptVector {
++        Ok(InterruptVector {
+             irq_handle: allocate_first_msi_interrupt_on_bsp(pcid_handle),
+             vector: 0,
+             kind: InterruptVectorKind::Msi,
+-        }
++        })
+     } else if let Some(irq) = pcid_handle.config().func.legacy_interrupt_line {
+-        // INTx# pin based interrupts.
+-        InterruptVector {
+-            irq_handle: irq.irq_handle(driver),
++        Ok(InterruptVector {
++            irq_handle: irq
++                .try_irq_handle(driver)
++                .map_err(InterruptVectorError::IrqHandle)?,
+             vector: 0,
+             kind: InterruptVectorKind::Legacy,
+-        }
++        })
+     } else {
+-        panic!("{driver}: no interrupts supported at all")
++        Err(InterruptVectorError::MissingLegacyInterrupt)
+     }
+ }
+ 
+-// FIXME support MSI on non-x86 systems
+-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+ pub fn pci_allocate_interrupt_vector(
+     pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
+     driver: &str,
+ ) -> InterruptVector {
++    match try_pci_allocate_interrupt_vector(pcid_handle, driver) {
++        Ok(vec) => vec,
++        Err(err) => {
++            log::error!("{driver}: {err}");
++            process::exit(1);
++        }
++    }
++}
++
++// FIXME support MSI on non-x86 systems
++#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++pub fn try_pci_allocate_interrupt_vector(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++    driver: &str,
++) -> Result<InterruptVector, InterruptVectorError> {
+     if let Some(irq) = pcid_handle.config().func.legacy_interrupt_line {
+-        // INTx# pin based interrupts.
+-        InterruptVector {
+-            irq_handle: irq.irq_handle(driver),
++        Ok(InterruptVector {
++            irq_handle: irq
++                .try_irq_handle(driver)
++                .map_err(InterruptVectorError::IrqHandle)?,
+             vector: 0,
+             kind: InterruptVectorKind::Legacy,
+-        }
++        })
+     } else {
+-        panic!("{driver}: no interrupts supported at all")
++        Err(InterruptVectorError::MissingLegacyInterrupt)
++    }
++}
++
++#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++pub fn pci_allocate_interrupt_vector(
++    pcid_handle: &mut crate::driver_interface::PciFunctionHandle,
++    driver: &str,
++) -> InterruptVector {
++    match try_pci_allocate_interrupt_vector(pcid_handle, driver) {
++        Ok(vec) => vec,
++        Err(err) => {
++            log::error!("{driver}: {err}");
++            process::exit(1);
++        }
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/mod.rs b/drivers/pcid/src/driver_interface/mod.rs
+index bbc7304e..9d7172b9 100644
+--- a/drivers/pcid/src/driver_interface/mod.rs
++++ b/drivers/pcid/src/driver_interface/mod.rs
+@@ -30,7 +30,7 @@ pub struct LegacyInterruptLine {
+ 
+ impl LegacyInterruptLine {
+     /// Get an IRQ handle for this interrupt line.
+-    pub fn irq_handle(self, driver: &str) -> File {
++    pub fn try_irq_handle(self, _driver: &str) -> io::Result<File> {
+         if let Some((phandle, addr, cells)) = self.phandled {
+             let path = match cells {
+                 1 => format!("/scheme/irq/phandle-{}/{}", phandle, addr[0]),
+@@ -39,15 +39,28 @@ impl LegacyInterruptLine {
+                     "/scheme/irq/phandle-{}/{},{},{}",
+                     phandle, addr[0], addr[1], addr[2]
+                 ),
+-                _ => panic!(
+-                    "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
+-                ),
++                _ => {
++                    return Err(io::Error::new(
++                        io::ErrorKind::InvalidData,
++                        format!(
++                            "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
++                        ),
++                    ))
++                }
+             };
+             File::create(path)
+-                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
+         } else {
+             File::open(format!("/scheme/irq/{}", self.irq))
+-                .unwrap_or_else(|err| panic!("{driver}: failed to open IRQ file: {err}"))
++        }
++    }
++
++    pub fn irq_handle(self, driver: &str) -> File {
++        match self.try_irq_handle(driver) {
++            Ok(handle) => handle,
++            Err(err) => {
++                log::error!("{driver}: failed to open IRQ file: {err}");
++                process::exit(1);
++            }
+         }
+     }
+ }
+@@ -59,8 +72,10 @@ impl fmt::Display for LegacyInterruptLine {
+                 1 => write!(f, "(phandle {}, {:?})", phandle, addr[0]),
+                 2 => write!(f, "(phandle {}, {:?},{:?})", phandle, addr[0], addr[1]),
+                 3 => write!(f, "(phandle {}, {:?})", phandle, addr),
+-                _ => panic!(
+-                    "unexpected number of IRQ description cells for phandle {phandle}: {cells}"
++                _ => write!(
++                    f,
++                    "(phandle {}, invalid IRQ description cells: {cells})",
++                    phandle,
+                 ),
+             }
+         } else {
+@@ -247,6 +262,7 @@ pub enum PcidClientRequest {
+ pub enum PcidServerResponseError {
+     NonexistentFeature(PciFeature),
+     InvalidBitPattern,
++    UnrecognizedRequest,
+ }
+ 
+ #[derive(Debug, Serialize, Deserialize)]
+@@ -278,33 +294,51 @@ pub struct PciFunctionHandle {
+ }
+ 
+ fn send<T: Serialize>(w: &mut File, message: &T) {
+-    let mut data = Vec::new();
+-    bincode::serialize_into(&mut data, message).expect("couldn't serialize pcid message");
+-    match w.write(&data) {
+-        Ok(len) => assert_eq!(len, data.len()),
++    if let Err(err) = send_result(w, message) {
++        log::error!("pcid send failed: {err}");
++        process::exit(1);
++    }
++}
++fn recv<T: DeserializeOwned>(r: &mut File) -> T {
++    match recv_result(r) {
++        Ok(value) => value,
+         Err(err) => {
+-            log::error!("writing pcid request failed: {err}");
++            log::error!("pcid recv failed: {err}");
+             process::exit(1);
+         }
+     }
+ }
+-fn recv<T: DeserializeOwned>(r: &mut File) -> T {
+-    let mut length_bytes = [0u8; 8];
+-    if let Err(err) = r.read_exact(&mut length_bytes) {
+-        log::error!("reading pcid response length failed: {err}");
+-        process::exit(1);
++
++fn send_result<T: Serialize>(w: &mut File, message: &T) -> io::Result<()> {
++    let mut data = Vec::new();
++    bincode::serialize_into(&mut data, message)
++        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
++
++    let len = w.write(&data)?;
++    if len == data.len() {
++        Ok(())
++    } else {
++        Err(io::Error::new(
++            io::ErrorKind::WriteZero,
++            format!("short pcid request write: wrote {len} of {} bytes", data.len()),
++        ))
+     }
++}
++
++fn recv_result<T: DeserializeOwned>(r: &mut File) -> io::Result<T> {
++    let mut length_bytes = [0u8; 8];
++    r.read_exact(&mut length_bytes)?;
+     let length = u64::from_le_bytes(length_bytes);
+     if length > 0x100_000 {
+-        panic!("pcid_interface: buffer too large");
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            format!("pcid_interface: buffer too large ({length} bytes)"),
++        ));
+     }
+     let mut data = vec![0u8; length as usize];
+-    if let Err(err) = r.read_exact(&mut data) {
+-        log::error!("reading pcid response failed: {err}");
+-        process::exit(1);
+-    }
+-
+-    bincode::deserialize_from(&data[..]).expect("couldn't deserialize pcid message")
++    r.read_exact(&mut data)?;
++    bincode::deserialize_from(&data[..])
++        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+ }
+ 
+ impl PciFunctionHandle {
+@@ -327,11 +361,14 @@ impl PciFunctionHandle {
+     }
+ 
+     pub fn connect_by_path(device_path: &Path) -> io::Result<Self> {
+-        let channel_fd = libredox::call::open(
+-            device_path.join("channel").to_str().unwrap(),
+-            libredox::flag::O_RDWR,
+-            0,
+-        )?;
++        let channel_path = device_path.join("channel");
++        let channel_str = channel_path.to_str().ok_or_else(|| {
++            io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("device path contains invalid UTF-8: {}", device_path.display()),
++            )
++        })?;
++        let channel_fd = libredox::call::open(channel_str, libredox::flag::O_RDWR, 0)?;
+         Ok(Self::connect_common(channel_fd as RawFd))
+     }
+ 
+@@ -369,55 +406,99 @@ impl PciFunctionHandle {
+         self.config.clone()
+     }
+ 
++    pub fn try_enable_device(&mut self) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::EnableDevice)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::EnabledDevice => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while enabling device: {other:?}"),
++            )),
++        }
++    }
++
+     pub fn enable_device(&mut self) {
+-        self.send(&PcidClientRequest::EnableDevice);
+-        match self.recv() {
+-            PcidClientResponse::EnabledDevice => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_enable_device() {
++            log::error!("failed to enable PCI device: {err}");
++            process::exit(1);
+         }
+     }
+ 
+     pub fn get_vendor_capabilities(&mut self) -> Vec<VendorSpecificCapability> {
+-        self.send(&PcidClientRequest::RequestVendorCapabilities);
+-        match self.recv() {
+-            PcidClientResponse::VendorCapabilities(a) => a,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_get_vendor_capabilities() {
++            Ok(capabilities) => capabilities,
++            Err(err) => {
++                log::error!("failed to fetch vendor capabilities: {err}");
+                 process::exit(1);
+             }
+         }
+     }
+ 
++    pub fn try_get_vendor_capabilities(&mut self) -> io::Result<Vec<VendorSpecificCapability>> {
++        send_result(&mut self.channel, &PcidClientRequest::RequestVendorCapabilities)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::VendorCapabilities(capabilities) => Ok(capabilities),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!(
++                    "received wrong pcid response while requesting vendor capabilities: {other:?}"
++                ),
++            )),
++        }
++    }
++
+     // FIXME turn into struct with bool fields
++    pub fn try_fetch_all_features(&mut self) -> io::Result<Vec<PciFeature>> {
++        send_result(&mut self.channel, &PcidClientRequest::RequestFeatures)?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::AllFeatures(features) => Ok(features),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while fetching features: {other:?}"),
++            )),
++        }
++    }
++
+     pub fn fetch_all_features(&mut self) -> Vec<PciFeature> {
+-        self.send(&PcidClientRequest::RequestFeatures);
+-        match self.recv() {
+-            PcidClientResponse::AllFeatures(a) => a,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_fetch_all_features() {
++            Ok(features) => features,
++            Err(err) => {
++                log::error!("failed to fetch PCI features: {err}");
+                 process::exit(1);
+             }
+         }
+     }
++    pub fn try_enable_feature(&mut self, feature: PciFeature) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::EnableFeature(feature))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::FeatureEnabled(feat) if feat == feature => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while enabling feature: {other:?}"),
++            )),
++        }
++    }
+     pub fn enable_feature(&mut self, feature: PciFeature) {
+-        self.send(&PcidClientRequest::EnableFeature(feature));
+-        match self.recv() {
+-            PcidClientResponse::FeatureEnabled(feat) if feat == feature => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_enable_feature(feature) {
++            log::error!("failed to enable PCI feature {feature:?}: {err}");
++            process::exit(1);
++        }
++    }
++    pub fn try_feature_info(&mut self, feature: PciFeature) -> io::Result<PciFeatureInfo> {
++        send_result(&mut self.channel, &PcidClientRequest::FeatureInfo(feature))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::FeatureInfo(feat, info) if feat == feature => Ok(info),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while reading feature info: {other:?}"),
++            )),
+         }
+     }
+     pub fn feature_info(&mut self, feature: PciFeature) -> PciFeatureInfo {
+-        self.send(&PcidClientRequest::FeatureInfo(feature));
+-        match self.recv() {
+-            PcidClientResponse::FeatureInfo(feat, info) if feat == feature => info,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_feature_info(feature) {
++            Ok(info) => info,
++            Err(err) => {
++                log::error!("failed to fetch PCI feature info for {feature:?}: {err}");
+                 process::exit(1);
+             }
+         }
+@@ -433,33 +514,50 @@ impl PciFunctionHandle {
+         }
+     }
+     pub unsafe fn read_config(&mut self, offset: u16) -> u32 {
+-        self.send(&PcidClientRequest::ReadConfig(offset));
+-        match self.recv() {
+-            PcidClientResponse::ReadConfig(value) => value,
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
++        match self.try_read_config(offset) {
++            Ok(value) => value,
++            Err(err) => {
++                log::error!("failed to read PCI config dword at {offset:#x}: {err}");
+                 process::exit(1);
+             }
+         }
+     }
++    pub unsafe fn try_read_config(&mut self, offset: u16) -> io::Result<u32> {
++        send_result(&mut self.channel, &PcidClientRequest::ReadConfig(offset))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::ReadConfig(value) => Ok(value),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while reading config: {other:?}"),
++            )),
++        }
++    }
+     pub unsafe fn write_config(&mut self, offset: u16, value: u32) {
+-        self.send(&PcidClientRequest::WriteConfig(offset, value));
+-        match self.recv() {
+-            PcidClientResponse::WriteConfig => {}
+-            other => {
+-                log::error!("received wrong pcid response: {other:?}");
+-                process::exit(1);
+-            }
++        if let Err(err) = self.try_write_config(offset, value) {
++            log::error!("failed to write PCI config dword at {offset:#x}: {err}");
++            process::exit(1);
+         }
+     }
+-    pub unsafe fn map_bar(&mut self, bir: u8) -> &MappedBar {
++    pub unsafe fn try_write_config(&mut self, offset: u16, value: u32) -> io::Result<()> {
++        send_result(&mut self.channel, &PcidClientRequest::WriteConfig(offset, value))?;
++        match recv_result(&mut self.channel)? {
++            PcidClientResponse::WriteConfig => Ok(()),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("received wrong pcid response while writing config: {other:?}"),
++            )),
++        }
++    }
++    pub unsafe fn try_map_bar(&mut self, bir: u8) -> io::Result<&MappedBar> {
+         let mapped_bar = &mut self.mapped_bars[bir as usize];
+         if let Some(mapped_bar) = mapped_bar {
+-            mapped_bar
++            Ok(mapped_bar)
+         } else {
+-            let (bar, bar_size) = self.config.func.bars[bir as usize].expect_mem();
++            let (bar, bar_size) = self.config.func.bars[bir as usize]
++                .try_mem()
++                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err.to_string()))?;
+ 
+-            let ptr = match unsafe {
++            let ptr = unsafe {
+                 common::physmap(
+                     bar,
+                     bar_size,
+@@ -467,18 +565,25 @@ impl PciFunctionHandle {
+                     // FIXME once the kernel supports this use write-through for prefetchable BAR
+                     common::MemoryType::Uncacheable,
+                 )
+-            } {
+-                Ok(ptr) => ptr,
+-                Err(err) => {
+-                    log::error!("failed to map BAR at {bar:016X}: {err}");
+-                    process::exit(1);
+-                }
+-            };
++            }
++            .map_err(|err| io::Error::other(format!("failed to map BAR at {bar:016X}: {err}")))?;
+ 
+-            mapped_bar.insert(MappedBar {
+-                ptr: NonNull::new(ptr.cast::<u8>()).expect("Mapping a BAR resulted in a nullptr"),
++            Ok(mapped_bar.insert(MappedBar {
++                ptr: NonNull::new(ptr.cast::<u8>()).ok_or_else(|| {
++                    io::Error::new(io::ErrorKind::Other, "mapping a BAR resulted in a null pointer")
++                })?,
+                 bar_size,
+-            })
++            }))
++        }
++    }
++
++    pub unsafe fn map_bar(&mut self, bir: u8) -> &MappedBar {
++        match self.try_map_bar(bir) {
++            Ok(bar) => bar,
++            Err(err) => {
++                log::error!("failed to map BAR {bir}: {err}");
++                process::exit(1);
++            }
+         }
+     }
+ }
+diff --git a/drivers/pcid/src/driver_interface/msi.rs b/drivers/pcid/src/driver_interface/msi.rs
+index 0ca68ec5..cd2fd701 100644
+--- a/drivers/pcid/src/driver_interface/msi.rs
++++ b/drivers/pcid/src/driver_interface/msi.rs
+@@ -1,6 +1,8 @@
+ use std::fmt;
+ use std::ptr::NonNull;
++use std::process;
+ 
++use crate::driver_interface::bar::PciBarError;
+ use crate::driver_interface::PciBar;
+ use crate::PciFunctionHandle;
+ 
+@@ -33,9 +35,74 @@ pub struct MsixInfo {
+     pub pba_offset: u32,
+ }
+ 
++#[derive(Debug)]
++pub enum MsixMapError {
++    ReservedBir(u8),
++    InvalidBar {
++        which: &'static str,
++        source: PciBarError,
++    },
++    TableOutsideBar {
++        offset: usize,
++        end: usize,
++        bar_size: usize,
++    },
++    PbaOutsideBar {
++        offset: usize,
++        end: usize,
++        bar_size: usize,
++    },
++    NullPointer,
++}
++
++impl fmt::Display for MsixMapError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            MsixMapError::ReservedBir(bir) => {
++                write!(f, "MSI-X BIR contained a reserved value: {bir}")
++            }
++            MsixMapError::InvalidBar { which, source } => {
++                write!(f, "MSI-X {which} BAR is invalid: {source}")
++            }
++            MsixMapError::TableOutsideBar {
++                offset,
++                end,
++                bar_size,
++            } => write!(
++                f,
++                "MSI-X table {offset:#x}:{end:#x} outside BAR with length {bar_size:#x}"
++            ),
++            MsixMapError::PbaOutsideBar {
++                offset,
++                end,
++                bar_size,
++            } => write!(
++                f,
++                "MSI-X PBA {offset:#x}:{end:#x} outside BAR with length {bar_size:#x}"
++            ),
++            MsixMapError::NullPointer => {
++                write!(f, "MSI-X BAR mapping resulted in null pointer")
++            },
++        }
++    }
++}
++
+ impl MsixInfo {
+     pub unsafe fn map_and_mask_all(self, pcid_handle: &mut PciFunctionHandle) -> MappedMsixRegs {
+-        self.validate(pcid_handle.config().func.bars);
++        match self.try_map_and_mask_all(pcid_handle) {
++            Ok(regs) => regs,
++            Err(err) => {
++                log::error!("{err}");
++                process::exit(1);
++            }
++        }
++    }
++
++    pub unsafe fn try_map_and_mask_all(
++        self,
++        pcid_handle: &mut PciFunctionHandle,
++    ) -> Result<MappedMsixRegs, MsixMapError> {
++        self.try_validate(pcid_handle.config().func.bars)?;
+ 
+         let virt_table_base = unsafe {
+             pcid_handle
+@@ -46,7 +113,8 @@ impl MsixInfo {
+         };
+ 
+         let mut info = MappedMsixRegs {
+-            virt_table_base: NonNull::new(virt_table_base.cast::<MsixTableEntry>()).unwrap(),
++            virt_table_base: NonNull::new(virt_table_base.cast::<MsixTableEntry>())
++                .ok_or(MsixMapError::NullPointer)?,
+             info: self,
+         };
+ 
+@@ -56,21 +124,15 @@ impl MsixInfo {
+             info.table_entry_pointer(i.into()).mask();
+         }
+ 
+-        info
++        Ok(info)
+     }
+ 
+-    fn validate(&self, bars: [PciBar; 6]) {
++    pub fn try_validate(&self, bars: [PciBar; 6]) -> Result<(), MsixMapError> {
+         if self.table_bar > 5 {
+-            panic!(
+-                "MSI-X Table BIR contained a reserved enum value: {}",
+-                self.table_bar
+-            );
++            return Err(MsixMapError::ReservedBir(self.table_bar));
+         }
+         if self.pba_bar > 5 {
+-            panic!(
+-                "MSI-X PBA BIR contained a reserved enum value: {}",
+-                self.pba_bar
+-            );
++            return Err(MsixMapError::ReservedBir(self.pba_bar));
+         }
+ 
+         let table_size = self.table_size;
+@@ -80,28 +142,38 @@ impl MsixInfo {
+         let pba_offset = self.pba_offset as usize;
+         let pba_min_length = table_size.div_ceil(8);
+ 
+-        let (_, table_bar_size) = bars[self.table_bar as usize].expect_mem();
+-        let (_, pba_bar_size) = bars[self.pba_bar as usize].expect_mem();
++        let (_, table_bar_size) = bars[self.table_bar as usize]
++            .try_mem()
++            .map_err(|source| MsixMapError::InvalidBar {
++                which: "table",
++                source,
++            })?;
++        let (_, pba_bar_size) = bars[self.pba_bar as usize]
++            .try_mem()
++            .map_err(|source| MsixMapError::InvalidBar {
++                which: "PBA",
++                source,
++            })?;
+ 
+         // Ensure that the table and PBA are within the BAR.
+ 
+         if !(0..table_bar_size as u64).contains(&(table_offset as u64 + table_min_length as u64)) {
+-            panic!(
+-                "Table {:#x}:{:#x} outside of BAR with length {:#x}",
+-                table_offset,
+-                table_offset + table_min_length as usize,
+-                table_bar_size
+-            );
++            return Err(MsixMapError::TableOutsideBar {
++                offset: table_offset,
++                end: table_offset + table_min_length as usize,
++                bar_size: table_bar_size,
++            });
+         }
+ 
+         if !(0..pba_bar_size as u64).contains(&(pba_offset as u64 + pba_min_length as u64)) {
+-            panic!(
+-                "PBA {:#x}:{:#x} outside of BAR with length {:#x}",
+-                pba_offset,
+-                pba_offset + pba_min_length as usize,
+-                pba_bar_size
+-            );
++            return Err(MsixMapError::PbaOutsideBar {
++                offset: pba_offset,
++                end: pba_offset + pba_min_length as usize,
++                bar_size: pba_bar_size,
++            });
+         }
++
++        Ok(())
+     }
+ }
+ 
+@@ -120,6 +192,68 @@ impl MappedMsixRegs {
+     }
+ }
+ 
++#[cfg(test)]
++mod tests {
++    use super::{MsixInfo, MsixMapError};
++    use crate::driver_interface::PciBar;
++
++    #[test]
++    fn try_validate_accepts_in_range_table_and_pba() {
++        let info = MsixInfo {
++            table_bar: 0,
++            table_offset: 0x100,
++            table_size: 4,
++            pba_bar: 1,
++            pba_offset: 0x80,
++        };
++        let mut bars = [PciBar::None; 6];
++        bars[0] = PciBar::Memory32 {
++            addr: 0x1000,
++            size: 0x400,
++        };
++        bars[1] = PciBar::Memory32 {
++            addr: 0x2000,
++            size: 0x200,
++        };
++
++        assert!(info.try_validate(bars).is_ok());
++    }
++
++    #[test]
++    fn try_validate_rejects_reserved_bir() {
++        let info = MsixInfo {
++            table_bar: 6,
++            table_offset: 0,
++            table_size: 1,
++            pba_bar: 0,
++            pba_offset: 0,
++        };
++
++        assert!(matches!(info.try_validate([PciBar::None; 6]), Err(MsixMapError::ReservedBir(6))));
++    }
++
++    #[test]
++    fn try_validate_rejects_out_of_range_table() {
++        let info = MsixInfo {
++            table_bar: 0,
++            table_offset: 0x100,
++            table_size: 16,
++            pba_bar: 0,
++            pba_offset: 0,
++        };
++        let mut bars = [PciBar::None; 6];
++        bars[0] = PciBar::Memory32 {
++            addr: 0x1000,
++            size: 0x80,
++        };
++
++        assert!(matches!(
++            info.try_validate(bars),
++            Err(MsixMapError::TableOutsideBar { .. })
++        ));
++    }
++}
++
+ #[repr(C, packed)]
+ pub struct MsixTableEntry {
+     pub addr_lo: Mmio<u32>,
+diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
+index bb9f39a3..df026ab4 100644
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -21,6 +21,7 @@ enum Handle {
+     TopLevel { entries: Vec<String> },
+     Access,
+     Device,
++    Config { addr: PciAddress },
+     Channel { addr: PciAddress, st: ChannelState },
+     SchemeRoot,
+ }
+@@ -30,14 +31,20 @@ struct HandleWrapper {
+ }
+ impl Handle {
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+     }
+     // TODO: capability rather than root
+     fn requires_root(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(
++            self,
++            Self::Access | Self::Config { .. } | Self::Channel { .. }
++        )
+     }
+     fn is_scheme_root(&self) -> bool {
+         matches!(self, Self::SchemeRoot)
+@@ -132,6 +139,7 @@ impl SchemeSync for PciScheme {
+         let (len, mode) = match handle.inner {
+             Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
+             Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
++            Handle::Config { .. } => (256, MODE_CHR | 0o600),
+             Handle::Access | Handle::Channel { .. } => (0, MODE_CHR | 0o600),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+@@ -156,6 +164,18 @@ impl SchemeSync for PciScheme {
+         match handle.inner {
+             Handle::TopLevel { .. } => Err(Error::new(EISDIR)),
+             Handle::Device => Err(Error::new(EISDIR)),
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_read = buf.len().min(4 - byte_offset);
++
++                let dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let bytes = dword.to_le_bytes();
++                buf[..bytes_to_read]
++                    .copy_from_slice(&bytes[byte_offset..byte_offset + bytes_to_read]);
++                Ok(bytes_to_read)
++            }
+             Handle::Channel {
+                 addr: _,
+                 ref mut st,
+@@ -193,7 +213,9 @@ impl SchemeSync for PciScheme {
+                 return Ok(buf);
+             }
+             Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } => return Err(Error::new(ENOTDIR)),
++            Handle::Access | Handle::Config { .. } | Handle::Channel { .. } => {
++                return Err(Error::new(ENOTDIR));
++            }
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+ 
+@@ -223,6 +245,20 @@ impl SchemeSync for PciScheme {
+         }
+ 
+         match handle.inner {
++            Handle::Config { addr } => {
++                let offset = _offset as u16;
++                let dword_offset = offset & !0x3;
++                let byte_offset = (offset & 0x3) as usize;
++                let bytes_to_write = buf.len().min(4 - byte_offset);
++
++                let mut dword = unsafe { self.pcie.read(addr, dword_offset) };
++                let mut bytes = dword.to_le_bytes();
++                bytes[byte_offset..byte_offset + bytes_to_write]
++                    .copy_from_slice(&buf[..bytes_to_write]);
++                dword = u32::from_le_bytes(bytes);
++                unsafe { self.pcie.write(addr, dword_offset, dword) };
++                Ok(buf.len())
++            }
+             Handle::Channel { addr, ref mut st } => {
+                 Self::write_channel(&self.pcie, &mut self.tree, addr, st, buf)
+             }
+@@ -316,6 +352,10 @@ impl SchemeSync for PciScheme {
+                     func.enabled = false;
+                 }
+             }
++            Some(HandleWrapper {
++                inner: Handle::Config { .. },
++                ..
++            }) => {}
+             _ => {}
+         }
+     }
+@@ -341,6 +381,7 @@ impl PciScheme {
+             let path = &after[1..];
+ 
+             match path {
++                "config" => Handle::Config { addr },
+                 "channel" => {
+                     if func.enabled {
+                         return Err(Error::new(ENOLCK));
+@@ -387,7 +428,7 @@ impl PciScheme {
+         match *state {
+             ChannelState::AwaitingResponseRead(_) => return Err(Error::new(EINVAL)),
+             ChannelState::AwaitingData => {
+-                let func = tree.get_mut(&addr).unwrap();
++                let func = tree.get_mut(&addr).ok_or(Error::new(ENOENT))?;
+ 
+                 let request = bincode::deserialize_from(buf).map_err(|_| Error::new(EINVAL))?;
+                 let response = crate::driver_handler::DriverHandler::new(

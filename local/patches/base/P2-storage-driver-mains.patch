@@ -1,0 +1,625 @@
+# P2-storage-driver-mains.patch
+# Extract storage driver main.rs hardening: replace panic/unwrap/expect with
+# proper error handling, debug_assert for invariant checks, and graceful exits.
+#
+# Files: drivers/storage/ahcid/src/main.rs, drivers/storage/ided/src/main.rs,
+#         drivers/storage/nvmed/src/main.rs, drivers/storage/virtio-blkd/src/main.rs
+
+diff --git a/drivers/storage/ahcid/src/main.rs b/drivers/storage/ahcid/src/main.rs
+index 1f130a29..cccd2980 100644
+--- a/drivers/storage/ahcid/src/main.rs
++++ b/drivers/storage/ahcid/src/main.rs
+@@ -2,6 +2,7 @@
+ 
+ use std::io::{Read, Write};
+ use std::os::fd::AsRawFd;
++use std::process;
+ use std::usize;
+ 
+ use common::io::Io;
+@@ -23,10 +24,13 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_ahci");
+ 
+-    let irq = pci_config
+-        .func
+-        .legacy_interrupt_line
+-        .expect("ahcid: no legacy interrupts supported");
++    let irq = match pci_config.func.legacy_interrupt_line {
++        Some(irq) => irq,
++        None => {
++            error!("ahcid: no legacy interrupts supported");
++            process::exit(1);
++        }
++    };
+ 
+     common::setup_logging(
+         "disk",
+@@ -57,46 +61,71 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         let mut irq_file = irq.irq_handle("ahcid");
+         let irq_fd = irq_file.as_raw_fd() as usize;
+ 
+-        let event_queue = RawEventQueue::new().expect("ahcid: failed to create event queue");
++        let event_queue = RawEventQueue::new().unwrap_or_else(|err| {
++            error!("ahcid: failed to create event queue: {err}");
++            process::exit(1);
++        });
+ 
+-        libredox::call::setrens(0, 0).expect("ahcid: failed to enter null namespace");
++        libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++            error!("ahcid: failed to enter null namespace: {err}");
++            process::exit(1);
++        });
+ 
+         event_queue
+             .subscribe(scheme.event_handle().raw(), 1, EventFlags::READ)
+-            .expect("ahcid: failed to event scheme socket");
++            .unwrap_or_else(|err| {
++                error!("ahcid: failed to event scheme socket: {err}");
++                process::exit(1);
++            });
+         event_queue
+             .subscribe(irq_fd, 1, EventFlags::READ)
+-            .expect("ahcid: failed to event irq scheme");
++            .unwrap_or_else(|err| {
++                error!("ahcid: failed to event irq scheme: {err}");
++                process::exit(1);
++            });
+ 
+         for event in event_queue {
+-            let event = event.unwrap();
++            let event = match event {
++                Ok(event) => event,
++                Err(err) => {
++                    error!("ahcid: failed to get event: {err}");
++                    continue;
++                }
++            };
+             if event.fd == scheme.event_handle().raw() {
+-                FuturesExecutor.block_on(scheme.tick()).unwrap();
++                if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                    error!("ahcid: failed to handle scheme event: {err}");
++                }
+             } else if event.fd == irq_fd {
+                 let mut irq = [0; 8];
+-                if irq_file
+-                    .read(&mut irq)
+-                    .expect("ahcid: failed to read irq file")
+-                    >= irq.len()
+-                {
+-                    let is = hba_mem.is.read();
+-                    if is > 0 {
+-                        let pi = hba_mem.pi.read();
+-                        let pi_is = pi & is;
+-                        for i in 0..hba_mem.ports.len() {
+-                            if pi_is & 1 << i > 0 {
+-                                let port = &mut hba_mem.ports[i];
+-                                let is = port.is.read();
+-                                port.is.write(is);
+-                            }
++                match irq_file.read(&mut irq) {
++                    Ok(count) if count >= irq.len() => {}
++                    Ok(_) => continue,
++                    Err(err) => {
++                        error!("ahcid: failed to read irq file: {err}");
++                        continue;
++                    }
++                }
++                let is = hba_mem.is.read();
++                if is > 0 {
++                    let pi = hba_mem.pi.read();
++                    let pi_is = pi & is;
++                    for i in 0..hba_mem.ports.len() {
++                        if pi_is & 1 << i > 0 {
++                            let port = &mut hba_mem.ports[i];
++                            let is = port.is.read();
++                            port.is.write(is);
+                         }
+-                        hba_mem.is.write(is);
++                    }
++                    hba_mem.is.write(is);
+ 
+-                        irq_file
+-                            .write(&irq)
+-                            .expect("ahcid: failed to write irq file");
++                    if let Err(err) = irq_file.write(&irq) {
++                        error!("ahcid: failed to write irq file: {err}");
++                        continue;
++                    }
+ 
+-                        FuturesExecutor.block_on(scheme.tick()).unwrap();
++                    if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                        error!("ahcid: failed to handle IRQ tick: {err}");
+                     }
+                 }
+             } else {
+@@ -105,5 +134,5 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    std::process::exit(0);
++    process::exit(0);
+ }
+diff --git a/drivers/storage/ided/src/main.rs b/drivers/storage/ided/src/main.rs
+index 4197217d..03174554 100644
+--- a/drivers/storage/ided/src/main.rs
++++ b/drivers/storage/ided/src/main.rs
+@@ -8,6 +8,7 @@ use std::{
+     fs::File,
+     io::{Read, Write},
+     os::unix::io::{FromRawFd, RawFd},
++    process,
+     sync::{Arc, Mutex},
+     thread::{self, sleep},
+     time::Duration,
+@@ -45,17 +46,34 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let busmaster_base = pci_config.func.bars[4].expect_port();
+     let (primary, primary_irq) = if pci_config.func.full_device_id.interface & 1 != 0 {
+-        panic!("TODO: IDE primary channel is PCI native");
++        error!("ided: IDE primary channel PCI native mode not supported");
++        process::exit(1);
+     } else {
+-        (Channel::primary_compat(busmaster_base).unwrap(), 14)
++        (
++            Channel::primary_compat(busmaster_base).unwrap_or_else(|err| {
++                error!("ided: failed to init primary channel: {err}");
++                process::exit(1);
++            }),
++            14,
++        )
+     };
+     let (secondary, secondary_irq) = if pci_config.func.full_device_id.interface & 1 != 0 {
+-        panic!("TODO: IDE secondary channel is PCI native");
++        error!("ided: IDE secondary channel PCI native mode not supported");
++        process::exit(1);
+     } else {
+-        (Channel::secondary_compat(busmaster_base + 8).unwrap(), 15)
++        (
++            Channel::secondary_compat(busmaster_base + 8).unwrap_or_else(|err| {
++                error!("ided: failed to init secondary channel: {err}");
++                process::exit(1);
++            }),
++            15,
++        )
+     };
+ 
+-    common::acquire_port_io_rights().expect("ided: failed to get I/O privilege");
++    common::acquire_port_io_rights().unwrap_or_else(|err| {
++        error!("ided: failed to get I/O privilege: {err}");
++        process::exit(1);
++    });
+ 
+     //TODO: move this to ide.rs?
+     let chans = vec![
+@@ -87,13 +105,13 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+     for (chan_i, chan_lock) in chans.iter().enumerate() {
+         let mut chan = chan_lock.lock().unwrap();
+ 
+-        println!("  - channel {}", chan_i);
++        log::info!("  - channel {}", chan_i);
+ 
+         // Disable IRQs
+         chan.control.write(2);
+ 
+         for dev in 0..=1 {
+-            println!("    - device {}", dev);
++            log::info!("    - device {}", dev);
+ 
+             // Select device
+             chan.device_select.write(0xA0 | (dev << 4));
+@@ -105,7 +123,7 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+ 
+             // Check if device exists
+             if chan.status.read() == 0 {
+-                println!("      not found");
++                log::info!("      not found");
+                 continue;
+             }
+ 
+@@ -125,7 +143,7 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+ 
+             //TODO: probe ATAPI
+             if error {
+-                println!("      error");
++                log::info!("      error");
+                 continue;
+             }
+ 
+@@ -189,12 +207,12 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+                     48
+                 };
+ 
+-                println!("      Serial: {}", serial.trim());
+-                println!("      Firmware: {}", firmware.trim());
+-                println!("      Model: {}", model.trim());
+-                println!("      Size: {} MB", sectors / 2048);
+-                println!("      DMA: {}", dma);
+-                println!("      {}-bit LBA", lba_bits);
++                log::info!("      Serial: {}", serial.trim());
++                log::info!("      Firmware: {}", firmware.trim());
++                log::info!("      Model: {}", model.trim());
++                log::info!("      Size: {} MB", sectors / 2048);
++                log::info!("      DMA: {}", dma);
++                log::info!("      {}-bit LBA", lba_bits);
+ 
+                 disks.push(AnyDisk::Ata(AtaDisk {
+                     chan: chan_lock.clone(),
+@@ -227,7 +245,10 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         flag::O_RDWR | flag::O_NONBLOCK,
+         0,
+     )
+-    .expect("ided: failed to open irq file");
++    .unwrap_or_else(|err| {
++        error!("ided: failed to open primary irq file: {err}");
++        process::exit(1);
++    });
+     let mut primary_irq_file = unsafe { File::from_raw_fd(primary_irq_fd as RawFd) };
+ 
+     let secondary_irq_fd = libredox::call::open(
+@@ -235,70 +256,107 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         flag::O_RDWR | flag::O_NONBLOCK,
+         0,
+     )
+-    .expect("ided: failed to open irq file");
++    .unwrap_or_else(|err| {
++        error!("ided: failed to open secondary irq file: {err}");
++        process::exit(1);
++    });
+     let mut secondary_irq_file = unsafe { File::from_raw_fd(secondary_irq_fd as RawFd) };
+ 
+-    let event_queue = RawEventQueue::new().expect("ided: failed to open event file");
++    let event_queue = RawEventQueue::new().unwrap_or_else(|err| {
++        error!("ided: failed to open event file: {err}");
++        process::exit(1);
++    });
+ 
+-    libredox::call::setrens(0, 0).expect("ided: failed to enter null namespace");
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        error!("ided: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
+ 
+     event_queue
+         .subscribe(scheme.event_handle().raw(), 0, EventFlags::READ)
+-        .expect("ided: failed to event disk scheme");
++        .unwrap_or_else(|err| {
++            error!("ided: failed to event disk scheme: {err}");
++            process::exit(1);
++        });
+ 
+     event_queue
+         .subscribe(primary_irq_fd, 0, EventFlags::READ)
+-        .expect("ided: failed to event irq scheme");
++        .unwrap_or_else(|err| {
++            error!("ided: failed to event primary irq: {err}");
++            process::exit(1);
++        });
+ 
+     event_queue
+         .subscribe(secondary_irq_fd, 0, EventFlags::READ)
+-        .expect("ided: failed to event irq scheme");
++        .unwrap_or_else(|err| {
++            error!("ided: failed to event secondary irq: {err}");
++            process::exit(1);
++        });
+ 
+     for event in event_queue {
+-        let event = event.unwrap();
++        let event = match event {
++            Ok(event) => event,
++            Err(err) => {
++                error!("ided: failed to get event: {err}");
++                continue;
++            }
++        };
+         if event.fd == scheme.event_handle().raw() {
+-            FuturesExecutor.block_on(scheme.tick()).unwrap();
++            if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                error!("ided: failed to handle scheme event: {err}");
++            }
+         } else if event.fd == primary_irq_fd {
+             let mut irq = [0; 8];
+-            if primary_irq_file
+-                .read(&mut irq)
+-                .expect("ided: failed to read irq file")
+-                >= irq.len()
+-            {
+-                let _chan = chans[0].lock().unwrap();
+-                //TODO: check chan for irq
++            match primary_irq_file.read(&mut irq) {
++                Ok(count) if count >= irq.len() => {}
++                Ok(_) => continue,
++                Err(err) => {
++                    error!("ided: failed to read primary irq file: {err}");
++                    continue;
++                }
++            }
++            let _chan = chans[0].lock().unwrap();
++            //TODO: check chan for irq
+ 
+-                primary_irq_file
+-                    .write(&irq)
+-                    .expect("ided: failed to write irq file");
++            if let Err(err) = primary_irq_file.write(&irq) {
++                error!("ided: failed to write primary irq file: {err}");
++                continue;
++            }
+ 
+-                FuturesExecutor.block_on(scheme.tick()).unwrap();
++            if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                error!("ided: failed to handle primary IRQ tick: {err}");
+             }
+         } else if event.fd == secondary_irq_fd {
+             let mut irq = [0; 8];
+-            if secondary_irq_file
+-                .read(&mut irq)
+-                .expect("ided: failed to read irq file")
+-                >= irq.len()
+-            {
+-                let _chan = chans[1].lock().unwrap();
+-                //TODO: check chan for irq
++            match secondary_irq_file.read(&mut irq) {
++                Ok(count) if count >= irq.len() => {}
++                Ok(_) => continue,
++                Err(err) => {
++                    error!("ided: failed to read secondary irq file: {err}");
++                    continue;
++                }
++            }
++            let _chan = chans[1].lock().unwrap();
++            //TODO: check chan for irq
+ 
+-                secondary_irq_file
+-                    .write(&irq)
+-                    .expect("ided: failed to write irq file");
++            if let Err(err) = secondary_irq_file.write(&irq) {
++                error!("ided: failed to write secondary irq file: {err}");
++                continue;
++            }
+ 
+-                FuturesExecutor.block_on(scheme.tick()).unwrap();
++            if let Err(err) = FuturesExecutor.block_on(scheme.tick()) {
++                error!("ided: failed to handle secondary IRQ tick: {err}");
+             }
+         } else {
+             error!("Unknown event {}", event.fd);
+         }
+     }
+ 
+-    std::process::exit(0);
++    process::exit(0);
+ }
+ 
+ #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    unimplemented!()
++    log::error!("ided: unsupported architecture");
++    process::exit(1);
+ }
+diff --git a/drivers/storage/nvmed/src/main.rs b/drivers/storage/nvmed/src/main.rs
+index beb1b689..3772f4e5 100644
+--- a/drivers/storage/nvmed/src/main.rs
++++ b/drivers/storage/nvmed/src/main.rs
+@@ -2,6 +2,7 @@ use std::cell::RefCell;
+ use std::fs::File;
+ use std::io::{self, Read, Write};
+ use std::os::fd::AsRawFd;
++use std::process;
+ use std::rc::Rc;
+ use std::sync::Arc;
+ use std::usize;
+@@ -22,7 +23,10 @@ struct NvmeDisk {
+ 
+ impl Disk for NvmeDisk {
+     fn block_size(&self) -> u32 {
+-        self.ns.block_size.try_into().unwrap()
++        self.ns.block_size.try_into().unwrap_or_else(|_| {
++            log::error!("nvmed: block size {} does not fit in u32", self.ns.block_size);
++            process::exit(1);
++        })
+     }
+ 
+     fn size(&self) -> u64 {
+@@ -79,26 +83,43 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     let interrupt_vector = irq_helpers::pci_allocate_interrupt_vector(&mut pcid_handle, "nvmed");
+     let iv = interrupt_vector.vector();
+-    let irq_handle = interrupt_vector.irq_handle().try_clone().unwrap();
++    let irq_handle = interrupt_vector.irq_handle().try_clone().unwrap_or_else(|err| {
++        log::error!("nvmed: failed to clone IRQ handle: {err}");
++        process::exit(1);
++    });
+ 
+     let mut nvme = Nvme::new(address.as_ptr() as usize, interrupt_vector, pcid_handle)
+-        .expect("nvmed: failed to allocate driver data");
+-
+-    unsafe { nvme.init().expect("nvmed: failed to init") }
++        .unwrap_or_else(|err| {
++            log::error!("nvmed: failed to allocate driver data: {err}");
++            process::exit(1);
++        });
++
++    unsafe {
++        nvme.init().unwrap_or_else(|err| {
++            log::error!("nvmed: failed to init: {err}");
++            process::exit(1);
++        });
++    }
+     log::debug!("Finished base initialization");
+     let nvme = Arc::new(nvme);
+ 
+     let executor = nvme::executor::init(Arc::clone(&nvme), iv, false /* FIXME */, irq_handle);
+ 
+     let mut time_handle = File::open(&format!("/scheme/time/{}", libredox::flag::CLOCK_MONOTONIC))
+-        .expect("failed to open time handle");
++        .unwrap_or_else(|err| {
++            log::error!("nvmed: failed to open time handle: {err}");
++            process::exit(1);
++        });
+ 
+     let mut time_events = Box::pin(
+         executor.register_external_event(time_handle.as_raw_fd() as usize, event::EventFlags::READ),
+     );
+ 
+     // Try to init namespaces for 5 seconds
+-    time_arm(&mut time_handle, 5).expect("failed to arm timer");
++    time_arm(&mut time_handle, 5).unwrap_or_else(|err| {
++        log::error!("nvmed: failed to arm timer: {err}");
++        process::exit(1);
++    });
+     let namespaces = executor.block_on(async {
+         let namespaces_future = nvme.init_with_queues();
+         let time_future = time_events.as_mut().next();
+@@ -106,7 +127,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         futures::pin_mut!(time_future);
+         match futures::future::select(namespaces_future, time_future).await {
+             futures::future::Either::Left((namespaces, _)) => namespaces,
+-            futures::future::Either::Right(_) => panic!("timeout on init"),
++            futures::future::Either::Right(_) => {
++                log::error!("nvmed: timeout on init");
++                process::exit(1);
++            }
+         }
+     });
+     log::debug!("Initialized!");
+@@ -134,7 +158,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+         event::EventFlags::READ,
+     ));
+ 
+-    libredox::call::setrens(0, 0).expect("nvmed: failed to enter null namespace");
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("nvmed: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
+ 
+     log::debug!("Starting to listen for scheme events");
+ 
+@@ -150,5 +177,5 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     //TODO: destroy NVMe stuff
+ 
+-    std::process::exit(0);
++    process::exit(0);
+ }
+diff --git a/drivers/storage/virtio-blkd/src/main.rs b/drivers/storage/virtio-blkd/src/main.rs
+index d21236b3..2b777937 100644
+--- a/drivers/storage/virtio-blkd/src/main.rs
++++ b/drivers/storage/virtio-blkd/src/main.rs
+@@ -1,6 +1,7 @@
+ #![deny(trivial_numeric_casts, unused_allocation)]
+ 
+ use std::collections::BTreeMap;
++use std::process;
+ use std::sync::{Arc, Weak};
+ 
+ use driver_block::DiskScheme;
+@@ -59,14 +60,23 @@ impl BlockDeviceConfig {
+         T: Sized + TryFrom<u64>,
+         <T as TryFrom<u64>>::Error: std::fmt::Debug,
+     {
+-        let transport = self.0.upgrade().unwrap();
++        let transport = self.0.upgrade().unwrap_or_else(|| {
++            log::error!("virtio-blkd: transport handle dropped");
++            process::exit(1);
++        });
+ 
+         let size = core::mem::size_of::<T>()
+             .try_into()
+-            .expect("load_config: invalid size");
++            .unwrap_or_else(|_| {
++                log::error!("virtio-blkd: load_config: invalid size");
++                process::exit(1);
++            });
+ 
+         let value = transport.load_config(ty as u8, size);
+-        T::try_from(value).unwrap()
++        T::try_from(value).unwrap_or_else(|_| {
++            log::error!("virtio-blkd: load_config: invalid config value");
++            process::exit(1);
++        })
+     }
+ 
+     /// Returns the capacity of the block device in bytes.
+@@ -103,8 +113,11 @@ fn main() {
+ }
+ 
+ fn daemon_runner(redox_daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+-    daemon(redox_daemon, pcid_handle).unwrap();
+-    unreachable!();
++    daemon(redox_daemon, pcid_handle).unwrap_or_else(|err| {
++        log::error!("virtio-blkd: daemon failed: {err}");
++        process::exit(1);
++    });
++    process::exit(0);
+ }
+ 
+ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow::Result<()> {
+@@ -121,7 +134,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+     // 0x1001 - virtio-blk
+     let pci_config = pcid_handle.config();
+ 
+-    assert_eq!(pci_config.func.full_device_id.device_id, 0x1001);
++    if pci_config.func.full_device_id.device_id != 0x1001 {
++        log::error!("virtio-blkd: unexpected device ID {:#06x}, expected 0x1001", pci_config.func.full_device_id.device_id);
++        process::exit(1);
++    }
+     log::info!("virtio-blk: initiating startup sequence :^)");
+ 
+     let device = virtio_core::probe_device(&mut pcid_handle)?;
+@@ -147,7 +163,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+ 
+     let scheme_name = format!("disk.{}", name);
+ 
+-    let event_queue = event::EventQueue::new().unwrap();
++    let mut event_queue = event::EventQueue::new().unwrap_or_else(|err| {
++        log::error!("virtio-blkd: failed to create event queue: {err}");
++        process::exit(1);
++    });
+ 
+     event::user_data! {
+         enum Event {
+@@ -162,7 +181,10 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+         &driver_block::FuturesExecutor,
+     );
+ 
+-    libredox::call::setrens(0, 0).expect("nvmed: failed to enter null namespace");
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        log::error!("virtio-blkd: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
+ 
+     event_queue
+         .subscribe(
+@@ -170,11 +192,26 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> anyhow:
+             Event::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    for event in event_queue {
+-        match event.unwrap().user_data {
+-            Event::Scheme => futures::executor::block_on(scheme.tick()).unwrap(),
++        .unwrap_or_else(|err| {
++            log::error!("virtio-blkd: failed to subscribe to scheme events: {err}");
++            process::exit(1);
++        });
++
++    loop {
++        let event = match event_queue.next() {
++            Some(Ok(event)) => event,
++            Some(Err(err)) => {
++                log::error!("virtio-blkd: failed to get event: {err}");
++                continue;
++            }
++            None => break,
++        };
++        match event.user_data {
++            Event::Scheme => {
++                if let Err(err) = futures::executor::block_on(scheme.tick()) {
++                    log::error!("virtio-blkd: failed to handle scheme event: {err}");
++                }
++            }
+         }
+     }
+ 

@@ -1,0 +1,287 @@
+# P2-ac97d-ihdad-main.patch
+#
+# Audio daemon main entry points: AC97 and Intel HDA driver initialization,
+# error handling, and BAR access improvements.
+#
+# Covers:
+#   - ac97d/src/main.rs: BAR access, error handling, codec initialization
+#   - ihdad/src/main.rs: error handling, device initialization
+#
+diff --git a/drivers/audio/ac97d/src/main.rs b/drivers/audio/ac97d/src/main.rs
+index ffa8a94b..e4dbf930 100644
+--- a/drivers/audio/ac97d/src/main.rs
++++ b/drivers/audio/ac97d/src/main.rs
+@@ -3,6 +3,7 @@ use std::os::unix::io::AsRawFd;
+ use std::usize;
+ 
+ use event::{user_data, EventQueue};
++use log::error;
+ use pcid_interface::PciFunctionHandle;
+ use redox_scheme::scheme::register_sync_scheme;
+ use redox_scheme::Socket;
+@@ -22,13 +23,28 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+     let mut name = pci_config.func.name();
+     name.push_str("_ac97");
+ 
+-    let bar0 = pci_config.func.bars[0].expect_port();
+-    let bar1 = pci_config.func.bars[1].expect_port();
++    let bar0 = match pci_config.func.bars[0].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            error!("ac97d: invalid BAR0: {err}");
++            std::process::exit(1);
++        }
++    };
++    let bar1 = match pci_config.func.bars[1].try_port() {
++        Ok(port) => port,
++        Err(err) => {
++            error!("ac97d: invalid BAR1: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     let irq = pci_config
+         .func
+         .legacy_interrupt_line
+-        .expect("ac97d: no legacy interrupts supported");
++        .unwrap_or_else(|| {
++            error!("ac97d: no legacy interrupts supported");
++            std::process::exit(1);
++        });
+ 
+     println!(" + ac97 {}", pci_config.func.display());
+ 
+@@ -40,13 +56,35 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         common::file_level(),
+     );
+ 
+-    common::acquire_port_io_rights().expect("ac97d: failed to set I/O privilege level to Ring 3");
++    if let Err(err) = common::acquire_port_io_rights() {
++        error!("ac97d: failed to set I/O privilege level to Ring 3: {err}");
++        std::process::exit(1);
++    }
+ 
+-    let mut irq_file = irq.irq_handle("ac97d");
++    let mut irq_file = match irq.try_irq_handle("ac97d") {
++        Ok(file) => file,
++        Err(err) => {
++            error!("ac97d: failed to open IRQ handle: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+-    let socket = Socket::nonblock().expect("ac97d: failed to create socket");
+-    let mut device =
+-        unsafe { device::Ac97::new(bar0, bar1).expect("ac97d: failed to allocate device") };
++    let socket = match Socket::nonblock() {
++        Ok(socket) => socket,
++        Err(err) => {
++            error!("ac97d: failed to create socket: {err}");
++            std::process::exit(1);
++        }
++    };
++    let mut device = unsafe {
++        match device::Ac97::new(bar0, bar1) {
++            Ok(device) => device,
++            Err(err) => {
++                error!("ac97d: failed to allocate device: {err}");
++                std::process::exit(1);
++            }
++        }
++    };
+     let mut readiness_based = ReadinessBased::new(&socket, 16);
+ 
+     user_data! {
+@@ -56,49 +94,81 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    let event_queue = EventQueue::<Source>::new().expect("ac97d: Could not create event queue.");
++    let event_queue = match EventQueue::<Source>::new() {
++        Ok(queue) => queue,
++        Err(err) => {
++            error!("ac97d: could not create event queue: {err}");
++            std::process::exit(1);
++        }
++    };
+     event_queue
+         .subscribe(
+             irq_file.as_raw_fd() as usize,
+             Source::Irq,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
++        .unwrap_or_else(|err| {
++            error!("ac97d: failed to subscribe IRQ fd: {err}");
++            std::process::exit(1);
++        });
+     event_queue
+         .subscribe(
+             socket.inner().raw(),
+             Source::Scheme,
+             event::EventFlags::READ,
+         )
+-        .unwrap();
+-
+-    register_sync_scheme(&socket, "audiohw", &mut device)
+-        .expect("ac97d: failed to register audiohw scheme to namespace");
++        .unwrap_or_else(|err| {
++            error!("ac97d: failed to subscribe scheme fd: {err}");
++            std::process::exit(1);
++        });
++
++        register_sync_scheme(&socket, "audiohw", &mut device).unwrap_or_else(|err| {
++            error!("ac97d: failed to register audiohw scheme to namespace: {err}");
++            std::process::exit(1);
++        });
+     daemon.ready();
+ 
+-    libredox::call::setrens(0, 0).expect("ac97d: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        error!("ac97d: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+     let all = [Source::Irq, Source::Scheme];
+-    for event in all
+-        .into_iter()
+-        .chain(event_queue.map(|e| e.expect("ac97d: failed to get next event").user_data))
+-    {
++    for event in all.into_iter().chain(event_queue.map(|e| match e {
++        Ok(event) => event.user_data,
++        Err(err) => {
++            error!("ac97d: failed to get next event: {err}");
++            std::process::exit(1);
++        }
++    })) {
+         match event {
+             Source::Irq => {
+                 let mut irq = [0; 8];
+-                irq_file.read(&mut irq).unwrap();
++                if let Err(err) = irq_file.read(&mut irq) {
++                    error!("ac97d: failed to read IRQ file: {err}");
++                    std::process::exit(1);
++                }
+ 
+                 if !device.irq() {
+                     continue;
+                 }
+-                irq_file.write(&mut irq).unwrap();
++                if let Err(err) = irq_file.write(&mut irq) {
++                    error!("ac97d: failed to acknowledge IRQ: {err}");
++                    std::process::exit(1);
++                }
+ 
+                 readiness_based
+                     .poll_all_requests(&mut device)
+-                    .expect("ac97d: failed to poll requests");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to poll requests: {err}");
++                        std::process::exit(1);
++                    });
+                 readiness_based
+                     .write_responses()
+-                    .expect("ac97d: failed to write to socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to write to socket: {err}");
++                        std::process::exit(1);
++                    });
+ 
+                 /*
+                 let next_read = device_irq.next_read();
+@@ -110,10 +180,16 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+             Source::Scheme => {
+                 readiness_based
+                     .read_and_process_requests(&mut device)
+-                    .expect("ac97d: failed to read from socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to read from socket: {err}");
++                        std::process::exit(1);
++                    });
+                 readiness_based
+                     .write_responses()
+-                    .expect("ac97d: failed to write to socket");
++                    .unwrap_or_else(|err| {
++                        error!("ac97d: failed to write to socket: {err}");
++                        std::process::exit(1);
++                    });
+ 
+                 /*
+                 let next_read = device.borrow().next_read();
+@@ -125,7 +201,7 @@ fn daemon(daemon: daemon::Daemon, pcid_handle: PciFunctionHandle) -> ! {
+         }
+     }
+ 
+-    std::process::exit(0);
++    std::process::exit(1);
+ }
+ 
+ #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+
+diff --git a/drivers/audio/ihdad/src/main.rs b/drivers/audio/ihdad/src/main.rs
+index 31a2add7..11d80133 100755
+--- a/drivers/audio/ihdad/src/main.rs
++++ b/drivers/audio/ihdad/src/main.rs
+@@ -6,7 +6,7 @@ use std::os::unix::io::AsRawFd;
+ use std::usize;
+ 
+ use event::{user_data, EventQueue};
+-use pcid_interface::irq_helpers::pci_allocate_interrupt_vector;
++use pcid_interface::irq_helpers::try_pci_allocate_interrupt_vector;
+ use pcid_interface::PciFunctionHandle;
+ 
+ pub mod hda;
+@@ -38,9 +38,19 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+ 
+     log::info!("IHDA {}", pci_config.func.display());
+ 
++    if let Err(err) = pci_config.func.bars[0].try_mem() {
++        log::error!("ihdad: invalid BAR0: {err}");
++        std::process::exit(1);
++    }
+     let address = unsafe { pcid_handle.map_bar(0) }.ptr.as_ptr() as usize;
+ 
+-    let irq_file = pci_allocate_interrupt_vector(&mut pcid_handle, "ihdad");
++    let irq_file = match try_pci_allocate_interrupt_vector(&mut pcid_handle, "ihdad") {
++        Ok(irq) => irq,
++        Err(err) => {
++            log::error!("ihdad: failed to allocate interrupt vector: {err}");
++            std::process::exit(1);
++        }
++    };
+ 
+     {
+         let vend_prod: u32 = ((pci_config.func.full_device_id.vendor_id as u32) << 16)
+@@ -53,11 +63,28 @@ fn daemon(daemon: daemon::Daemon, mut pcid_handle: PciFunctionHandle) -> ! {
+             }
+         }
+ 
+-        let event_queue =
+-            EventQueue::<Source>::new().expect("ihdad: Could not create event queue.");
+-        let socket = Socket::nonblock().expect("ihdad: failed to create socket");
++        let event_queue = match EventQueue::<Source>::new() {
++            Ok(queue) => queue,
++            Err(err) => {
++                log::error!("ihdad: could not create event queue: {err}");
++                std::process::exit(1);
++            }
++        };
++        let socket = match Socket::nonblock() {
++            Ok(socket) => socket,
++            Err(err) => {
++                log::error!("ihdad: failed to create socket: {err}");
++                std::process::exit(1);
++            }
++        };
+         let mut device = unsafe {
+-            hda::IntelHDA::new(address, vend_prod).expect("ihdad: failed to allocate device")
++            match hda::IntelHDA::new(address, vend_prod) {
++                Ok(device) => device,
++                Err(err) => {
++                    log::error!("ihdad: failed to allocate device: {err}");
++                    std::process::exit(1);
++                }
++            }
+         };
+         let mut readiness_based = ReadinessBased::new(&socket, 16);
+ 
