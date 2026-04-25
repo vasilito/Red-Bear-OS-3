@@ -27,6 +27,7 @@ pub mod opcode {
     pub const INIT_UNITS: u16 = 0x0003;
     pub const MAP: u16 = 0x0010;
     pub const UNMAP: u16 = 0x0011;
+    pub const TRANSLATE: u16 = 0x0012;
     pub const ASSIGN_DEVICE: u16 = 0x0020;
     pub const UNASSIGN_DEVICE: u16 = 0x0021;
     pub const DRAIN_EVENTS: u16 = 0x0030;
@@ -512,6 +513,22 @@ impl IommuScheme {
                     Err(_) => IommuResponse::error(request.opcode, ENOENT as i32),
                 }
             }
+            opcode::TRANSLATE => {
+                let iova = request.arg1;
+                let Some(domain) = self.domains.get(&domain_id) else {
+                    return IommuResponse::error(request.opcode, ENOENT as i32);
+                };
+                match domain.translate(iova) {
+                    Some(phys) => IommuResponse::success(
+                        request.opcode,
+                        domain_id as u32,
+                        iova,
+                        phys,
+                        0,
+                    ),
+                    None => IommuResponse::error(request.opcode, ENOENT as i32),
+                }
+            }
             _ => IommuResponse::error(request.opcode, EINVAL as i32),
         }
     }
@@ -579,10 +596,29 @@ impl IommuScheme {
                 }
             }
             opcode::UNASSIGN_DEVICE => {
-                if self.device_assignments.remove(&bdf).is_none() {
+                let Some((domain_id, unit_index)) = self.device_assignments.remove(&bdf) else {
                     return IommuResponse::error(request.opcode, ENOENT as i32);
+                };
+
+                let unit = self.units.get_mut(unit_index);
+                if let Some(unit) = unit {
+                    if unit.initialized() {
+                        if let Err(err) = unit.unassign_device(bdf) {
+                            log::error!(
+                                "iommu: failed to invalidate DTE for {bdf} on unit {unit_index}: {err}"
+                            );
+                            return IommuResponse::error(request.opcode, EIO as i32);
+                        }
+                    }
                 }
-                IommuResponse::success(request.opcode, 0, u64::from(bdf.raw()), 0, 0)
+
+                IommuResponse::success(
+                    request.opcode,
+                    domain_id as u32,
+                    u64::from(bdf.raw()),
+                    unit_index as u64,
+                    0,
+                )
             }
             _ => IommuResponse::error(request.opcode, EINVAL as i32),
         }
@@ -716,14 +752,21 @@ impl SchemeBlockMut for IommuScheme {
                 stat.st_mode = MODE_DIR | 0o555;
                 stat.st_size = self.root_listing().len() as u64;
             }
-            _ => {
-                let response_len = self
-                    .handles
-                    .get(&id)
-                    .map(|handle| handle.response.len())
-                    .ok_or(Error::new(EBADF))?;
+            HandleKind::Control => {
                 stat.st_mode = MODE_FILE | 0o666;
-                stat.st_size = response_len as u64;
+                stat.st_size = IommuResponse::SIZE as u64;
+            }
+            HandleKind::Domain(domain_id) => {
+                stat.st_mode = MODE_FILE | 0o666;
+                stat.st_size = self
+                    .domains
+                    .get(&domain_id)
+                    .map(|domain| domain.mapping_count() as u64)
+                    .unwrap_or(0);
+            }
+            HandleKind::Device(_) => {
+                stat.st_mode = MODE_FILE | 0o666;
+                stat.st_size = 0;
             }
         }
         stat.st_blksize = 4096;

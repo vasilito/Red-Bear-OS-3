@@ -1,5 +1,6 @@
-#TODO: IOMMU daemon — needs hardware validation with QEMU amd-iommu device
-# Provides scheme:iommu for DMA remapping and device isolation.
+# IOMMU daemon — provides scheme:iommu for DMA remapping and device isolation.
+# Supports AMD-Vi units with domain management, IOVA mapping, device assignment,
+# interrupt remapping, and IOVA-to-physical address translation.
 
 [source]
 path = "source"

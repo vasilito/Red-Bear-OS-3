@@ -165,6 +165,29 @@ impl AmdViUnit {
         Ok(())
     }
 
+    pub fn unassign_device(&mut self, bdf: Bdf) -> Result<(), String> {
+        if !self.initialized {
+            return Err("AMD-Vi unit is not initialized".to_string());
+        }
+        if !self.handles_device(bdf) {
+            return Err(format!(
+                "AMD-Vi unit {} does not cover device {bdf}",
+                self.info.unit_id()
+            ));
+        }
+
+        let device_table = self
+            .device_table
+            .as_mut()
+            .ok_or_else(|| "device table not initialized".to_string())?;
+
+        device_table.clear_entry(bdf.raw());
+        self.submit_command(CommandEntry::invalidate_devtab_entry(bdf.raw()))?;
+        self.submit_command(CommandEntry::invalidate_interrupt_table(bdf.raw()))?;
+        self.wait_for_completion()?;
+        Ok(())
+    }
+
     pub fn drain_events(&mut self) -> Result<Vec<AmdViEvent>, String> {
         let mut drained = Vec::new();
         if !self.initialized {

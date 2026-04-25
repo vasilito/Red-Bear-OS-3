@@ -628,6 +628,10 @@ impl DomainPageTables {
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
     }
+
+    pub fn translate(&self, iova: u64) -> Option<u64> {
+        self.page_table.translate(iova)
+    }
 }
 
 fn align_up(value: u64, align: u64) -> Option<u64> {
