@@ -114,7 +114,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.redox-os.org/toolchain/$(HOST_TARGET)/$(TARGET)/$(@F)"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.redox-os.org/toolchain/$(HOST_TARGET)/$(TARGET)/$(@F)"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 
@@ -137,7 +138,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.redox-os.org/pkg/id_ed25519.pub.toml"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.redox-os.org/pkg/id_ed25519.pub.toml"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 
@@ -146,7 +148,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.redox-os.org/pkg/$(TARGET)/$(@F)"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.redox-os.org/pkg/$(TARGET)/$(@F)"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 
@@ -337,7 +340,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/$*-nightly-$(HOST_TARGET).tar.xz"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/$*-nightly-$(HOST_TARGET).tar.xz"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 
@@ -346,7 +350,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-std-nightly-$(HOST_TARGET).tar.xz"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-std-nightly-$(HOST_TARGET).tar.xz"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 
@@ -356,7 +361,8 @@ ifeq ($(PODMAN_BUILD),1)
 else
 	mkdir -p "$(@D)"
 ifeq ($(TARGET),x86_64-unknown-redox)
-	wget -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-std-nightly-$(TARGET).tar.xz"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-std-nightly-$(TARGET).tar.xz"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 else
 	touch $@
@@ -368,7 +374,8 @@ ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p "$(@D)"
-	wget -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-src-nightly.tar.xz"
+	wget --tries=3 --timeout=30 --waitretry=5 -O $@.partial "https://static.rust-lang.org/dist/$(UPSTREAM_RUSTC_VERSION)/rust-src-nightly.tar.xz"
+	@test -s $@.partial || { echo "Error: download failed or produced empty file: $@"; rm -f $@.partial; exit 1; }
 	mv $@.partial $@
 endif
 

@@ -223,16 +223,14 @@ fn main_inner() -> anyhow::Result<()> {
     }
     if command == CliCommand::Cook && config.cook.tui {
         match run_tui_cook(config.clone(), recipes.clone()) {
-            Ok(TuiApp {
-                dump_logs_on_exit: Some((name, err)),
-                ..
-            }) => {
-                let _ = stderr().write(err.as_bytes());
-                let _ = stderr().write(b"\n\n");
-                print_failed(&command, &name);
-                return Err(anyhow!("Execution has failed"));
-            }
-            Ok(app) => {
+            Ok(mut app) => {
+                app.shutdown_log_writer();
+                if let Some((name, err)) = app.dump_logs_on_exit.take() {
+                    let _ = stderr().write(err.as_bytes());
+                    let _ = stderr().write(b"\n\n");
+                    print_failed(&command, &name);
+                    return Err(anyhow!("Execution has failed"));
+                }
                 for (recipe, status) in app.recipes {
                     match status {
                         RecipeStatus::Cached => print_cached(&command, &recipe.name),
@@ -368,7 +366,10 @@ fn repo_inner(
             let th = thread::spawn(move || {
                 while let Ok(update) = status_rx.recv() {
                     match &update {
-                        StatusUpdate::CookThreadFinished => break,
+                        StatusUpdate::CookThreadFinished => {
+                            app.shutdown_log_writer();
+                            break;
+                        }
                         StatusUpdate::FailCook(r, _) => {
                             let (logs, line) = app.get_recipe_log(&r.name);
                             if let Some(logs) = logs {
@@ -812,7 +813,7 @@ fn handle_push(recipes: &Vec<CookRecipe>, config: &CliConfig) -> anyhow::Result<
     let mut total_count: u64 = 0;
     let mut visited: HashSet<PackageName> = HashSet::new();
     let num_recipes = recipes.len();
-    PUSH_SYSROOT_DIR.set(config.sysroot_dir.clone()).unwrap();
+    PUSH_SYSROOT_DIR.get_or_init(|| config.sysroot_dir.clone());
     let handle_push_inner = move |package_name: &PackageName,
                                   _prefix: &str,
                                   _is_last: bool,
@@ -972,6 +973,19 @@ enum StatusUpdate {
     CookThreadFinished,
 }
 
+/// Messages sent to the background log-writer thread so that file I/O
+/// never blocks the TUI event loop.
+enum LogWriterMessage {
+    /// Write `content` to `path` (log file for `name`).
+    Write {
+        _name: PackageName,
+        path: PathBuf,
+        content: String,
+    },
+    /// Shut down the writer thread.
+    Shutdown,
+}
+
 #[derive(PartialEq)]
 enum JobType {
     Fetch,
@@ -1014,10 +1028,30 @@ struct TuiApp {
     prompt: Option<FailurePrompt>,
     dump_logs_anyway: bool,
     dump_logs_on_exit: Option<(PackageName, String)>,
+    log_writer_tx: mpsc::Sender<LogWriterMessage>,
 }
 
 impl TuiApp {
     fn new(recipes: Vec<CookRecipe>) -> Self {
+        let (log_writer_tx, log_writer_rx) = mpsc::channel::<LogWriterMessage>();
+        thread::spawn(move || {
+            while let Ok(msg) = log_writer_rx.recv() {
+                match msg {
+                    LogWriterMessage::Write { _name, path, content } => {
+                        if content.trim_end().is_empty() {
+                            continue;
+                        }
+                        if let Some(parent) = path.parent() {
+                            let _ = fs::create_dir_all(parent);
+                        }
+                        if let Err(e) = fs::write(&path, &content) {
+                            eprintln!("log writer: failed to write {}: {e}", path.display());
+                        }
+                    }
+                    LogWriterMessage::Shutdown => break,
+                }
+            }
+        });
         Self {
             recipes: recipes
                 .iter()
@@ -1046,6 +1080,7 @@ impl TuiApp {
             prompt: None,
             dump_logs_anyway: false,
             dump_logs_on_exit: None,
+            log_writer_tx,
         }
     }
 
@@ -1087,17 +1122,6 @@ impl TuiApp {
         (log_text, log_line)
     }
 
-    pub fn write_log(&self, recipe_name: &PackageName, log_path: &PathBuf) -> anyhow::Result<()> {
-        let (Some(logs), line) = self.get_recipe_log(recipe_name) else {
-            return Ok(());
-        };
-        let str = strip_ansi_escapes::strip_str(join_logs(logs, line));
-        if !str.trim_end().is_empty() {
-            fs::write(log_path, str)?;
-        }
-        return Ok(());
-    }
-
     // Update the state based on a message from a worker thread
     fn update_status(&mut self, update: StatusUpdate) {
         let (name, new_status) = match update {
@@ -1127,20 +1151,30 @@ impl TuiApp {
                     let _ = std::io::stdout().write_all(&chunk);
                 }
                 let log_list = self.logs.entry(name.clone()).or_default();
-                // TODO: multibyte-aware line split?
-                while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
-                    let line_bytes = buffer.drain(..=newline_pos);
-                    let line_str = String::from_utf8_lossy(&line_bytes.as_slice());
-                    let line_str_pos = line_str.trim_end();
-                    let line_str = line_str_pos.rsplit('\r').next().unwrap_or(&line_str_pos);
+                let text = String::from_utf8_lossy(&buffer);
+                let mut last_end = 0;
+                while let Some(pos) = text[last_end..].find('\n') {
+                    let line_end = last_end + pos;
+                    let line_str = text[last_end..line_end].trim_end();
+                    let line_str = line_str.rsplit('\r').next().unwrap_or(line_str);
                     log_list.push(line_str.to_owned());
+                    last_end = line_end + 1;
                 }
+                let consumed = text[..last_end].len();
+                buffer.drain(..consumed);
                 return;
             }
             StatusUpdate::FlushLog(name, path) => {
-                // TODO: This blocks the TUI, maybe open separate thread?
-                // FIXME: handle error here?
-                let _ = self.write_log(&name, &path);
+                let (logs, line) = self.get_recipe_log(&name);
+                let content = strip_ansi_escapes::strip_str(join_logs(
+                    logs.unwrap_or(&Vec::new()),
+                    line,
+                ));
+                let _ = self.log_writer_tx.send(LogWriterMessage::Write {
+                    _name: name,
+                    path,
+                    content,
+                });
                 return;
             }
             StatusUpdate::Cooked(recipe, cached) => {
@@ -1195,6 +1229,10 @@ impl TuiApp {
             .filter(|(_, s)| *s == RecipeStatus::Done || *s == RecipeStatus::Cached)
             .map(|(r, _)| r.name.clone())
             .collect();
+    }
+
+    fn shutdown_log_writer(&self) {
+        let _ = self.log_writer_tx.send(LogWriterMessage::Shutdown);
     }
 }
 

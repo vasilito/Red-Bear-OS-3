@@ -5,8 +5,8 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p $(BUILD)
-	-$(FUMOUNT) $(MOUNT_DIR) || true
-	-$(FUMOUNT) /tmp/redox_installer || true
+	$(FUMOUNT) $(MOUNT_DIR) 2>/dev/null || echo "Warning: failed to unmount $(MOUNT_DIR) (may not have been mounted)"
+	$(FUMOUNT) /tmp/redox_installer 2>/dev/null || echo "Warning: failed to unmount /tmp/redox_installer (may not have been mounted)"
 	rm -rf $@  $@.partial $(MOUNT_DIR)
 	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
 	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
@@ -23,7 +23,7 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 else
 	mkdir -p $(LIVE_BUILD)
 	rm -rf $@ $@.partial
-	-$(FUMOUNT) /tmp/redox_installer || true
+	$(FUMOUNT) /tmp/redox_installer 2>/dev/null || echo "Warning: failed to unmount /tmp/redox_installer (may not have been mounted)"
 	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
 	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
 		FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
@@ -49,9 +49,9 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
 	mkdir -p $(BUILD)
-	-$(FUMOUNT) $(MOUNT_DIR) || true
+	$(FUMOUNT) $(MOUNT_DIR) 2>/dev/null || echo "Warning: failed to unmount $(MOUNT_DIR) (may not have been mounted)"
 	rm -rf $@  $@.partial $(MOUNT_DIR)
-	-$(FUMOUNT) /tmp/redox_installer || true
+	$(FUMOUNT) /tmp/redox_installer 2>/dev/null || echo "Warning: failed to unmount /tmp/redox_installer (may not have been mounted)"
 	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
 	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
 	FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
@@ -64,7 +64,7 @@ else
 	pgrep redoxfs
 	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) $(MOUNT_DIR)
 	sync
-	-$(FUMOUNT) $(MOUNT_DIR) || true
+	$(FUMOUNT) $(MOUNT_DIR) 2>/dev/null || echo "Warning: failed to unmount $(MOUNT_DIR) after install"
 	rm -rf $(MOUNT_DIR)
 	mv $@.partial $@
 endif
@@ -104,8 +104,8 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
 	@sync
-	-$(FUMOUNT) $(MOUNT_DIR)
+	$(FUMOUNT) $(MOUNT_DIR) 2>/dev/null || echo "Warning: failed to unmount $(MOUNT_DIR)"
 	@rm -rf $(MOUNT_DIR)
-	@-$(FUMOUNT) /tmp/redox_installer 2>/dev/null || true
+	@$(FUMOUNT) /tmp/redox_installer 2>/dev/null || echo "Warning: failed to unmount /tmp/redox_installer"
 	@echo "\033[1;36;49mFilesystem unmounted\033[0m"
 endif
