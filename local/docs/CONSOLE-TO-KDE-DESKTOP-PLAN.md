@@ -74,7 +74,7 @@ Rules:
 | Area | State | Evidence | Notes |
 |---|---|---|---|
 | AMD bare-metal boot | validated | Boot, ACPI, SMP, x2APIC all work | Bounded to current tested hardware |
-| relibc Wayland/Qt unblockers | builds + targeted runtime proof | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
+| relibc POSIX compatibility surface | builds + targeted runtime proof | 33 verified patches covering: signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, and 7 additional compatibility patches | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
 | redox-driver-sys | builds | Driver substrate | |
 | linux-kpi | builds | Linux kernel API compatibility layer | |
 | firmware-loader | builds, boots | scheme:firmware registers at boot; 24 unit tests (mmap lifecycle, openat validation, read/fstat) | |
@@ -127,7 +127,7 @@ still display-only evidence, not render proof.
 
 The repo has crossed major build-side gates:
 
-1. **relibc surface** — signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open
+1. **relibc POSIX surface** — 33 verified patches covering: signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, and 7 additional compatibility patches
 2. **Driver substrate** — redox-driver-sys, linux-kpi, firmware-loader, redox-drm (AMD+Intel), amdgpu C port, evdevd, udev-shim
 3. **Wayland/graphics packages** — libwayland, wayland-protocols, Mesa EGL+GBM+GLES2, libdrm, libdrm_amdgpu
 4. **Qt6 + D-Bus** — qtbase (7 libs + 12 plugins), qtdeclarative (11 libs), qtsvg, qtwayland, D-Bus 1.16.2

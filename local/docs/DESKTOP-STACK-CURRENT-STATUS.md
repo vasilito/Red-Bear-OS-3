@@ -43,7 +43,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Area | Evidence class | Detail |
 |---|---|---|
-| `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially better than before |
+| `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially stronger; 33 patches verified (was 25): signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, select-not-epoll-timeout, exec-root-bypass, tcp-nodelay, netdb-lookup-retry-fix, eventfd-mod, fd-event-tests, ifaddrs-net_if, signalfd-header, elf64-types, socket-cred, strtold-cpp-linkage, semaphore-fixes |
 | Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
 | KF6 frameworks | **builds** | All 32/32; some higher-level pieces use bounded/reduced recipes (kf6-kio heavy shim, kirigami stub-only) |
 | KWin | **experimental** | Recipe exists; current reduced path now links honest `libudev.so` and `libdisplay-info.so` provider paths alongside real `libepoxy` and `lcms2`; 11 feature switches remain disabled and runtime/session proof is still missing |
@@ -173,6 +173,25 @@ Kirigami is stub-only (Qt6Quick not available on Redox). kf6-kio is heavily shim
 ### 7. QtNetwork disabled blocks KDE network integration
 
 QtNetwork is intentionally disabled because relibc networking is too narrow. This prevents Qt-based network applications, kf6-kio network transparency, and KDE network-dependent features.
+
+### 8. Build system improvements completed
+
+The build system has received targeted fixes that improve reliability:
+
+| Component | Fix | Status |
+|---|---|---|
+| OnceLock panic | `get_or_init` pattern now used instead of direct `once_cell` access that could panic | Fixed |
+| disk.mk error suppression | Meaningful error messages now surface instead of suppressed failures | Fixed |
+| prefix.mk wget retry | Retry logic added: 3 tries with 30-second timeout | Fixed |
+
+### 9. Init/config cleanup completed
+
+Init service configuration has been streamlined:
+
+- 10 unnecessary `ion -c` wrappers removed from `redbear-mini.toml` and `redbear-full.toml` (sessiond, upower, udisks, polkit, authd, echo, and others)
+- D-Bus service retains `ion -c` wrapper (justified: requires shell chaining for proper daemonization)
+- `redbear-login-protocol` recipe.toml created and symlinked into recipe search path
+- `redbear-statusnotifierwatcher` symlinked into `recipes/system/`
 
 ## Canonical Document Roles
 
