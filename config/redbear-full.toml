@@ -72,6 +72,7 @@ kf6-kdeclarative = {}
 kf6-kcmutils = {}
 kf6-kwayland = {}
 kdecoration = {}
+kf6-kded6 = {}
 
 # KWin Wayland compositor
 kwin = {}

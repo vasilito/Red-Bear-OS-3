@@ -1,19 +1,17 @@
-#TODO: Kirigami — QtQuick lightweight UI framework. Required by KDE Plasma.
+#TODO: kded6 — KDE daemon for module loading and D-Bus service management.
 [source]
-tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz"
+tar = "https://invent.kde.org/frameworks/kded/-/archive/v6.10.0/kded-v6.10.0.tar.gz"
 
 [build]
 template = "custom"
 dependencies = [
     "qtbase",
-    "qtdeclarative",
-    "qtshadertools",
-    "qtsvg",
     "kf6-extra-cmake-modules",
-    "kf6-kcoreaddons",
-    "kf6-ki18n",
     "kf6-kconfig",
-    "kf6-kguiaddons",
+    "kf6-kcoreaddons",
+    "kf6-kcrash",
+    "kf6-kdbusaddons",
+    "kf6-kservice",
 ]
 script = """
 DYNAMIC_INIT
@@ -44,8 +42,6 @@ cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
     -DBUILD_TESTING=OFF \
     -DBUILD_QCH=OFF \
-    -DWITH_X11=OFF \
-    -DKDE_INSTALL_QMLDIR=/usr/lib/qt6/qml \
     -Wno-dev
 
 cmake --build . -j${COOKBOOK_MAKE_JOBS}
