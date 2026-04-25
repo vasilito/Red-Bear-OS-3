@@ -40,3 +40,52 @@ impl Plane {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_primary_initializes_correctly() {
+        let plane = Plane::new(7, PlaneKind::Primary);
+        assert_eq!(plane.id, 7);
+        assert_eq!(plane.kind, PlaneKind::Primary);
+        assert_eq!(plane.fb_handle, None);
+        assert_eq!(plane.crtc_id, None);
+    }
+
+    #[test]
+    fn new_cursor_initializes_correctly() {
+        let plane = Plane::new(3, PlaneKind::Cursor);
+        assert_eq!(plane.id, 3);
+        assert_eq!(plane.kind, PlaneKind::Cursor);
+        assert!(plane.fb_handle.is_none());
+        assert!(plane.crtc_id.is_none());
+    }
+
+    #[test]
+    fn attach_sets_crtc_id_and_fb_handle() {
+        let mut plane = Plane::new(1, PlaneKind::Primary);
+        let result = plane.attach(10, 20);
+
+        assert!(result.is_ok());
+        assert_eq!(plane.crtc_id, Some(10));
+        assert_eq!(plane.fb_handle, Some(20));
+    }
+
+    #[test]
+    fn attach_zero_fb_handle_returns_invalid_argument() {
+        let mut plane = Plane::new(1, PlaneKind::Primary);
+        let result = plane.attach(10, 0);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DriverError::InvalidArgument(msg) => {
+                assert!(msg.contains("framebuffer"));
+            }
+            other => panic!("expected InvalidArgument, got {:?}", other),
+        }
+        assert_eq!(plane.crtc_id, None);
+        assert_eq!(plane.fb_handle, None);
+    }
+}

@@ -44,3 +44,42 @@ pub fn synthetic_edid() -> Vec<u8> {
         0x44, 0x50, 0x0a, 0x20, 0x20, 0x00, 0xa7,
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_displayport_has_correct_fields() {
+        let conn = Connector::synthetic_displayport(5, 10);
+        assert_eq!(conn.info.id, 5);
+        assert_eq!(conn.info.encoder_id, 10);
+        assert_eq!(conn.info.connector_type, ConnectorType::DisplayPort);
+        assert_eq!(conn.info.connection, ConnectorStatus::Connected);
+        assert!(!conn.info.modes.is_empty(), "synthetic DisplayPort should have modes");
+    }
+
+    #[test]
+    fn synthetic_displayport_modes_have_valid_dimensions() {
+        let conn = Connector::synthetic_displayport(1, 1);
+        for mode in &conn.info.modes {
+            assert!(mode.hdisplay > 0, "mode hdisplay should be > 0");
+            assert!(mode.vdisplay > 0, "mode vdisplay should be > 0");
+            assert!(mode.vrefresh > 0, "mode vrefresh should be > 0");
+            assert!(mode.clock > 0, "mode clock should be > 0");
+        }
+    }
+
+    #[test]
+    fn synthetic_edid_returns_exactly_112_bytes() {
+        let edid = synthetic_edid();
+        assert_eq!(edid.len(), 112);
+    }
+
+    #[test]
+    fn synthetic_edid_has_valid_header() {
+        let edid = synthetic_edid();
+        let header: [u8; 8] = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
+        assert_eq!(&edid[0..8], &header, "EDID header should be valid");
+    }
+}

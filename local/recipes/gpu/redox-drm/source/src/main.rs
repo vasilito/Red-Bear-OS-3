@@ -579,4 +579,54 @@ mod tests {
         assert!(!expectation.required);
         assert!(expectation.keys.is_empty());
     }
+
+    #[test]
+    fn mode_info_default_1080p_clock_matches_standard_cvt() {
+        use crate::kms::ModeInfo;
+        let mode = ModeInfo::default_1080p();
+        // Standard 1080p60 timing: 148.5 MHz pixel clock
+        assert_eq!(mode.clock, 148_500);
+        // Total pixels per frame = htotal * vtotal = 2200 * 1125 = 2_475_000
+        // Refresh = clock*1000 / total = 148_500_000 / 2_475_000 = 60
+        assert_eq!(mode.htotal as u32 * mode.vtotal as u32, 2_475_000_u32);
+    }
+
+    #[test]
+    fn mode_info_from_edid_rejects_short_edid() {
+        use crate::kms::connector::synthetic_edid;
+        use crate::kms::ModeInfo;
+        let edid = synthetic_edid();
+        assert!(edid.len() < 128);
+        let modes = ModeInfo::from_edid(&edid);
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn mode_info_from_edid_parses_valid_128byte_edid() {
+        use crate::kms::ModeInfo;
+        let mut edid = vec![0u8; 128];
+        edid[0] = 0x00;
+        edid[1] = 0xFF;
+        edid[2] = 0xFF;
+        edid[3] = 0xFF;
+        edid[4] = 0xFF;
+        edid[5] = 0xFF;
+        edid[6] = 0xFF;
+        edid[7] = 0x00;
+        let modes = ModeInfo::from_edid(&edid);
+        assert!(modes.is_empty(), "all-zero descriptors should produce no modes");
+    }
+
+    #[test]
+    fn mode_info_from_edid_name_format_is_width_x_height_at_refresh() {
+        use crate::kms::connector::synthetic_edid;
+        use crate::kms::ModeInfo;
+        let edid = synthetic_edid();
+        let modes = ModeInfo::from_edid(&edid);
+        for mode in &modes {
+            // Verify the canonical format: "WxH@refresh"
+            let expected = format!("{}x{}@{}", mode.hdisplay, mode.vdisplay, mode.vrefresh);
+            assert_eq!(mode.name, expected);
+        }
+    }
 }

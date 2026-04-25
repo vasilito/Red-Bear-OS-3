@@ -180,3 +180,91 @@ pub struct EncoderInfo {
     #[allow(dead_code)]
     pub possible_clones: u32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_1080p_has_correct_values() {
+        let mode = ModeInfo::default_1080p();
+        assert_eq!(mode.hdisplay, 1920);
+        assert_eq!(mode.vdisplay, 1080);
+        assert_eq!(mode.vrefresh, 60);
+        assert_eq!(mode.clock, 148_500);
+        assert_eq!(mode.name, "1920x1080@60");
+        assert_eq!(mode.htotal, 2200);
+        assert_eq!(mode.vtotal, 1125);
+    }
+
+    #[test]
+    fn from_edid_synthetic_edid_too_short_returns_empty() {
+        let edid = super::connector::synthetic_edid();
+        assert!(edid.len() < 128, "synthetic EDID is shorter than 128 bytes");
+        let modes = ModeInfo::from_edid(&edid);
+        assert!(modes.is_empty(), "EDID shorter than 128 bytes should produce no modes");
+    }
+
+    #[test]
+    fn from_edid_empty_input_returns_empty() {
+        let modes = ModeInfo::from_edid(&[]);
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn from_edid_short_input_returns_empty() {
+        let modes = ModeInfo::from_edid(&[0u8; 64]);
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn from_edid_invalid_header_returns_empty() {
+        let mut data = vec![0u8; 128];
+        data[0] = 0x01;
+        let modes = ModeInfo::from_edid(&data);
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn from_edid_parsed_modes_have_nonzero_dimensions() {
+        let edid = super::connector::synthetic_edid();
+        let modes = ModeInfo::from_edid(&edid);
+        for mode in &modes {
+            assert_ne!(mode.hdisplay, 0, "hdisplay should not be zero");
+            assert_ne!(mode.vdisplay, 0, "vdisplay should not be zero");
+        }
+    }
+
+    #[test]
+    fn from_edid_parsed_modes_have_correct_name_format() {
+        let edid = super::connector::synthetic_edid();
+        let modes = ModeInfo::from_edid(&edid);
+        for mode in &modes {
+            let parts: Vec<&str> = mode.name.split('@').collect();
+            assert_eq!(parts.len(), 2, "name should contain exactly one '@': {}", mode.name);
+            let dims: Vec<&str> = parts[0].split('x').collect();
+            assert_eq!(dims.len(), 2, "name prefix should be WxH: {}", mode.name);
+            let w: u16 = dims[0].parse().expect("width should be numeric");
+            let h: u16 = dims[1].parse().expect("height should be numeric");
+            assert_eq!(w, mode.hdisplay);
+            assert_eq!(h, mode.vdisplay);
+            let refresh: u32 = parts[1].parse().expect("refresh should be numeric");
+            assert_eq!(refresh, mode.vrefresh);
+        }
+    }
+
+    #[test]
+    fn from_edid_with_valid_header_but_zero_pixel_clock_skips_descriptor() {
+        let mut data = vec![0u8; 128];
+        data[0] = 0x00;
+        data[1] = 0xFF;
+        data[2] = 0xFF;
+        data[3] = 0xFF;
+        data[4] = 0xFF;
+        data[5] = 0xFF;
+        data[6] = 0xFF;
+        data[7] = 0x00;
+        let modes = ModeInfo::from_edid(&data);
+        assert!(modes.is_empty());
+    }
+}

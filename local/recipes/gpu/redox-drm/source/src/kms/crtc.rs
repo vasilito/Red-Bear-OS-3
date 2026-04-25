@@ -41,3 +41,67 @@ impl Crtc {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_mode() -> ModeInfo {
+        ModeInfo::default_1080p()
+    }
+
+    #[test]
+    fn new_initializes_correctly() {
+        let crtc = Crtc::new(42);
+        assert_eq!(crtc.id, 42);
+        assert_eq!(crtc.current_fb, 0);
+        assert!(crtc.connectors.is_empty());
+        assert!(crtc.mode.is_none());
+        assert_eq!(crtc.gamma_size, 256);
+    }
+
+    #[test]
+    fn program_sets_fb_connectors_and_mode() {
+        let mut crtc = Crtc::new(1);
+        let mode = test_mode();
+        let result = crtc.program(99, &[10, 20], &mode);
+
+        assert!(result.is_ok());
+        assert_eq!(crtc.current_fb, 99);
+        assert_eq!(crtc.connectors, vec![10, 20]);
+        assert!(crtc.mode.is_some());
+        let programmed_mode = crtc.mode.unwrap();
+        assert_eq!(programmed_mode.hdisplay, 1920);
+        assert_eq!(programmed_mode.vdisplay, 1080);
+    }
+
+    #[test]
+    fn program_empty_connectors_returns_invalid_argument() {
+        let mut crtc = Crtc::new(1);
+        let mode = test_mode();
+        let result = crtc.program(99, &[], &mode);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DriverError::InvalidArgument(msg) => {
+                assert!(msg.contains("connector"));
+            }
+            other => panic!("expected InvalidArgument, got {:?}", other),
+        }
+        // State should be unchanged
+        assert_eq!(crtc.current_fb, 0);
+        assert!(crtc.connectors.is_empty());
+        assert!(crtc.mode.is_none());
+    }
+
+    #[test]
+    fn program_multiple_connectors_accepted() {
+        let mut crtc = Crtc::new(1);
+        let mode = test_mode();
+        let result = crtc.program(50, &[1, 2, 3, 4, 5], &mode);
+
+        assert!(result.is_ok());
+        assert_eq!(crtc.connectors.len(), 5);
+        assert_eq!(crtc.connectors, vec![1, 2, 3, 4, 5]);
+    }
+}
