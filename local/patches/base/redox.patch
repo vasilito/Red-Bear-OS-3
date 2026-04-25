@@ -10638,6 +10638,7 @@ index a968f4d4..bfff05c3 100644
  use std::fs;
  use std::process::Command;
 +use std::thread;
++use std::time::Duration;
  
  use anyhow::{anyhow, Context, Result};
  
@@ -10678,14 +10679,36 @@ index a968f4d4..bfff05c3 100644
      }
  
      let config: Config = toml::from_str(&config_data)?;
-+    let strict_usb_boot = strict_usb_boot();
+ +    let strict_usb_boot = strict_usb_boot();
+ +
+ +    log::info!(
+ +        "pcid-spawner: starting (initfs={}, strict_usb_boot={})",
+ +        initfs, strict_usb_boot
+ +    );
 +
-+    log::info!(
-+        "pcid-spawner: starting (initfs={}, strict_usb_boot={})",
-+        initfs, strict_usb_boot
-+    );
++    let pci_dir = {
++        let mut attempts = 0u32;
++        loop {
++            match fs::read_dir("/scheme/pci") {
++                Ok(dir) => break dir,
++                Err(e) if e.raw_os_error() == Some(19) => {
++                    attempts += 1;
++                    if attempts > 50 {
++                        return Err(e).context("pcid-spawner: /scheme/pci never appeared after 5 s");
++                    }
++                    log::warn!(
++                        "pcid-spawner: /scheme/pci not ready yet (ENODEV, attempt {}/50), waiting 100 ms",
++                        attempts
++                    );
++                    thread::sleep(Duration::from_millis(100));
++                }
++                Err(e) => return Err(e).context("pcid-spawner: failed to read /scheme/pci"),
++            }
++        }
++    };
  
-     for entry in fs::read_dir("/scheme/pci")? {
+-    for entry in fs::read_dir("/scheme/pci")? {
++    for entry in pci_dir {
          let entry = entry.context("failed to get entry")?;
 @@ -55,10 +90,11 @@ fn main() -> Result<()> {
          };
