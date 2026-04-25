@@ -18,6 +18,22 @@ patches = [
     "../../../local/patches/relibc/P3-exec-root-bypass.patch",
     "../../../local/patches/relibc/P3-tcp-nodelay.patch",
     "../../../local/patches/relibc/P3-select-not-epoll-timeout.patch",
+    "../../../local/patches/relibc/P3-tls-get-addr-panic-fix.patch",
+    "../../../local/patches/relibc/P3-pthread-yield.patch",
+    "../../../local/patches/relibc/P3-secure-getenv.patch",
+    "../../../local/patches/relibc/P3-getentropy.patch",
+    "../../../local/patches/relibc/P3-dup3.patch",
+    "../../../local/patches/relibc/P3-vfork.patch",
+    "../../../local/patches/relibc/P3-clock-nanosleep.patch",
+    "../../../local/patches/relibc/P3-named-semaphores.patch",
+    "../../../local/patches/relibc/P3-fcntl-dupfd-cloexec.patch",
+    "../../../local/patches/relibc/P3-ipc-tests.patch",
+    "../../../local/patches/relibc/P3-socket-flags.patch",
+    "../../../local/patches/relibc/P3-syscall-0.7.4-procschemeattrs-ens-to-prio.patch",
+    "../../../local/patches/relibc/P3-sysv-ipc.patch",
+    "../../../local/patches/relibc/P3-sysv-sem-impl.patch",
+    "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
+    "../../../local/patches/relibc/P3-waitid-header.patch",
 ]
 
 [build]
