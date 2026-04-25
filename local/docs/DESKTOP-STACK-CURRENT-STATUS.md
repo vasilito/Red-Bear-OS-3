@@ -3,6 +3,20 @@
 **Last updated:** 2026-04-25
 **Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
 
+## Recent Changes (2026-04-25, Wave 2)
+
+- **relibc patches now 35 total** (was 33). Two new patches:
+  - `P3-fenv.patch`: 10 FP environment functions with x86_64 SSE/x87 inline asm
+  - `P3-sched.patch`: 6 scheduler functions with Redox defaults
+
+- **IOMMU daemon improvements**:
+  - `UNASSIGN_DEVICE` bug fixed: now properly clears DTE and submits `INVALIDATE_DEVTAB_ENTRY` + `INVALIDATE_INTERRUPT_TABLE` commands
+  - `TRANSLATE` opcode (0x0012) added for IOVA-to-physical address resolution
+  - Proper fstat for all handle kinds (Root=DIR, Control/Domain/Device=FILE)
+  - Recipe `#TODO` removed
+
+- **Build system**: `repo.rs` dead code cleanup — mouse events, unused fields/imports removed (~50 lines)
+
 ## Purpose
 
 This document is the **current build/runtime truth summary** for the Red Bear desktop stack.
