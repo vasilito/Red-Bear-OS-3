@@ -1,0 +1,5 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
