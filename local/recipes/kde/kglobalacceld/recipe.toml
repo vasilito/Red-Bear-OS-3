@@ -1,0 +1,58 @@
+[source]
+tar = "https://invent.kde.org/plasma/kglobalacceld/-/archive/v6.0.0/kglobalacceld-v6.0.0.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "kf6-extra-cmake-modules",
+    "kf6-kconfig",
+    "kf6-kcoreaddons",
+    "kf6-kcrash",
+    "kf6-kdbusaddons",
+    "kf6-kglobalaccel",
+    "kf6-kservice",
+    "kf6-kwindowsystem",
+    "kf6-kio",
+    "kf6-kjobwidgets",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+if [ -d "${COOKBOOK_SYSROOT}/usr/plugins" ] && [ ! -e "${COOKBOOK_SYSROOT}/plugins" ]; then
+    ln -s "usr/plugins" "${COOKBOOK_SYSROOT}/plugins"
+fi
+
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+cmake "${COOKBOOK_SOURCE}" \
+    -GNinja \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DWITH_X11=OFF \
+    -Wno-dev
+
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+DESTDIR="${COOKBOOK_STAGE}" cmake --install . --prefix /usr
+
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libK*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
+"""
