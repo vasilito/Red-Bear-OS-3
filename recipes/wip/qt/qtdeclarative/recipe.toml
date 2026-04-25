@@ -129,7 +129,15 @@ text = text.replace('if(TARGET Qt::Gui AND TARGET Qt::qsb AND QT_FEATURE_qml_ani
 path.write_text(text)
 PY
 
+cat > "${COOKBOOK_BUILD}/shader_stub.cmake" << 'EOFCMAKE'
+function(qt_internal_add_shaders target name)
+endfunction()
+function(qt_internal_add_shader_helpers target name)
+endfunction()
+EOFCMAKE
+
 cmake "${COOKBOOK_SOURCE}" \
+    -C "${COOKBOOK_BUILD}/shader_stub.cmake" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
