@@ -158,6 +158,34 @@ make all
 - **DO NOT** skip patches in WIP recipes — document what's missing with `#TODO`
 - **DO NOT** skip warnings — investigate, diagnose, and fix the root cause; suppressing or ignoring warnings is not acceptable when a fix is feasible
 
+## DURABILITY POLICY
+
+Every change to an upstream-owned source tree (anything under `recipes/*/source/`) **must** be
+mirrored into a durable location **in the same work session** it was made. A change that exists
+only inside a fetched source tree is not preserved.
+
+**Required actions after any source-tree edit:**
+
+1. **Generate a patch** from the source git diff and save it under `local/patches/<component>/`.
+2. **Wire the patch** into the recipe's `recipe.toml` `patches = [...]` list.
+3. **Commit** the patch file and recipe change before the session ends.
+
+**Why:** `make distclean`, `make clean`, upstream source refreshes, and `sync-upstream.sh` all
+discard or replace `recipes/*/source/` trees. Only `local/patches/`, `local/recipes/`, tracked
+configs, and `local/docs/` survive.
+
+**Examples of changes that require immediate patching:**
+
+| What you edited | Durable location |
+|---|---|
+| `recipes/core/relibc/source/src/header/sys_select/mod.rs` | `local/patches/relibc/P3-select-not-epoll-timeout.patch` + `recipe.toml` |
+| `recipes/core/relibc/source/src/header/signal/cbindgen.toml` | same patch as above |
+| `recipes/core/userutils/source/res/issue` | `local/patches/userutils/redox.patch` + `recipe.toml` |
+| `recipes/core/kernel/source/...` | `local/patches/kernel/redox.patch` (symlinked from recipe) |
+
+**What does NOT need patching:** Files that already live in `local/`, tracked `config/redbear-*.toml`,
+or any path that is already git-tracked and not inside a fetched source tree.
+
 ## PATCH MANAGEMENT
 
 All Red Bear OS modifications to upstream files are kept separately in `local/patches/`.

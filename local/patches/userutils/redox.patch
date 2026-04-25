@@ -1,0 +1,24 @@
+diff --git a/res/issue b/res/issue
+index 6a963d8..59ffbd4 100644
+--- a/res/issue
++++ b/res/issue
+@@ -1,6 +1,6 @@
+-########## Redox OS ##########
+-# Login with the following:  #
+-# `user`                     #
+-# `root`:`password`          #
+-##############################
++########## Red Bear OS #########
++# Login with the following:    #
++# `user`                       #
++# `root`:`password`            #
++################################
+  
+diff --git a/res/motd b/res/motd
+index 5cd097a..dc28b04 100644
+--- a/res/motd
++++ b/res/motd
+@@ -1,2 +1,2 @@
+-Welcome to Redox OS!
++Welcome to Red Bear OS!
+  
