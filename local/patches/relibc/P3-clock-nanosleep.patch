@@ -1,0 +1,43 @@
+diff --git a/src/header/time/mod.rs b/src/header/time/mod.rs
+--- a/src/header/time/mod.rs
++++ b/src/header/time/mod.rs
+@@ -6,8 +6,8 @@
+     c_str::{CStr, CString},
+     error::{Errno, ResultExt},
+     header::{
+         bits_timespec::timespec,
+-        errno::{EFAULT, ENOMEM, EOVERFLOW, ETIMEDOUT},
++        errno::{EFAULT, EINVAL, ENOMEM, EOVERFLOW, ETIMEDOUT},
+         signal::sigevent,
+         stdlib::getenv,
+         unistd::readlink,
+@@ -275,12 +275,28 @@
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/clock_nanosleep.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn clock_nanosleep(
+     clock_id: clockid_t,
+     flags: c_int,
+     rqtp: *const timespec,
+     rmtp: *mut timespec,
+ ) -> c_int {
+-    unimplemented!();
++    match clock_id {
++        CLOCK_REALTIME | CLOCK_MONOTONIC => {
++            if flags == TIMER_ABSTIME {
++                // Absolute-time sleep requires converting to a relative timeout.
++                // For CLOCK_MONOTONIC this is straightforward; for CLOCK_REALTIME
++                // we would need clock-delta computation. Return EINVAL until
++                // timespec_realtime_to_monotonic integration is validated.
++                return EINVAL;
++            }
++            match unsafe { Sys::nanosleep(rqtp, rmtp) } {
++                Ok(()) => 0,
++                Err(Errno(ETIMEDOUT)) => ETIMEDOUT,
++                Err(Errno(e)) => e,
++            }
++        }
++        _ => EINVAL,
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/clock_getres.html>.

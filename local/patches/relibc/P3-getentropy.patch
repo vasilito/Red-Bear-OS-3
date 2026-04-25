@@ -1,0 +1,45 @@
+diff --git a/src/header/unistd/mod.rs b/src/header/unistd/mod.rs
+--- a/src/header/unistd/mod.rs
++++ b/src/header/unistd/mod.rs
+@@ -537,8 +537,39 @@
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/getentropy.html>.
+ // #[unsafe(no_mangle)]
+-pub extern "C" fn getentropy(buffer: *mut c_void, length: size_t) -> c_int {
+-    unimplemented!();
++pub unsafe extern "C" fn getentropy(buffer: *mut c_void, length: size_t) -> c_int {
++    // POSIX limits getentropy to 256 bytes per call
++    const GETENTROPY_MAX: size_t = 256;
++
++    if length > GETENTROPY_MAX {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++
++    let path = unsafe { CStr::from_ptr(c"/scheme/rand".as_ptr().cast()) };
++    let fd = match Sys::open(path, fcntl::O_RDONLY, 0) {
++        Ok(fd) => fd,
++        Err(Errno(e)) => {
++            ERRNO.set(e);
++            return -1;
++        }
++    };
++
++    let buf = unsafe { slice::from_raw_parts_mut(buffer.cast::<u8>(), length) };
++    let mut filled = 0usize;
++    while filled < length {
++        match Sys::read(fd, &mut buf[filled..]) {
++            Ok(0) => break,
++            Ok(n) => filled += n,
++            Err(Errno(e)) => {
++                let _ = Sys::close(fd);
++                ERRNO.set(e);
++                return -1;
++            }
++        }
++    }
++    let _ = Sys::close(fd);
++    if filled < length { ERRNO.set(errno::EIO); -1 } else { 0 }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/geteuid.html>.

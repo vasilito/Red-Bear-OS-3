@@ -1,0 +1,16 @@
+diff --git a/src/header/stdlib/mod.rs b/src/header/stdlib/mod.rs
+--- a/src/header/stdlib/mod.rs
++++ b/src/header/stdlib/mod.rs
+@@ -1233,7 +1233,11 @@
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/getenv.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn secure_getenv(name: *const c_char) -> *mut c_char {
+-    unimplemented!();
++    // Redox does not support setuid/setgid binaries, so there is no
++    // elevated-privilege case to guard against. Always delegate to getenv.
++    // If setuid support is ever added, this must check real vs effective
++    // uid/gid and return NULL when they differ.
++    unsafe { getenv(name) }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/drand48.html>.

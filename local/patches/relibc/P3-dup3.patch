@@ -1,0 +1,25 @@
+diff --git a/src/header/unistd/mod.rs b/src/header/unistd/mod.rs
+--- a/src/header/unistd/mod.rs
++++ b/src/header/unistd/mod.rs
+@@ -273,7 +273,20 @@
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/dup.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn dup3(fildes: c_int, fildes2: c_int, flag: c_int) -> c_int {
+-    unimplemented!();
++    // dup3 requires fildes != fildes2 (unlike dup2 which is a no-op in that case)
++    if fildes == fildes2 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    match Sys::dup2(fildes, fildes2) {
++        Ok(newfd) => {
++            if flag & fcntl::O_CLOEXEC != 0 {
++                let _ = Sys::fcntl(newfd, fcntl::F_SETFD, fcntl::FD_CLOEXEC as c_ulonglong);
++            }
++            newfd
++        }
++        Err(Errno(e)) => { ERRNO.set(e); -1 }
++    }
+ }
+ 
+ // See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/encrypt.html>.
