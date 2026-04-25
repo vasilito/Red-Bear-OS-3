@@ -263,6 +263,14 @@ impl SchemeSync for FirmwareScheme {
 #[cfg(test)]
 mod tests {
     use super::resolve_key;
+    use super::*;
+    use crate::blob::FirmwareRegistry;
+    use redox_scheme::scheme::SchemeSync;
+    use redox_scheme::{CallerCtx, OpenResult};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use syscall::{EventFlags, MapFlags, MunmapFlags, Stat, MODE_FILE};
 
     #[test]
     fn accepts_real_firmware_extensions() {
@@ -278,5 +286,365 @@ mod tests {
             resolve_key("amdgpu/psp_13_0_0_sos.bin").as_deref(),
             Some("amdgpu/psp_13_0_0_sos.bin")
         );
+    }
+
+    // --- Helpers ---
+
+    fn test_ctx() -> CallerCtx {
+        CallerCtx {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+            id: unsafe { std::mem::zeroed() },
+        }
+    }
+
+    fn setup_registry() -> (PathBuf, FirmwareRegistry) {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("rbos-fw-scheme-{stamp}"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("test-blob.bin"), b"Hello, firmware!").unwrap();
+        fs::create_dir_all(dir.join("subdir")).unwrap();
+        fs::write(dir.join("subdir/nested.bin"), b"nested data content").unwrap();
+        let registry = FirmwareRegistry::new(&dir).unwrap();
+        (dir, registry)
+    }
+
+    fn open_test_blob(scheme: &mut FirmwareScheme) -> usize {
+        let ctx = test_ctx();
+        match scheme
+            .openat(SCHEME_ROOT_ID, "test-blob.bin", 0, 0, &ctx)
+            .unwrap()
+        {
+            OpenResult::ThisScheme { number, .. } => number,
+            other => panic!("expected ThisScheme, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn new_creates_empty_scheme_with_correct_next_id() {
+        let (dir, registry) = setup_registry();
+        let scheme = FirmwareScheme::new(registry);
+        assert!(scheme.handles.is_empty());
+        assert_eq!(scheme.next_id, SCHEME_ROOT_ID + 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openat_valid_key_returns_this_scheme() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let ctx = test_ctx();
+
+        let result = scheme
+            .openat(SCHEME_ROOT_ID, "test-blob.bin", 0, 0, &ctx)
+            .unwrap();
+
+        match result {
+            OpenResult::ThisScheme { number, flags } => {
+                assert_eq!(number, SCHEME_ROOT_ID + 1);
+                assert_eq!(flags, NewFdFlags::empty());
+            }
+            other => panic!("expected ThisScheme, got {:?}", other),
+        }
+        assert_eq!(scheme.handles.len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openat_missing_key_returns_enoent() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .openat(SCHEME_ROOT_ID, "nonexistent.bin", 0, 0, &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, ENOENT);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openat_rejects_path_traversal() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .openat(SCHEME_ROOT_ID, "../etc/passwd", 0, 0, &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, EISDIR);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openat_empty_path_returns_eisdir() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .openat(SCHEME_ROOT_ID, "", 0, 0, &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, EISDIR);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn openat_wrong_dirfd_returns_eacces() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .openat(999, "test-blob.bin", 0, 0, &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, EACCES);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_at_offset_zero() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let mut buf = [0u8; 64];
+        let n = scheme.read(id, &mut buf, 0, 0, &ctx).unwrap();
+        assert_eq!(n, 16);
+        assert_eq!(&buf[..16], b"Hello, firmware!");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_at_nonzero_offset() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let mut buf = [0u8; 64];
+        let n = scheme.read(id, &mut buf, 7, 0, &ctx).unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&buf[..9], b"firmware!");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_past_end_returns_zero() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let mut buf = [0u8; 64];
+        let n = scheme.read(id, &mut buf, 16, 0, &ctx).unwrap();
+        assert_eq!(n, 0);
+        let n2 = scheme.read(id, &mut buf, 1000, 0, &ctx).unwrap();
+        assert_eq!(n2, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fstat_reports_correct_size_and_mode() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let mut stat: Stat = unsafe { std::mem::zeroed() };
+        scheme.fstat(id, &mut stat, &ctx).unwrap();
+        assert_eq!(stat.st_mode, MODE_FILE | 0o444);
+        assert_eq!(stat.st_size, 16);
+        assert_eq!(stat.st_blksize, 4096);
+        assert!(stat.st_blocks > 0);
+        assert_eq!(stat.st_nlink, 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fsize_returns_correct_length() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let size = scheme.fsize(id, &ctx).unwrap();
+        assert_eq!(size, 16);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_returns_erofs() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let err = scheme.write(id, b"test", 0, 0, &ctx).unwrap_err();
+        assert_eq!(err.errno, EROFS);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ftruncate_returns_erofs() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let err = scheme.ftruncate(id, 0, &ctx).unwrap_err();
+        assert_eq!(err.errno, EROFS);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mmap_prep_returns_pointer_and_increments_count() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let ptr = scheme
+            .mmap_prep(id, 0, 16, MapFlags::empty(), &ctx)
+            .unwrap();
+        assert_ne!(ptr, 0);
+
+        let handle = scheme.handles.get(&id).unwrap();
+        assert_eq!(handle.map_count, 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mmap_prep_rejects_offset_beyond_data() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .mmap_prep(id, 17, 1, MapFlags::empty(), &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, EINVAL);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mmap_prep_rejects_offset_plus_size_beyond_data() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let err = scheme
+            .mmap_prep(id, 8, 16, MapFlags::empty(), &ctx)
+            .unwrap_err();
+        assert_eq!(err.errno, EINVAL);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn munmap_decrements_count_without_removing_handle() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        scheme
+            .mmap_prep(id, 0, 16, MapFlags::empty(), &ctx)
+            .unwrap();
+        assert_eq!(scheme.handles.get(&id).unwrap().map_count, 1);
+
+        scheme
+            .munmap(id, 0, 16, MunmapFlags::empty(), &ctx)
+            .unwrap();
+
+        assert!(scheme.handles.contains_key(&id));
+        let handle = scheme.handles.get(&id).unwrap();
+        assert_eq!(handle.map_count, 0);
+        assert!(!handle.closed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_close_keeps_handle_when_mapped() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        scheme
+            .mmap_prep(id, 0, 16, MapFlags::empty(), &ctx)
+            .unwrap();
+
+        scheme.on_close(id);
+
+        assert!(scheme.handles.contains_key(&id));
+        let handle = scheme.handles.get(&id).unwrap();
+        assert!(handle.closed);
+        assert_eq!(handle.map_count, 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn on_close_then_munmap_removes_handle() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        scheme
+            .mmap_prep(id, 0, 16, MapFlags::empty(), &ctx)
+            .unwrap();
+
+        scheme.on_close(id);
+        assert!(scheme.handles.contains_key(&id));
+
+        scheme
+            .munmap(id, 0, 16, MunmapFlags::empty(), &ctx)
+            .unwrap();
+        assert!(!scheme.handles.contains_key(&id));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fsync_returns_ok() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        scheme.fsync(id, &ctx).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fcntl_returns_ok_zero() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let result = scheme.fcntl(id, 0, 0, &ctx).unwrap();
+        assert_eq!(result, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fevent_returns_empty_flags() {
+        let (dir, registry) = setup_registry();
+        let mut scheme = FirmwareScheme::new(registry);
+        let id = open_test_blob(&mut scheme);
+        let ctx = test_ctx();
+
+        let flags = scheme
+            .fevent(id, EventFlags::empty(), &ctx)
+            .unwrap();
+        assert_eq!(flags, EventFlags::empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -212,7 +212,7 @@ fn format_device_name(
 
 #[cfg(test)]
 mod tests {
-    use super::classify_pci_device;
+    use super::{DeviceInfo, InputKind, Subsystem, classify_pci_device, device_properties, format_device_info, format_uevent_info};
 
     #[test]
     fn classify_pci_device_uses_shared_location_format() {
@@ -226,6 +226,253 @@ mod tests {
         let device = classify_pci_device(0x02, 0x00, 0x0);
 
         assert_eq!(device.id_path(), "pci-0000:02:00.0");
+    }
+
+    #[test]
+    fn new_platform_input_has_correct_defaults() {
+        let dev = DeviceInfo::new_platform_input(
+            "test-kbd",
+            "/devices/platform/keyboard0",
+            InputKind::Keyboard,
+            "",
+            "",
+        );
+        assert!(!dev.is_pci);
+        assert_eq!(dev.subsystem, Subsystem::Input);
+        assert_eq!(dev.input_kind, Some(InputKind::Keyboard));
+        assert!(dev.devnode.is_empty());
+        assert!(dev.scheme_target.is_empty());
+        assert!(dev.symlinks.is_empty());
+        assert_eq!(dev.bus, 0);
+        assert_eq!(dev.dev, 0);
+        assert_eq!(dev.func, 0);
+        assert_eq!(dev.vendor_id, 0);
+        assert_eq!(dev.device_id, 0);
+    }
+
+    #[test]
+    fn set_node_metadata_sets_fields_correctly() {
+        let mut dev = DeviceInfo::new_platform_input(
+            "test-mouse",
+            "/devices/platform/mouse0",
+            InputKind::Mouse,
+            "",
+            "",
+        );
+        dev.set_node_metadata(
+            "/dev/input/mouse0",
+            "input:mouse0",
+            vec!["/dev/input/by-path/platform-mouse0".to_string()],
+        );
+        assert_eq!(dev.devnode, "/dev/input/mouse0");
+        assert_eq!(dev.scheme_target, "input:mouse0");
+        assert_eq!(dev.symlinks.len(), 1);
+        assert_eq!(dev.symlinks[0], "/dev/input/by-path/platform-mouse0");
+    }
+
+    #[test]
+    fn subsystem_name_maps_all_variants() {
+        let cases: Vec<(Subsystem, &'static str)> = vec![
+            (Subsystem::Gpu, "drm"),
+            (Subsystem::Network, "net"),
+            (Subsystem::Storage, "block"),
+            (Subsystem::Audio, "sound"),
+            (Subsystem::Usb, "usb"),
+            (Subsystem::Input, "input"),
+            (Subsystem::Unknown, "unknown"),
+        ];
+        for (subsys, expected) in cases {
+            let mut dev =
+                DeviceInfo::new_platform_input("x", "/devices/x", InputKind::Generic, "", "");
+            dev.subsystem = subsys;
+            assert_eq!(dev.subsystem_name(), expected, "failed for {:?}", subsys);
+        }
+    }
+
+    #[test]
+    fn id_path_pci_device() {
+        let dev = DeviceInfo {
+            is_pci: true,
+            bus: 0x02,
+            dev: 0x00,
+            func: 0x0,
+            vendor_id: 0x1002,
+            device_id: 0x67df,
+            class_code: 0x03,
+            subclass: 0x00,
+            subsystem: Subsystem::Gpu,
+            input_kind: None,
+            name: "Test GPU".to_string(),
+            devpath: "/devices/pci/0000:02:00.0".to_string(),
+            devnode: String::new(),
+            scheme_target: String::new(),
+            symlinks: vec![],
+        };
+        assert_eq!(dev.id_path(), "pci-0000:02:00.0");
+    }
+
+    #[test]
+    fn id_path_platform_device() {
+        let dev = DeviceInfo::new_platform_input(
+            "keyboard0",
+            "/devices/platform/keyboard0",
+            InputKind::Keyboard,
+            "",
+            "",
+        );
+        assert_eq!(dev.id_path(), "platform-keyboard0");
+    }
+
+    #[test]
+    fn is_input_keyboard_true_only_for_keyboard() {
+        let kb = DeviceInfo::new_platform_input("kb", "/devices/x", InputKind::Keyboard, "", "");
+        assert!(kb.is_input_keyboard());
+        assert!(!kb.is_input_mouse());
+
+        let mouse = DeviceInfo::new_platform_input("ms", "/devices/x", InputKind::Mouse, "", "");
+        assert!(!mouse.is_input_keyboard());
+
+        let generic =
+            DeviceInfo::new_platform_input("gen", "/devices/x", InputKind::Generic, "", "");
+        assert!(!generic.is_input_keyboard());
+    }
+
+    #[test]
+    fn is_input_mouse_true_only_for_mouse() {
+        let mouse = DeviceInfo::new_platform_input("ms", "/devices/x", InputKind::Mouse, "", "");
+        assert!(mouse.is_input_mouse());
+        assert!(!mouse.is_input_keyboard());
+
+        let kb = DeviceInfo::new_platform_input("kb", "/devices/x", InputKind::Keyboard, "", "");
+        assert!(!kb.is_input_mouse());
+
+        let generic =
+            DeviceInfo::new_platform_input("gen", "/devices/x", InputKind::Generic, "", "");
+        assert!(!generic.is_input_mouse());
+    }
+
+    #[test]
+    fn device_properties_gpu_pci_contains_key_fields() {
+        let dev = DeviceInfo {
+            is_pci: true,
+            bus: 0x02,
+            dev: 0x00,
+            func: 0x0,
+            vendor_id: 0x1002,
+            device_id: 0x67df,
+            class_code: 0x03,
+            subclass: 0x00,
+            subsystem: Subsystem::Gpu,
+            input_kind: None,
+            name: "AMD RX 580 [1002:67df]".to_string(),
+            devpath: "/devices/pci/0000:02:00.0".to_string(),
+            devnode: "/dev/dri/card0".to_string(),
+            scheme_target: "display:display".to_string(),
+            symlinks: vec![],
+        };
+        let props = device_properties(&dev);
+        let prop_map: std::collections::HashMap<&str, &str> = props
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        assert_eq!(prop_map.get("SUBSYSTEM").copied(), Some("drm"));
+        assert_eq!(prop_map.get("PCI_VENDOR_ID").copied(), Some("0x1002"));
+        assert_eq!(prop_map.get("PCI_DEVICE_ID").copied(), Some("0x67df"));
+        assert_eq!(prop_map.get("PCI_CLASS").copied(), Some("0x0300"));
+        assert_eq!(prop_map.get("DEVNAME").copied(), Some("/dev/dri/card0"));
+    }
+
+    #[test]
+    fn device_properties_input_keyboard_has_input_flags() {
+        let dev = DeviceInfo::new_platform_input(
+            "keyboard0",
+            "/devices/platform/keyboard0",
+            InputKind::Keyboard,
+            "/dev/input/event0",
+            "input:keyboard0",
+        );
+        let props = device_properties(&dev);
+        let prop_map: std::collections::HashMap<&str, &str> = props
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        assert_eq!(prop_map.get("ID_INPUT").copied(), Some("1"));
+        assert_eq!(prop_map.get("ID_INPUT_KEYBOARD").copied(), Some("1"));
+        assert!(!prop_map.contains_key("ID_INPUT_MOUSE"));
+    }
+
+    #[test]
+    fn device_properties_input_mouse_has_input_flags() {
+        let dev = DeviceInfo::new_platform_input(
+            "mouse0",
+            "/devices/platform/mouse0",
+            InputKind::Mouse,
+            "/dev/input/mouse0",
+            "input:mouse0",
+        );
+        let props = device_properties(&dev);
+        let prop_map: std::collections::HashMap<&str, &str> = props
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        assert_eq!(prop_map.get("ID_INPUT").copied(), Some("1"));
+        assert_eq!(prop_map.get("ID_INPUT_MOUSE").copied(), Some("1"));
+        assert!(!prop_map.contains_key("ID_INPUT_KEYBOARD"));
+    }
+
+    #[test]
+    fn format_device_info_structure() {
+        let dev = DeviceInfo {
+            is_pci: true,
+            bus: 0x02,
+            dev: 0x00,
+            func: 0x0,
+            vendor_id: 0x8086,
+            device_id: 0x1234,
+            class_code: 0x03,
+            subclass: 0x00,
+            subsystem: Subsystem::Gpu,
+            input_kind: None,
+            name: "Intel GPU".to_string(),
+            devpath: "/devices/pci/0000:02:00.0".to_string(),
+            devnode: "/dev/dri/card0".to_string(),
+            scheme_target: "display:display".to_string(),
+            symlinks: vec!["/dev/dri/by-path/pci-0000:02:00.0-card".to_string()],
+        };
+        let info = format_device_info(&dev);
+        assert!(info.starts_with("P=/devices/pci/0000:02:00.0\n"));
+        assert!(info.contains("E=SUBSYSTEM=drm\n"));
+        assert!(info.contains("S=dev/dri/by-path/pci-0000:02:00.0-card\n"));
+    }
+
+    #[test]
+    fn format_uevent_info_starts_with_action_and_has_props() {
+        let dev = DeviceInfo::new_platform_input(
+            "keyboard0",
+            "/devices/platform/keyboard0",
+            InputKind::Keyboard,
+            "/dev/input/event0",
+            "input:keyboard0",
+        );
+        let uevent = format_uevent_info(&dev);
+        assert!(uevent.starts_with("ACTION=add\n"));
+        assert!(uevent.contains("SUBSYSTEM=input\n"));
+        assert!(uevent.contains("DEVPATH=/devices/platform/keyboard0\n"));
+    }
+
+    #[test]
+    fn classify_pci_device_with_no_pci_config_still_produces_pci_device() {
+        let dev = classify_pci_device(0x00, 0x1f, 0x2);
+        assert!(dev.is_pci);
+        assert_eq!(dev.bus, 0x00);
+        assert_eq!(dev.dev, 0x1f);
+        assert_eq!(dev.func, 0x2);
+        // Without real PCI config, read_pci_config returns 0xFFFF
+        assert_eq!(dev.vendor_id, 0xFFFF);
+        assert_eq!(dev.device_id, 0xFFFF);
     }
 }
 
