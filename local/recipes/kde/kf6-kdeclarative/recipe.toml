@@ -27,7 +27,7 @@ for qtdir in plugins mkspecs metatypes modules; do
 done
 
 sed -i '/^include(ECMQmlModule)$/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i 's/REQUIRED Qml Quick Gui/REQUIRED Qml Gui/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/REQUIRED Qml Quick Gui/REQUIRED Gui/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i '/^ki18n_install(po)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i '/^ecm_install_po_files_as_qm/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/NOT WIN32 AND NOT APPLE AND NOT ANDROID)/NOT WIN32 AND NOT APPLE AND NOT ANDROID AND NOT REDOX)/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
