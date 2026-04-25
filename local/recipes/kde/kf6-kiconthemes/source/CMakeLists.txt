@@ -56,6 +56,10 @@ find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6Svg ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE)
 
 # shall we use DBus?

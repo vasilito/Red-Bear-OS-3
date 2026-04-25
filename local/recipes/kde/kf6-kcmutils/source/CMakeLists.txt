@@ -50,6 +50,11 @@ find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 
 # shall we use DBus?
 # enabled per default on Linux & BSD systems

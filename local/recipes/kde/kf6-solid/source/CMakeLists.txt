@@ -78,7 +78,7 @@ set_package_properties(PList PROPERTIES
 
 if (CMAKE_SYSTEM_NAME MATCHES Linux)
     # Used by the UDisks backend on Linux
-    #################################find_package(LibMount)
+    ##################################find_package(LibMount)
     set_package_properties(LibMount PROPERTIES
                            TYPE REQUIRED)
 endif()
