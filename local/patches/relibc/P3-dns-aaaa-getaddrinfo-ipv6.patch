@@ -1,0 +1,396 @@
+diff --git a/src/header/netdb/lookup.rs b/src/header/netdb/lookup.rs
+index aaaaaaa..bbbbbbb 100644
+--- a/src/header/netdb/lookup.rs
++++ b/src/header/netdb/lookup.rs
+@@ -14,7 +14,7 @@ use crate::header::{
+     bits_socklen_t::socklen_t,
+     bits_timespec::timespec,
+     errno::*,
+-    netinet_in::{IPPROTO_UDP, in_addr, sockaddr_in},
++    netinet_in::{IPPROTO_UDP, in6_addr, in_addr, sockaddr_in},
+     sys_socket::{
+         self,
+         constants::{AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_RCVTIMEO},
+@@ -30,6 +30,7 @@ use super::{
+ };
+ 
+ pub type LookupHost = Vec<in_addr>;
++pub type LookupHostV6 = Vec<in6_addr>;
+ 
+ pub fn lookup_host(host: &str) -> Result<LookupHost, c_int> {
+     if let Some(host_direct_addr) = parse_ipv4_string(host) {
+@@ -157,6 +158,123 @@ pub fn lookup_host(host: &str) -> Result<LookupHost, c_int> {
+     }
+ }
+ 
++/// Look up IPv6 (AAAA) addresses for a host via DNS.
++pub fn lookup_host_v6(host: &str) -> Result<LookupHostV6, c_int> {
++    if let Some(addr6) = parse_ipv6_string(host) {
++        return Ok(vec![addr6]);
++    }
++
++    let dns_string = get_dns_server().map_err(|e| e.0)?;
++
++    if let Some(dns_addr) = parse_ipv4_string(&dns_string) {
++        let mut timespec = timespec::default();
++        if let Ok(()) = Sys::clock_gettime(
++            time::constants::CLOCK_REALTIME,
++            Out::from_mut(&mut timespec),
++        ) {};
++        let tid = (timespec.tv_nsec >> 16) as u16;
++
++        let packet = Dns {
++            transaction_id: tid,
++            flags: 0x0100,
++            queries: vec![DnsQuery {
++                name: host.to_string(),
++                q_type: 0x001c,
++                q_class: 0x0001,
++            }],
++            answers: vec![],
++        };
++
++        let packet_data = packet.compile();
++        let packet_data_len = packet_data.len();
++
++        let packet_data_box = packet_data.into_boxed_slice();
++        let packet_data_ptr = Box::into_raw(packet_data_box) as *mut _ as *mut c_void;
++
++        let dest = sockaddr_in {
++            sin_family: AF_INET as u16,
++            sin_port: htons(53),
++            sin_addr: in_addr { s_addr: dns_addr },
++            ..Default::default()
++        };
++        let dest_ptr = ptr::from_ref(&dest).cast::<sockaddr>();
++
++        let sock = unsafe {
++            let sock = sys_socket::socket(AF_INET, SOCK_DGRAM, i32::from(IPPROTO_UDP));
++            if sys_socket::connect(sock, dest_ptr, mem::size_of_val(&dest) as socklen_t) < 0 {
++                return Err(EIO);
++            }
++            if sys_socket::send(sock, packet_data_ptr, packet_data_len, 0) < 0 {
++                drop(Box::from_raw(packet_data_ptr));
++                return Err(EIO);
++            }
++            sock
++        };
++
++        unsafe {
++            drop(Box::from_raw(packet_data_ptr));
++        }
++
++        let mut buf = vec![0u8; 65536];
++        let buf_ptr = buf.as_mut_ptr().cast::<c_void>();
++
++        // Set 5s recv timeout (best-effort; if this fails, recv may block longer).
++        let tv = timeval {
++            tv_sec: 5,
++            tv_usec: 0,
++        };
++        unsafe {
++            sys_socket::setsockopt(
++                sock,
++                SOL_SOCKET,
++                SO_RCVTIMEO,
++                &tv as *const timeval as *const c_void,
++                core::mem::size_of::<timeval>() as socklen_t,
++            );
++        }
++
++        let mut count: isize = -1;
++        for _attempt in 0..2 {
++            count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
++            if count >= 0 {
++                break;
++            }
++            if unsafe { sys_socket::send(sock, packet_data_ptr, packet_data_len, 0) } < 0 {
++                break;
++            }
++        }
++        if count < 0 {
++            return Err(EIO);
++        }
++
++        match Dns::parse(&buf[..count as usize]) {
++            Ok(response) => {
++                let addrs: Vec<_> = response
++                    .answers
++                    .into_iter()
++                    .filter_map(|answer| {
++                        if answer.a_type == 0x001c
++                            && answer.a_class == 0x0001
++                            && answer.data.len() == 16
++                        {
++                            let mut s6_addr = [0u8; 16];
++                            s6_addr.copy_from_slice(&answer.data[..16]);
++                            Some(in6_addr { s6_addr })
++                        } else {
++                            None
++                        }
++                    })
++                    .collect();
++
++                Ok(addrs)
++            }
++            Err(_err) => Err(EINVAL),
++        }
++    } else {
++        Err(EINVAL)
++    }
++}
++
+ pub fn lookup_addr(addr: in_addr) -> Result<Vec<Vec<u8>>, c_int> {
+     let dns_string = get_dns_server().map_err(|e| e.0)?;
+ 
+@@ -282,6 +400,23 @@ pub fn parse_ipv4_string(ip_string: &str) -> Option<u32> {
+     Some(u32::from_ne_bytes(dns_arr))
+ }
+ 
++pub fn parse_ipv6_string(ip_string: &str) -> Option<in6_addr> {
++    let trimmed = ip_string.trim();
++
++    let s = if trimmed.starts_with('[') && trimmed.ends_with(']') {
++        &trimmed[1..trimmed.len() - 1]
++    } else {
++        trimmed
++    };
++
++    let ip: core::net::Ipv6Addr = s.parse().ok()?;
++    let mut addr = in6_addr {
++        s6_addr: [0u8; 16],
++    };
++    addr.s6_addr.copy_from_slice(&ip.octets());
++    Some(addr)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use alloc::str;
+diff --git a/src/header/netdb/mod.rs b/src/header/netdb/mod.rs
+index ccccccc..ddddddd 100644
+--- a/src/header/netdb/mod.rs
++++ b/src/header/netdb/mod.rs
+@@ -4,7 +4,7 @@
+ 
+ mod dns;
+ 
+-use core::{cell::Cell, fmt::Write, mem, net::Ipv4Addr, ptr, str};
++use core::{cell::Cell, fmt::Write, mem, net::Ipv4Addr, net::Ipv6Addr, ptr, str};
+ 
+ use alloc::{boxed::Box, str::SplitWhitespace, string::ToString, vec::Vec};
+ 
+@@ -18,10 +18,10 @@ use crate::{
+         bits_socklen_t::socklen_t,
+         errno::*,
+         fcntl::O_RDONLY,
+-        netinet_in::{in_addr, sockaddr_in, sockaddr_in6},
++        netinet_in::{in6_addr, in_addr, sockaddr_in, sockaddr_in6},
+         stdlib::atoi,
+         strings::strcasecmp,
+-        sys_socket::{constants::AF_INET, sockaddr},
++        sys_socket::{constants::{AF_INET, AF_INET6, AF_UNSPEC}, sockaddr},
+         unistd::SEEK_SET,
+     },
+     platform::{
+@@ -871,11 +871,16 @@ pub unsafe extern "C" fn getaddrinfo(
+         hints_opt
+     );
+ 
++    let requested_family = hints_opt.map_or(AF_UNSPEC, |hints| hints.ai_family);
++
++    if requested_family != AF_INET && requested_family != AF_INET6 && requested_family != AF_UNSPEC
++    {
++        return EAI_FAMILY;
++    }
++
+     //TODO: Use hints
+     let mut ai_flags = hints_opt.map_or(0, |hints| hints.ai_flags);
+-    let mut ai_family; // = hints_opt.map_or(AF_UNSPEC, |hints| hints.ai_family);
+     let ai_socktype = hints_opt.map_or(0, |hints| hints.ai_socktype);
+-    let mut ai_protocol; // = hints_opt.map_or(0, |hints| hints.ai_protocol);
+ 
+     unsafe { *res = ptr::null_mut() };
+ 
+@@ -896,31 +901,52 @@ pub unsafe extern "C" fn getaddrinfo(
+         }
+     });
+ 
+-    let lookuphost = if ai_flags & AI_NUMERICHOST > 0 {
+-        match parse_ipv4_string(unsafe { str::from_utf8_unchecked(node.to_bytes()) }) {
+-            Some(s_addr) => vec![in_addr { s_addr }],
+-            None => {
+-                return EAI_NONAME;
++    let node_str = unsafe { str::from_utf8_unchecked(node.to_bytes()) };
++
++    let want_inet4 = requested_family == AF_INET || requested_family == AF_UNSPEC;
++    let want_inet6 = requested_family == AF_INET6 || requested_family == AF_UNSPEC;
++
++    let lookuphost_v4: Vec<in_addr> = if want_inet4 {
++        if ai_flags & AI_NUMERICHOST > 0 {
++            match parse_ipv4_string(node_str) {
++                Some(s_addr) => vec![in_addr { s_addr }],
++                None => vec![],
++            }
++        } else {
++            match lookup_host(node_str) {
++                Ok(addrs) => addrs,
++                Err(_) => vec![],
+             }
+         }
+     } else {
+-        match lookup_host(unsafe { str::from_utf8_unchecked(node.to_bytes()) }) {
+-            Ok(lookuphost) => lookuphost,
+-            Err(e) => {
+-                platform::ERRNO.set(e);
+-                return EAI_SYSTEM;
++        vec![]
++    };
++
++    let lookuphost_v6: Vec<in6_addr> = if want_inet6 {
++        if ai_flags & AI_NUMERICHOST > 0 {
++            match parse_ipv6_string(node_str) {
++                Some(addr) => vec![addr],
++                None => vec![],
++            }
++        } else {
++            match lookup_host_v6(node_str) {
++                Ok(addrs) => addrs,
++                Err(_) => vec![],
+             }
+         }
++    } else {
++        vec![]
+     };
+ 
+-    for in_addr in lookuphost {
+-        ai_family = AF_INET;
+-        ai_protocol = 0;
++    if lookuphost_v4.is_empty() && lookuphost_v6.is_empty() {
++        return EAI_NONAME;
++    }
+ 
++    for addr in lookuphost_v4 {
+         let ai_addr = Box::into_raw(Box::new(sockaddr_in {
+-            sin_family: ai_family as sa_family_t,
++            sin_family: AF_INET as sa_family_t,
+             sin_port: htons(port),
+-            sin_addr: in_addr,
++            sin_addr: addr,
+             sin_zero: [0; 8],
+         }))
+         .cast::<sockaddr>();
+@@ -939,9 +965,53 @@ pub unsafe extern "C" fn getaddrinfo(
+ 
+         let addrinfo = Box::new(addrinfo {
+             ai_flags: 0,
+-            ai_family,
++            ai_family: AF_INET,
+             ai_socktype,
+-            ai_protocol,
++            ai_protocol: 0,
++            ai_addrlen,
++            ai_canonname,
++            ai_addr,
++            ai_next: ptr::null_mut(),
++        });
++        unsafe {
++            let mut indirect = res;
++            while !(*indirect).is_null() {
++                indirect = &raw mut (**indirect).ai_next;
++            }
++            *indirect = Box::into_raw(addrinfo)
++        }
++    }
++
++    for addr in lookuphost_v6 {
++        let mut s6_addr = [0u8; 16];
++        s6_addr.copy_from_slice(&addr.s6_addr);
++
++        let ai_addr = Box::into_raw(Box::new(sockaddr_in6 {
++            sin6_family: AF_INET6 as sa_family_t,
++            sin6_port: htons(port),
++            sin6_flowinfo: 0,
++            sin6_addr: in6_addr { s6_addr },
++            sin6_scope_id: 0,
++        }))
++        .cast::<sockaddr>();
++
++        let ai_addrlen = mem::size_of::<sockaddr_in6>() as socklen_t;
++
++        let ai_canonname = if ai_flags & AI_CANONNAME > 0 {
++            if node_opt.is_none() {
++                return EAI_BADFLAGS;
++            }
++            ai_flags &= !AI_CANONNAME;
++            node.to_owned_cstring().into_raw()
++        } else {
++            ptr::null_mut()
++        };
++
++        let addrinfo = Box::new(addrinfo {
++            ai_flags: 0,
++            ai_family: AF_INET6,
++            ai_socktype,
++            ai_protocol: 0,
+             ai_addrlen,
+             ai_canonname,
+             ai_addr,
+@@ -970,10 +1040,56 @@ pub unsafe extern "C" fn getnameinfo(
+     servlen: socklen_t,
+     flags: c_int,
+ ) -> c_int {
+-    if addr.is_null() || addrlen as usize != mem::size_of::<sockaddr_in>() {
++    if addr.is_null() {
++        return EAI_FAMILY;
++    }
++
++    let addrlen_usize = addrlen as usize;
++    if addrlen_usize != mem::size_of::<sockaddr_in>()
++        && addrlen_usize != mem::size_of::<sockaddr_in6>()
++    {
+         return EAI_FAMILY;
+     }
+ 
++    if addrlen_usize == mem::size_of::<sockaddr_in6>() {
++        let sa = unsafe { &*(addr.cast::<sockaddr_in6>()) };
++
++        if !serv.is_null() && servlen > 0 {
++            if flags & NI_NUMERICSERV != 0 {
++                let port_str = sa.sin6_port.to_be().to_string();
++                let port_bytes = port_str.as_bytes();
++                if (servlen as usize) <= port_bytes.len() {
++                    return EAI_MEMORY;
++                }
++                unsafe {
++                    ptr::copy_nonoverlapping(
++                        port_bytes.as_ptr().cast::<c_char>(),
++                        serv,
++                        port_bytes.len(),
++                    )
++                };
++                unsafe { *serv.add(port_bytes.len()) = 0 };
++            } else {
++                unsafe { *serv = 0 };
++            }
++        }
++
++        if !host.is_null() && hostlen > 0 {
++            let ip_addr = Ipv6Addr::from(sa.sin6_addr.s6_addr);
++            let ip_str = ip_addr.to_string();
++            let ip_bytes = ip_str.as_bytes();
++            if (hostlen as usize) <= ip_bytes.len() {
++                return EAI_MEMORY;
++            }
++            unsafe {
++                ptr::copy_nonoverlapping(ip_bytes.as_ptr().cast::<c_char>(), host, ip_bytes.len())
++            };
++            unsafe { *host.add(ip_bytes.len()) = 0 };
++        }
++
++        return 0;
++    }
++
+     let sa = unsafe { &*(addr.cast::<sockaddr_in>()) };
+ 
+     if !serv.is_null() && servlen > 0 {

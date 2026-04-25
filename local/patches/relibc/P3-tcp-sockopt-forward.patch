@@ -1,0 +1,59 @@
+diff --git a/src/platform/redox/socket.rs b/src/platform/redox/socket.rs
+index d223c36f..f8a1c2e0 100644
+--- a/src/platform/redox/socket.rs
++++ b/src/platform/redox/socket.rs
+@@ -774,6 +774,21 @@ impl PalSocket for Sys {
+                     return Ok(());
+                 }
+             },
++            crate::header::sys_socket::constants::IPPROTO_TCP => {
++                let metadata = [SocketCall::GetSockOpt as u64, option_name as u64];
++                let payload =
++                    unsafe { slice::from_raw_parts_mut(option_value as *mut u8, option_len) };
++                let call_flags = CallFlags::empty();
++                unsafe {
++                    *option_len_ptr = redox_rt::sys::sys_call_ro(
++                        socket as usize,
++                        payload,
++                        CallFlags::empty(),
++                        &metadata,
++                    )? as socklen_t;
++                }
++                return Ok(());
++            }
+             _ => (),
+         }
+ 
+@@ -1069,18 +1069,13 @@ impl PalSocket for Sys {
+             crate::header::sys_socket::constants::IPPROTO_TCP => {
+-                match option_name {
+-                    crate::header::sys_socket::constants::TCP_NODELAY => {
+-                        let metadata = [SocketCall::SetSockOpt as u64, option_name as u64];
+-                        let payload = unsafe {
+-                            slice::from_raw_parts(option_value as *const u8, option_len as usize)
+-                        };
+-                        redox_rt::sys::sys_call_wo(
+-                            socket as usize,
+-                            payload,
+-                            CallFlags::empty(),
+-                            &metadata,
+-                        )?;
+-                        return Ok(());
+-                    }
+-                    _ => (),
+-                }
++                let metadata = [SocketCall::SetSockOpt as u64, option_name as u64];
++                let payload = unsafe {
++                    slice::from_raw_parts(option_value as *const u8, option_len as usize)
++                };
++                redox_rt::sys::sys_call_wo(
++                    socket as usize,
++                    payload,
++                    CallFlags::empty(),
++                    &metadata,
++                )?;
++                return Ok(());
+             }
+             _ => (),
+         }
+ 

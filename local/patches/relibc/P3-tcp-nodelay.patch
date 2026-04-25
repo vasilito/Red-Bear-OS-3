@@ -10,9 +10,22 @@ index ec42889b..c91ffb1a 100644
 +pub const IPPROTO_TCP: c_int = 6;
 +pub const TCP_NODELAY: c_int = 1;
 diff --git a/src/platform/redox/socket.rs b/src/platform/redox/socket.rs
-index d223c36f..5e17a2e5 100644
+index d223c36f..2faae4f5 100644
 --- a/src/platform/redox/socket.rs
 +++ b/src/platform/redox/socket.rs
+@@ -1051,10 +1051,10 @@ impl PalSocket for Sys {
+                 _ => {
+                     let metadata = [SocketCall::SetSockOpt as u64, option_name as u64];
+                     let payload = unsafe {
+-                        slice::from_raw_parts_mut(option_value as *mut u8, option_len as usize)
++                        slice::from_raw_parts(option_value as *const u8, option_len as usize)
+                     };
+                     let call_flags = CallFlags::empty();
+-                    redox_rt::sys::sys_call_rw(
++                    redox_rt::sys::sys_call_wo(
+                         socket as usize,
+                         payload,
+                         CallFlags::empty(),
 @@ -1063,6 +1063,24 @@ impl PalSocket for Sys {
                      return Ok(());
                  }
@@ -22,9 +35,9 @@ index d223c36f..5e17a2e5 100644
 +                    crate::header::sys_socket::constants::TCP_NODELAY => {
 +                        let metadata = [SocketCall::SetSockOpt as u64, option_name as u64];
 +                        let payload = unsafe {
-+                            slice::from_raw_parts_mut(option_value as *mut u8, option_len as usize)
++                            slice::from_raw_parts(option_value as *const u8, option_len as usize)
 +                        };
-+                        redox_rt::sys::sys_call_rw(
++                        redox_rt::sys::sys_call_wo(
 +                            socket as usize,
 +                            payload,
 +                            CallFlags::empty(),

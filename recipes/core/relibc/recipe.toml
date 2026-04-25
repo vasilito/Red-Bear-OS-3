@@ -37,6 +37,9 @@ patches = [
     "../../../local/patches/relibc/P3-fenv.patch",
     "../../../local/patches/relibc/P3-sched.patch",
     "../../../local/patches/relibc/P3-aio.patch",
+    "../../../local/patches/relibc/P3-inet6-pton-ntop.patch",
+    "../../../local/patches/relibc/P3-tcp-sockopt-forward.patch",
+    "../../../local/patches/relibc/P3-dns-aaaa-getaddrinfo-ipv6.patch",
 ]
 
 [build]
