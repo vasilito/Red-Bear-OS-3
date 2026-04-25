@@ -156,6 +156,7 @@ make all
 - **DO NOT** put drivers in kernel space — all drivers are userspace daemons
 - **DO NOT** hardcode `/dev/` paths — use scheme paths (`/scheme/drm/card0`)
 - **DO NOT** skip patches in WIP recipes — document what's missing with `#TODO`
+- **DO NOT** skip warnings — investigate, diagnose, and fix the root cause; suppressing or ignoring warnings is not acceptable when a fix is feasible
 
 ## PATCH MANAGEMENT
 
@@ -320,6 +321,20 @@ All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 - The `repo` binary (cookbook CLI) may crash with TUI in non-interactive environments — use `CI=1`
 - No git submodules — external repos managed via recipe source URLs and repo manifests
 - Historical integration report removed (2026-04-16); see `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for current state
+
+## WARNING POLICY
+
+When presented with a compiler warning, linker warning, runtime warning, or test warning, the
+project treats it as a signal requiring action — not as noise to be silenced or deferred.
+
+- **Investigate** every warning. Understand what causes it and whether it indicates a real defect.
+- **Fix the root cause** when feasible. Prefer comprehensive fixes over workarounds.
+- **Suppress only as last resort**, with a comment explaining why the warning is known-safe and
+  why suppression is the correct choice for that specific case.
+- **Never ignore warnings silently.** An unexplained warning in the build is a defect in
+  discipline, not just in code.
+
+This applies to all subsystems: kernel, relibc, drivers, userspace daemons, and build tooling.
 
 ## SUBSYSTEM PRIORITY AND ORDER
 
