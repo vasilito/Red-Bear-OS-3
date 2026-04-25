@@ -102,8 +102,6 @@ async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) 
         _ = std::future::pending::<()>() => Ok(()),
         _ = shutdown_rx.changed() => Ok(()),
     }
-    #[allow(unreachable_code)]
-    Ok(())
 }
 
 #[cfg(all(not(unix), not(target_os = "redox")))]
