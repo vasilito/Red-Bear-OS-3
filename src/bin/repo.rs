@@ -13,7 +13,7 @@ use cookbook::recipe::{CookRecipe, recipes_flatten_package_names, recipes_mark_a
 use cookbook::{Error, staged_pkg};
 use pkg::{PackageName, PackageState};
 use ratatui::Terminal;
-use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::TermionBackend;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
@@ -30,7 +30,7 @@ use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs};
 use std::{process, thread};
-use termion::event::{Event, Key, MouseEvent};
+use termion::event::{Event, Key};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::IntoAlternateScreen;
@@ -178,7 +178,6 @@ impl CliConfig {
     fn new() -> Result<Self, std::io::Error> {
         let current_dir = env::current_dir()?;
         Ok(CliConfig {
-            //FIXME: This config is unused as redox-pkg harcoded this to $PWD/recipes
             cookbook_dir: current_dir.join("recipes"),
             repo_dir: current_dir.join("repo"),
             // build dir here is hardcoded in repo_builder as well
@@ -1016,15 +1015,11 @@ struct TuiApp {
     log_scroll: usize,
     log_view_job: JobType,
     auto_scroll: bool,
-    fetch_scroll: usize,
     cook_scroll: usize,
     cook_auto_scroll: bool,
     cook_list_state: ListState,
     fetch_complete: bool,
     cook_complete: bool,
-    fetch_panel_rect: Option<Rect>,
-    cook_panel_rect: Option<Rect>,
-    log_panel_rect: Option<Rect>,
     prompt: Option<FailurePrompt>,
     dump_logs_anyway: bool,
     dump_logs_on_exit: Option<(PackageName, String)>,
@@ -1068,15 +1063,11 @@ impl TuiApp {
             log_scroll: 0,
             auto_scroll: true,
             log_view_job: JobType::Fetch,
-            fetch_scroll: 0,
             cook_scroll: 0,
             cook_auto_scroll: true,
             cook_list_state: ListState::default(),
             fetch_complete: false,
             cook_complete: false,
-            fetch_panel_rect: None,
-            cook_panel_rect: None,
-            log_panel_rect: None,
             prompt: None,
             dump_logs_anyway: false,
             dump_logs_on_exit: None,
@@ -1794,45 +1785,7 @@ fn handle_main_event(app: &mut TuiApp, event: &Event) {
             _ => {}
         },
 
-        //FIXME: This does nothing, it seems ratatui handles this itself magically
-        Event::Mouse(mouse_event) => {
-            match mouse_event {
-                MouseEvent::Press(termion::event::MouseButton::WheelUp, x, y) => {
-                    // termion is 1-based, ratatui rects are 0-based
-                    let pos = Position {
-                        x: x.saturating_sub(1),
-                        y: y.saturating_sub(1),
-                    };
-
-                    if app.fetch_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.fetch_scroll = app.fetch_scroll.saturating_sub(1);
-                    } else if app.cook_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.cook_scroll = app.cook_scroll.saturating_sub(1);
-                        app.cook_auto_scroll = false;
-                    } else if app.log_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.auto_scroll = false;
-                        app.log_scroll = app.log_scroll.saturating_sub(1);
-                    }
-                }
-                MouseEvent::Press(termion::event::MouseButton::WheelDown, x, y) => {
-                    let pos = Position {
-                        x: x.saturating_sub(1),
-                        y: y.saturating_sub(1),
-                    };
-
-                    if app.fetch_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.fetch_scroll = app.fetch_scroll.saturating_add(1);
-                    } else if app.cook_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.cook_scroll = app.cook_scroll.saturating_add(1);
-                        app.cook_auto_scroll = false;
-                    } else if app.log_panel_rect.map_or(false, |r| r.contains(pos)) {
-                        app.auto_scroll = false;
-                        app.log_scroll = app.log_scroll.saturating_add(1);
-                    }
-                }
-                _ => {}
-            }
-        }
+        Event::Mouse(_) => {}
         _ => {}
     }
 }
