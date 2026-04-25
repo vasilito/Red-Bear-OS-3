@@ -51,13 +51,15 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/20_display.service"
 data = """
 [unit]
-description = "Legacy display compatibility shim"
+description = "Compositor proof (Phase 2: KWin virtual + Qt6 smoke + 60s survival)"
 requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
 ]
 
 [service]
-cmd = "ion"
-args = ["-c", "true"]
+cmd = "redbear-validation-session"
 envs = { VT = "3" }
 type = "oneshot_async"
 """
@@ -66,17 +68,13 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/20_greeter.service"
 data = """
 [unit]
-description = "Red Bear greeter service"
+description = "Red Bear greeter service (disabled for Phase 2 compositor proof; re-enable for Phase 3 user sessions)"
 requires_weak = [
-    "12_dbus.service",
-    "13_redbear-sessiond.service",
-    "13_seatd.service",
-    "19_redbear-authd.service",
 ]
 
 [service]
-cmd = "/usr/bin/redbear-greeterd"
-envs = { VT = "3", REDBEAR_GREETER_USER = "greeter" }
+cmd = "ion"
+args = ["-c", "true"]
 type = "oneshot_async"
 """
 

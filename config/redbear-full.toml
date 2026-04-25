@@ -400,7 +400,31 @@ if ! wait_for_wayland_socket; then
     exit 1
 fi
 
-exec /usr/bin/wayland-session
+/usr/bin/wayland-session
+smoke_exit=$?
+
+echo "wayland-session exited with code $smoke_exit"
+
+# 60-second KWin survival verdict
+survival_ok="$HOME/.kwin-60s-survival.ok"
+survival_err="$HOME/.kwin-60s-survival.err"
+rm -f "$survival_ok" "$survival_err"
+
+elapsed=0
+while kill -0 "$kwin_pid" 2>/dev/null; do
+    if [ "$elapsed" -ge 60 ]; then
+        echo "KWin survived 60 seconds (pid=$kwin_pid)" > "$survival_ok"
+        break
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+done
+
+if [ ! -f "$survival_ok" ]; then
+    echo "KWin died before 60 seconds (pid=$kwin_pid, elapsed=${elapsed}s)" > "$survival_err"
+fi
+
+echo "redbear-validation-session: complete (smoke_exit=$smoke_exit, survival=$([ -f "$survival_ok" ] && echo ok || echo failed))"
 """
 
 [[files]]
