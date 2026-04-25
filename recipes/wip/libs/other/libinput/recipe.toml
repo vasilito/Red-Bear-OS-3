@@ -1,4 +1,4 @@
-#TODO: needs libevdev working; udev integration is disabled so the compositor owns device discovery
+#TODO: needs libevdev working; udev integration via libudev-stub (scheme:udev)
 [source]
 tar = "https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.30.2/libinput-1.30.2.tar.bz2"
 patches = ["redox.patch"]
@@ -10,9 +10,9 @@ mesonflags = [
     "-Dmtdev=false",
     "-Ddebug-gui=false",
     "-Dtests=false",
-    "-Dudev=false",
     "-Ddocumentation=false",
 ]
 dependencies = [
     "libevdev",
+    "libudev-stub",
 ]

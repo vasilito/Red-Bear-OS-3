@@ -126,6 +126,42 @@ impl UdevScheme {
             ));
         }
 
+        // evdevd exposes event0(event1)(mouse), event2(touchpad) via scheme:evdev.
+        // Probe which exist and create /dev/input/eventN nodes for libinput.
+        if scheme_registered("evdev") {
+            for n in 0..8u8 {
+                let name = format!("event{n}");
+                if std::path::Path::new(&format!("/scheme/evdev/{name}")).exists() {
+                    let (devpath, kind) = match n {
+                        0 => (
+                            "/devices/platform/evdev-keyboard0",
+                            InputKind::Keyboard,
+                        ),
+                        1 => (
+                            "/devices/platform/evdev-mouse0",
+                            InputKind::Mouse,
+                        ),
+                        _ => (
+                            &*format!("/devices/platform/evdev-generic{n}"),
+                            InputKind::Generic,
+                        ),
+                    };
+                    let label = match kind {
+                        InputKind::Keyboard => "Redox Evdev Keyboard",
+                        InputKind::Mouse => "Redox Evdev Mouse",
+                        _ => "Redox Evdev Generic",
+                    };
+                    self.devices.push(DeviceInfo::new_platform_input(
+                        label,
+                        devpath,
+                        kind,
+                        "",
+                        "",
+                    ));
+                }
+            }
+        }
+
         self.assign_virtual_nodes();
 
         Ok(self.devices.len())
