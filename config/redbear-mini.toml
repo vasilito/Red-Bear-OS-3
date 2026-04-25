@@ -172,8 +172,8 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = ["-c", "echo RB_SERIAL_PROBE_OK"]
+cmd = "echo"
+args = ["RB_SERIAL_PROBE_OK"]
 type = "oneshot"
 """
 
@@ -364,11 +364,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-sessiond",
-]
+cmd = "redbear-sessiond"
 type = "oneshot_async"
 """
 
@@ -397,11 +393,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-upower",
-]
+cmd = "redbear-upower"
 type = "oneshot_async"
 """
 
@@ -415,11 +407,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-udisks",
-]
+cmd = "redbear-udisks"
 type = "oneshot_async"
 """
 
@@ -433,11 +421,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-polkit",
-]
+cmd = "redbear-polkit"
 type = "oneshot_async"
 """
 
