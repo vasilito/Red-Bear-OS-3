@@ -338,7 +338,22 @@ impl DisplayCore {
 
         match self.read_edid_block(connector_index, 0x00) {
             Ok(edid) if edid.len() >= 128 => edid,
-            Ok(_) | Err(_) => Vec::new(),
+            Ok(short) => {
+                log::warn!(
+                    "redox-drm: short EDID ({} bytes) from AMD connector {}",
+                    short.len(),
+                    connector_index
+                );
+                Vec::new()
+            }
+            Err(e) => {
+                log::warn!(
+                    "redox-drm: EDID read failed for AMD connector {}: {}",
+                    connector_index,
+                    e
+                );
+                Vec::new()
+            }
         }
     }
 

@@ -121,3 +121,42 @@ impl GemManager {
         Ok(self.object(handle)?.gpu_addr)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_and_object_exists() {
+        let mut mgr = GemManager::new();
+        let h = mgr.create(4096).expect("create should succeed");
+        let obj = mgr.object(h).expect("object should exist after create");
+        assert_eq!(obj.handle, h);
+        assert_eq!(obj.size, 4096);
+    }
+
+    #[test]
+    fn close_removes_object() {
+        let mut mgr = GemManager::new();
+        let h = mgr.create(4096).expect("create should succeed");
+        mgr.close(h).expect("close should succeed");
+        assert!(mgr.object(h).is_err(), "object should be gone after close");
+    }
+
+    #[test]
+    fn double_close_returns_error() {
+        let mut mgr = GemManager::new();
+        let h = mgr.create(4096).expect("create should succeed");
+        mgr.close(h).expect("first close should succeed");
+        assert!(mgr.close(h).is_err(), "second close should fail");
+    }
+
+    #[test]
+    fn object_by_invalid_handle_returns_error() {
+        let mgr = GemManager::new();
+        assert!(
+            mgr.object(99999).is_err(),
+            "querying a non-existent handle should fail"
+        );
+    }
+}

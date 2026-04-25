@@ -129,8 +129,11 @@ fn run() -> Result<()> {
 
         let response = match response {
             Ok(response) => response,
-            Err(_request) => {
-                error!("redox-drm: failed to handle request");
+            Err(request) => {
+                error!(
+                    "redox-drm: failed to handle request from context {}",
+                    request.context_id()
+                );
                 continue;
             }
         };

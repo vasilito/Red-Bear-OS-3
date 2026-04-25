@@ -1011,14 +1011,16 @@ impl DrmScheme {
                     );
                     return Err(Error::new(EINVAL));
                 }
-                let required_size = (pitch as u64).checked_mul(req.height as u64);
-                if required_size.is_none() {
-                    warn!(
-                        "redox-drm: ADDFB pitch * height overflows pitch={} height={}",
-                        pitch, req.height
-                    );
-                    return Err(Error::new(EINVAL));
-                }
+                let required_size = match (pitch as u64).checked_mul(req.height as u64) {
+                    Some(s) => s,
+                    None => {
+                        warn!(
+                            "redox-drm: ADDFB pitch * height overflows pitch={} height={}",
+                            pitch, req.height
+                        );
+                        return Err(Error::new(EINVAL));
+                    }
+                };
                 let owned = self
                     .handles
                     .get(&id)
@@ -1035,10 +1037,10 @@ impl DrmScheme {
                     warn!("redox-drm: ADDFB handle {} not found: {}", req.handle, e);
                     Error::new(ENOENT)
                 })?;
-                if required_size.unwrap() > actual_size {
+                if required_size > actual_size {
                     warn!(
                         "redox-drm: ADDFB requires {} bytes but GEM {} is {} bytes",
-                        required_size.unwrap(),
+                        required_size,
                         req.handle,
                         actual_size
                     );
