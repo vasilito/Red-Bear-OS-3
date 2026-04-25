@@ -1,6 +1,6 @@
 # Red Bear OS Desktop Stack — Current Status
 
-**Last updated:** 2026-04-19
+**Last updated:** 2026-04-25
 **Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
 
 ## Purpose
@@ -21,7 +21,7 @@ For subsystem planning detail, see `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md`; 
 
 The canonical desktop plan uses a three-track model:
 
-- **Track A (Phase 1–2):** Runtime Substrate → Software Compositor — **Phase 1 is the current target**
+- **Track A (Phase 1–2):** Runtime Substrate → Software Compositor — **Phase 1 test coverage is substantially complete (300+ unit tests across all Phase 1 daemons); runtime validation in a live environment remains the exit gate**
 - **Track B (Phase 3–4):** KWin Session → KDE Plasma — **blocked on Track A**
 - **Track C (Phase 5):** Hardware GPU — **can start after Phase 1**
 
@@ -43,15 +43,15 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | Area | Evidence class | Detail |
 |---|---|---|
 | `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially better than before |
-| Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland` |
+| Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
 | KF6 frameworks | **builds** | All 32/32; some higher-level pieces use bounded/reduced recipes (kf6-kio heavy shim, kirigami stub-only) |
 | KWin | **experimental** | Recipe exists; current reduced path now links honest `libudev.so` and `libdisplay-info.so` provider paths alongside real `libepoxy` and `lcms2`; 11 feature switches remain disabled and runtime/session proof is still missing |
 | plasma-workspace | **experimental** | Recipe exists; stub deps (kf6-knewstuff, kf6-kwallet) unresolved |
 | plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
-| Input stack | **builds, enumerates** | evdevd, libevdev, libinput, seatd present; evdevd registers scheme at boot |
-| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full`; D-Bus plan + sessiond complete (DB-1), Qt 6.11 D-Bus coverage documented (Section 14), DB-2/3/4 service daemons implemented as stubs (notifications, upower, udisks, polkit) |
+| Input stack | **builds, enumerates** | evdevd (65 tests), libevdev, libinput, seatd present; evdevd registers scheme at boot; end-to-end compositor input path unproven |
+| D-Bus | **builds, usable (bounded)** | System bus wired in `redbear-full`; session bus incomplete (redbear-sessiond login1 broker only) |
 | redbear-sessiond | **builds, scaffold** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; now includes runtime control updates used by the greeter/auth session handoff |
 | redbear-authd | **builds** | Privileged local-user auth daemon; `/etc/passwd`/`/etc/shadow`/`/etc/group` parsing, SHA-256/SHA-512 crypt verification, bounded lockout, target-side recipe build proven |
 | redbear-session-launch | **builds** | User-session bootstrap tool; runtime-dir/env setup, uid/gid handoff, dbus-run-session → `redbear-kde-session`, target-side recipe build proven |
@@ -68,7 +68,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | Phase 6 Solid readiness proof | ✅ implemented, blocked | `redbear-phase6-kde-check` + `test-phase6-kde-qemu.sh` now distinguish real Solid validation from blocked states; `kf6-solid` remains disabled until runtime proof + tooling are present |
 | redbear-polkit | ✅ Scaffold | org.freedesktop.PolicyKit1 — always-permit authorization; KAuth still uses FAKE backend because PolkitQt6-1 is not packaged yet |
 | redbear-dbus-services | ✅ Created | D-Bus activation files + policies staged |
-| DRM/KMS | **builds** | redox-drm scheme daemon; shared contract hardened (GEM, PRIME, bounded private CS surface, honest fsync, shared driver-event groundwork for B3 across Intel and AMD); no hardware runtime validation |
+| DRM/KMS | **builds** | redox-drm scheme daemon; 68 unit tests (KMS, GEM, PRIME, wire structs, scheme pure logic); no hardware runtime validation |
 | GPU acceleration | **blocked** | PRIME/DMA-BUF ioctls and bounded private CS surface implemented; real vendor render CS/fence path still missing |
 | validation compositor runtime | **experimental** | Reaches early init in QEMU; no complete session |
 | validation profile | **builds, boots** | Bounded Wayland runtime profile |
@@ -76,6 +76,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | `redbear-live-full` profile | **builds** | Live image following the active desktop/graphics target |
 | `redbear-mini` profile | **builds** | Minimal non-desktop compile target |
 | `redbear-live-mini` profile | **builds** | Minimal live image target |
+| `redbear-hwutils` | **builds** | lspci/lsusb tools; 19 unit tests (PCI location parsing, USB device description, argument handling) |
 
 ## Profile View
 
@@ -110,11 +111,13 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 The repo has real build-visible desktop progress, but build success exceeds runtime confidence.
 Phase 1 exists specifically to close this gap.
+Phase 1 test coverage is now comprehensive (300+ unit tests across evdevd, udev-shim, firmware-loader, redox-drm, redbear-hwutils). The remaining gap is live-environment runtime validation of these tested surfaces.
 
 ### 2. No complete compositor session (Phase 2 gate)
 
 A bounded compositor initialization reaches early startup but does not complete a usable Wayland compositor session.
 This blocks all desktop session work.
+KWin is the sole intended compositor. No alternative (weston, wlroots) is in a working state. The KWin reduced path builds with 11 feature groups disabled but has zero runtime session evidence.
 
 ### 3. Greeter/login path now exists, but runtime proof is still missing (desktop-login gate)
 
@@ -169,6 +172,14 @@ shell wrappers at `local/scripts/test-drm-display-runtime.sh`, `test-amd-gpu.sh`
 proof over the Red Bear DRM ioctl surface, but it is still only a runtime evidence tool until it is
 exercised on real Intel and AMD hardware.
 
+### 6. KDE Plasma session assembly blocked on QML stack (Phase 4 gate)
+
+Kirigami is stub-only (Qt6Quick not available on Redox). kf6-kio is heavily shimmed (QtNetwork disabled, KIOCORE_ONLY=ON). kf6-knewstuff and kf6-kwallet are stub-only. These collectively prevent plasma-workspace from building honestly, which blocks the entire KDE Plasma session.
+
+### 7. QtNetwork disabled blocks KDE network integration
+
+QtNetwork is intentionally disabled because relibc networking is too narrow. This prevents Qt-based network applications, kf6-kio network transparency, and KDE network-dependent features.
+
 ## Canonical Document Roles
 
 | Document | Role |
@@ -189,6 +200,9 @@ The Red Bear desktop stack has crossed major build-side gates and one important 
 - Four supported compile targets exist, with desktop/graphics on `redbear-full` and `redbear-live-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`)
 - relibc compatibility is materially stronger than before
+- Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 19, bluetooth/wifi 209)
+- KWin reduced path builds with honest dependency linkage (libepoxy, lcms2, libudev, libdisplay-info) but has no compositor session proof
+- Critical blockers for Phase 4: kirigami stub (needs Qt6Quick), kf6-kio shim (needs QtNetwork), kf6-knewstuff/kwallet stubs
 
 The remaining work is **broader runtime validation, compositor/session stability, and the remaining KDE session/runtime proof work**.
-Phase 1 (Runtime Substrate Validation) remains the immediate broad target. The key current boundary is now explicit: the greeter/login slice has crossed its bounded proof gate, the old `kwin_wayland` page-fault path has been removed, and current QEMU now fails lower in the desktop/runtime layer with a clean no-usable-DRM limitation rather than with a compositor crash.
+Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: kirigami, kf6-kio, and QML dependencies must become honest before KDE Plasma session assembly can proceed.

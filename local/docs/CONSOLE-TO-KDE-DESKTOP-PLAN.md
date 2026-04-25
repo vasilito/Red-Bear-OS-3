@@ -1,6 +1,7 @@
 # Red Bear OS: Console to Hardware-Accelerated KDE Desktop on Wayland
 
-**Version:** 2.0 (2026-04-16)
+**Version:** 2.1 (2026-04-25)
+**Updated:** Phase 1 test coverage complete; refined Phase 2–4 work items and blocker detail
 **Replaces:** All prior console-to-KDE roadmap documents
 **Status:** Canonical desktop path plan
 
@@ -76,11 +77,12 @@ Rules:
 | relibc Wayland/Qt unblockers | builds + targeted runtime proof | signalfd, timerfd, eventfd, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, bounded waitid, bounded RLIMIT, bounded eth0 networking, shm_open, bounded sem_open | Strict relibc Redox-target runtime proof now exists for the fd-event slice; broader real-consumer semantics still need confirmation |
 | redox-driver-sys | builds | Driver substrate | |
 | linux-kpi | builds | Linux kernel API compatibility layer | |
-| firmware-loader | builds, boots | scheme:firmware registers at boot | |
-| redox-drm (AMD + Intel) | builds | DRM scheme daemon | No hardware runtime validation |
+| firmware-loader | builds, boots | scheme:firmware registers at boot; 24 unit tests (mmap lifecycle, openat validation, read/fstat) | |
+| redox-drm (AMD + Intel) | builds | DRM scheme daemon; 68 unit tests passing (KMS, GEM, PRIME, wire structs, scheme pure logic) | No hardware runtime validation |
 | amdgpu retained C path | builds | Red Bear display glue retained path + linux-kpi compat; imported Linux AMD DC/TTM/core remain under compile triage | No hardware runtime validation |
-| evdevd | builds, boots | scheme:evdev registers at boot | |
-| udev-shim | builds, boots | scheme:udev registers at boot | |
+| evdevd | builds, boots | scheme:evdev registers at boot; 65 unit tests (device classification, capability bitmaps, input translation) | |
+| udev-shim | builds, boots | scheme:udev registers at boot; 15 unit tests (device database, subsystem naming, property formatting) | |
+| redbear-hwutils | builds | lspci/lsusb tools; 19 unit tests (PCI location parsing, USB device description, argument handling) | |
 | libwayland 1.24.0 | builds | No compositor proof yet | |
 | wayland-protocols | builds | Build blocker removed | |
 | Mesa EGL + GBM + GLES2 | builds | Software rendering via LLVMpipe proven | Hardware path not proven |
@@ -93,7 +95,7 @@ Rules:
 | libinput 1.30.2 | builds | Runtime integration open | |
 | libevdev 1.13.2 | builds | Runtime integration open | |
 | seatd | builds | Session-management runtime proof open | |
-| All 32 KF6 frameworks | builds | Major build milestone | |
+| All 32 KF6 frameworks | builds | Major build milestone; some higher-level pieces use bounded/reduced recipes (kirigami stub-only, kf6-kio heavy shim, kf6-knewstuff/kwallet stubs) | |
 | kdecoration | builds | | |
 | plasma-wayland-protocols | builds | | |
 | kf6-kwayland | builds | | |
@@ -131,6 +133,7 @@ The repo has crossed major build-side gates:
 4. **Qt6 + D-Bus** — qtbase (7 libs + 12 plugins), qtdeclarative (11 libs), qtsvg, qtwayland, D-Bus 1.16.2
 5. **KF6 + KDE-facing** — All 32 KF6 frameworks, kdecoration, plasma-wayland-protocols, kf6-kwayland, kf6-kcmutils
 6. **Tracked profiles** — redbear-mini, redbear-live-mini, redbear-full, redbear-live-full
+7. **Phase 1 test coverage** — 300+ unit tests across evdevd (65), udev-shim (15), firmware-loader (24), redox-drm (68), redbear-hwutils (19), and bluetooth/wifi daemons
 
 ### What is runtime-proven (limited scope)
 
@@ -154,8 +157,10 @@ The repo has crossed major build-side gates:
 - KWin does not build with fully real dependencies (4 stub deps: libepoxy, libudev, lcms2, libdisplay-info)
 - kirigami is stub-only
 - kf6-kio is a heavy shim
-- 9 KWin feature switches remain disabled
+- 11 KWin feature switches remain disabled (BUILD_WITH_QML=OFF, KWIN_BUILD_KCMS=OFF, KWIN_BUILD_EFFECTS=OFF, KWIN_BUILD_TABBOX=OFF, KWIN_BUILD_GLOBALSHORTCUTS=OFF, KWIN_BUILD_NOTIFICATIONS=OFF, KWIN_BUILD_SCREENLOCKING=OFF, KWIN_BUILD_SCREENLOCKER=OFF, legacy backend disabled, KWIN_BUILD_RUNNING_IN_KDE=OFF, KWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF)
 - QtNetwork disabled (relibc networking incomplete)
+- No compositor session proof exists — KWin builds but has zero runtime session evidence
+- Qt6Quick/QML runtime not proven — JIT disabled, no QML client test exists
 
 ### Baseline conclusion
 
@@ -259,6 +264,8 @@ Track C (parallel): Hardware GPU Enablement
 
 #### Exit criteria
 
+**Test coverage progress (Phase 1 substrate):** 300+ unit tests now cover all Phase 1 daemon pure-logic surfaces. Runtime validation of these tests in a live environment remains the exit criterion.
+
 - [ ] `redbear-wayland` boots in validation environment
 - [ ] All Phase 1 runtime services register without startup errors
 - [ ] relibc runtime checks pass for desktop-facing consumers
@@ -289,12 +296,13 @@ compositor + input + Qt client issues before session-shell complexity.
 
 #### Work items
 
-| # | Task | Acceptance criteria |
-|---|---|---|
-| 2.1 | Complete bounded runtime path to usable session | The compositor launches, creates a Wayland surface, and does not crash for at least 60 seconds in QEMU; `WAYLAND_DISPLAY` is set and a client can connect |
-| 2.2 | Wire evdevd input into compositor | Keyboard + mouse work through Redox input stack |
-| 2.3 | Wire Mesa software rendering through GBM + EGL | Software rendering works through Mesa/GBM/EGL |
-| 2.4 | Get Qt6 widget app to display through compositor | `qt6-wayland-smoke` shows a window inside compositor in QEMU |
+| # | Task | Acceptance criteria | Technical notes |
+|---|---|---|---|
+| 2.1 | Complete bounded runtime path to usable session | Compositor launches, creates a Wayland surface, survives 60 seconds in QEMU; `WAYLAND_DISPLAY` is set and a client can connect | Must use KWin reduced path; start with headless/framebuffer output |
+| 2.2 | Wire evdevd input into compositor | Keyboard + mouse events arrive through evdevd → libinput → compositor chain | libinput recipe has udev disabled; evdevd must serve as input source; libevdev is available |
+| 2.3 | Wire Mesa software rendering through GBM + EGL | Software rendering works through Mesa/GBM/EGL | LLVMpipe already proven; GBM/EGL must connect to redox-drm buffer path |
+| 2.4 | Get Qt6 widget app to display through compositor | `qt6-wayland-smoke` shows a window inside compositor in QEMU | qt6-wayland-smoke already exists as bounded client proof |
+| 2.5 | Validate seatd for compositor seat access | seatd grants compositor process graphics+input seat; DRM lease works | seatd-redox needs redox-drm scheme for DRM lease path |
 
 #### Exit criteria
 
@@ -355,13 +363,15 @@ compositor + input + Qt client issues before session-shell complexity.
 
 #### Work items
 
-| # | Task | Acceptance criteria |
-|---|---|---|
-| 3.1 | Keep the KWin reduced path dependency-honest | KWin cmake configure succeeds without any fake `-stub` imported fallbacks; the built KWin binary links `libepoxy`, `libudev`, `lcms2`, and `libdisplay-info` as real shared-library dependencies |
-| 3.2 | Launch KWin as Wayland compositor | KWin process starts, registers `WAYLAND_DISPLAY`, and owns the display output for at least 60 seconds without crash |
-| 3.3 | Validate libinput backend behavior | Keyboard keypress and mouse motion events arrive at a KWin-managed window via libinput + evdevd chain |
-| 3.4 | Validate D-Bus session behavior | `dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.supportInformation` returns a non-empty string |
-| 3.5 | Validate seatd for bounded KWin session model | seatd grants the KWin process graphics+input seat access; a client launched under the same seat receives input events |
+| # | Task | Acceptance criteria | Technical path |
+|---|---|---|---|
+| 3.1 | Keep KWin reduced path dependency-honest | cmake configure succeeds without fake stub imported fallbacks | Current honest deps: libepoxy, lcms2, libudev (scheme-backed), libdisplay-info (bounded EDID) |
+| 3.2 | Launch KWin as Wayland compositor | KWin starts, registers WAYLAND_DISPLAY, owns display 60+ seconds | 11 feature groups disabled; re-enable incrementally after basic compositor works |
+| 3.3 | Validate libinput backend | Key/mouse events arrive via libinput + evdevd | libinput udev disabled; must use evdevd path |
+| 3.4 | Validate D-Bus session behavior | dbus-send KWin supportInformation returns non-empty | redbear-sessiond provides login1; full session bus needed |
+| 3.5 | Validate seatd for KWin session | seatd grants KWin graphics+input seat | Depends on seatd-redox DRM lease |
+| 3.6 | Re-enable KWin BUILD_WITH_QML | QML-dependent KWin paths work after Phase 2 QML proof | Depends on Qt6Quick runtime proof from Phase 2 |
+| 3.7 | Make kf6-kio build honest | kf6-kio cmake succeeds without QtNetwork stubs | QtNetwork blocked on relibc; may need bounded network path |
 
 #### Exit criteria
 
@@ -386,13 +396,15 @@ compositor + input + Qt client issues before session-shell complexity.
 
 #### Work items
 
-| # | Task | Acceptance criteria |
-|---|---|---|
-| 4.1 | Complete plasma-workspace compilation + integration | plasma-workspace cmake configure succeeds without stub targets; binary stages to sysroot |
-| 4.2 | Complete plasma-desktop compilation + integration | plasma-desktop cmake configure succeeds without stub targets; binary stages to sysroot |
-| 4.3 | Shell, panel, launcher visible and usable | plasmashell process starts; panel renders at least app launcher + clock; clicking launcher opens and closes an app |
-| 4.4 | File-manager and settings paths working | dolphin (or kfmclient) opens a directory view; systemsettings opens a settings module |
-| 4.5 | Bounded network + audio integration | `ip addr` shows a configured interface inside Plasma session; a sound card device node is visible under `/dev/snd/` or equivalent scheme |
+| # | Task | Acceptance criteria | Technical path |
+|---|---|---|---|
+| 4.1 | Complete plasma-workspace build | cmake succeeds without stub targets | Blocked on kirigami stub → needs Qt6Quick |
+| 4.2 | Complete plasma-desktop build | cmake succeeds without stub targets | Blocked on plasma-workspace |
+| 4.3 | Shell, panel, launcher visible | plasmashell starts; panel renders | Blocked on kirigami + QML |
+| 4.4 | File-manager and settings paths | dolphin opens directory; systemsettings opens module | Blocked on kf6-kio honest build |
+| 4.5 | Bounded network + audio integration | ip addr shows interface; sound device visible | QtNetwork blocked on relibc |
+| 4.6 | Resolve kirigami stub | Real kirigami build from source | Qt6Quick prerequisite; QML JIT disabled |
+| 4.7 | Resolve kf6-knewstuff/kwallet stubs | Real or bounded builds replace stubs | plasma-workspace dependencies |
 
 #### Dependency chain to close
 
@@ -520,6 +532,7 @@ integration). Those can be solved on software renderer while hardware path matur
 | R6 | Mesa hardware rendering needs Redox-specific winsys work | Medium | High | Separate display proof from renderer proof |
 | R7 | linux-kpi gaps only surface during real-hardware execution | High | Medium-High | Budget for hardware-driven compat fixes in Phase 5 |
 | R8 | kirigami/stub deps cannot be resolved without full QML stack | Medium | High | Evaluate early in Phase 3; may need alternative approach |
+| R9 | Phase 2 compositor proof reveals deeper relibc/glibc gaps in Wayland event loop | Medium | High | Use bounded validation compositor first; isolate event-loop pressure from session complexity |
 
 ---
 
