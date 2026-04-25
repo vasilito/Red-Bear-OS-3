@@ -1,0 +1,169 @@
+# P2-pcid-cfg-access.patch
+#
+# PCI config access error handling: replace unwrap()/expect()/assert!() with
+# proper error returns and graceful fallbacks in PCI configuration space access
+# (both I/O port fallback and ECAM/DTB paths).
+#
+# Covers:
+#   - pcid/cfg_access/fallback.rs: I/O port rights error logging, offset overflow returns
+#   - pcid/cfg_access/mod.rs: DTB property access with proper error propagation,
+#     bus-range validation, interrupt-map phandle/property fallbacks
+#
+diff --git a/drivers/pcid/src/cfg_access/fallback.rs b/drivers/pcid/src/cfg_access/fallback.rs
+index 671d17f7..ea8f69f8 100644
+--- a/drivers/pcid/src/cfg_access/fallback.rs
++++ b/drivers/pcid/src/cfg_access/fallback.rs
+@@ -33,7 +33,12 @@ impl Pci {
+                     "PCI: couldn't find or access PCIe extended configuration, \
+                  and thus falling back to PCI 3.0 io ports"
+                 );
+-                common::acquire_port_io_rights().expect("pcid: failed to get IO port rights");
++                common::acquire_port_io_rights()
++                    .map_err(|err| {
++                        log::error!("pcid: failed to get IO port rights: {err}");
++                        err
++                    })
++                    .expect("pcid: IO port rights required for PCI 3.0 fallback");
+             }
+         });
+     }
+@@ -61,8 +66,9 @@ impl ConfigRegionAccess for Pci {
+ 
+         Self::set_iopl();
+ 
+-        let offset =
+-            u8::try_from(offset).expect("offset too large for PCI 3.0 configuration space");
++        let Ok(offset) = u8::try_from(offset) else {
++            return 0xFFFFFFFF;
++        };
+         let address = Self::address(address, offset);
+ 
+         Pio::<u32>::new(0xCF8).write(address);
+@@ -74,8 +80,9 @@ impl ConfigRegionAccess for Pci {
+ 
+         Self::set_iopl();
+ 
+-        let offset =
+-            u8::try_from(offset).expect("offset too large for PCI 3.0 configuration space");
++        let Ok(offset) = u8::try_from(offset) else {
++            return;
++        };
+         let address = Self::address(address, offset);
+ 
+         Pio::<u32>::new(0xCF8).write(address);
+diff --git a/drivers/pcid/src/cfg_access/mod.rs b/drivers/pcid/src/cfg_access/mod.rs
+index c2552448..0fe215a6 100644
+--- a/drivers/pcid/src/cfg_access/mod.rs
++++ b/drivers/pcid/src/cfg_access/mod.rs
+@@ -38,42 +38,57 @@ fn locate_ecam_dtb<T>(
+             )
+         })?;
+ 
+-    let address = node.reg().unwrap().next().unwrap().starting_address as u64;
++    let mut reg = node.reg().ok_or_else(|| {
++        io::Error::new(io::ErrorKind::NotFound, "pci-host-ecam-generic missing 'reg' property")
++    })?;
++    let address = reg.next().ok_or_else(|| {
++        io::Error::new(io::ErrorKind::NotFound, "pci-host-ecam-generic 'reg' has no entries")
++    })?.starting_address as u64;
+ 
+-    let bus_range = node.property("bus-range").unwrap();
+-    assert_eq!(bus_range.value.len(), 8);
+-    let start_bus = u32::from_be_bytes(<[u8; 4]>::try_from(&bus_range.value[0..4]).unwrap());
+-    let end_bus = u32::from_be_bytes(<[u8; 4]>::try_from(&bus_range.value[4..8]).unwrap());
++    let bus_range = node.property("bus-range").ok_or_else(|| {
++        io::Error::new(io::ErrorKind::NotFound, "pci-host-ecam-generic missing 'bus-range' property")
++    })?;
++    if bus_range.value.len() != 8 {
++        return Err(io::Error::new(io::ErrorKind::InvalidData, "pci-host-ecam-generic 'bus-range' not 8 bytes"));
++    }
++    let start_bus = u32::from_be_bytes(<[u8; 4]>::try_from(&bus_range.value[0..4]).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bus-range start parse failed"))?);
++    let end_bus = u32::from_be_bytes(<[u8; 4]>::try_from(&bus_range.value[4..8]).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bus-range end parse failed"))?);
+ 
+-    // address-cells == 3, size-cells == 2, interrupt-cells == 1
+-    let mut interrupt_map_data = node
+-        .property("interrupt-map")
+-        .unwrap()
++    let interrupt_map_prop = node.property("interrupt-map").ok_or_else(|| {
++        io::Error::new(io::ErrorKind::NotFound, "pci-host-ecam-generic missing 'interrupt-map' property")
++    })?;
++    let mut interrupt_map_data = interrupt_map_prop
+         .value
+         .chunks_exact(4)
+-        .map(|x| u32::from_be_bytes(<[u8; 4]>::try_from(x).unwrap()));
++        .map(|x| u32::from_be_bytes(<[u8; 4]>::try_from(x).unwrap_or([0, 0, 0, 0])));
+     let mut interrupt_map = Vec::<InterruptMap>::new();
+     while let Ok([addr1, addr2, addr3, int1, phandle]) = interrupt_map_data.next_chunk::<5>() {
+-        let parent = dt.find_phandle(phandle).unwrap();
+-        let parent_address_cells = u32::from_be_bytes(
+-            parent.property("#address-cells").unwrap().value[..4]
+-                .try_into()
+-                .unwrap(),
+-        );
++        let Some(parent) = dt.find_phandle(phandle) else {
++            log::warn!("pcid: DTB interrupt-map references phandle {phandle} not found, skipping");
++            continue;
++        };
++        let parent_address_cells = match parent.property("#address-cells") {
++            Some(prop) => u32::from_be_bytes(
++                prop.value[..4]
++                    .try_into()
++                    .unwrap_or([0, 0, 0, 0]),
++            ),
++            None => 0,
++        };
+         match parent_address_cells {
+             0 => {}
+             1 => {
+-                assert_eq!(interrupt_map_data.next().unwrap(), 0);
++                let _ = interrupt_map_data.next();
+             }
+             2 => {
+-                assert_eq!(interrupt_map_data.next_chunk::<2>().unwrap(), [0, 0]);
++                let _ = interrupt_map_data.next_chunk::<2>();
+             }
+             3 => {
+-                assert_eq!(interrupt_map_data.next_chunk::<3>().unwrap(), [0, 0, 0]);
++                let _ = interrupt_map_data.next_chunk::<3>();
+             }
+             _ => break,
+         };
+-        let parent_interrupt_cells = parent.interrupt_cells().unwrap();
++        let parent_interrupt_cells = parent.interrupt_cells().unwrap_or(1);
+         let parent_interrupt = match parent_interrupt_cells {
+             1 if let Some(a) = interrupt_map_data.next() => [a, 0, 0],
+             2 if let Ok([a, b]) = interrupt_map_data.next_chunk::<2>() => [a, b, 0],
+@@ -94,8 +109,8 @@ fn locate_ecam_dtb<T>(
+         let mut cells = interrupt_mask_node
+             .value
+             .chunks_exact(4)
+-            .map(|x| u32::from_be_bytes(<[u8; 4]>::try_from(x).unwrap()));
+-        cells.next_chunk::<4>().unwrap().to_owned()
++            .map(|x| u32::from_be_bytes(<[u8; 4]>::try_from(x).unwrap_or([0, 0, 0, 0])));
++        cells.next_chunk::<4>().unwrap_or([u32::MAX, u32::MAX, u32::MAX, u32::MAX]).to_owned()
+     } else {
+         [u32::MAX, u32::MAX, u32::MAX, u32::MAX]
+     };
+@@ -104,8 +119,8 @@ fn locate_ecam_dtb<T>(
+         PcieAllocs(&[PcieAlloc {
+             base_addr: address,
+             seg_group_num: 0,
+-            start_bus: start_bus.try_into().unwrap(),
+-            end_bus: end_bus.try_into().unwrap(),
++            start_bus: start_bus.try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "start_bus overflow"))?,
++            end_bus: end_bus.try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "end_bus overflow"))?,
+             _rsvd: [0; 4],
+         }]),
+         interrupt_map,
+@@ -165,7 +180,10 @@ impl Mcfg {
+             // crashing. `as_encoded_bytes()` returns some superset
+             // of ASCII, so directly comparing it with an ASCII name
+             // is fine.
+-            let table_filename = table_path.file_name().unwrap().as_encoded_bytes();
++            let table_filename = match table_path.file_name() {
++                Some(name) => name.as_encoded_bytes(),
++                None => continue,
++            };
+             if table_filename.get(0..4) == Some(&MCFG_NAME) {
+                 let bytes = fs::read(table_path)?.into_boxed_slice();
+                 match Mcfg::parse(&*bytes) {

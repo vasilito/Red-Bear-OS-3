@@ -1,0 +1,516 @@
+# P2-ps2d-improvements.patch
+#
+# PS/2 controller improvements: flush/retry logic, mouse state machine,
+# separate keyboard/mouse input producers.
+#
+# Covers:
+#   - ps2d/controller.rs: flush stale bytes, self-test with retry, AUX port test
+#   - ps2d/main.rs: separate InputProducer for keyboard and mouse
+#   - ps2d/mouse.rs: ACK/RESEND/BAT constant names, resend handling, state machine fixes
+#   - ps2d/state.rs: dual InputProducer fields, non-fatal init error handling
+#
+diff --git a/drivers/input/ps2d/src/controller.rs b/drivers/input/ps2d/src/controller.rs
+index d7af4cba..638b7cc1 100644
+--- a/drivers/input/ps2d/src/controller.rs
++++ b/drivers/input/ps2d/src/controller.rs
+@@ -97,6 +97,14 @@ enum KeyboardCommandData {
+ const DEFAULT_TIMEOUT: u64 = 50_000;
+ // Reset timeout in microseconds
+ const RESET_TIMEOUT: u64 = 1_000_000;
++// Maximum bytes to drain during flush (Linux: I8042_BUFFER_SIZE)
++const FLUSH_LIMIT: usize = 4096;
++// Controller self-test pass value (Linux: I8042_RET_CTL_TEST)
++const SELFTEST_PASS: u8 = 0x55;
++// Controller self-test retries (Linux: 5 attempts)
++const SELFTEST_RETRIES: usize = 5;
++// AUX port test pass value (Linux returns 0x00 on success)
++const AUX_TEST_PASS: u8 = 0x00;
+ 
+ #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+ pub struct Ps2 {
+@@ -271,6 +279,50 @@ impl Ps2 {
+         }
+     }
+ 
++    /// Drain all pending bytes from the controller output buffer.
++    /// Borrowed from Linux i8042_flush(): stale firmware/BIOS bytes can be
++    /// misinterpreted as device responses during initialization.
++    fn flush(&mut self) -> usize {
++        let mut count = 0;
++        while self.status().contains(StatusFlags::OUTPUT_FULL) {
++            if count >= FLUSH_LIMIT {
++                warn!("flush: exceeded limit, controller may be stuck");
++                break;
++            }
++            let data = self.data.read();
++            trace!("flush: discarded {:02X}", data);
++            count += 1;
++        }
++        if count > 0 {
++            debug!("flushed {} stale bytes from controller", count);
++        }
++        count
++    }
++
++    /// Test the AUX (mouse) port via controller command 0xA9.
++    /// Borrowed from Linux: verifies electrical connectivity before
++    /// attempting to talk to the mouse. Returns true if the port passed.
++    fn test_aux_port(&mut self) -> bool {
++        if let Err(err) = self.command(Command::TestSecond) {
++            warn!("aux port test command failed: {:?}", err);
++            return false;
++        }
++        match self.read() {
++            Ok(AUX_TEST_PASS) => {
++                debug!("aux port test passed");
++                true
++            }
++            Ok(val) => {
++                warn!("aux port test failed: {:02X}", val);
++                false
++            }
++            Err(err) => {
++                warn!("aux port test read timeout: {:?}", err);
++                false
++            }
++        }
++    }
++
+     pub fn init_keyboard(&mut self) -> Result<(), Error> {
+         let mut b;
+ 
+@@ -308,66 +360,125 @@ impl Ps2 {
+     }
+ 
+     pub fn init(&mut self) -> Result<(), Error> {
++        // Linux i8042_controller_check(): verify controller is present by
++        // flushing any stale data. A stuck output buffer means no controller.
++        self.flush();
++
++        // Bare-metal controllers may be slow after firmware handoff.
++        // Give the controller a moment to finish POST before sending commands.
++        std::thread::sleep(std::time::Duration::from_millis(50));
++
+         {
+-            // Disable devices
+-            self.command(Command::DisableFirst)?;
+-            self.command(Command::DisableSecond)?;
++            // Disable both ports first — use retry because the controller
++            // may still be settling or temporarily unresponsive.
++            // Failure here is non-fatal: we continue and attempt the rest
++            // of initialization.  A truly absent controller will fail later
++            // at self-test or keyboard reset.
++            if let Err(err) = self.retry(
++                format_args!("disable first port"),
++                3,
++                |x| x.command(Command::DisableFirst),
++            ) {
++                warn!("disable first port failed: {:?}", err);
++            }
++            if let Err(err) = self.retry(
++                format_args!("disable second port"),
++                3,
++                |x| x.command(Command::DisableSecond),
++            ) {
++                warn!("disable second port failed: {:?}", err);
++            }
+         }
+ 
+-        // Disable clocks, disable interrupts, and disable translate
++        // Flush again after disabling — firmware may have queued more bytes
++        self.flush();
++
++        // Linux i8042_controller_init() step 1: write a known-safe config
++        // (interrupts off, both ports disabled) so stale config can't cause
++        // spurious interrupts during the rest of init.
+         {
+-            // Since the default config may have interrupts enabled, and the kernel may eat up
+-            // our data in that case, we will write a config without reading the current one
+             let config = ConfigFlags::POST_PASSED
+                 | ConfigFlags::FIRST_DISABLED
+                 | ConfigFlags::SECOND_DISABLED;
+             self.set_config(config)?;
+         }
+ 
+-        // The keyboard seems to still collect bytes even when we disable
+-        // the port, so we must disable the keyboard too
++        // Linux i8042_controller_selftest(): retry up to 5 times with delay.
++        // "On some really fragile systems this does not take the first time."
++        {
++            let mut passed = false;
++            for attempt in 0..SELFTEST_RETRIES {
++                if let Err(err) = self.command(Command::TestController) {
++                    warn!("self-test command failed (attempt {}): {:?}", attempt + 1, err);
++                    continue;
++                }
++                match self.read() {
++                    Ok(SELFTEST_PASS) => {
++                        passed = true;
++                        break;
++                    }
++                    Ok(val) => {
++                        warn!(
++                            "self-test unexpected value {:02X} (attempt {}/{})",
++                            val,
++                            attempt + 1,
++                            SELFTEST_RETRIES
++                        );
++                    }
++                    Err(err) => {
++                        warn!("self-test read timeout (attempt {}): {:?}", attempt + 1, err);
++                    }
++                }
++                // Linux: msleep(50) between retries
++                std::thread::sleep(std::time::Duration::from_millis(50));
++            }
++            if !passed {
++                // Linux on x86: "giving up on controller selftest, continuing anyway"
++                warn!("controller self-test did not pass after {} attempts, continuing", SELFTEST_RETRIES);
++            }
++        }
++
++        // Flush any bytes the self-test may have left behind
++        self.flush();
++
++        // Linux i8042_controller_init() step 2: set keyboard defaults
++        // (disable scanning so keyboard doesn't send scancodes during init)
+         self.retry(format_args!("keyboard defaults"), 4, |x| {
+-            // Set defaults and disable scanning
+             let b = x.keyboard_command(KeyboardCommand::SetDefaultsDisable)?;
+             if b != 0xFA {
+                 error!("keyboard failed to set defaults: {:02X}", b);
+                 return Err(Error::CommandRetry);
+             }
+-
+             Ok(b)
+         })?;
+ 
+-        {
+-            // Perform the self test
+-            self.command(Command::TestController)?;
+-            let r = self.read()?;
+-            if r != 0x55 {
+-                warn!("self test unexpected value: {:02X}", r);
+-            }
+-        }
+-
+         // Initialize keyboard
+         if let Err(err) = self.init_keyboard() {
+             error!("failed to initialize keyboard: {:?}", err);
+             return Err(err);
+         }
+ 
+-        // Enable second device
+-        let enable_mouse = match self.command(Command::EnableSecond) {
+-            Ok(()) => true,
+-            Err(err) => {
+-                error!("failed to initialize mouse: {:?}", err);
+-                false
++        // Linux: test AUX port (command 0xA9) before enabling.
++        // Skips mouse init entirely if the port is not electrically present.
++        let aux_ok = self.test_aux_port();
++
++        // Enable second device (mouse) only if AUX port tested OK
++        let enable_mouse = if aux_ok {
++            match self.command(Command::EnableSecond) {
++                Ok(()) => true,
++                Err(err) => {
++                    warn!("failed to enable aux port after test passed: {:?}", err);
++                    false
++                }
+             }
++        } else {
++            info!("skipping mouse init: aux port test did not pass");
++            false
+         };
+ 
+         {
+-            // Enable keyboard data reporting
+-            // Use inner function to prevent retries
+-            // Response is ignored since scanning is now on
+             if let Err(err) = self.keyboard_command_inner(KeyboardCommand::EnableReporting as u8) {
+                 error!("failed to initialize keyboard reporting: {:?}", err);
+-                //TODO: fix by using interrupts?
+             }
+         }
+ 
+diff --git a/drivers/input/ps2d/src/main.rs b/drivers/input/ps2d/src/main.rs
+index db17de2a..1ae055e4 100644
+--- a/drivers/input/ps2d/src/main.rs
++++ b/drivers/input/ps2d/src/main.rs
+@@ -11,7 +11,7 @@ use std::process;
+ 
+ use common::acquire_port_io_rights;
+ use event::{user_data, EventQueue};
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ 
+ use crate::state::Ps2d;
+ 
+@@ -31,7 +31,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     acquire_port_io_rights().expect("ps2d: failed to get I/O permission");
+ 
+-    let input = ProducerHandle::new().expect("ps2d: failed to open input producer");
++    let keyboard_input = InputProducer::new_named_or_fallback("ps2-keyboard")
++        .expect("ps2d: failed to open input producer");
++    let mouse_input = InputProducer::new_named_or_fallback("ps2-mouse")
++        .expect("ps2d: failed to open input producer");
+ 
+     user_data! {
+         enum Source {
+@@ -93,7 +96,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     daemon.ready();
+ 
+-    let mut ps2d = Ps2d::new(input, time_file);
++    let mut ps2d = Ps2d::new(keyboard_input, mouse_input, time_file);
+ 
+     let mut data = [0; 256];
+     for event in event_queue.map(|e| e.expect("ps2d: failed to get next event").user_data) {
+diff --git a/drivers/input/ps2d/src/mouse.rs b/drivers/input/ps2d/src/mouse.rs
+index 9e95ab88..8087c8c4 100644
+--- a/drivers/input/ps2d/src/mouse.rs
++++ b/drivers/input/ps2d/src/mouse.rs
+@@ -5,6 +5,11 @@ pub const RESET_RETRIES: usize = 10;
+ pub const RESET_TIMEOUT: Duration = Duration::from_millis(1000);
+ pub const COMMAND_TIMEOUT: Duration = Duration::from_millis(100);
+ 
++const CMD_ACK: u8 = 0xFA;
++const CMD_RESEND: u8 = 0xFE;
++const BAT_COMPLETE: u8 = 0xAA;
++const BAT_FAIL: u8 = 0xFC;
++
+ #[derive(Clone, Copy, Debug)]
+ #[repr(u8)]
+ #[allow(dead_code)]
+@@ -58,9 +63,11 @@ impl MouseTx {
+ 
+     fn handle(&mut self, data: u8, ps2: &mut Ps2) -> Result<bool, ()> {
+         if self.write_i < self.write.len() {
+-            if data == 0xFA {
++            if data == CMD_ACK {
+                 self.write_i += 1;
+                 self.try_write(ps2)?;
++            } else if data == CMD_RESEND {
++                self.try_write(ps2)?;
+             } else {
+                 log::error!("unknown mouse response {:02X}", data);
+                 return Err(());
+@@ -251,25 +258,43 @@ impl MouseState {
+                 MouseResult::None
+             }
+             MouseState::Reset => {
+-                if data == 0xFA {
+-                    log::debug!("mouse reset ok");
++                if data == CMD_ACK {
++                    log::debug!("mouse reset ack");
+                     MouseResult::Timeout(RESET_TIMEOUT)
+-                } else if data == 0xAA {
++                } else if data == BAT_COMPLETE {
+                     log::debug!("BAT completed");
+                     *self = MouseState::Bat;
+                     MouseResult::Timeout(COMMAND_TIMEOUT)
++                } else if data == CMD_RESEND {
++                    // Device asks us to resend the reset command (0xFF).
++                    // Resend WITHOUT incrementing the retry counter — 0xFE is
++                    // a normal protocol response, not a failure.
++                    log::debug!("mouse requests resend during reset, resending 0xFF");
++                    match ps2.mouse_command_async(MouseCommand::Reset as u8) {
++                        Ok(()) => MouseResult::Timeout(RESET_TIMEOUT),
++                        Err(err) => {
++                            log::error!("failed to resend mouse reset: {:?}", err);
++                            self.reset(ps2)
++                        }
++                    }
++                } else if data == BAT_FAIL {
++                    log::warn!("mouse BAT failed (0xFC)");
++                    self.reset(ps2)
+                 } else {
+                     log::warn!("unknown mouse response {:02X} after reset", data);
+                     self.reset(ps2)
+                 }
+             }
+             MouseState::Bat => {
+-                if data == MouseId::Base as u8 {
+-                    // Enable intellimouse features
++                if data == CMD_RESEND {
++                    // 0xFE after BAT is unusual — the device may be re-issuing
++                    // BAT. Wait for the next byte (device ID or another BAT).
++                    log::debug!("mouse resend (0xFE) during BAT, waiting");
++                    MouseResult::Timeout(COMMAND_TIMEOUT)
++                } else if data == MouseId::Base as u8 {
+                     log::debug!("BAT mouse id {:02X} (base)", data);
+                     self.identify_touchpad(ps2)
+                 } else if data == MouseId::Intellimouse1 as u8 {
+-                    // Extra packet already enabled
+                     log::debug!("BAT mouse id {:02X} (intellimouse)", data);
+                     self.enable_reporting(data, ps2)
+                 } else {
+@@ -320,10 +345,17 @@ impl MouseState {
+                 }
+             }
+             MouseState::DeviceId => {
+-                if data == 0xFA {
+-                    // Command OK response
+-                    //TODO: handle this separately?
++                if data == CMD_ACK {
+                     MouseResult::Timeout(COMMAND_TIMEOUT)
++                } else if data == CMD_RESEND {
++                    log::debug!("mouse resend during DeviceId, resending GetDeviceId");
++                    match ps2.mouse_command_async(MouseCommand::GetDeviceId as u8) {
++                        Ok(()) => MouseResult::Timeout(COMMAND_TIMEOUT),
++                        Err(err) => {
++                            log::error!("failed to resend GetDeviceId: {:?}", err);
++                            self.reset(ps2)
++                        }
++                    }
+                 } else if data == MouseId::Base as u8 || data == MouseId::Intellimouse1 as u8 {
+                     log::debug!("mouse id {:02X}", data);
+                     self.enable_reporting(data, ps2)
+@@ -333,10 +365,28 @@ impl MouseState {
+                 }
+             }
+             MouseState::EnableReporting { id } => {
+-                log::debug!("mouse id {:02X} enable reporting {:02X}", id, data);
+-                //TODO: handle response ok/error
+-                *self = MouseState::Streaming { id };
+-                MouseResult::None
++                if data == CMD_ACK {
++                    log::debug!("mouse id {:02X} reporting enabled", id);
++                    *self = MouseState::Streaming { id };
++                    MouseResult::None
++                } else if data == CMD_RESEND {
++                    log::debug!("mouse resend during EnableReporting, resending 0xF4");
++                    match ps2.mouse_command_async(MouseCommand::EnableReporting as u8) {
++                        Ok(()) => MouseResult::Timeout(COMMAND_TIMEOUT),
++                        Err(err) => {
++                            log::error!("failed to resend EnableReporting: {:?}", err);
++                            *self = MouseState::Streaming { id };
++                            MouseResult::None
++                        }
++                    }
++                } else {
++                    log::warn!(
++                        "unexpected mouse response {:02X} during enable reporting, streaming anyway",
++                        data
++                    );
++                    *self = MouseState::Streaming { id };
++                    MouseResult::None
++                }
+             }
+             MouseState::Streaming { id } => {
+                 MouseResult::Packet(data, id == MouseId::Intellimouse1 as u8)
+diff --git a/drivers/input/ps2d/src/state.rs b/drivers/input/ps2d/src/state.rs
+index 9018dc6b..da304e05 100644
+--- a/drivers/input/ps2d/src/state.rs
++++ b/drivers/input/ps2d/src/state.rs
+@@ -1,4 +1,4 @@
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ use log::{error, warn};
+ use orbclient::{ButtonEvent, KeyEvent, MouseEvent, MouseRelativeEvent, ScrollEvent};
+ use std::{
+@@ -44,7 +44,8 @@ pub struct Ps2d {
+     ps2: Ps2,
+     vmmouse: bool,
+     vmmouse_relative: bool,
+-    input: ProducerHandle,
++    keyboard_input: InputProducer,
++    mouse_input: InputProducer,
+     time_file: File,
+     extended: bool,
+     mouse_x: i32,
+@@ -59,9 +60,11 @@ pub struct Ps2d {
+ }
+ 
+ impl Ps2d {
+-    pub fn new(input: ProducerHandle, time_file: File) -> Self {
++    pub fn new(keyboard_input: InputProducer, mouse_input: InputProducer, time_file: File) -> Self {
+         let mut ps2 = Ps2::new();
+-        ps2.init().expect("failed to initialize");
++        if let Err(err) = ps2.init() {
++            log::error!("ps2d: controller init failed: {:?}", err);
++        }
+ 
+         // FIXME add an option for orbital to disable this when an app captures the mouse.
+         let vmmouse_relative = false;
+@@ -77,7 +80,8 @@ impl Ps2d {
+             ps2,
+             vmmouse,
+             vmmouse_relative,
+-            input,
++            keyboard_input,
++            mouse_input,
+             time_file,
+             extended: false,
+             mouse_x: 0,
+@@ -273,7 +277,7 @@ impl Ps2d {
+                 };
+ 
+                 if scancode != 0 {
+-                    self.input
++                    self.keyboard_input
+                         .write_event(
+                             KeyEvent {
+                                 character: '\0',
+@@ -304,7 +308,7 @@ impl Ps2d {
+ 
+                 if self.vmmouse_relative {
+                     if dx != 0 || dy != 0 {
+-                        self.input
++                        self.mouse_input
+                             .write_event(
+                                 MouseRelativeEvent {
+                                     dx: dx as i32,
+@@ -320,14 +324,14 @@ impl Ps2d {
+                     if x != self.mouse_x || y != self.mouse_y {
+                         self.mouse_x = x;
+                         self.mouse_y = y;
+-                        self.input
++                        self.mouse_input
+                             .write_event(MouseEvent { x, y }.to_event())
+                             .expect("ps2d: failed to write mouse event");
+                     }
+                 };
+ 
+                 if dz != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ScrollEvent {
+                                 x: 0,
+@@ -348,7 +352,7 @@ impl Ps2d {
+                     self.mouse_left = left;
+                     self.mouse_middle = middle;
+                     self.mouse_right = right;
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ButtonEvent {
+                                 left,
+@@ -441,13 +445,13 @@ impl Ps2d {
+                 }
+ 
+                 if dx != 0 || dy != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(MouseRelativeEvent { dx, dy }.to_event())
+                         .expect("ps2d: failed to write mouse event");
+                 }
+ 
+                 if dz != 0 {
+-                    self.input
++                    self.mouse_input
+                         .write_event(ScrollEvent { x: 0, y: dz }.to_event())
+                         .expect("ps2d: failed to write scroll event");
+                 }
+@@ -462,7 +466,7 @@ impl Ps2d {
+                     self.mouse_left = left;
+                     self.mouse_middle = middle;
+                     self.mouse_right = right;
+-                    self.input
++                    self.mouse_input
+                         .write_event(
+                             ButtonEvent {
+                                 left,

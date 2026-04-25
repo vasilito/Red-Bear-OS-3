@@ -1,0 +1,336 @@
+diff -ruN a/src/header/_aio/mod.rs b/src/header/_aio/mod.rs
+--- a/src/header/_aio/mod.rs
++++ b/src/header/_aio/mod.rs
+@@ -1,75 +1,283 @@
+ //! `aio.h` implementation.
+ //!
+-//! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/aio.h.html>.
++//! Synchronous emulation of POSIX AIO. All operations complete immediately
++//! in the calling thread. This provides sufficient compatibility for software
++//! (such as Qt6's QIODevice) that uses aio as an optional fallback path.
+ 
+-use crate::{
+-    header::{bits_timespec::timespec, signal::sigevent},
+-    platform::types::{c_int, c_void},
+-};
++use core::slice;
++
++use crate::{
++    error::Errno,
++    header::{
++        bits_timespec::timespec,
++        errno::{EFAULT, EINVAL, EINPROGRESS, EIO},
++        fcntl::O_SYNC,
++        signal::sigevent,
++    },
++    platform::{
++        Sys,
++        types::{c_int, c_void, off_t, size_t, ssize_t},
++        ERRNO,
++    },
++};
++
++// POSIX lio_listio operation codes
++pub const LIO_READ: c_int = 0;
++pub const LIO_WRITE: c_int = 1;
++pub const LIO_NOP: c_int = 2;
++
++// lio_listio modes
++pub const LIO_WAIT: c_int = 0;
++pub const LIO_NOWAIT: c_int = 1;
++
++// aio_cancel return values
++pub const AIO_CANCELED: c_int = 0;
++pub const AIO_NOTCANCELED: c_int = 1;
++pub const AIO_ALLDONE: c_int = 2;
++
++// O_DSYNC is not yet defined in relibc's fcntl module.
++// Accept it in aio_fsync by matching the Linux x86_64 value.
++// TODO: import from fcntl when O_DSYNC is added there.
++const _O_DSYNC: c_int = 0x0001_0000;
++
++// Internal operation states for synchronous emulation
++const _AIO_IDLE: c_int = 0;
++const _AIO_DONE: c_int = 2;
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/aio.h.html>.
++#[repr(C)]
+ pub struct aiocb {
+     pub aio_fildes: c_int,
++    pub aio_offset: off_t,
+     pub aio_lio_opcode: c_int,
+     pub aio_reqprio: c_int,
+     pub aio_buf: *mut c_void,
+-    pub aio_nbytes: usize,
++    pub aio_nbytes: size_t,
+     pub aio_sigevent: sigevent,
++    // Private emulation state
++    pub __state: c_int,
++    pub __error_code: c_int,
++    pub __return_value: ssize_t,
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_read.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_read(aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++/// Perform a synchronous pread and store the result in the aiocb.
++///
++/// Returns 0 on success, -1 on error (with errno set).
++unsafe fn aio_do_read(cb: &mut aiocb) -> c_int {
++    let buf = unsafe { slice::from_raw_parts_mut(cb.aio_buf.cast::<u8>(), cb.aio_nbytes) };
++    match Sys::pread(cb.aio_fildes, buf, cb.aio_offset) {
++        Ok(n) => {
++            cb.__error_code = 0;
++            cb.__return_value = n as ssize_t;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_write.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_write(aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++/// Perform a synchronous pwrite and store the result in the aiocb.
++///
++/// Returns 0 on success, -1 on error (with errno set).
++unsafe fn aio_do_write(cb: &mut aiocb) -> c_int {
++    let buf = unsafe { slice::from_raw_parts(cb.aio_buf.cast::<u8>(), cb.aio_nbytes) };
++    match Sys::pwrite(cb.aio_fildes, buf, cb.aio_offset) {
++        Ok(n) => {
++            cb.__error_code = 0;
++            cb.__return_value = n as ssize_t;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/lio_listio.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn lio_listio(
+-    mode: c_int,
+-    list: *const *const aiocb,
+-    nent: c_int,
+-    sig: *mut sigevent,
+-) -> c_int {
+-    unimplemented!();
+-}
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_read.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_read(aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    if cb.aio_buf.is_null() && cb.aio_nbytes > 0 {
++        ERRNO.set(EFAULT);
++        cb.__state = _AIO_DONE;
++        cb.__error_code = EFAULT;
++        cb.__return_value = -1;
++        return -1;
++    }
++    unsafe { aio_do_read(cb) }
++}
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_error.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_error(aiocbp: *const aiocb) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_write.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_write(aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    if cb.aio_buf.is_null() && cb.aio_nbytes > 0 {
++        ERRNO.set(EFAULT);
++        cb.__state = _AIO_DONE;
++        cb.__error_code = EFAULT;
++        cb.__return_value = -1;
++        return -1;
++    }
++    unsafe { aio_do_write(cb) }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_return.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_return(aiocbp: *mut aiocb) -> usize {
+-    unimplemented!();
+-}
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_fsync.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_fsync(operation: c_int, aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    // Validate operation: O_SYNC from fcntl, or _O_DSYNC (Linux compat value).
++    if operation != O_SYNC && operation != _O_DSYNC {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    match Sys::fsync(cb.aio_fildes) {
++        Ok(()) => {
++            cb.__error_code = 0;
++            cb.__return_value = 0;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
++}
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_cancel.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_cancel(fildes: c_int, aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_error.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_error(aiocbp: *const aiocb) -> c_int {
++    if aiocbp.is_null() {
++        return EINVAL;
++    }
++    let cb = unsafe { &*aiocbp };
++    match cb.__state {
++        _AIO_IDLE => 0,      // Never submitted -- no error
++        _AIO_DONE => cb.__error_code,
++        _ => EINPROGRESS,    // Should not occur with sync emulation
++    }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_suspend.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_suspend(
+-    list: *const *const aiocb,
+-    nent: c_int,
+-    timeout: *const timespec,
+-) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_return.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_return(aiocbp: *mut aiocb) -> ssize_t {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &*aiocbp };
++    if cb.__state != _AIO_DONE {
++        ERRNO.set(EINPROGRESS);
++        return -1;
++    }
++    cb.__return_value
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_fsync.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_fsync(operation: c_int, aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_suspend.html>.
++///
++/// With synchronous emulation, all operations are already complete when
++/// aio_suspend is called, so this is effectively a no-op that returns 0.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_suspend(
++    list: *const *const aiocb,
++    nent: c_int,
++    timeout: *const timespec,
++) -> c_int {
++    let _ = timeout;
++    if list.is_null() || nent < 0 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    // All operations complete synchronously, so just return success.
++    0
++}
++
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_cancel.html>.
++///
++/// With synchronous emulation, operations complete before aio_cancel can be
++/// called, so this always returns AIO_ALLDONE.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_cancel(fildes: c_int, aiocbp: *mut aiocb) -> c_int {
++    if !aiocbp.is_null() {
++        let cb = unsafe { &*aiocbp };
++        if cb.aio_fildes != fildes {
++            ERRNO.set(EINVAL);
++            return -1;
++        }
++    }
++    AIO_ALLDONE
++}
++
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/lio_listio.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lio_listio(
++    mode: c_int,
++    list: *const *const aiocb,
++    nent: c_int,
++    sig: *mut sigevent,
++) -> c_int {
++    let _ = sig;
++    if (mode != LIO_WAIT && mode != LIO_NOWAIT) || list.is_null() || nent < 0 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let mut any_failed = false;
++    for i in 0..nent {
++        let entry = unsafe { *list.add(i as usize) };
++        if entry.is_null() {
++            continue;
++        }
++        let cb = unsafe { &mut *(entry as *mut aiocb) };
++        match cb.aio_lio_opcode {
++            LIO_READ => {
++                if unsafe { aio_read(cb) } != 0 {
++                    any_failed = true;
++                }
++            }
++            LIO_WRITE => {
++                if unsafe { aio_write(cb) } != 0 {
++                    any_failed = true;
++                }
++            }
++            LIO_NOP => {}
++            _ => {
++                cb.__state = _AIO_DONE;
++                cb.__error_code = EINVAL;
++                cb.__return_value = -1;
++                ERRNO.set(EINVAL);
++                any_failed = true;
++            }
++        }
++    }
++    if any_failed {
++        ERRNO.set(EIO);
++        return -1;
++    }
++    0
+ }

@@ -1,0 +1,126 @@
+# P2-misc-daemon-fixes.patch
+#
+# Various daemon error handling and robustness fixes:
+# graceful degradation when audio hardware is absent, InputProducer migration
+# for USB HID, zerod argument handling and request loop resilience.
+#
+# Covers:
+#   - audiod/main.rs: handle ENODEV when no audio hardware present
+#   - usbhidd/main.rs: migrate ProducerHandle→InputProducer with named producer
+#   - zerod/main.rs: derive Copy for Ty, graceful argument parsing, resilient request loop
+#
+diff --git a/audiod/src/main.rs b/audiod/src/main.rs
+index 51b103af..2354cf5f 100644
+--- a/audiod/src/main.rs
++++ b/audiod/src/main.rs
+@@ -48,7 +48,14 @@ fn daemon(daemon: SchemeDaemon) -> anyhow::Result<()> {
+ 
+     let pid = libredox::call::getpid()?;
+ 
+-    let hw_file = Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0)?;
++    let hw_file = match Fd::open("/scheme/audiohw", flag::O_WRONLY | flag::O_CLOEXEC, 0) {
++        Ok(fd) => fd,
++        Err(err) if err.errno() == syscall::ENODEV => {
++            eprintln!("audiod: no audio hardware detected");
++            return Ok(());
++        }
++        Err(err) => return Err(err).context("failed to open /scheme/audiohw"),
++    };
+ 
+     let socket = Socket::create().context("failed to create scheme")?;
+ 
+
+diff --git a/drivers/input/usbhidd/src/main.rs b/drivers/input/usbhidd/src/main.rs
+index 15c5b778..706c4008 100644
+--- a/drivers/input/usbhidd/src/main.rs
++++ b/drivers/input/usbhidd/src/main.rs
+@@ -1,7 +1,7 @@
+ use anyhow::{Context, Result};
+ use std::{env, thread, time};
+ 
+-use inputd::ProducerHandle;
++use inputd::InputProducer;
+ use orbclient::KeyEvent as OrbKeyEvent;
+ use rehid::{
+     report_desc::{ReportTy, REPORT_DESC_TY},
+@@ -15,7 +15,7 @@ use xhcid_interface::{
+ 
+ mod reqs;
+ 
+-fn send_key_event(display: &mut ProducerHandle, usage_page: u16, usage: u16, pressed: bool) {
++fn send_key_event(display: &mut InputProducer, usage_page: u16, usage: u16, pressed: bool) {
+     let scancode = match usage_page {
+         0x07 => match usage {
+             0x04 => orbclient::K_A,
+@@ -272,7 +272,9 @@ fn main() -> Result<()> {
+     let report_ty = ReportTy::Input;
+     let report_id = 0;
+ 
+-    let mut display = ProducerHandle::new().context("Failed to open input socket")?;
++    let producer_name = format!("usb-{}-if{}", port, interface_num);
++    let mut display = InputProducer::new_named_or_fallback(&producer_name)
++        .context("Failed to open input socket")?;
+     let mut endpoint_opt = match endp_desc_opt {
+         Some((endp_num, _endp_desc)) => match handle.open_endpoint(endp_num as u8) {
+             Ok(ok) => Some(ok),
+
+diff --git a/zerod/src/main.rs b/zerod/src/main.rs
+index c9bd1465..59f6b97c 100644
+--- a/zerod/src/main.rs
++++ b/zerod/src/main.rs
+@@ -5,6 +5,7 @@ use scheme_utils::Blocking;
+ 
+ mod scheme;
+ 
++#[derive(Clone, Copy)]
+ enum Ty {
+     Null,
+     Zero,
+@@ -15,21 +16,36 @@ fn main() {
+ }
+ 
+ fn daemon(daemon: daemon::SchemeDaemon) -> ! {
+-    let ty = match &*std::env::args().nth(1).unwrap() {
+-        "null" => Ty::Null,
+-        "zero" => Ty::Zero,
+-        _ => panic!("needs to be called with either null or zero as argument"),
++    let ty = match std::env::args().nth(1).as_deref() {
++        Some("null") => Ty::Null,
++        Some("zero") | None => Ty::Zero,
++        Some(other) => {
++            eprintln!("zerod: unknown argument '{other}', use 'null' or 'zero'");
++            std::process::exit(1);
++        }
+     };
+ 
+-    let socket = Socket::create().expect("zerod: failed to create zero scheme");
++    let socket = match Socket::create() {
++        Ok(s) => s,
++        Err(e) => {
++            eprintln!("zerod: failed to create zero scheme: {e}");
++            std::process::exit(1);
++        }
++    };
+     let mut zero_scheme = ZeroScheme(ty);
+-    let zero_handler = Blocking::new(&socket, 16);
+ 
+     let _ = daemon.ready_sync_scheme(&socket, &mut zero_scheme);
+ 
+-    libredox::call::setrens(0, 0).expect("zerod: failed to enter null namespace");
+-
+-    zero_handler
+-        .process_requests_blocking(zero_scheme)
+-        .expect("zerod: failed to process events from zero scheme");
++    if let Err(e) = libredox::call::setrens(0, 0) {
++        eprintln!("zerod: failed to enter null namespace: {e}");
++    }
++
++    loop {
++        let zero_handler = Blocking::new(&socket, 16);
++        let scheme = ZeroScheme(ty);
++        match zero_handler.process_requests_blocking(scheme) {
++            Ok(never) => never,
++            Err(e) => eprintln!("zerod: error processing requests: {e}"),
++        }
++    }
+ }

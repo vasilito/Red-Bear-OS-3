@@ -1,0 +1,118 @@
+# P2-network-error-handling.patch
+#
+# Network driver error handling: replace unwrap()/expect()/panic!() with proper
+# error propagation and graceful exits across e1000, ixgbe, rtl8139, rtl8168d,
+# and virtio-net drivers.
+#
+# Covers:
+#   - e1000d/device.rs: replace unreachable!() in DMA array conversion
+#   - ixgbed/Cargo.toml: add log dependency
+#   - rtl8139d/device.rs: replace unreachable!() with EIO error
+#   - rtl8168d/device.rs: replace unreachable!() with EIO error
+#   - virtio-netd/scheme.rs: DMA allocation error handling for rx buffers
+#
+diff --git a/drivers/net/e1000d/src/device.rs b/drivers/net/e1000d/src/device.rs
+index 4c518f30..0e42d72b 100644
+--- a/drivers/net/e1000d/src/device.rs
++++ b/drivers/net/e1000d/src/device.rs
+@@ -3,7 +3,7 @@ use std::{cmp, mem, ptr, slice, thread, time};
+ 
+ use driver_network::NetworkAdapter;
+ 
+-use syscall::error::Result;
++use syscall::error::{Error, Result, EIO};
+ 
+ use common::dma::Dma;
+ 
+@@ -207,11 +207,10 @@ impl NetworkAdapter for Intel8254x {
+ }
+ 
+ fn dma_array<T, const N: usize>() -> Result<[Dma<T>; N]> {
+-    Ok((0..N)
++    let vec: Vec<Dma<T>> = (0..N)
+         .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
+-        .collect::<Result<Vec<_>>>()?
+-        .try_into()
+-        .unwrap_or_else(|_| unreachable!()))
++        .collect::<Result<Vec<_>>>()?;
++    vec.try_into().map_err(|_| Error::new(EIO))
+ }
+ impl Intel8254x {
+     pub unsafe fn new(base: usize) -> Result<Self> {
+
+diff --git a/drivers/net/ixgbed/Cargo.toml b/drivers/net/ixgbed/Cargo.toml
+index d97ff398..fcaf4b19 100644
+--- a/drivers/net/ixgbed/Cargo.toml
++++ b/drivers/net/ixgbed/Cargo.toml
+@@ -7,6 +7,7 @@ edition = "2021"
+ [dependencies]
+ bitflags.workspace = true
+ libredox.workspace = true
++log.workspace = true
+ redox_event.workspace = true
+ redox_syscall.workspace = true
+ 
+
+diff --git a/drivers/net/rtl8139d/src/device.rs b/drivers/net/rtl8139d/src/device.rs
+index 37167ee2..d7428132 100644
+--- a/drivers/net/rtl8139d/src/device.rs
++++ b/drivers/net/rtl8139d/src/device.rs
+@@ -215,7 +215,7 @@ impl Rtl8139 {
+                 .map(|_| Ok(Dma::zeroed()?.assume_init()))
+                 .collect::<Result<Vec<_>>>()?
+                 .try_into()
+-                .unwrap_or_else(|_| unreachable!()),
++                .map_err(|_| Error::new(EIO))?,
+             transmit_i: 0,
+             mac_address: [0; 6],
+         };
+
+diff --git a/drivers/net/rtl8168d/src/device.rs b/drivers/net/rtl8168d/src/device.rs
+index ae545ec4..7229a52d 100644
+--- a/drivers/net/rtl8168d/src/device.rs
++++ b/drivers/net/rtl8168d/src/device.rs
+@@ -177,7 +177,7 @@ impl Rtl8168 {
+                 .map(|_| Ok(Dma::zeroed()?.assume_init()))
+                 .collect::<Result<Vec<_>>>()?
+                 .try_into()
+-                .unwrap_or_else(|_| unreachable!()),
++                .map_err(|_| Error::new(EIO))?,
+ 
+             receive_ring: Dma::zeroed()?.assume_init(),
+             receive_i: 0,
+@@ -185,7 +185,7 @@ impl Rtl8168 {
+                 .map(|_| Ok(Dma::zeroed()?.assume_init()))
+                 .collect::<Result<Vec<_>>>()?
+                 .try_into()
+-                .unwrap_or_else(|_| unreachable!()),
++                .map_err(|_| Error::new(EIO))?,
+             transmit_ring: Dma::zeroed()?.assume_init(),
+             transmit_i: 0,
+             transmit_buffer_h: [Dma::zeroed()?.assume_init()],
+
+diff --git a/drivers/net/virtio-netd/src/scheme.rs b/drivers/net/virtio-netd/src/scheme.rs
+index 59b3b93e..d0acb2ba 100644
+--- a/drivers/net/virtio-netd/src/scheme.rs
++++ b/drivers/net/virtio-netd/src/scheme.rs
+@@ -27,11 +27,16 @@ impl<'a> VirtioNet<'a> {
+         // Populate all of the `rx_queue` with buffers to maximize performence.
+         let mut rx_buffers = vec![];
+         for i in 0..(rx.descriptor_len() as usize) {
+-            rx_buffers.push(unsafe {
+-                Dma::<[u8]>::zeroed_slice(MAX_BUFFER_LEN)
+-                    .unwrap()
+-                    .assume_init()
+-            });
++            let buf = unsafe {
++                match Dma::<[u8]>::zeroed_slice(MAX_BUFFER_LEN) {
++                    Ok(dma) => dma.assume_init(),
++                    Err(err) => {
++                        log::error!("virtio-netd: failed to allocate rx buffer: {err}");
++                        continue;
++                    }
++                }
++            };
++            rx_buffers.push(buf);
+ 
+             let chain = ChainBuilder::new()
+                 .chain(Buffer::new_unsized(&rx_buffers[i]).flags(DescriptorFlags::WRITE_ONLY))

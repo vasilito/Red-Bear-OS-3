@@ -1,0 +1,158 @@
+# P2-usb-pm-and-drivers.patch
+#
+# USB power management and driver interface improvements:
+# suspend/resume commands, SCSI driver enablement, PortPmState type,
+# IRQ reactor staged port state fallback.
+#
+# Covers:
+#   - usbctl/main.rs: pm-state, suspend, resume subcommands
+#   - xhcid/drivers.toml: enable SCSI over USB driver (was commented out)
+#   - xhcid/driver_interface.rs: PortPmState enum, suspend/resume/port_pm_state methods
+#   - xhcid/irq_reactor.rs: staged_port_states fallback in with_ring/with_ring_mut
+#
+diff --git a/drivers/usb/usbctl/src/main.rs b/drivers/usb/usbctl/src/main.rs
+index 9b5773d9..232f7cfc 100644
+--- a/drivers/usb/usbctl/src/main.rs
++++ b/drivers/usb/usbctl/src/main.rs
+@@ -15,6 +15,9 @@ fn main() {
+             Command::new("port")
+                 .arg(Arg::new("PORT").num_args(1).required(true))
+                 .subcommand(Command::new("status"))
++                .subcommand(Command::new("pm-state"))
++                .subcommand(Command::new("suspend"))
++                .subcommand(Command::new("resume"))
+                 .subcommand(
+                     Command::new("endpoint")
+                         .arg(Arg::new("ENDPOINT_NUM").num_args(1).required(true))
+@@ -38,6 +41,15 @@ fn main() {
+         if let Some(_status_scmd_matches) = port_scmd_matches.subcommand_matches("status") {
+             let state = handle.port_state().expect("Failed to get port state");
+             println!("{}", state.as_str());
++        } else if let Some(_pm_state_scmd_matches) = port_scmd_matches.subcommand_matches("pm-state") {
++            let state = handle
++                .port_pm_state()
++                .expect("Failed to get port power-management state");
++            println!("{}", state.as_str());
++        } else if let Some(_suspend_scmd_matches) = port_scmd_matches.subcommand_matches("suspend") {
++            handle.suspend_device().expect("Failed to suspend device");
++        } else if let Some(_resume_scmd_matches) = port_scmd_matches.subcommand_matches("resume") {
++            handle.resume_device().expect("Failed to resume device");
+         } else if let Some(endp_scmd_matches) = port_scmd_matches.subcommand_matches("endpoint") {
+             let endp_num = endp_scmd_matches
+
+                 .get_one::<String>("ENDPOINT_NUM")
+diff --git a/drivers/usb/xhcid/drivers.toml b/drivers/usb/xhcid/drivers.toml
+index 83c90e23..470ec063 100644
+--- a/drivers/usb/xhcid/drivers.toml
++++ b/drivers/usb/xhcid/drivers.toml
+@@ -1,9 +1,8 @@
+-#TODO: causes XHCI errors
+-#[[drivers]]
+-#name = "SCSI over USB"
+-#class = 8 # Mass Storage class
+-#subclass = 6 # SCSI transparent command set
+-#command = ["usbscsid", "$SCHEME", "$PORT", "$IF_PROTO"]
++[[drivers]]
++name = "SCSI over USB"
++class = 8 # Mass Storage class
++subclass = 6 # SCSI transparent command set
++command = ["usbscsid", "$SCHEME", "$PORT", "$IF_PROTO"]
+ 
+ [[drivers]]
+ name = "USB HUB"
+
+diff --git a/drivers/usb/xhcid/src/driver_interface.rs b/drivers/usb/xhcid/src/driver_interface.rs
+index 727f8d7e..82f839ae 100644
+--- a/drivers/usb/xhcid/src/driver_interface.rs
++++ b/drivers/usb/xhcid/src/driver_interface.rs
+@@ -444,6 +444,33 @@ impl str::FromStr for PortState {
+     }
+ }
+ 
++#[repr(u8)]
++#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
++pub enum PortPmState {
++    Active,
++    Suspended,
++}
++impl PortPmState {
++    pub fn as_str(&self) -> &'static str {
++        match self {
++            Self::Active => "active",
++            Self::Suspended => "suspended",
++        }
++    }
++}
++
++impl str::FromStr for PortPmState {
++    type Err = Invalid;
++
++    fn from_str(s: &str) -> result::Result<Self, Self::Err> {
++        Ok(match s {
++            "active" => Self::Active,
++            "suspended" => Self::Suspended,
++            _ => return Err(Invalid("read reserved port PM state")),
++        })
++    }
++}
++
+ #[repr(u8)]
+ #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+ pub enum EndpointStatus {
+@@ -560,6 +587,16 @@ impl XhciClientHandle {
+         let _bytes_written = file.write(&[])?;
+         Ok(())
+     }
++    pub fn suspend_device(&self) -> result::Result<(), XhciClientHandleError> {
++        let file = self.fd.openat("suspend", libredox::flag::O_WRONLY, 0)?;
++        let _bytes_written = file.write(&[])?;
++        Ok(())
++    }
++    pub fn resume_device(&self) -> result::Result<(), XhciClientHandleError> {
++        let file = self.fd.openat("resume", libredox::flag::O_WRONLY, 0)?;
++        let _bytes_written = file.write(&[])?;
++        Ok(())
++    }
+     pub fn get_standard_descs(&self) -> result::Result<DevDesc, XhciClientHandleError> {
+         let json = self.read("descriptors")?;
+         Ok(serde_json::from_slice(&json)?)
+@@ -582,6 +619,10 @@ impl XhciClientHandle {
+         let string = self.read_to_string("state")?;
+         Ok(string.parse()?)
+     }
++    pub fn port_pm_state(&self) -> result::Result<PortPmState, XhciClientHandleError> {
++        let string = self.read_to_string("pm_state")?;
++        Ok(string.parse()?)
++    }
+     pub fn open_endpoint_ctl(&self, num: u8) -> result::Result<File, XhciClientHandleError> {
+         let path = format!("endpoints/{}/ctl", num);
+         let fd = self.fd.openat(&path, libredox::flag::O_RDWR, 0)?;
+
+diff --git a/drivers/usb/xhcid/src/xhci/irq_reactor.rs b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
+index ac492d5b..310fe51f 100644
+--- a/drivers/usb/xhcid/src/xhci/irq_reactor.rs
++++ b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
+@@ -633,7 +633,10 @@ impl<const N: usize> Xhci<N> {
+     pub fn with_ring<T, F: FnOnce(&Ring) -> T>(&self, id: RingId, function: F) -> Option<T> {
+         use super::RingOrStreams;
+ 
+-        let slot_state = self.port_states.get(&id.port)?;
++        let slot_state = self
++            .port_states
++            .get(&id.port)
++            .or_else(|| self.staged_port_states.get(&id.port))?;
+         let endpoint_state = slot_state.endpoint_states.get(&id.endpoint_num)?;
+ 
+         let ring_ref = match endpoint_state.transfer {
+@@ -650,7 +653,10 @@ impl<const N: usize> Xhci<N> {
+     ) -> Option<T> {
+         use super::RingOrStreams;
+ 
+-        let mut slot_state = self.port_states.get_mut(&id.port)?;
++        let mut slot_state = self
++            .port_states
++            .get_mut(&id.port)
++            .or_else(|| self.staged_port_states.get_mut(&id.port))?;
+         let mut endpoint_state = slot_state.endpoint_states.get_mut(&id.endpoint_num)?;
+ 
+         let ring_ref = match endpoint_state.transfer {

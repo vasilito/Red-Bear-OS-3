@@ -1,0 +1,56 @@
+#TODO: kde-cli-tools — KDE command-line utilities (kioclient, kreadconfig, kwriteconfig, kde-open, etc.).
+# Some tools depend on KIO for file/URL handling; kf6-kio is available.
+# Tools requiring X11 or DBus activation are disabled where possible.
+# kdesu is not built (needs sudo or kdesu backend which doesn't exist on Redox).
+[source]
+tar = "https://invent.kde.org/plasma/kde-cli-tools/-/archive/v6.3.4/kde-cli-tools-v6.3.4.tar.gz"
+
+[build]
+template = "custom"
+dependencies = [
+    "qtbase",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kconfig",
+    "kf6-kservice",
+    "kf6-kwindowsystem",
+    "kf6-kdbusaddons",
+    "kf6-kio",
+]
+script = """
+DYNAMIC_INIT
+
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/' {} \\;
+find "${COOKBOOK_SOURCE}" -name CMakeLists.txt -exec sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' {} \\;
+
+# Disable kdesu — no sudo/kdesu backend on Redox
+sed -i 's/^add_subdirectory(kdesu/#add_subdirectory(kdesu/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DUSE_DBUS=OFF \
+    -Wno-dev
+
+cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
+
+find "${COOKBOOK_STAGE}" -name '*.so*' -exec patchelf --remove-rpath {} \\; 2>/dev/null || true
+"""

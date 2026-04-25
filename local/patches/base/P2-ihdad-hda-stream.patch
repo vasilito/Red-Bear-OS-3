@@ -1,0 +1,148 @@
+# P2-ihdad-hda-stream.patch
+#
+# Intel HDA stream handling: add InputStream support, make stream types public,
+# add digital/dispatch/fixup/parser modules, derive Debug for node types.
+#
+# Covers:
+#   - ihdad/hda/mod.rs: add digital, dispatch, fixup, parser modules
+#   - ihdad/hda/node.rs: derive Debug for HDANode
+#   - ihdad/hda/stream.rs: public SampleRate fields, Debug+Copy derives for BitsPerSample,
+#     new InputStream struct, StreamBuffer::read_block method
+#
+diff --git a/drivers/audio/ihdad/src/hda/mod.rs b/drivers/audio/ihdad/src/hda/mod.rs
+index 7f01daf8..82ba89ae 100644
+--- a/drivers/audio/ihdad/src/hda/mod.rs
++++ b/drivers/audio/ihdad/src/hda/mod.rs
+@@ -2,7 +2,11 @@
+ pub mod cmdbuff;
+ pub mod common;
+ pub mod device;
++pub mod digital;
++pub mod dispatch;
++pub mod fixup;
+ pub mod node;
++pub mod parser;
+ pub mod stream;
+ 
+ pub use self::node::*;
+@@ -10,6 +14,8 @@ pub use self::stream::*;
+ 
+ pub use self::cmdbuff::*;
+ pub use self::device::IntelHDA;
++pub use self::fixup::FixupEngine;
++pub use self::parser::AutoPinConfig;
+ pub use self::stream::BitsPerSample;
+ pub use self::stream::BufferDescriptorListEntry;
+ pub use self::stream::StreamBuffer;
+diff --git a/drivers/audio/ihdad/src/hda/node.rs b/drivers/audio/ihdad/src/hda/node.rs
+index 06c5121f..c1f9c31f 100644
+--- a/drivers/audio/ihdad/src/hda/node.rs
++++ b/drivers/audio/ihdad/src/hda/node.rs
+@@ -1,7 +1,7 @@
+ use super::common::*;
+ use std::{fmt, mem};
+ 
+-#[derive(Clone)]
++#[derive(Clone, Debug)]
+ pub struct HDANode {
+     pub addr: WidgetAddr,
+ 
+diff --git a/drivers/audio/ihdad/src/hda/stream.rs b/drivers/audio/ihdad/src/hda/stream.rs
+index caa3c364..a3f5ed73 100644
+--- a/drivers/audio/ihdad/src/hda/stream.rs
++++ b/drivers/audio/ihdad/src/hda/stream.rs
+@@ -14,9 +14,9 @@ pub enum BaseRate {
+ }
+ 
+ pub struct SampleRate {
+-    base: BaseRate,
+-    mult: u16,
+-    div: u16,
++    pub base: BaseRate,
++    pub mult: u16,
++    pub div: u16,
+ }
+ 
+ use self::BaseRate::{BR44_1, BR48};
+@@ -78,6 +78,7 @@ pub const SR_192: SampleRate = SampleRate {
+     div: 1,
+ };
+ 
++#[derive(Debug, Clone, Copy)]
+ #[repr(u8)]
+ pub enum BitsPerSample {
+     Bits8 = 0,
+@@ -271,6 +272,52 @@ impl OutputStream {
+     }
+ }
+ 
++pub struct InputStream {
++    buff: StreamBuffer,
++    desc_regs: &'static mut StreamDescriptorRegs,
++}
++
++impl InputStream {
++    pub fn new(
++        block_count: usize,
++        block_length: usize,
++        regs: &'static mut StreamDescriptorRegs,
++    ) -> InputStream {
++        InputStream {
++            buff: StreamBuffer::new(block_length, block_count).unwrap(),
++            desc_regs: regs,
++        }
++    }
++
++    pub fn read_block(&mut self, buf: &mut [u8]) -> Result<usize> {
++        self.buff.read_block(buf)
++    }
++
++    pub fn block_size(&self) -> usize {
++        self.buff.block_size()
++    }
++
++    pub fn block_count(&self) -> usize {
++        self.buff.block_count()
++    }
++
++    pub fn current_block(&self) -> usize {
++        self.buff.current_block()
++    }
++
++    pub fn addr(&self) -> usize {
++        self.buff.addr()
++    }
++
++    pub fn phys(&self) -> usize {
++        self.buff.phys()
++    }
++
++    pub fn regs(&mut self) -> &mut StreamDescriptorRegs {
++        self.desc_regs
++    }
++}
++
+ #[repr(C, packed)]
+ pub struct BufferDescriptorListEntry {
+     addr_low: Mmio<u32>,
+@@ -379,6 +426,20 @@ impl StreamBuffer {
+ 
+         Ok(len)
+     }
++
++    pub fn read_block(&mut self, buf: &mut [u8]) -> Result<usize> {
++        let len = min(self.block_size(), buf.len());
++        unsafe {
++            copy_nonoverlapping(
++                (self.addr() + self.current_block() * self.block_size()) as *const u8,
++                buf.as_mut_ptr(),
++                len,
++            );
++        }
++        self.cur_pos += 1;
++        self.cur_pos %= self.block_count();
++        Ok(len)
++    }
+ }
+ impl Drop for StreamBuffer {
+     fn drop(&mut self) {

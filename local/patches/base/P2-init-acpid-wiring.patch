@@ -1,0 +1,45 @@
+# P2-init-acpid-wiring.patch
+#
+# Init service acpid dependency wiring: add 41_acpid.service as a weak
+# dependency to the drivers target, hardware manager, and PCI spawner so
+# acpid starts reliably during boot.
+#
+# Covers:
+#   - 40_drivers.target: add 41_acpid.service to requires_weak
+#   - 40_hwd.service: add 41_acpid.service to requires_weak
+#   - 40_pcid-spawner-initfs.service: add 41_acpid.service to requires_weak
+#
+diff --git a/init.initfs.d/40_drivers.target b/init.initfs.d/40_drivers.target
+index 8ddb4795..029583a1 100644
+--- a/init.initfs.d/40_drivers.target
++++ b/init.initfs.d/40_drivers.target
+@@ -7,4 +7,5 @@ requires_weak = [
+     "40_bcm2835-sdhcid.service",
+     "40_hwd.service",
+     "40_pcid-spawner-initfs.service",
++    "41_acpid.service",
+ ]
+diff --git a/init.initfs.d/40_hwd.service b/init.initfs.d/40_hwd.service
+index cba12dde..cf34a51b 100644
+--- a/init.initfs.d/40_hwd.service
++++ b/init.initfs.d/40_hwd.service
+@@ -1,6 +1,6 @@
+ [unit]
+ description = "Hardware manager"
+-requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target"]
++requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target", "41_acpid.service"]
+ 
+ [service]
+ cmd = "hwd"
+diff --git a/init.initfs.d/40_pcid-spawner-initfs.service b/init.initfs.d/40_pcid-spawner-initfs.service
+index 6945b9ea..ba1ee0bb 100644
+--- a/init.initfs.d/40_pcid-spawner-initfs.service
++++ b/init.initfs.d/40_pcid-spawner-initfs.service
+@@ -1,6 +1,6 @@
+ [unit]
+ description = "PCI driver spawner"
+-requires_weak = ["10_inputd.service", "20_graphics.target", "40_hwd.service"]
++requires_weak = ["10_inputd.service", "20_graphics.target", "40_hwd.service", "41_acpid.service"]
+ 
+ [service]
+ cmd = "pcid-spawner"
