@@ -34,6 +34,8 @@ patches = [
     "../../../local/patches/relibc/P3-sysv-sem-impl.patch",
     "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
     "../../../local/patches/relibc/P3-waitid-header.patch",
+    "../../../local/patches/relibc/P3-fenv.patch",
+    "../../../local/patches/relibc/P3-sched.patch",
 ]
 
 [build]

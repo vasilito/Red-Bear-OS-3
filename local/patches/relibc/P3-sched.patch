@@ -1,0 +1,124 @@
+diff --git a/src/header/sched/mod.rs b/src/header/sched/mod.rs
+--- a/src/header/sched/mod.rs
++++ b/src/header/sched/mod.rs
+@@ -2,9 +2,11 @@
+ //!
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sched.h.html>.
+ 
+ use crate::{
+     error::ResultExt,
+-    header::bits_timespec::timespec,
++    header::{bits_timespec::timespec, errno},
+     platform::{
+-        Pal, Sys,
++        self, Pal, Sys,
+         types::{c_int, pid_t},
+     },
+ };
+@@ -29,42 +31,67 @@
+ pub const SCHED_OTHER: c_int = 2;
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_max(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 99,
++        SCHED_OTHER => 0,
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_min(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 0,
++        SCHED_OTHER => 0,
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_getparam.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sched_getparam(pid: pid_t, param: *mut sched_param) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; return default params
++    (*param).sched_priority = 0;
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_rr_get_interval.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_rr_get_interval(pid: pid_t, time: *const timespec) -> c_int {
+-    todo!()
++    if time.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; report a nominal 1-second round-robin interval
++    unsafe {
++        (*(time as *mut timespec)).tv_sec = 1;
++        (*(time as *mut timespec)).tv_nsec = 0;
++    }
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setparam.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sched_setparam(pid: pid_t, param: *const sched_param) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    let priority = (*param).sched_priority;
++    if priority < 0 || priority > 99 {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; validate and succeed as a no-op
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setscheduler.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_setscheduler(
+     pid: pid_t,
+     policy: c_int,
+     param: *const sched_param,
+ ) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    match policy {
++        SCHED_FIFO | SCHED_RR | SCHED_OTHER => {
++            let priority = unsafe { (*param).sched_priority };
++            if priority < 0 || priority > 99 {
++                platform::ERRNO.set(errno::EINVAL);
++                return -1;
++            }
++            // Redox has no real-time scheduler; validate and succeed as a no-op
++            0
++        }
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_yield.html>.

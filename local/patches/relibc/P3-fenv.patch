@@ -1,0 +1,230 @@
+diff --git a/src/header/_fenv/mod.rs b/src/header/_fenv/mod.rs
+--- a/src/header/_fenv/mod.rs
++++ b/src/header/_fenv/mod.rs
+@@ -4,82 +4,207 @@
+ 
+ use crate::platform::types::c_int;
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
+-pub const FE_ALL_EXCEPT: c_int = 0;
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
+-pub const FE_TONEAREST: c_int = 0;
++// x86_64 SSE floating-point exception flags (MXCSR bits 0-5, excluding denormal bit 1)
++pub const FE_INVALID: c_int = 0x01;
++pub const FE_DIVBYZERO: c_int = 0x04;
++pub const FE_OVERFLOW: c_int = 0x08;
++pub const FE_UNDERFLOW: c_int = 0x10;
++pub const FE_INEXACT: c_int = 0x20;
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
++pub const FE_ALL_EXCEPT: c_int =
++    FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW | FE_INEXACT;
++
++// x86_64 rounding modes (MXCSR bits 13-14, x87 CW bits 10-11)
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
++pub const FE_TONEAREST: c_int = 0x000;
++pub const FE_DOWNWARD: c_int = 0x400;
++pub const FE_UPWARD: c_int = 0x800;
++pub const FE_TOWARDZERO: c_int = 0xC00;
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
+ pub type fexcept_t = u64;
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/fenv.h.html>.
+ #[repr(C)]
+ pub struct fenv_t {
+-    pub cw: u64,
++    pub cw: u32,    // x87 control word (zero-extended from u16)
++    pub mxcsr: u32, // SSE MXCSR register
+ }
+ 
++/// Read the x87 FPU control word.
++#[inline]
++unsafe fn fnstcw() -> u16 {
++    let mut cw: u16 = 0;
++    core::arch::asm!(
++        "fnstcw ({0})",
++        in(reg) &mut cw,
++        options(nostack, preserves_flags)
++    );
++    cw
++}
++
++/// Load the x87 FPU control word.
++#[inline]
++unsafe fn fldcw(cw: u16) {
++    core::arch::asm!(
++        "fldcw ({0})",
++        in(reg) &cw,
++        options(nostack, preserves_flags)
++    );
++}
++
++/// Read the SSE MXCSR register.
++#[inline]
++unsafe fn stmxcsr() -> u32 {
++    let mut mxcsr: u32 = 0;
++    core::arch::asm!(
++        "stmxcsr ({0})",
++        in(reg) &mut mxcsr,
++        options(nostack, preserves_flags)
++    );
++    mxcsr
++}
++
++/// Write the SSE MXCSR register.
++#[inline]
++unsafe fn ldmxcsr(val: u32) {
++    core::arch::asm!(
++        "ldmxcsr ({0})",
++        in(reg) &val,
++        options(nostack, preserves_flags)
++    );
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/feclearexcept.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn feclearexcept(excepts: c_int) -> c_int {
+-    unimplemented!();
++    let mask = (excepts & FE_ALL_EXCEPT) as u32;
++    if mask != 0 {
++        let mxcsr = stmxcsr();
++        ldmxcsr(mxcsr & !mask);
++        // Clear x87 status word exception flags
++        core::arch::asm!("fnclex", options(nostack, preserves_flags));
++    }
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fegetenv.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fegetenv(envp: *mut fenv_t) -> c_int {
+-    unimplemented!();
++    if envp.is_null() {
++        return 1;
++    }
++    (*envp).cw = fnstcw() as u32;
++    (*envp).mxcsr = stmxcsr();
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fegetexceptflag.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fegetexceptflag(flagp: *mut fexcept_t, excepts: c_int) -> c_int {
+-    unimplemented!();
++    if flagp.is_null() {
++        return 1;
++    }
++    let mxcsr = stmxcsr();
++    *flagp = (mxcsr & FE_ALL_EXCEPT as u32 & excepts as u32) as fexcept_t;
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fegetround.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fegetround() -> c_int {
+-    FE_TONEAREST
++    let mxcsr = stmxcsr();
++    (mxcsr & 0xC00) as c_int
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/feholdexcept.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn feholdexcept(envp: *mut fenv_t) -> c_int {
+-    unimplemented!();
++    if envp.is_null() {
++        return 1;
++    }
++    // Save current environment
++    (*envp).cw = fnstcw() as u32;
++    (*envp).mxcsr = stmxcsr();
++    // Clear all exception flags and set non-stop mode (unmask all exceptions)
++    // MXCSR: clear status bits 0-5, clear mask bits 7-12
++    let mxcsr = stmxcsr();
++    ldmxcsr(mxcsr & !(FE_ALL_EXCEPT as u32) & !((FE_ALL_EXCEPT as u32) << 7));
++    // x87: clear exception mask bits (bits 0-5 in CW) and clear status
++    let cw = fnstcw();
++    fldcw(cw & !0x3F);
++    core::arch::asm!("fnclex", options(nostack, preserves_flags));
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/feraiseexcept.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn feraiseexcept(excepts: c_int) -> c_int {
+-    unimplemented!();
++    let mask = (excepts & FE_ALL_EXCEPT) as u32;
++    if mask == 0 {
++        return 0;
++    }
++    // Set exception status flags in MXCSR
++    let mxcsr = stmxcsr();
++    ldmxcsr(mxcsr | mask);
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fesetenv.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fesetenv(envp: *const fenv_t) -> c_int {
+-    unimplemented!();
++    if envp.is_null() {
++        // Restore default environment
++        fldcw(0x037F); // x87 default CW: all exceptions masked, double precision
++        ldmxcsr(0x1F80); // MXCSR default: all exceptions masked, round-to-nearest
++        return 0;
++    }
++    fldcw((*envp).cw as u16);
++    ldmxcsr((*envp).mxcsr);
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fesetexceptflag.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fesetexceptflag(flagp: *const fexcept_t, excepts: c_int) -> c_int {
+-    unimplemented!();
++    if flagp.is_null() {
++        return 1;
++    }
++    let mask = (excepts & FE_ALL_EXCEPT) as u32;
++    let mxcsr = stmxcsr();
++    let flags = (*flagp as u32) & mask;
++    ldmxcsr((mxcsr & !mask) | flags);
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fegetround.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fesetround(round: c_int) -> c_int {
+-    unimplemented!();
++    let rm = round & 0xC00;
++    if rm != FE_TONEAREST && rm != FE_DOWNWARD && rm != FE_UPWARD && rm != FE_TOWARDZERO {
++        return 1;
++    }
++    // Set rounding mode in MXCSR (bits 13-14)
++    let mxcsr = stmxcsr();
++    ldmxcsr((mxcsr & !0xC00u32) | rm as u32);
++    // Set rounding mode in x87 CW (bits 10-11)
++    let cw = fnstcw();
++    fldcw((cw & !0x0C00) | rm as u16);
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/fetestexcept.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn fetestexcept(excepts: c_int) -> c_int {
+-    unimplemented!();
++    let mxcsr = stmxcsr();
++    (mxcsr & FE_ALL_EXCEPT as u32 & excepts as u32) as c_int
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/feupdateenv.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn feupdateenv(envp: *const fenv_t) -> c_int {
+-    unimplemented!();
++    let mxcsr = stmxcsr();
++    let excepts = (mxcsr & FE_ALL_EXCEPT as u32) as c_int;
++    if fesetenv(envp) != 0 {
++        return 1;
++    }
++    feraiseexcept(excepts);
++    0
+ }
