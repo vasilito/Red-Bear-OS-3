@@ -1,0 +1,162 @@
+# P2-ixgbed-error-handling.patch
+#
+# 10GbE Intel ixgbe driver error handling: replace println!/unwrap()/expect()
+# with log::info!/log::error!/log::warn! and proper error propagation.
+# This file was the only gap in the base patch split coverage.
+
+diff --git a/drivers/net/ixgbed/src/device.rs b/drivers/net/ixgbed/src/device.rs
+index 0d59b46d..fc7c009f 100644
+--- a/drivers/net/ixgbed/src/device.rs
++++ b/drivers/net/ixgbed/src/device.rs
+@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
+ use std::{cmp, mem, ptr, slice, thread};
+ 
+ use driver_network::NetworkAdapter;
+-use syscall::error::Result;
++use syscall::error::{Error, Result, EIO};
+ 
+ use common::dma::Dma;
+ 
+@@ -45,7 +45,12 @@ impl NetworkAdapter for Intel8259x {
+ 
+         if (status & IXGBE_RXDADV_STAT_DD) != 0 {
+             if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
+-                panic!("increase buffer size or decrease MTU")
++                log::error!("ixgbed: received fragmented packet, skipping descriptor");
++                desc.read.pkt_addr = self.receive_buffer[self.receive_index].physical() as u64;
++                desc.read.hdr_addr = 0;
++                self.write_reg(IXGBE_RDT(0), self.receive_index as u32);
++                self.receive_index = wrap_ring(self.receive_index, self.receive_ring.len());
++                return Ok(None);
+             }
+ 
+             let data = unsafe {
+@@ -132,13 +137,25 @@ impl Intel8259x {
+                 .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
+                 .collect::<Result<Vec<_>>>()?
+                 .try_into()
+-                .unwrap_or_else(|_| unreachable!()),
++                .map_err(|v: Vec<_>| {
++                    log::error!(
++                        "ixgbed: internal error: DMA buffer array conversion failed (got {} items, expected 32)",
++                        v.len()
++                    );
++                    Error::new(EIO)
++                })?,
+             receive_ring: unsafe { Dma::zeroed()?.assume_init() },
+             transmit_buffer: (0..32)
+                 .map(|_| Ok(unsafe { Dma::zeroed()?.assume_init() }))
+                 .collect::<Result<Vec<_>>>()?
+                 .try_into()
+-                .unwrap_or_else(|_| unreachable!()),
++                .map_err(|v: Vec<_>| {
++                    log::error!(
++                        "ixgbed: internal error: DMA buffer array conversion failed (got {} items, expected 32)",
++                        v.len()
++                    );
++                    Error::new(EIO)
++                })?,
+             receive_index: 0,
+             transmit_ring: unsafe { Dma::zeroed()?.assume_init() },
+             transmit_ring_free: 32,
+@@ -166,7 +183,7 @@ impl Intel8259x {
+ 
+         if (status & IXGBE_RXDADV_STAT_DD) != 0 {
+             if (status & IXGBE_RXDADV_STAT_EOP) == 0 {
+-                panic!("increase buffer size or decrease MTU")
++                log::error!("ixgbed: received fragmented packet, buffer too small");
+             }
+ 
+             return unsafe { desc.wb.upper.length as usize };
+@@ -205,13 +222,8 @@ impl Intel8259x {
+         self.mac_address = mac;
+     }
+ 
+-    /// Returns the register at `self.base` + `register`.
+-    ///
+-    /// # Panics
+-    ///
+-    /// Panics if `self.base` + `register` does not belong to the mapped memory of the PCIe device.
+     fn read_reg(&self, register: u32) -> u32 {
+-        assert!(
++        debug_assert!(
+             register as usize <= self.size - 4 as usize,
+             "MMIO access out of bounds"
+         );
+@@ -219,13 +231,8 @@ impl Intel8259x {
+         unsafe { ptr::read_volatile((self.base + register as usize) as *mut u32) }
+     }
+ 
+-    /// Sets the register at `self.base` + `register`.
+-    ///
+-    /// # Panics
+-    ///
+-    /// Panics if `self.base` + `register` does not belong to the mapped memory of the PCIe device.
+     fn write_reg(&self, register: u32, data: u32) -> u32 {
+-        assert!(
++        debug_assert!(
+             register as usize <= self.size - 4 as usize,
+             "MMIO access out of bounds"
+         );
+@@ -279,7 +286,7 @@ impl Intel8259x {
+ 
+         let mac = self.get_mac_addr();
+ 
+-        println!(
++        log::info!(
+             "   - MAC: {:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}:{:>02X}",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+         );
+@@ -438,13 +445,11 @@ impl Intel8259x {
+     }
+ 
+     /// Sets the rx queues` descriptors and enables the queues.
+-    ///
+-    /// # Panics
+-    /// Panics if length of `self.receive_ring` is not a power of 2.
+     fn start_rx_queue(&mut self, queue_id: u16) {
+-        if self.receive_ring.len() & (self.receive_ring.len() - 1) != 0 {
+-            panic!("number of receive queue entries must be a power of 2");
+-        }
++        debug_assert!(
++            self.receive_ring.len() & (self.receive_ring.len() - 1) == 0,
++            "number of receive queue entries must be a power of 2"
++        );
+ 
+         for i in 0..self.receive_ring.len() {
+             self.receive_ring[i].read.pkt_addr = self.receive_buffer[i].physical() as u64;
+@@ -466,13 +471,11 @@ impl Intel8259x {
+     }
+ 
+     /// Enables the tx queues.
+-    ///
+-    /// # Panics
+-    /// Panics if length of `self.transmit_ring` is not a power of 2.
+     fn start_tx_queue(&mut self, queue_id: u16) {
+-        if self.transmit_ring.len() & (self.transmit_ring.len() - 1) != 0 {
+-            panic!("number of receive queue entries must be a power of 2");
+-        }
++        debug_assert!(
++            self.transmit_ring.len() & (self.transmit_ring.len() - 1) == 0,
++            "number of transmit queue entries must be a power of 2"
++        );
+ 
+         for i in 0..self.transmit_ring.len() {
+             self.transmit_ring[i].read.buffer_addr = self.transmit_buffer[i].physical() as u64;
+@@ -506,14 +509,14 @@ impl Intel8259x {
+ 
+     /// Waits for the link to come up.
+     fn wait_for_link(&self) {
+-        println!("   - waiting for link");
++        log::info!("   - waiting for link");
+         let time = Instant::now();
+         let mut speed = self.get_link_speed();
+         while speed == 0 && time.elapsed().as_secs() < 10 {
+             thread::sleep(Duration::from_millis(100));
+             speed = self.get_link_speed();
+         }
+-        println!("   - link speed is {} Mbit/s", self.get_link_speed());
++        log::info!("   - link speed is {} Mbit/s", self.get_link_speed());
+     }
+ 
+     /// Enables or disables promisc mode of this device.

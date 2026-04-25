@@ -1,7 +1,35 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/base.git"
 rev = "463f76b9608a896e6f6c9f63457f57f6409873c7"
-patches = ["redox.patch", "P2-boot-runtime-fixes.patch", "P2-acpi-i2c-resources.patch", "P2-daemon-ready-graceful.patch", "P2-daemon-hardening.patch", "P2-acpi-defer-aml.patch"]
+patches = [
+    "P2-ac97d-ihdad-main.patch",
+    "P2-acpi-defer-aml.patch",
+    "P2-acpi-i2c-resources.patch",
+    "P2-acpid-core-refactor.patch",
+    "P2-boot-logging.patch",
+    "P2-boot-runtime-fixes.patch",
+    "P2-daemon-hardening.patch",
+    "P2-daemon-ready-graceful.patch",
+    "P2-hwd-misc.patch",
+    "P2-ihdad-device-refactor.patch",
+    "P2-ihdad-hda-stream.patch",
+    "P2-init-acpid-wiring.patch",
+    "P2-init-subsystems.patch",
+    "P2-inputd.patch",
+    "P2-ixgbed-error-handling.patch",
+    "P2-logd.patch",
+    "P2-misc-daemon-fixes.patch",
+    "P2-network-driver-mains.patch",
+    "P2-network-error-handling.patch",
+    "P2-pcid-cfg-access.patch",
+    "P2-pcid-driver-interface.patch",
+    "P2-ps2d-improvements.patch",
+    "P2-storage-driver-mains.patch",
+    "P2-storage-error-handling.patch",
+    "P2-usb-pm-and-drivers.patch",
+    "P2-virtio-core-vbox.patch",
+    "P2-xhcid-remaining.patch",
+]
 
 [build]
 template = "custom"
