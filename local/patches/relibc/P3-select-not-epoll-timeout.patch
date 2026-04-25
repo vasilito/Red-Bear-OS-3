@@ -1,0 +1,43 @@
+diff --git a/src/header/signal/cbindgen.toml b/src/header/signal/cbindgen.toml
+index e2e7cd12..280b1dbc 100644
+--- a/src/header/signal/cbindgen.toml
++++ b/src/header/signal/cbindgen.toml
+@@ -6,7 +6,7 @@
+ # - "pid_t As described in <sys/types.h>."
+ # - "The <signal.h> header shall define the pthread_attr_t type as described in <sys/types.h>."
+ # - "Inclusion of the <signal.h> header may make visible all symbols from the <time.h> header."
+-sys_includes = ["sys/types.h"]
++sys_includes = ["sys/types.h", "stdint.h"]
+ include_guard = "_RELIBC_SIGNAL_H"
+ after_includes = """
+ #include <bits/timespec.h> // for timespec from time.h
+diff --git a/src/header/sys_select/mod.rs b/src/header/sys_select/mod.rs
+index c70581db..245578b4 100644
+--- a/src/header/sys_select/mod.rs
++++ b/src/header/sys_select/mod.rs
+@@ -130,8 +130,23 @@ pub fn select_epoll(
+ 
+     let mut events: [epoll_event; 32] = unsafe { mem::zeroed() };
+     let epoll_timeout = if not_epoll > 0 {
+-        // Do not wait if any non-epoll file descriptors were found
+-        0
++        // Non-epoll FDs (e.g. TTY on Redox) cannot be monitored by epoll.
++        // Poll with a 100ms interval instead of returning immediately (timeout=0),
++        // which would cause a busy-loop at 100% CPU for callers like mc.
++        match timeout {
++            Some(timeout) => {
++                let sec_ms = (timeout.tv_sec as c_int).checked_mul(1000);
++                let usec_ms = (timeout.tv_usec as c_int) / 1000;
++                match sec_ms.and_then(|s| s.checked_add(usec_ms)) {
++                    Some(s) => {
++                        let user_ms = s as c_int;
++                        if user_ms > 100 { 100 } else { user_ms }
++                    }
++                    None => 100,
++                }
++            }
++            None => 100,
++        }
+     } else {
+         match timeout {
+             Some(timeout) => {
