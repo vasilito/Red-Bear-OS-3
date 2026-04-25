@@ -14,10 +14,16 @@ bottom = "ignore"
 kibi = "ignore"
 
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/30_console.service"
 data = """
-requires_weak 10_net
-ion /usr/lib/sys_build.ion
+[unit]
+description = "System build test"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "ion"
+args = ["/usr/lib/sys_build.ion"]
+type = "oneshot"
 """
 
 [[files]]

@@ -13,10 +13,16 @@ filesystem_size = 1024
 auto-test = {}
 
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/30_console.service"
 data = """
-requires_weak 10_net
-ion /usr/lib/run_tests.ion
+[unit]
+description = "Automated test runner"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "ion"
+args = ["/usr/lib/run_tests.ion"]
+type = "oneshot"
 """
 
 [[files]]

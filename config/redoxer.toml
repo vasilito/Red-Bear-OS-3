@@ -15,20 +15,42 @@ pkgutils = {}
 relibc = {}
 sed = {}
 
-# Override to not background dhcpd
+# Override network services for redoxer (foreground dhcpd)
 [[files]]
-path = "/usr/lib/init.d/10_net"
+path = "/usr/lib/init.d/10_smolnetd.service"
 data = """
-requires_weak 00_drivers
-notify smolnetd
-dhcpd
+[unit]
+description = "Network stack for redoxer"
+requires_weak = ["00_pcid-spawner.service"]
+
+[service]
+cmd = "netstack"
+type = "oneshot_async"
 """
 
 [[files]]
-path = "/usr/lib/init.d/30_redoxer"
+path = "/usr/lib/init.d/10_dhcpd.service"
 data = """
-requires_weak 10_net
-ion /usr/lib/run_redoxer.ion
+[unit]
+description = "DHCP client (foreground) for redoxer"
+requires_weak = ["10_smolnetd.service"]
+
+[service]
+cmd = "dhcpd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_redoxer.service"
+data = """
+[unit]
+description = "Redoxer test runner"
+requires_weak = ["10_dhcpd.service"]
+
+[service]
+cmd = "ion"
+args = ["/usr/lib/run_redoxer.ion"]
+type = "oneshot_async"
 """
 
 [[files]]

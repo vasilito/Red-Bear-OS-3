@@ -36,18 +36,30 @@ website = {}
 
 
 [[files]]
-path = "/usr/lib/init.d/98_keygen_sh"
+path = "/usr/lib/init.d/98_keygen_sh.service"
 data = """
-requires_weak 10_net
-bash /root/keygen.sh
+[unit]
+description = "SSH key generation"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "bash"
+args = ["/root/keygen.sh"]
+type = "oneshot"
 """
 
 [[files]]
-path = "/usr/lib/init.d/99_rustysd"
+path = "/usr/lib/init.d/99_rustysd.service"
 data = """
-requires_weak 98_keygen_sh
-# Undocumented usage of rsdctl, pointing to notifications dir
-RSDCTL_ADDR=/var/run/rustysd/control.socket rustysd --conf /etc/rustysd
+[unit]
+description = "Rustysd service manager"
+requires_weak = ["98_keygen_sh.service"]
+
+[service]
+cmd = "rustysd"
+args = ["--conf", "/etc/rustysd"]
+envs = { RSDCTL_ADDR = "/var/run/rustysd/control.socket" }
+type = "oneshot_async"
 """
 
 [[files]]

@@ -1,15 +1,11 @@
-# Red Bear OS overrides for legacy base init scripts.
+# Red Bear OS overrides for base init services.
 #
-# 00_base: tmpdir setup + sudo --daemon. ipcd and ptyd are started by the
-#          systemd-style services in base recipe's init.d/ (00_ipcd.service,
-#          00_ptyd.service). The old "notify" calls have been removed because
-#          the "notify" binary does not exist — they always failed silently.
-#          sudo --daemon is kept here because 00_sudo.service exists in the base
-#          recipe but is not wired into any target that gets scheduled.
-# 00_drivers: removed — pcid-spawner is started by 00_pcid-spawner.service from
-#             the base recipe. The legacy script was redundant.
-# 10_net: blanked — replaced by per-config network services (e.g. redbear-live-mini's
-#         10_smolnetd.service + 10_dhcpd.service).
+# 00_base.service: stripped base setup (tmpdir only, no sudo — sudo runs from
+#                  base.toml's 00_sudo.service). ipcd and ptyd are started by
+#                  00_ipcd.service and 00_ptyd.service from the base recipe.
+# 00_drivers / 10_net: no longer overridden — the legacy scripts were removed
+#             from base.toml. pcid-spawner is started by 00_pcid-spawner.service
+#             from the base recipe; smolnetd/dhcpd have their own .service files.
 # 00_pcid-spawner.service: overridden to oneshot_async. The base recipe uses
 #          type="oneshot" which blocks init until pcid-spawner exits. On real
 #          hardware (and QEMU), pcid-spawner can hang waiting for a PCI device
@@ -18,20 +14,16 @@
 #          services while drivers spawn in the background.
 
 [[files]]
-path = "/usr/lib/init.d/00_base"
+path = "/usr/lib/init.d/00_base.service"
 data = """
-# clear and recreate tmpdir with 0o1777 permission
-rm -rf /tmp
-mkdir -m a=rwxt /tmp
+[unit]
+description = "Base environment setup (tmpdir)"
+
+[service]
+cmd = "ion"
+args = ["-c", "rm -rf /tmp; mkdir -m a=rwxt /tmp"]
+type = "oneshot"
 """
-
-[[files]]
-path = "/usr/lib/init.d/00_drivers"
-data = ""
-
-[[files]]
-path = "/usr/lib/init.d/10_net"
-data = ""
 
 [[files]]
 path = "/etc/init.d/20_audiod.service"

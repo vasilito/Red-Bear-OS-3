@@ -1,9 +1,18 @@
-# Red Bear OS overrides for broken legacy desktop init scripts.
+# Red Bear OS overrides for legacy desktop init services.
+# Blank the display and console services inherited from desktop-minimal.toml.
 
 [[files]]
-path = "/usr/lib/init.d/20_display"
+path = "/usr/lib/init.d/20_display.service"
 data = ""
 
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/29_activate_console.service"
+data = ""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = ""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
 data = ""

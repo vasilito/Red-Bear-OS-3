@@ -9,10 +9,15 @@ orbital = {}
 
 # Override to run inside of orbital
 [[files]]
-path = "/usr/lib/init.d/30_redoxer"
+path = "/usr/lib/init.d/30_redoxer.service"
 data = """
-requires_weak 10_net
-echo
-echo "## running redoxer in orbital ##"
-nowait VT=3 orbital redoxerd
+[unit]
+description = "Redoxer GUI test (orbital)"
+requires_weak = ["10_dhcpd.service"]
+
+[service]
+cmd = "orbital"
+args = ["redoxerd"]
+envs = { VT = "3" }
+type = "oneshot_async"
 """

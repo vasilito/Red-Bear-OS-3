@@ -27,10 +27,16 @@ x11-full = {}
 zenity = {}
 
 [[files]]
-path = "/usr/lib/init.d/10_dbus"
+path = "/usr/lib/init.d/10_dbus.service"
 data = """
-requires_weak 10_net
-bash /usr/bin/start-dbus.sh
+[unit]
+description = "D-Bus system bus (X11)"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "bash"
+args = ["/usr/bin/start-dbus.sh"]
+type = "oneshot_async"
 """
 
 [[files]]
@@ -49,19 +55,31 @@ dbus-daemon --system
 """
 
 [[files]]
-path = "/usr/lib/init.d/10_xenv"
+path = "/usr/lib/init.d/10_xenv.service"
 data = """
-requires_weak 10_net
-glib-compile-schemas /usr/share/glib-2.0/schemas/
+[unit]
+description = "Compile glib schemas"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "glib-compile-schemas"
+args = ["/usr/share/glib-2.0/schemas/"]
+type = "oneshot"
 """
 
 # Overridden to launch X instead of orblogin
 [[files]]
-path = "/usr/lib/init.d/20_orbital"
+path = "/usr/lib/init.d/20_orbital.service"
 data = """
-requires_weak 10_dbus 10_xenv
-notify audiod
-nowait BROWSER=/bin/netsurf-fb VT=3 orbital orbital-x11
+[unit]
+description = "Orbital display (X11)"
+requires_weak = ["10_dbus.service", "10_xenv.service"]
+
+[service]
+cmd = "orbital"
+args = ["orbital-x11"]
+envs = { BROWSER = "/bin/netsurf-fb", VT = "3" }
+type = "oneshot_async"
 """
 
 [[files]]
@@ -131,11 +149,33 @@ mate-session&
 
 # Override console config to set DISPLAY=:0
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/30_console.service"
 data = """
-requires_weak 20_orbital
-nowait DISPLAY=:0 getty 2
-nowait DISPLAY=:0 getty /scheme/debug/no-preserve -J
+[unit]
+description = "Console terminals (X11)"
+requires_weak = ["20_orbital.service"]
+
+[service]
+cmd = "getty"
+args = ["2"]
+envs = { DISPLAY = ":0" }
+type = "oneshot_async"
+respawn = true
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console (X11)"
+requires_weak = ["30_console.service"]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+envs = { DISPLAY = ":0" }
+type = "oneshot_async"
+respawn = true
 """
 
 

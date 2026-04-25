@@ -23,31 +23,27 @@ uutils = {}
 
 ## Configuration files
 [[files]]
-path = "/usr/lib/init.d/00_base"
+path = "/usr/lib/init.d/00_base.service"
 data = """
-# clear and recreate tmpdir with 0o1777 permission
-rm -rf /tmp
-mkdir -m a=rwxt /tmp
+[unit]
+description = "Base environment setup (tmpdir)"
 
-notify ipcd
-notify ptyd
-nowait sudo --daemon
+[service]
+cmd = "ion"
+args = ["-c", "rm -rf /tmp; mkdir -m a=rwxt /tmp"]
+type = "oneshot"
 """
 
 [[files]]
-path = "/usr/lib/init.d/00_drivers"
+path = "/usr/lib/init.d/00_sudo.service"
 data = """
-requires_weak 00_base
-pcid-spawner
-"""
+[unit]
+description = "Sudo privilege daemon"
 
-## Network init
-[[files]]
-path = "/usr/lib/init.d/10_net"
-data = """
-requires_weak 00_drivers
-notify smolnetd
-nowait dhcpd
+[service]
+cmd = "sudo"
+args = ["--daemon"]
+type = "oneshot_async"
 """
 
 [[files]]

@@ -14,9 +14,15 @@ prompt = false
 os-test-bins = {} # Provides source and cross-compiled binaries
 
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/30_console.service"
 data = """
-requires_weak 10_net
-RUST_BACKTRACE=full os-test-runner
-shutdown
+[unit]
+description = "OS test runner"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "ion"
+args = ["-c", "os-test-runner; shutdown"]
+envs = { RUST_BACKTRACE = "full" }
+type = "oneshot"
 """

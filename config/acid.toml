@@ -14,10 +14,16 @@ coreutils = {}
 ion = {}
 
 [[files]]
-path = "/usr/lib/init.d/10_acid"
+path = "/usr/lib/init.d/10_acid.service"
 data = """
-requires_weak 00_drivers
-ion /usr/lib/run_acid.ion
+[unit]
+description = "Acid test runner"
+requires_weak = ["00_pcid-spawner.service"]
+
+[service]
+cmd = "ion"
+args = ["/usr/lib/run_acid.ion"]
+type = "oneshot_async"
 """
 
 [[files]]

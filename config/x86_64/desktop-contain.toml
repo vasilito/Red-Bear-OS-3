@@ -15,20 +15,46 @@ include = ["../desktop.toml"]
 
 # Override orbital init to use contain_orblogin
 [[files]]
-path = "/usr/lib/init.d/20_orbital"
+path = "/usr/lib/init.d/20_orbital.service"
 data = """
-requires_weak 10_net
-notify audiod
-nowait VT=3 orbital contain_orblogin launcher
+[unit]
+description = "Orbital display (contain sandbox)"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "orbital"
+args = ["contain_orblogin", "launcher"]
+envs = { VT = "3" }
+type = "oneshot_async"
 """
 
 # Override console init to use contain
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/30_console.service"
 data = """
-requires_weak 20_orbital
-nowait getty --contain 2
-nowait getty --contain /scheme/debug/no-preserve -J
+[unit]
+description = "Console terminals (contained)"
+requires_weak = ["20_orbital.service"]
+
+[service]
+cmd = "getty"
+args = ["--contain", "2"]
+type = "oneshot_async"
+respawn = true
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console (contained)"
+requires_weak = ["30_console.service"]
+
+[service]
+cmd = "getty"
+args = ["--contain", "/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+respawn = true
 """
 
 [[files]]

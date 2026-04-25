@@ -17,10 +17,42 @@ pkgutils = {}
 kibi = {}
 
 [[files]]
-path = "/usr/lib/init.d/30_console"
+path = "/usr/lib/init.d/29_activate_console.service"
 data = """
-requires_weak 10_net
-inputd -A 2
-nowait getty 2
-nowait getty /scheme/debug/no-preserve -J
+[unit]
+description = "Activate console VT"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "inputd"
+args = ["-A", "2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = ["29_activate_console.service"]
+
+[service]
+cmd = "getty"
+args = ["2"]
+type = "oneshot_async"
+respawn = true
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = ["29_activate_console.service"]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+respawn = true
 """
