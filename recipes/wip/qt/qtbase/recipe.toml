@@ -82,7 +82,7 @@ if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
     TOOLCHAIN_ROOT="$(choose_toolchain_root)"
     TOOLCHAIN_TARGET_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/include"
     TOOLCHAIN_TARGET_USR_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/usr/include"
-    for header in elf.h semaphore.h; do
+    for header in elf.h semaphore.h unistd.h; do
         if [ -f "${RELIBC_STAGE_INCLUDE}/${header}" ] && [ -d "${TOOLCHAIN_TARGET_INCLUDE}" ]; then
             cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_INCLUDE}/${header}"
         fi
@@ -147,7 +147,7 @@ done
 # ============================================================
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 HOST_QTBASE_BUILD="${COOKBOOK_ROOT}/build/qtbase-host-build"
-HOST_PROFILE="qtbase-host-6.11.0-gui-xml-wayland-no-qdbus-host"
+HOST_PROFILE="qtbase-host-6.11.0-gui-xml-wayland-qdbus-host"
 HOST_STAMP="${HOST_BUILD}/.redbear-host-profile"
 HOST_PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/jvm/default/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
 python - <<'PY'
@@ -155,8 +155,8 @@ import os
 from pathlib import Path
 path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/tools/CMakeLists.txt"
 text = path.read_text()
-old = "    add_subdirectory(qdbuscpp2xml)\\n    add_subdirectory(qdbusxml2cpp)\\n"
-new = "    # add_subdirectory(qdbuscpp2xml) # disabled for Redox Qt Wave 1\\n    # add_subdirectory(qdbusxml2cpp) # disabled for Redox Qt Wave 1\\n"
+old = "    # add_subdirectory(qdbuscpp2xml) # disabled for Redox Qt Wave 1\\n    # add_subdirectory(qdbusxml2cpp) # disabled for Redox Qt Wave 1\\n"
+new = "    add_subdirectory(qdbuscpp2xml)\\n    add_subdirectory(qdbusxml2cpp)\\n"
 text = text.replace(old, new)
 path.write_text(text)
 PY
@@ -188,7 +188,7 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
         -DFEATURE_widgets=OFF \
         -DFEATURE_opengl=OFF \
     -DFEATURE_network=OFF \
-        -DFEATURE_dbus=OFF \
+        -DFEATURE_dbus=ON \
     -DFEATURE_openssl=OFF \
     -DFEATURE_sql=OFF \
     -DFEATURE_testlib=OFF \
