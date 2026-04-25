@@ -1,13 +1,14 @@
 # Red Bear OS Minimal Configuration
-# Console/Server variant with bare-metal driver support but no GUI
+# Console/Server variant with bare-metal driver support but no GUI.
+# Includes all non-graphics, non-firmware packages from the full profile.
 #
 # Build: make all CONFIG_NAME=redbear-minimal
 
 include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-device-services.toml", "redbear-netctl.toml"]
 
 [general]
-# Minimal image now includes firmware payloads and Wi-Fi control-plane packages,
-# so the previous 512 MiB image is too small for live ISO assembly.
+# Minimal image carries the full non-graphics package set;
+# 2048 MiB accommodates CLI tools, D-Bus services, and filesystem utilities.
 filesystem_size = 2048
 
 [packages]
@@ -27,8 +28,7 @@ redbear-traceroute = {}
 redbear-mtr = {}
 redbear-nmap = {}
 
-# Firmware loading + Wi-Fi control plane
-redbear-firmware = {}
+# Wi-Fi control plane (firmware-loader comes from redbear-device-services.toml)
 firmware-loader = {}
 redbear-wifictl = {}
 
@@ -41,6 +41,41 @@ mc = {}
 
 # Diagnostic tool
 redbear-info = {}
+
+# Package builder (cub -S/-B/-G CLI)
+cub = {}
+
+# ── D-Bus IPC and session services ──
+dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
+redbear-notifications = {}
+redbear-upower = {}
+redbear-udisks = {}
+redbear-polkit = {}
+
+# ── IOMMU DMA remapping ──
+iommu = {}
+
+# ── Standard CLI tools (from server profile) ──
+bash = {}
+bottom = {}
+curl = {}
+diffutils = {}
+findutils = {}
+git = {}
+htop = {}
+
+# ── Filesystem support ──
+ext4d = {}
+redoxfs = {}
+
+# ── System installer ──
+installer = {}
+
+# ── Build / packaging utilities ──
+patchelf = {}
+shared-mime-info = {}
 
 [[files]]
 path = "/etc/netctl/active"
@@ -62,6 +97,123 @@ data = """
   Red Bear OS v0.1.0 "Denali" — Built on Redox OS
   Type 'help' for available commands.
 """
+
+[[files]]
+path = "/usr/lib/init.d/12_dbus.service"
+data = """
+[unit]
+description = "D-Bus system bus"
+requires_weak = [
+    "12_boot-late.target",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-sessiond",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_iommu.service"
+data = """
+[unit]
+description = "IOMMU DMA remapping daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "/usr/bin/iommu"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-upower",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-udisks",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = [
+    "-c",
+    "redbear-polkit",
+]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
 
 # VT/getty/login chain: initfs starts inputd + vesad + fbcond in phase 1,
 # then minimal.toml legacy 30_console runs inputd -A 2 + getty 2 + getty debug.
