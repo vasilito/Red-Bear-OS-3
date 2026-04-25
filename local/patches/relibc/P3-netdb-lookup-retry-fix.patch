@@ -1,12 +1,9 @@
 diff --git a/src/header/netdb/lookup.rs b/src/header/netdb/lookup.rs
-index 0734eec6..1789bc2e 100644
+index 0734eec6..ccb00b65 100644
 --- a/src/header/netdb/lookup.rs
 +++ b/src/header/netdb/lookup.rs
-@@ -15,9 +15,10 @@ use crate::header::{
-     bits_timespec::timespec,
-     errno::*,
+@@ -17,10 +17,11 @@ use crate::header::{
      netinet_in::{IPPROTO_UDP, in_addr, sockaddr_in},
-+    sys_select::timeval,
      sys_socket::{
          self,
 -        constants::{AF_INET, SOCK_DGRAM},
@@ -14,79 +11,81 @@ index 0734eec6..1789bc2e 100644
          sockaddr,
      },
      time,
-@@ -89,11 +90,37 @@ pub fn lookup_host(host: &str) -> Result<LookupHost, c_int> {
++    sys_select::timeval,
+ };
+ 
+ use super::{
+@@ -89,11 +90,34 @@ pub fn lookup_host(host: &str) -> Result<LookupHost, c_int> {
              drop(Box::from_raw(packet_data_ptr));
          }
  
 -        let i = 0 as socklen_t;
-+        // Prevent indefinite blocking when DNS server is unreachable (5s timeout).
-+        unsafe {
-+            let tv = timeval {
-+                tv_sec: 5,
-+                tv_usec: 0,
-+            };
-+            let _ = sys_socket::setsockopt(
-+                sock,
-+                SOL_SOCKET,
-+                SO_RCVTIMEO,
-+                ptr::from_ref(&tv) as *const c_void,
-+                mem::size_of::<timeval>() as socklen_t,
-+            );
-+        }
-+
          let mut buf = vec![0u8; 65536];
          let buf_ptr = buf.as_mut_ptr().cast::<c_void>();
  
 -        let count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
-+        let mut count: isize = -1;
-+        for attempt in 0..2 {
-+            if attempt > 0 {
-+                if unsafe { sys_socket::send(sock, packet_data_ptr as *const c_void, packet_data_len, 0) } < 0 {
-+                    break;
-+                }
-+            }
-+            count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
-+            if count >= 0 {
-+                break;
-+            }
-+        }
-+        let _ = crate::header::unistd::close(sock);
-         if count < 0 {
-             return Err(EIO);
-         }
-@@ -197,7 +224,34 @@ pub fn lookup_addr(addr: in_addr) -> Result<Vec<Vec<u8>>, c_int> {
-         let mut buf = [0u8; 65536];
-         let buf_ptr = buf.as_mut_ptr().cast::<c_void>();
- 
--        let count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
-+        // Prevent indefinite blocking when DNS server is unreachable (5s timeout).
++        // Set 5s recv timeout (best-effort; if this fails, recv may block longer).
++        let tv = timeval {
++            tv_sec: 5,
++            tv_usec: 0,
++        };
 +        unsafe {
-+            let tv = timeval {
-+                tv_sec: 5,
-+                tv_usec: 0,
-+            };
-+            let _ = sys_socket::setsockopt(
++            sys_socket::setsockopt(
 +                sock,
 +                SOL_SOCKET,
 +                SO_RCVTIMEO,
-+                ptr::from_ref(&tv) as *const c_void,
-+                mem::size_of::<timeval>() as socklen_t,
++                &tv as *const timeval as *const c_void,
++                core::mem::size_of::<timeval>() as socklen_t,
 +            );
 +        }
 +
 +        let mut count: isize = -1;
-+        for attempt in 0..2 {
-+            if attempt > 0 {
-+                if unsafe { sys_socket::send(sock, packet_data_ptr as *const c_void, packet_data_len, 0) } < 0 {
-+                    break;
-+                }
-+            }
++        for _attempt in 0..2 {
 +            count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
 +            if count >= 0 {
 +                break;
 +            }
++            if unsafe { sys_socket::send(sock, packet_data_ptr, packet_data_len, 0) } < 0 {
++                break;
++            }
 +        }
-+        let _ = crate::header::unistd::close(sock);
+         if count < 0 {
+             return Err(EIO);
+         }
+@@ -193,11 +217,34 @@ pub fn lookup_addr(addr: in_addr) -> Result<Vec<Vec<u8>>, c_int> {
+             drop(Box::from_raw(packet_data_ptr));
+         }
+ 
+-        let i = mem::size_of::<sockaddr_in>() as socklen_t;
+         let mut buf = [0u8; 65536];
+         let buf_ptr = buf.as_mut_ptr().cast::<c_void>();
+ 
+-        let count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
++        // Set 5s recv timeout (best-effort; if this fails, recv may block longer).
++        let tv = timeval {
++            tv_sec: 5,
++            tv_usec: 0,
++        };
++        unsafe {
++            sys_socket::setsockopt(
++                sock,
++                SOL_SOCKET,
++                SO_RCVTIMEO,
++                &tv as *const timeval as *const c_void,
++                core::mem::size_of::<timeval>() as socklen_t,
++            );
++        }
++
++        let mut count: isize = -1;
++        for _attempt in 0..2 {
++            count = unsafe { sys_socket::recv(sock, buf_ptr, 65536, 0) };
++            if count >= 0 {
++                break;
++            }
++            if unsafe { sys_socket::send(sock, packet_data_ptr, packet_data_len, 0) } < 0 {
++                break;
++            }
++        }
          if count < 0 {
              return Err(EIO);
          }

@@ -13,7 +13,7 @@ index 6a963d8..59ffbd4 100644
 +# `user`                       #
 +# `root`:`password`            #
 +################################
-  
+ 
 diff --git a/res/motd b/res/motd
 index 5cd097a..dc28b04 100644
 --- a/res/motd
@@ -22,3 +22,16 @@ index 5cd097a..dc28b04 100644
 -Welcome to Redox OS!
 +Welcome to Red Bear OS!
   
+diff --git a/src/bin/login.rs b/src/bin/login.rs
+index 08e178c..f7f337a 100644
+--- a/src/bin/login.rs
++++ b/src/bin/login.rs
+@@ -135,7 +135,7 @@ pub fn main() {
+     loop {
+         let user = liner::Context::new()
+             .read_line(
+-                liner::Prompt::from("\x1B[1mredox login:\x1B[0m "),
++                liner::Prompt::from("\x1B[1mRed Bear login:\x1B[0m "),
+                 None,
+                 &mut liner::BasicCompleter::new(Vec::<String>::new()),
+             )
