@@ -71,7 +71,7 @@ for config in "${configs[@]}"; do
     expect <<EOF
 log_user 1
 set timeout 420
-spawn make qemu CONFIG_NAME=$config live=yes serial=yes gpu=no net=no
+spawn env CI=1 make qemu CONFIG_NAME=$config live=yes serial=yes gpu=no net=no
 expect "login:"
 send "root\r"
 expect "assword:"

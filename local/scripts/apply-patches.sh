@@ -89,6 +89,35 @@ for patch_file in "$PATCHES_DIR"/build-system/[0-9]*.patch; do
             echo "  SKIP $patch_name (already applied)"
             continue
         fi
+
+        # Reverse-check failed — maybe working tree diverged but patch is
+        # effectively applied. Use signature markers for robustness.
+        already_applied=0
+        case "$patch_name" in
+            001-rebrand-and-build.patch)
+                grep -q 'Red Bear OS' Makefile 2>/dev/null && already_applied=1
+                ;;
+            002-cookbook-fixes.patch)
+                grep -q 'redbear_cookbook' Cargo.toml 2>/dev/null \
+                    && grep -q 'redbear_protected_recipe' src/cook/fetch.rs 2>/dev/null \
+                    && already_applied=1
+                ;;
+            003-config.patch)
+                grep -q 'redbear-full' config/redbear-full.toml 2>/dev/null && already_applied=1
+                ;;
+            004-docs-and-cleanup.patch)
+                grep -q 'Red Bear OS' README.md 2>/dev/null && already_applied=1
+                ;;
+            005-qtbase-toolchain-elf-header.patch)
+                # This patch touches recipes/libs/qtbase; check for our marker
+                grep -q 'REDBEAR' recipes/libs/qtbase/recipe.toml 2>/dev/null && already_applied=1
+                ;;
+        esac
+        if [ "$already_applied" -eq 1 ]; then
+            echo "  SKIP $patch_name (already applied via signature marker)"
+            continue
+        fi
+
         # Patch conflicts and is NOT already applied — this is a real problem
         echo "  FAIL $patch_name — conflicts with current tree"
         echo "       This likely means upstream has changed the target files."

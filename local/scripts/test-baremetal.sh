@@ -8,6 +8,11 @@ REDOX_ROOT="$(dirname "$0")/../.."
 REDOX_ROOT="$(cd "$REDOX_ROOT" && pwd)"
 IMAGE_PATH="$REDOX_ROOT/build/harddrive.img"
 
+# Auto-disable TUI when stdout is not a terminal (prevents repo cook panic)
+if [ -z "${CI:-}" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+    export CI=1
+fi
+
 CONFIG="my-amd-desktop"
 DEVICE=""
 DRY_RUN=0
@@ -187,7 +192,7 @@ warn_if_system_disk "$DEVICE"
 
 if [ "$SKIP_BUILD" -eq 0 ]; then
     echo "=== Building Red Bear OS image ==="
-    run_cmd make -C "$REDOX_ROOT" all CONFIG_NAME="$CONFIG"
+    run_cmd make -C "$REDOX_ROOT" all CONFIG_NAME="$CONFIG" CI=1
 else
     echo "=== Skipping build step ==="
 fi

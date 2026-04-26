@@ -1032,7 +1032,11 @@ impl TuiApp {
         thread::spawn(move || {
             while let Ok(msg) = log_writer_rx.recv() {
                 match msg {
-                    LogWriterMessage::Write { _name, path, content } => {
+                    LogWriterMessage::Write {
+                        _name,
+                        path,
+                        content,
+                    } => {
                         if content.trim_end().is_empty() {
                             continue;
                         }
@@ -1157,10 +1161,8 @@ impl TuiApp {
             }
             StatusUpdate::FlushLog(name, path) => {
                 let (logs, line) = self.get_recipe_log(&name);
-                let content = strip_ansi_escapes::strip_str(join_logs(
-                    logs.unwrap_or(&Vec::new()),
-                    line,
-                ));
+                let content =
+                    strip_ansi_escapes::strip_str(join_logs(logs.unwrap_or(&Vec::new()), line));
                 let _ = self.log_writer_tx.send(LogWriterMessage::Write {
                     _name: name,
                     path,
@@ -1328,9 +1330,9 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
     let mstdin = stdin();
     let mstdout = stdout()
         .into_raw_mode()
-        .unwrap()
+        .map_err(|e| Error::from_io_error(e, "Entering raw terminal mode (try CI=1)"))?
         .into_alternate_screen()
-        .unwrap();
+        .map_err(|e| Error::from_io_error(e, "Entering alternate terminal screen"))?;
 
     // ----- Input Thread -----
     let (input_tx, input_rx) = mpsc::channel::<Event>();

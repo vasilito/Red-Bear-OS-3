@@ -52,6 +52,11 @@ done
 
 cd "$PROJECT_ROOT"
 
+# Auto-disable TUI when stdout is not a terminal (prevents repo cook panic)
+if [ -z "${CI:-}" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+    export CI=1
+fi
+
 if [ "$BUILD" -eq 1 ]; then
     echo "==> Ensuring .config is set for native build..."
     if ! grep -q 'PODMAN_BUILD?=0' .config 2>/dev/null; then
@@ -91,4 +96,4 @@ fi
 echo "==> Launching Red Bear OS in QEMU ($CONFIG_NAME, $ARCH)..."
 echo ""
 
-exec make qemu "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH" "${QEMU_EXTRA_ARGS[@]}"
+exec make qemu "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH" CI=1 "${QEMU_EXTRA_ARGS[@]}"

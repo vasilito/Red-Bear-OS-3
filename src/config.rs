@@ -1,4 +1,10 @@
-use std::{collections::HashMap, env, fs, str::FromStr, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    env, fs,
+    io::{IsTerminal, stdin},
+    str::FromStr,
+    sync::OnceLock,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +92,9 @@ pub fn init_config() {
     };
 
     if config.cook_opt.tui.is_none() {
-        config.cook_opt.tui = Some(!env::var("CI").is_ok_and(|s| !s.is_empty()));
+        let ci_set = env::var("CI").is_ok_and(|s| !s.is_empty());
+        let tty = stdin().is_terminal();
+        config.cook_opt.tui = Some(!ci_set && tty);
     }
     if config.cook_opt.jobs.is_none() {
         config.cook_opt.jobs = Some(extract_env(
