@@ -53,16 +53,16 @@ index 74f0315..0000000
 -      make CONFIG_NAME=ci SKIP_CHECK_TOOLS=1 repo-tree ARCH=riscv64gc
 diff --git a/AGENTS.md b/AGENTS.md
 new file mode 100644
-index 0000000..1427248
+index 0000000..fc4db58
 --- /dev/null
 +++ b/AGENTS.md
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,396 @@
 +# RED BEAR OS BUILD SYSTEM — PROJECT KNOWLEDGE BASE
 +
-+**Generated:** 2026-04-11 (AMD-first reassessment)
++**Generated:** 2026-04-12 (P1/P2 complete)
 +**Toolchain:** Rust nightly-2025-10-03 (edition 2024)
 +**Architecture:** Microkernel OS in Rust, ~38k files, ~294k LoC Rust
-+**Target Hardware**: AMD64 bare metal, AMD GPU (RDNA2/RDNA3), then Intel
++**Target Hardware**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority Red Bear OS targets
 +
 +## OVERVIEW
 +
@@ -70,17 +70,29 @@ index 0000000..1427248
 +into a bootable Redox image. Uses a Makefile + Rust "cookbook" tool + TOML configs.
 +Languages: Rust (core), C (ported packages), TOML (config), Make (build orchestration).
 +
++RedBearOS should be treated as an overlay distribution on top of Redox in the same way Ubuntu
++relates to Debian:
++
++- Redox is upstream
++- Red Bear carries integration, packaging, validation, and subsystem overlays on top
++- upstream-owned source trees are refreshable working copies
++- durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
++  Red Bear configs
++
++If we can fetch refreshed upstream sources, reapply our overlays, and rebuild successfully, the
++project is in the right shape for long-term maintenance.
++
 +## STRUCTURE
 +
 +```
 +redox-master/
-+├── config/          # Build configs (TOML): desktop, server, wayland, x11, minimal
++├── config/          # Build configs (TOML): tracked redbear-* targets plus mainline references
 +├── mk/              # Makefile fragments: config.mk, repo.mk, prefix.mk, disk.mk, qemu.mk
 +├── recipes/         # Package recipes (TOML + source). 26 categories. See recipes/AGENTS.md
 +│   ├── core/        # kernel, bootloader, relibc, base drivers — See recipes/core/AGENTS.md
 +│   ├── wip/         # Wayland, KDE, driver WIP ports — See recipes/wip/AGENTS.md
 +│   ├── libs/        # Libraries: mesa, cairo, SDL, zlib, openssl, etc.
-+│   ├── gui/         # Orbital, orbterm, orbutils
++│   ├── gui/         # Legacy GUI stack packages
 +│   └── ...          # 21 other categories (net, dev, games, shells, etc.)
 +├── src/             # Cookbook Rust tooling (repo binary, cook logic)
 +├── docs/            # Architecture docs (6 detailed integration guides) — See docs/AGENTS.md
@@ -90,8 +102,8 @@ index 0000000..1427248
 +│   ├── patches/     # Patches against mainline sources (kernel, relibc, base)
 +│   ├── Assets/      # Branding assets (icon, loading background)
 +│   ├── firmware/    # AMD GPU firmware blobs (fetched, not committed)
-+│   ├── scripts/     # Build/deploy scripts (fetch-firmware.sh, build-amd.sh)
-+│   └── docs/        # AMD-first integration docs (AMD-FIRST-INTEGRATION.md)
++│   ├── scripts/     # Build/deploy scripts (fetch-firmware.sh, build-redbear.sh)
++│   └── docs/        # Red Bear integration docs (AMD roadmap, Wi-Fi/Bluetooth plans, status notes)
 +├── prefix/          # Cross-compiler toolchain (Clang/LLVM for x86_64-unknown-redox)
 +├── build/           # Build outputs, logs, fstools, per-arch directories
 +├── repo/            # Package manifests and PKGAR artifacts per architecture
@@ -114,14 +126,18 @@ index 0000000..1427248
 +| Fix kernel | `recipes/core/kernel/source/` | Kernel is a recipe, not top-level |
 +| Fix a driver | `recipes/core/base/source/drivers/` | All drivers are userspace daemons |
 +| Fix relibc (POSIX) | `recipes/core/relibc/source/` | C library written in Rust |
-+| Wayland integration | `recipes/wip/wayland/` + `docs/03-WAYLAND-ON-REDOX.md` | 21 WIP recipes |
++| Wayland integration | `recipes/wip/wayland/` + `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` | 21 WIP recipes + local validation/ownership plan |
 +| KDE Plasma path | `recipes/wip/kde/` + `docs/05-KDE-PLASMA-ON-REDOX.md` | 9 WIP KDE app recipes |
-+| Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture |
++| **Desktop path plan** | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | **Canonical plan: console → HW-accelerated KDE** |
++| Linux driver compat | `docs/04-LINUX-DRIVER-COMPAT.md` | linux-kpi + redox-driver-sys architecture (**GPU and Wi-Fi only — not USB**) |
 +| Build system internals | `src/bin/repo.rs`, `src/lib.rs`, `mk/repo.mk` | Cookbook tool in Rust |
 +| Cross-toolchain setup | `mk/prefix.mk`, `prefix/x86_64-unknown-redox/` | Downloads Clang/LLVM toolchain |
-+| Display server | Orbital: `recipes/gui/orbital/` | Userspace scheme-based display server |
++| Display/session surface | `config/redbear-full.toml` | Active desktop/graphics compile surface |
 +| GPU/graphics stack | `recipes/libs/mesa/` | OSMesa + LLVMpipe (software only) |
++| GPU hardware drivers | `local/recipes/gpu/redox-drm/source/` | AMD + Intel DRM/KMS via redox-driver-sys |
++| D-Bus integration | `local/docs/DBUS-INTEGRATION-PLAN.md` | Architecture, gap analysis, phased implementation for KDE Plasma D-Bus |
 +| Boot config | `config/*.toml` | TOML hierarchy, include-based |
++| **Hardware quirks** | `local/recipes/drivers/redox-driver-sys/source/src/quirks/` | Data-driven quirk tables: compiled-in + TOML + DMI; see `local/docs/QUIRKS-SYSTEM.md` |
 +
 +## BUILD COMMANDS
 +
@@ -134,17 +150,24 @@ index 0000000..1427248
 +echo 'PODMAN_BUILD?=0' > .config          # Native build (no container)
 +echo 'PODMAN_BUILD?=1' > .config          # Podman container build
 +
-+# Build
-+make all                                  # Build desktop config → harddrive.img
-+make all CONFIG_NAME=minimal              # Build minimal config (faster)
-+make all CONFIG_NAME=wayland              # Build Wayland config
-+CI=1 make all CONFIG_NAME=minimal         # CI mode (disables TUI, for non-interactive)
-+./build.sh -c wayland all                 # Alternative wrapper
++# Build Red Bear OS
++# Supported compile targets:
++#   redbear-full         desktop/graphics target (harddrive.img or live ISO)
++#   redbear-mini         text-only console/recovery target (harddrive.img or live ISO)
++#   redbear-grub         text-only with GRUB boot manager (live ISO)
++# Desktop/graphics target: redbear-full
++# Text-only targets: redbear-mini, redbear-grub
++make all CONFIG_NAME=redbear-full         # Desktop/graphics target → harddrive.img
++make all CONFIG_NAME=redbear-mini         # Text-only target → harddrive.img
++make live CONFIG_NAME=redbear-full        # Full desktop live ISO
++make live CONFIG_NAME=redbear-mini        # Text-only mini live ISO
++make live CONFIG_NAME=redbear-grub        # Text-only mini live ISO with GRUB
++CI=1 make all CONFIG_NAME=redbear-mini    # CI mode (disables TUI, for non-interactive)
 +
 +# Run
 +make qemu                                 # Boot in QEMU
 +make qemu QEMUFLAGS="-m 4G"              # With more RAM
-+make live                                 # Build live ISO → redox-live.iso
++make live                                 # Build live ISO for real bare metal
 +
 +# Single recipe
 +./target/release/repo cook recipes/libs/mesa     # Build one recipe
@@ -167,7 +190,7 @@ index 0000000..1427248
 +  → mk/fstools.mk (build cookbook repo binary + fstools)
 +  → mk/repo.mk (repo cook --filesystem=config/*.toml)
 +    → For each recipe: fetch source → apply patches → build → stage into sysroot
-+  → mk/disk.mk (create filesystem.img, harddrive.img, redox-live.iso)
++  → mk/disk.mk (create filesystem.img, harddrive.img, redbear-live.iso or harddrive.img)
 +    → redoxfs-mkfs → redox_installer → bootloader embedding
 +```
 +
@@ -192,31 +215,130 @@ index 0000000..1427248
 +- **DO NOT** put drivers in kernel space — all drivers are userspace daemons
 +- **DO NOT** hardcode `/dev/` paths — use scheme paths (`/scheme/drm/card0`)
 +- **DO NOT** skip patches in WIP recipes — document what's missing with `#TODO`
++- **DO NOT** skip warnings — investigate, diagnose, and fix the root cause; suppressing or ignoring warnings is not acceptable when a fix is feasible
++- **DO NOT** remove patches from `recipe.toml` to fix build failures — rebase the patch instead (see `local/docs/PATCH-GOVERNANCE.md`)
++- **DO NOT** remove BINS entries to fix build failures — fix the source or use EXISTING_BINS filtering
 +
-+## TRACKING UPSTREAM (MAINLINE UPDATES)
++## DURABILITY POLICY
 +
-+This repo builds ON TOP of Redox sources. To stay in sync with mainline:
++Every change to an upstream-owned source tree (anything under `recipes/*/source/`) **must** be
++mirrored into a durable location **in the same work session** it was made. A change that exists
++only inside a fetched source tree is not preserved.
 +
-+1. **Upstream repos**: Kernel, relibc, base live in separate Git repos, fetched by recipes
-+2. **Recipe source fields**: `git = "upstream-url"`, `upstream = "original-url"`, `branch = "redox"`
-+3. **Patches**: `redox.patch` files in recipe dirs — applied during build
-+4. **Update flow**: `git pull` on this build repo → recipes re-fetch upstream sources
-+5. **Custom packages**: Put in `recipes/wip/` with `#TODO` header; use `my-*.toml` configs
-+6. **Binary cache**: `REPO_BINARY=1` uses pre-built packages from `static.redox-os.org/pkg`
++**Required actions after any source-tree edit:**
++
++1. **Generate a patch** from the source git diff and save it under `local/patches/<component>/`.
++2. **Wire the patch** into the recipe's `recipe.toml` `patches = [...]` list.
++3. **Commit** the patch file and recipe change before the session ends.
++
++**Why:** `make distclean`, `make clean`, upstream source refreshes, and `sync-upstream.sh` all
++discard or replace `recipes/*/source/` trees. Only `local/patches/`, `local/recipes/`, tracked
++configs, and `local/docs/` survive.
++
++**Examples of changes that require immediate patching:**
++
++| What you edited | Durable location |
++|---|---|
++| `recipes/core/relibc/source/src/header/sys_select/mod.rs` | `local/patches/relibc/P3-select-not-epoll-timeout.patch` + `recipe.toml` |
++| `recipes/core/relibc/source/src/header/signal/cbindgen.toml` | same patch as above |
++| `recipes/core/userutils/source/res/issue` | `local/patches/userutils/redox.patch` + `recipe.toml` |
++| `recipes/core/kernel/source/...` | `local/patches/kernel/redox.patch` (symlinked from recipe) |
++
++**What does NOT need patching:** Files that already live in `local/`, tracked `config/redbear-*.toml`,
++or any path that is already git-tracked and not inside a fetched source tree.
++
++## PATCH MANAGEMENT
++
++All Red Bear OS modifications to upstream files are kept separately in `local/patches/`.
++
++This is not just a convenience rule; it is a long-term maintenance rule. For fast-moving upstream
++areas like relibc, prefer the upstream solution whenever upstream already solves the same problem.
++Keep Red Bear patch carriers only for gaps or compatibility work that upstream still does not solve
++adequately.
++
++When upstream Redox already provides a package, crate, or subsystem for functionality that also
++exists in Red Bear local code, prefer the upstream Redox version by default unless the Red Bear
++implementation is materially better. Do not grow lower-quality in-house duplicates as a steady
++state.
++
++For quirks and driver support specifically:
++
++- prefer improving and using the canonical `redox-driver-sys` path,
++- avoid maintaining separate lower-quality quirk engines when the same functionality belongs in
++  `redox-driver-sys`,
++- if duplication is temporarily unavoidable, treat it as convergence work to remove, not as a
++  permanent design.
++
++### Structure
 +
 +```
-+Redox mainline update cycle:
-+  1. git pull (this build system repo)
-+  2. Recipes automatically fetch latest from their git URLs on next build
-+  3. For pinned versions: update `rev = "..."` in recipe.toml
-+  4. For patches: rebase redox.patch if upstream changed the patched files
++local/patches/
++├── kernel/redox.patch              # Applied to kernel source during build (symlinked from recipe)
++├── kernel/P0-*.patch               # Individual logical patches (for reference/merge)
++├── base/redox.patch                # Applied to base source during build (symlinked from recipe)
++├── base/P0-*.patch                 # Individual logical patches
++├── relibc/P3-*.patch               # POSIX gap patches (eventfd, signalfd, timerfd, etc.)
++├── installer/redox.patch           # Installer ext4 + GRUB bootloader support
++└── build-system/
++    ├── 001-rebrand-and-build.patch # Makefile, mk/*, scripts, build.sh rebranding
++    ├── 002-cookbook-fixes.patch    # src/ Rust fixes (fetch.rs, staged_pkg.rs, repo.rs, html.rs)
++    ├── 003-config.patch            # config/*.toml changes (os-release, hostname, redbear-full)
++    └── 004-docs-and-cleanup.patch  # README, CONTRIBUTING, LICENSE, deleted upstream files
++```
++
++### Protection Mechanism
++
++1. **Recipe patches** (`kernel/redox.patch`, `base/redox.patch`): Canonical copy lives in
++   `local/patches/`. The recipe directory contains a **symlink** to it:
++   ```
++   recipes/core/kernel/redox.patch → ../../../local/patches/kernel/redox.patch
++   recipes/core/base/redox.patch   → ../../../local/patches/base/redox.patch
++   ```
++   The build system follows symlinks transparently. Patches are never touched by `make clean`
++   or `make distclean`. Only `local/` modifications affect them.
++
++2. **Build-system patches**: Generated via `git diff` against the upstream base commit.
++   These serve as a backup — the working tree already has patches applied (via git commits).
++   If upstream update via rebase fails, these can be applied from scratch.
++
++3. **Custom recipes**: Live entirely in `local/recipes/` with symlinks into `recipes/`:
++   ```
++   recipes/drivers/linux-kpi       → ../../local/recipes/drivers/linux-kpi
++   recipes/gpu/amdgpu              → ../../local/recipes/gpu/amdgpu
++   recipes/system/firmware-loader  → ../../local/recipes/system/firmware-loader
++   ... etc
++   ```
++
++### Scripts
++
++| Script | Purpose |
++|--------|---------|
++| `local/scripts/apply-patches.sh` | Apply all build-system patches + create recipe symlinks |
++| `local/scripts/sync-upstream.sh` | Fetch upstream + rebase Red Bear OS commits + verify symlinks |
++
++### Updating from Upstream
++
++```bash
++# Automated (preferred):
++./local/scripts/sync-upstream.sh              # Rebase Red Bear OS onto latest upstream
++./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts first
++
++# Manual:
++git remote add upstream-redox https://github.com/redox-os/redox.git  # once
++git fetch upstream-redox master
++git rebase upstream-redox/master             # replays Red Bear OS commits on new upstream
++
++# Nuclear option (if rebase fails badly):
++git rebase --abort
++git reset --hard upstream-redox/master
++./local/scripts/apply-patches.sh --force     # apply from scratch via patch files
 +```
 +
 +## AMD-FIRST INTEGRATION PATH
 +
-+See `local/docs/AMD-FIRST-INTEGRATION.md` for the full plan.
++See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path plan and `local/docs/AMD-FIRST-INTEGRATION.md` for deeper AMD-specific technical detail.
 +
-+**Target**: AMD64 bare metal, AMD GPU (RDNA2/RDNA3). Intel second.
++**Target**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority hardware targets.
 +
 +**amdgpu is 6M+ lines — 18x larger than Intel i915. LinuxKPI compat approach mandatory.**
 +
@@ -226,37 +348,58 @@ index 0000000..1427248
 +|-----------|--------|--------|
 +| UEFI boot | ✅ | x86_64 bootloader functional |
 +| AMD CPUs | ✅ | Ryzen Threadripper 128-thread verified |
-+| ACPI | ⚠️ Incomplete | Framework AMD 7040 crashes on unimplemented function |
++| ACPI | ✅ Boot-baseline complete | RSDP/SDT checksums, MADT types 0x4/0x5/0x9/0xA, LVT NMI, FADT shutdown/reboot, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, and bounded AML-backed power enumeration are present; the explicit AML bootstrap producer contract and broader robustness still remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
++| ACPI shutdown | 🚧 | PM1a/PM1b S5 via `\_S5` AML exists, but shutdown robustness and bounded validation are still open |
++| ACPI reboot | 🚧 | Reset register + keyboard controller fallback exist, but broader reboot correctness and bounded validation are still open |
++| ACPI power | 🚧 | `\_PS0`/`\_PS3`/`\_PPC` AML methods are available and the runtime power surface performs bounded AML-backed enumeration, but bootstrap preconditions and validation are still too weak for stronger support claims; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 +| x2APIC/SMP | ✅ | Multi-core works |
-+| IOMMU | ❌ | No AMD-Vi support |
-+| AMD GPU | ❌ | Only VESA/GOP, no acceleration |
++| IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
++| AMD GPU | 🚧 | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
 +
-+### Phased Roadmap
++### Phased Roadmap (historical P0–P6)
++
++> **Note:** The P0–P6 numbering below is the historical hardware-enablement sequence.
++> The canonical current desktop path plan uses a new Phase 1–5 structure documented in
++> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0, 2026-04-16).
 +
 +| Phase | Duration | Delivers |
 +|-------|----------|----------|
-+| P0: Fix ACPI for AMD | 4-6 weeks | Boots on modern AMD bare metal |
-+| P1: Driver infrastructure | 8-12 weeks | redox-driver-sys + linux-kpi + firmware-loader |
-+| P2: AMD GPU display | 12-16 weeks | redox-drm + AMD DC modesetting → scheme:drm |
-+| P3: POSIX + input | 4-8 weeks | relibc gaps + evdevd (parallel with P1/P2) |
-+| P4: Wayland compositor | 4-6 weeks | Smithay Redox backends |
-+| P5: Full amdgpu | 16-24 weeks | Complete GPU driver via LinuxKPI (parallel) |
-+| P6: KDE Plasma | 12-16 weeks | Qt6 → KDE Frameworks → KWin → Plasma Shell |
++| ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Materially complete — boots on modern AMD bare metal; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for forward work |
++| ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
++| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | 🚧 Partial — redox-drm + bounded Red Bear AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; Intel driver compiles, no HW validation |
++| ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — the active relibc recipe patch chain now carries the bounded fd-event, semaphore, and waitid compatibility surface needed by current downstreams, while broader runtime validation and input-stack maturity remain open |
++| P4: Wayland compositor | 4-6 weeks | 🚧 Partial — libwayland/Qt6 Wayland/Mesa EGL+GBM+GLES2/Qt6 OpenGL now build, but compositor/runtime validation is still incomplete |
++| ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 Historical DML2 config work landed, but the current retained AMDGPU build no longer treats imported DML2/TTM as part of the default bounded compile path; libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |
++| P6: KDE Plasma | 12-16 weeks | 🚧 In progress — Qt6 ✅, KF6 32/32 ✅, Mesa EGL/GBM/GLES2 ✅, kf6-kcmutils ✅, kf6-kwayland ✅, kdecoration ✅, KWin 🔄 building |
 +
-+**Total to KDE Plasma on AMD**: ~52 weeks (~12 months) with 2 developers.
++### Canonical Desktop Path (current plan)
++
++The current execution plan uses a three-track model with new Phase 1–5 numbering:
++- **Phase 1:** Runtime Substrate Validation (4–6 weeks)
++- **Phase 2:** Wayland Compositor Proof (4–6 weeks)
++- **Phase 3:** KWin Desktop Session (6–10 weeks)
++- **Phase 4:** KDE Plasma Session (8–12 weeks)
++- **Phase 5:** Hardware GPU Enablement (12–20 weeks, parallel with 3–4)
++
++See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for full detail.
++
++**Total to software-rendered KDE Plasma**: 22–34 weeks (~6–8 months) with 2 developers.
++**Total to hardware-accelerated KDE Plasma**: 34–54 weeks (~8–13 months) with 2 developers.
 +
 +### Critical Path
 +```
-+P0 (ACPI boot) → P1 (driver infra) → P2 (AMD display) → P4 (Wayland) → P6 (KDE)
-+                                       P3 (POSIX+input) ──┘
-+                                       P5 (full amdgpu, parallel)
++Phase 1 (runtime substrate) → Phase 2 (software compositor) → Phase 3 (KWin session) → Phase 4 (KDE Plasma)
++                               Phase 5 (hardware GPU, parallel with Phases 3–4)
 +```
 +
-+### New Crates Needed
-+1. `redox-driver-sys` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci
-+2. `linux-kpi` — C headers translating Linux kernel APIs → redox-driver-sys
-+3. `redox-drm` — DRM scheme daemon (AMD DC port)
-+4. Firmware loader daemon — scheme:firmware for AMD GPU blobs
++### Custom Crates (P1/P2)
++1. `redox-driver-sys` — `local/recipes/drivers/redox-driver-sys/source/` — Safe Rust wrappers for scheme:memory, scheme:irq, scheme:pci + hardware quirks system (`src/quirks/`)
++2. `linux-kpi` — `local/recipes/drivers/linux-kpi/source/` — C headers translating Linux kernel APIs → redox-driver-sys; includes `pci_get_quirk_flags()` C FFI for quirk queries. **GPU and Wi-Fi drivers only — linux-kpi does NOT cover USB.** It provides PCI, DMA, IRQ, DRM, networking (ieee80211/nl80211/mac80211), firmware, and related kernel infrastructure headers, but contains zero USB headers, USB device ID tables, or USB driver implementations.
++3. `redox-drm` — `local/recipes/gpu/redox-drm/source/` — DRM scheme daemon (AMD + Intel drivers); consumes quirk flags for MSI/MSI-X fallback and DISABLE_ACCEL
++4. `firmware-loader` — `local/recipes/system/firmware-loader/source/` — scheme:firmware for GPU blobs
++5. `amdgpu` — `local/recipes/gpu/amdgpu/source/` — AMD DC C port with linux-kpi compat; can query quirks via `pci_has_quirk()` FFI
++6. `redbear-sessiond` — `local/recipes/system/redbear-sessiond/source/` — Rust D-Bus session broker exposing `org.freedesktop.login1` subset for KWin (uses `zbus`)
++7. `redbear-dbus-services` — `local/recipes/system/redbear-dbus-services/` — D-Bus activation `.service` files and XML policy files for system and session buses
 +
 +All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 +
@@ -266,1915 +409,670 @@ index 0000000..1427248
 +- QEMU used for testing (make qemu). VirtualBox also supported
 +- The `repo` binary (cookbook CLI) may crash with TUI in non-interactive environments — use `CI=1`
 +- No git submodules — external repos managed via recipe source URLs and repo manifests
-+- File `INTEGRATION_REPORT.md` contains detailed integration status from a previous analysis
++- Historical integration report removed (2026-04-16); see `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for current state
++
++## WARNING POLICY
++
++When presented with a compiler warning, linker warning, runtime warning, or test warning, the
++project treats it as a signal requiring action — not as noise to be silenced or deferred.
++
++- **Investigate** every warning. Understand what causes it and whether it indicates a real defect.
++- **Fix the root cause** when feasible. Prefer comprehensive fixes over workarounds.
++- **Suppress only as last resort**, with a comment explaining why the warning is known-safe and
++  why suppression is the correct choice for that specific case.
++- **Never ignore warnings silently.** An unexplained warning in the build is a defect in
++  discipline, not just in code.
++
++This applies to all subsystems: kernel, relibc, drivers, userspace daemons, and build tooling.
++
++## SUBSYSTEM PRIORITY AND ORDER
++
++Red Bear OS should treat low-level controllers, USB, Wi-Fi, and Bluetooth as first-class subsystem
++targets.
++
++For PCI interrupt plumbing, IRQ delivery quality, MSI/MSI-X follow-up, low-level controller
++runtime-proof sequencing, and IOMMU/interrupt-remapping quality, the canonical current plan is:
++
++- `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
++
++Use that file as the execution authority and current robustness judgment for PCI/IRQ work. Higher-
++level summaries in `README.md`, `docs/README.md`, and this file should stay aligned with its
++validation language rather than acting as competing rollout plans.
++
++Current execution order:
++
++1. low-level controllers / IRQ quality / runtime-proof
++2. USB controller and topology maturity
++3. Wi-Fi native control-plane and one bounded driver path
++4. Bluetooth host/controller path
++5. desktop/session compatibility layers on top of those runtime services
++
++Current blocker emphasis:
++
++- low-level controller quality blocks reliable USB and Wi-Fi validation
++- USB maturity blocks the realistic first Bluetooth transport path
++- Wi-Fi and Bluetooth should not be treated as optional polish; both remain missing subsystem work
++  that must be implemented fully, but in the right order
 diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
-new file mode 100644
-index 0000000..4ff4944
---- /dev/null
+index e30b2d5..89cf29e 100644
+--- a/CONTRIBUTING.md
 +++ b/CONTRIBUTING.md
-@@ -0,0 +1,278 @@
+@@ -1,10 +1,10 @@
+-# Contributing to Redox
 +# Contributing to Red Bear OS
-+
+ 
+-**Thank you for your interest in contributing to Redox!**
 +**Thank you for your interest in contributing to Red Bear OS!**
-+
-+This document will outline the basics of where to start if you wish to contribute to the project. There are many ways to help us out and and we appreciate all of them. We look forward to **your contribution!**
-+
+ 
+ This document will outline the basics of where to start if you wish to contribute to the project. There are many ways to help us out and and we appreciate all of them. We look forward to **your contribution!**
+ 
+-**Please read this document until the end to not waste your and our time with unnecessary questions**
 +**Please read this document until the end**
-+
-+## Code Of Conduct
-+
-+We follow the [Rust Code Of Conduct](https://www.rust-lang.org/policies/code-of-conduct).
-+
-+## License
-+
+ 
+ ## Code Of Conduct
+ 
+@@ -12,7 +12,7 @@ We follow the [Rust Code Of Conduct](https://www.rust-lang.org/policies/code-of-
+ 
+ ## License
+ 
+-In general, your contributions to Redox are governed by the [MIT License](https://en.wikipedia.org/wiki/MIT_License). Each project repository has a `LICENSE` file that provides the license terms for that project.
 +In general, your contributions to Red Bear OS are governed by the [MIT License](https://en.wikipedia.org/wiki/MIT_License). Each project repository has a `LICENSE` file that provides the license terms for that project.
-+
-+Please review the `LICENSE` file for the project you are contributing to.
-+
-+[This](https://doc.redox-os.org/book/philosophy.html) page we explain why we use the MIT license.
-+
-+## Contribution Terms
-+
-+When making a contribution you agree to the following terms:
-+
-+- I understand these changes in full and will be able to respond to review comments.
-+- I have read the [Developer Certificate of Origin](https://developercertificate.org/) and certify my contribution under its conditions.
-+
-+## AI Policy
-+
-+Red Bear OS does not accept contributions generated by LLMs ([Large Language Models](https://en.wikipedia.org/wiki/Large_language_model)), sometimes also referred to as "AI". This policy is not open to discussion, any content submitted that is clearly labelled as LLM-generated (including issues, merge requests, and merge request descriptions) will be immediately closed, and any attempt to bypass this policy will result in a ban from the project.
-+
-+## Chat
-+
-+You can join in our chat platforms to discuss development, issues or ask questions.
-+
-+### [Matrix](https://matrix.to/#/#redox-join:matrix.org)
-+
+ 
+ Please review the `LICENSE` file for the project you are contributing to.
+ 
+@@ -27,7 +27,7 @@ When making a contribution you agree to the following terms:
+ 
+ ## AI Policy
+ 
+-Redox OS does not accept contributions generated by LLMs ([Large Language Models](https://en.wikipedia.org/wiki/Large_language_model)), sometimes also referred to as "AI". This policy is not open to discussion, any content submitted that is clearly labelled as LLM-generated (including issues, merge requests, and merge request descriptions) will be immediately closed, and any attempt to bypass this policy will result in a ban from the project.
++We welcome contributions made with the assistance of LLMs and AI tools. We care about the quality of the result, not how it was produced.
+ 
+ ## Chat
+ 
+@@ -35,7 +35,7 @@ You can join in our chat platforms to discuss development, issues or ask questio
+ 
+ ### [Matrix](https://matrix.to/#/#redox-join:matrix.org)
+ 
+-Matrix is the official way to talk with Redox OS team and community (these rooms are English-only, we don't accept other languages because we don't understand them).
 +Matrix is the official way to talk with the Red Bear OS team and community (these rooms are English-only, we don't accept other languages because we don't understand them).
-+
-+Matrix has several different clients. [Element](https://element.io/) is a commonly used choice, it works on web browsers, Linux, MacOSX, Windows, Android and iOS.
-+
-+If you have problems with Element, try [Fractal](https://gitlab.gnome.org/World/fractal).
-+
-+- Join the [Join Requests](https://matrix.to/#/#redox-join:matrix.org) room and send a message requesting for an invite to the Redox Matrix space (the purpose of this is to avoid spam and bots).
-+- #redox-join:matrix.org (Use this Matrix room address if you don't want to use the external Matrix link)
-+
+ 
+ Matrix has several different clients. [Element](https://element.io/) is a commonly used choice, it works on web browsers, Linux, MacOSX, Windows, Android and iOS.
+ 
+@@ -44,7 +44,7 @@ If you have problems with Element, try [Fractal](https://gitlab.gnome.org/World/
+ - Join the [Join Requests](https://matrix.to/#/#redox-join:matrix.org) room and send a message requesting for an invite to the Redox Matrix space (the purpose of this is to avoid spam and bots).
+ - #redox-join:matrix.org (Use this Matrix room address if you don't want to use the external Matrix link)
+ 
+-(We recommend that you leave the "Join Requests" room after your entry on Redox space)
 +(We recommend that you leave the "Join Requests" room after your entry on the Red Bear OS space)
-+
-+If you want to have a big discussion in our rooms, you should use a Element thread, it's more organized and easy to keep track if more discussions happen on the same room.
-+
-+You cand find more information on the [Chat](https://doc.redox-os.org/book/chat.html) page.
-+
-+### [Discord](https://discord.gg/JfggvrHGDY)
-+
-+We have a Discord server as an alternative for Matrix, open the #join-requests channel and send a message requesting to be a member (the purpose of this is to avoid spam and bots)
-+
-+The Matrix messages are sent to Discord and vice-versa using a bot, but sometimes some Discord messages aren't sent to Matrix (if this happens to you join in our Matrix space above)
-+
-+## [GitLab](https://gitlab.redox-os.org/redox-os/redox)
-+
+ 
+ If you want to have a big discussion in our rooms, you should use a Element thread, it's more organized and easy to keep track if more discussions happen on the same room.
+ 
+@@ -58,7 +58,7 @@ The Matrix messages are sent to Discord and vice-versa using a bot, but sometime
+ 
+ ## [GitLab](https://gitlab.redox-os.org/redox-os/redox)
+ 
+-A slightly more formal way of communication with fellow Redox developers, but a little less quick and convenient like the chat. Submit an issue when you run into problems compiling or testing. Issues can also be used if you would like to discuss a certain topic: be it features, code style, code inconsistencies, minor changes and fixes, etc.
 +A slightly more formal way of communication with fellow Red Bear OS developers, but a little less quick and convenient like the chat. Submit an issue when you run into problems compiling or testing. Issues can also be used if you would like to discuss a certain topic: be it features, code style, code inconsistencies, minor changes and fixes, etc.
+ 
+ If you want to create an account, read the [Signing in to GitLab](https://doc.redox-os.org/book/signing-in-to-gitlab.html) page.
+ 
+@@ -74,13 +74,30 @@ By sending a message in the room, your MR will not be forgotten or accumulate co
+ 
+ You can read the best practices and guidelines on the [Best practices and guidelines](https://doc.redox-os.org/book/best-practices.html) chapter.
+ 
+-## Notes
++## Repository Model for Contributors
+ 
+-This section has important details to not waste your and our time with unnecessary questions.
++RedBearOS should be treated as an overlay distribution on top of Redox, in the same way Ubuntu
++relates to Debian.
+ 
+-- We don't accept Git pushs using SSH to protect against AI scrappers and bots, you need to use [HTTPS with your PAT](https://doc.redox-os.org/book/signing-in-to-gitlab.html#setting-up-pat) in our GitLab server
+-- For complete or advanced development you need the [Redox build system](https://doc.redox-os.org/book/podman-build.html) instead of Redoxer
+-- If you want to work on individual repositories without the Redox build system you need to use [Redoxer](https://gitlab.redox-os.org/redox-os/redoxer) because our toolchain is not fully upstreamed yet
++That means contributors should keep this separation in mind:
 +
-+If you want to create an account, read the [Signing in to GitLab](https://doc.redox-os.org/book/signing-in-to-gitlab.html) page.
++- upstream-owned trees such as `recipes/*/source/` are refreshable working copies,
++- durable Red Bear-specific work belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and
++  tracked Red Bear configs,
++- if a change exists only in an upstream-owned source tree, it is not yet preserved properly for
++  long-term Red Bear maintenance.
 +
-+Once you create an issue don't forget to post the link on the Dev or Support rooms of the chat, because the GitLab email notifications have distractions (service messages or spam) and most developers don't left their GitLab pages open to receive desktop notifications from the web browser (which require a custom setting to receive issue notifications).
++### WIP rule for contributors
 +
-+By doing this you help us to pay attention to your issues and avoid them to be accidentally forgotten.
++If an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project until
++upstream promotes it to first-class status.
 +
-+If you have ready MRs (merge requests) you must send the links in the [MRs](https://matrix.to/#/#redox-mrs:matrix.org) room. To join this room, you will need to request an invite in the [Join Requests](https://matrix.to/#/#redox-join:matrix.org) room.
++So for contributors:
 +
-+By sending a message in the room, your MR will not be forgotten or accumulate conflicts.
-+
-+## Best Practices and Guidelines
-+
-+You can read the best practices and guidelines on the [Best practices and guidelines](https://doc.redox-os.org/book/best-practices.html) chapter.
-+
-+## Development Recommendations and Tips
-+
-+- Copy-paste prevent and reduce typos
-+- Comment out configuration or code while testing is better than removal, to remember the testing conditions and prevent mistakes from forgotten logic
-+- Read the entire [Build System Reference](https://doc.redox-os.org/book/build-system-reference.html) and [Developer FAQ](https://doc.redox-os.org/book/developer-faq.html) pages
-+- Make sure your build system is up-to-date, read the [Update The Build System](https://doc.redox-os.org/book/build-system-reference.html#update-the-build-system) section if in doubt.
-+- If you want to make local changes in recipe sources it's recommended to automatic recipe source update, read [this](https://doc.redox-os.org/book/configuration-settings.html#local-recipe-changes) section to learn how to this for one or multiple recipes and [this](https://doc.redox-os.org/book/configuration-settings.html#cookbook-offline-mode) section for all recipes.
-+- If you want to make changes to system components, drivers or RedoxFS you need to manually update initfs, read [this](https://doc.redox-os.org/book/coding-and-building.html#how-to-update-initfs) section to learn how to do that.
-+- If some program can't build or work, something can be missing/hiding on [relibc](https://gitlab.redox-os.org/redox-os/relibc), like a POSIX/Linux function or bug.
++- upstream WIP may still be a useful input/reference,
++- but fixes intended for Red Bear shipping should normally land in the Red Bear overlay,
++- and when upstream later catches up, Red Bear should prefer upstream and retire local patches or
++  local recipe copies that are no longer needed.
+ 
+ ## Development Recommendations and Tips
+ 
+@@ -91,7 +108,7 @@ This section has important details to not waste your and our time with unnecessa
+ - If you want to make local changes in recipe sources it's recommended to automatic recipe source update, read [this](https://doc.redox-os.org/book/configuration-settings.html#local-recipe-changes) section to learn how to this for one or multiple recipes and [this](https://doc.redox-os.org/book/configuration-settings.html#cookbook-offline-mode) section for all recipes.
+ - If you want to make changes to system components, drivers or RedoxFS you need to manually update initfs, read [this](https://doc.redox-os.org/book/coding-and-building.html#how-to-update-initfs) section to learn how to do that.
+ - If some program can't build or work, something can be missing/hiding on [relibc](https://gitlab.redox-os.org/redox-os/relibc), like a POSIX/Linux function or bug.
+-- If you have some error on QEMU remember to test different settings or verify your operating system (Pop_OS!, Ubuntu, Debian and Fedora are the recommend Linux distributions to do testing/development for Redox).
 +- If you have some error on QEMU remember to test different settings or verify your operating system (Pop_OS!, Ubuntu, Debian and Fedora are the recommend Linux distributions to do testing/development for Red Bear OS).
-+- Remember to log all errors, you can use the following command as example:
+ - Remember to log all errors, you can use the following command as example:
+ 
+ ```sh
+@@ -112,6 +129,13 @@ Since **Rust** is a relatively small and new language compared to others like C
+ 
+ Please follow our [Git style](https://doc.redox-os.org/book/creating-proper-pull-requests.html) for pull requests.
+ 
++For user-visible work, keep the root [`CHANGELOG.md`](CHANGELOG.md) current and refresh the
++README "What's New" section with the latest highlights so GitHub visitors can immediately see what
++changed.
 +
-+```sh
-+your-command 2>&1 | tee file-name.log
-+```
++When a commit changes the visible system surface, supported hardware, build flow, shipped configs,
++or key docs, add a short user-facing changelog note in the same change.
 +
-+- If you have a problem that seems to not have a solution, think on simple/stupid things. Sometimes you are very confident on your method and forget obvious things (very common).
-+- If you want a quick review of your Merge Request, make it small.
-+- If your big Merge Request is taking too long to be reviewed and merged try to split it in small MRs. But make sure it don't break anything, if this method break your changes, don't shrink.
-+
-+## Style Guidelines
-+
-+### Rust
-+
-+Since **Rust** is a relatively small and new language compared to others like C and C++, there's really only one standard. Just follow the official Rust standards for formatting, and maybe run `rustfmt` on your changes, until we setup the CI system to do it automatically.
-+
-+### Git
-+
-+Please follow our [Git style](https://doc.redox-os.org/book/creating-proper-pull-requests.html) for pull requests.
-+
-+## GitLab
-+
-+### Identity
-+
-+Once your GitLab account is created, you should add your Matrix or Discord username (the name after the `@` symbol) on the "About" section of your profile, that way we recognize you properly.
-+
-+### Issues
-+
-+We use issues to organize and track our current and pending work, to know how to create issues on the Redox GitLab read the [Filing Issues](https://doc.redox-os.org/book/filing-issues.html) page.
-+
-+Once you create an issue don't forget to post the link on the Dev or Support rooms of the chat, because the GitLab email notifications have distractions (service messages or spam) and most developers don't left their GitLab pages open to receive desktop notifications from the web browser (which require a custom setting to receive issue notifications).
-+
-+By doing this you help us to pay attention to your issues and avoid them to be accidentally forgotten.
-+
-+You can see all issues on [this](https://gitlab.redox-os.org/groups/redox-os/-/issues) link.
-+
-+### Pull Requests
-+
-+Please follow [our process](https://doc.redox-os.org/book/creating-proper-pull-requests.html) for creating proper pull requests.
-+
-+## Important Places to Contribute
-+
-+Before starting to contribute, we recommend reading the [General FAQ](https://www.redox-os.org/faq/) and the [Redox Book](https://doc.redox-os.org/book/).
-+
+ ## GitLab
+ 
+ ### Identity
+@@ -136,12 +160,11 @@ Please follow [our process](https://doc.redox-os.org/book/creating-proper-pull-r
+ 
+ Before starting to contribute, we recommend reading the [General FAQ](https://www.redox-os.org/faq/) and the [Redox Book](https://doc.redox-os.org/book/).
+ 
+-You can contribute to the Redox documentation and code on the following repositories (non-exhaustive, easiest-to-hardest order):
 +You can contribute to the Red Bear OS documentation and code on the following repositories (non-exhaustive, easiest-to-hardest order):
-+
-+- [Website](https://gitlab.redox-os.org/redox-os/website)
-+- [Book](https://gitlab.redox-os.org/redox-os/book) - High-level documentation
-+- [Build System Configuration](https://gitlab.redox-os.org/redox-os/redox) - Our main repository
-+- [Orbital](https://gitlab.redox-os.org/redox-os/orbital) - Display Server and Window Manager
-+- [pkgutils](https://gitlab.redox-os.org/redox-os/pkgutils) - Package Manager
-+- [acid](https://gitlab.redox-os.org/redox-os/acid) - Redox Test Suite
-+- [relibc](https://gitlab.redox-os.org/redox-os/relibc) - Redox C Library
-+- [libredox](https://gitlab.redox-os.org/redox-os/libredox) - Redox System Library
-+- [Bootloader](https://gitlab.redox-os.org/redox-os/bootloader)
-+- [RedoxFS](https://gitlab.redox-os.org/redox-os/redoxfs) - Default filesystem
-+- [Base](https://gitlab.redox-os.org/redox-os/base) - Essential system components and drivers
-+- [Kernel](https://gitlab.redox-os.org/redox-os/kernel)
-+
-+To see all Redox repositories open the [redox-os group](https://gitlab.redox-os.org/redox-os).
-+
-+### Skill Levels
-+
-+If you don't know programming:
-+
-+- Test the [daily images](https://static.redox-os.org/img/) on your computer and add the report on the [Hardware Compatibility](https://gitlab.redox-os.org/redox-os/redox/-/blob/master/HARDWARE.md) list
-+- Monitor and warn developers if the [daily images](https://static.redox-os.org/img/) are outdated
-+- Use/test Redox and create issues for bugs or needed features (please check for duplicates first)
-+- Fix and write documentation
-+- Find or fix typos in configuration
-+
-+If you don't know how to code in Rust but know other programming languages:
-+
-+- Web development on the website (we only accept minimal JavaScript code to preserve performance)
-+- Write unit tests (may require minimal knowledge of Rust)
-+- Port C/C++ programs to Redox (read the `TODO`s of the recipes on the [WIP category](https://gitlab.redox-os.org/redox-os/redox/-/tree/master/recipes/wip))
-+- Port programs to Redox
-+
-+If you know how to code in Rust but don't know operating system development:
-+
-+- See the [easy](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=easy) issues
-+- See the "[good first issue](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=good%20first%20issue)" issues
-+- See the [help wanted](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=help%20wanted) issues (it's worth noting the skill level varies between projects, but a large subset of these should be approachable by contributors familiar with regular Rust/Unix application programming)
-+- Improve the package manager, or build system tooling like `redoxer` or `installer`
-+- Improve the [Ion](https://gitlab.redox-os.org/redox-os/ion) shell, or other high-level or mid-level projects
-+- Port Rust programs (also look for issues with the `port` label)
-+- Improve application compatibility in relibc by e.g. implementing missing POSIX/Linux functions
-+
-+If you know how to code in Rust, and have experience with systems software/OS development:
-+
-+- Familiarize yourself with the repository layout, code, and build system
-+- Update old code to remove warnings
-+- Search for `TODO`, `FIXME`, `BUG`, `UNOPTIMIZED`, `REWRITEME`, `DOCME`, and `PRETTYFYME` and fix the code you find
-+- Look in general for issues with the following labels: `critical`, `help wanted`, `feature`, `enhancement`, `bug` or `port`
-+- Improve internal libraries and abstractions, e.g. `libredox`, `redox-scheme`, `redox-event` etc.
-+- Help upstream Redox-specific functionality to the Rust ecosystem
-+- Improve Redox's automated testing suite and continuous integration testing processes
-+- Improve, profile, and optimize code, especially in the kernel, filesystem, and network stack
-+- Improve or write device drivers
-+
-+For those who want to contribute to the Redox GUI, our GUI strategy has changed.
-+
-+- We are improving the [Orbital](https://gitlab.redox-os.org/redox-os/orbital) display server and window manager, you can read more about it on [this tracking issue](https://gitlab.redox-os.org/redox-os/redox/-/issues/1430).
-+- OrbTk is in maintenance mode, and its developers have moved to other projects such as the ones below. There is currently no Redox-specific GUI development underway.
-+
-+## Priorities
-+
-+You can use the following GitLab issue label filters to know our development priorities on the moment:
-+
-+- [Critical](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=critical)
-+- [High-priority](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=high-priority)
-+- [Medium-priority](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=medium-priority)
-+- [Low-priority](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=low-priority)
-+
-+## Roadmap
-+
-+We use tracking issues for the goals in our roadmap, you can see them in the filter below:
-+
-+- [Tracking issues](https://gitlab.redox-os.org/groups/redox-os/-/issues/?label_name[]=tracking%20issue)
-+
-+## RFCs
-+
-+For more significant changes that affect Redox's architecture, we use the [Request for Comments](https://gitlab.redox-os.org/redox-os/rfcs) repository.
-+
-+## Build System
-+
-+To download the build system use the following commands:
-+
-+(You need to have [curl](https://curl.se/) installed on your system)
-+
-+```sh
-+curl -sf https://gitlab.redox-os.org/redox-os/redox/raw/master/podman_bootstrap.sh -o podman_bootstrap.sh
-+```
-+
-+```sh
-+time bash -e podman_bootstrap.sh
-+```
-+
-+To start the compilation of the default recipes run the command below:
-+
-+```sh
-+make all
-+```
-+
-+In case your operating system does not use SELinux, you must set the `USE_SELINUX` to `0` when calling `make all`, otherwise you might experience errors:
-+
-+```sh
-+make all USE_SELINUX=0
-+```
-+
-+You can find the build system organization and commands on the [Build System](https://doc.redox-os.org/book/build-system-reference.html) page.
-+
-+## Developer FAQ
-+
-+You can see the most common questions and problems on the [Developer FAQ](https://doc.redox-os.org/book/developer-faq.html) page.
-+
-+## Porting Software
-+
-+You can read how to use the Cookbook recipe system to port applications on the [Application Porting](https://doc.redox-os.org/book/porting-applications.html) page.
-+
-+**Always verify if a recipe for your program or library already exist before porting to not break the build system with a recipe duplication or waste time.**
-+
-+## Libraries and APIs
-+
-+You can read the [Libraries and APIs](https://doc.redox-os.org/book/libraries-apis.html) page to learn about the libraries and APIs used in Redox.
-+
-+## Visual Studio Code (VS Code) Configuration
-+
-+To learn how to configure your VS Code to do Redox development please read the information below the [Visual Studio Code Configuration](https://doc.redox-os.org/book/coding-and-building.html#visual-studio-code-configuration) section.
-+
-+## References
-+
-+We maintain a list of wikis, articles and videos to learn Rust, OS development and computer science on the [References](https://doc.redox-os.org/book/references.html) page.
-+
-+If you are skilled/experienced there's still a possibility that they could improve your knowledge in some way.
-+
-+## Other Ways to Contribute
-+
-+If you aren't good on coding, but you still want to help keep the project going, you can contribute and support in a variety of ways! We'll try to find a way to use anything you have to offer. 
-+
-+### Design
-+
-+If you're a good designer, whether it's 2D graphics, 3D graphics, interfaces, web design, you can help. We need logos, UI design, UI skins, app icons, desktop backgrounds, etc.
-+
-+- [Redox backgrounds](https://gitlab.redox-os.org/redox-os/backgrounds) - You can send your wallpapers on this repository.
-+- [Redox assets](https://gitlab.redox-os.org/redox-os/assets) - You can send your logos, icons and themes on this repository.
-+
-+If you have questions about the graphic design, ask us on the [Chat](https://doc.redox-os.org/book/chat.html).
-+
+ 
+ - [Website](https://gitlab.redox-os.org/redox-os/website)
+ - [Book](https://gitlab.redox-os.org/redox-os/book) - High-level documentation
+ - [Build System Configuration](https://gitlab.redox-os.org/redox-os/redox) - Our main repository
+-- [Orbital](https://gitlab.redox-os.org/redox-os/orbital) - Display Server and Window Manager
+ - [pkgutils](https://gitlab.redox-os.org/redox-os/pkgutils) - Package Manager
+ - [acid](https://gitlab.redox-os.org/redox-os/acid) - Redox Test Suite
+ - [relibc](https://gitlab.redox-os.org/redox-os/relibc) - Redox C Library
+@@ -167,7 +190,8 @@ If you don't know how to code in Rust but know other programming languages:
+ 
+ - Web development on the website (we only accept minimal JavaScript code to preserve performance)
+ - Write unit tests (may require minimal knowledge of Rust)
+-- Port C/C++ programs to Redox (read the `TODO`s of the recipes on the [WIP category](https://gitlab.redox-os.org/redox-os/redox/-/tree/master/recipes/wip))
++- Port C/C++ programs to Redox (read upstream WIP `TODO`s as inputs, but do not assume upstream WIP
++  recipes are automatically the durable Red Bear shipping source of truth)
+ - Port programs to Redox
+ 
+ If you know how to code in Rust but don't know operating system development:
+@@ -194,8 +218,8 @@ If you know how to code in Rust, and have experience with systems software/OS de
+ 
+ For those who want to contribute to the Redox GUI, our GUI strategy has changed.
+ 
+-- We are improving the [Orbital](https://gitlab.redox-os.org/redox-os/orbital) display server and window manager, you can read more about it on [this tracking issue](https://gitlab.redox-os.org/redox-os/redox/-/issues/1430).
+-- OrbTk is in maintenance mode, and its developers have moved to other projects such as the ones below. There is currently no Redox-specific GUI development underway.
++- We are concentrating current forward desktop work on the KWin Wayland path in the main build-system repository.
++- Legacy GUI toolkit efforts are in maintenance mode, and there is currently no separate Redox-specific GUI toolkit effort underway.
+ 
+ ## Priorities
+ 
+@@ -281,6 +305,6 @@ If you're a good designer, whether it's 2D graphics, 3D graphics, interfaces, we
+ 
+ If you have questions about the graphic design, ask us on the [Chat](https://doc.redox-os.org/book/chat.html).
+ 
+-### Donate to Redox
 +### Donate
-+
+ 
+-If you are interested in donating to the Redox OS Nonprofit, you can find instructions on the [Donate](https://www.redox-os.org/donate/) page.
 +If you are interested in donating to the upstream Redox OS project, you can find instructions on the [Donate](https://www.redox-os.org/donate/) page.
 diff --git a/HARDWARE.md b/HARDWARE.md
-new file mode 100644
-index 0000000..762636e
---- /dev/null
+index 98793fe..aa347da 100644
+--- a/HARDWARE.md
 +++ b/HARDWARE.md
-@@ -0,0 +1,126 @@
-+# Hardware Compatibility
-+
+@@ -1,6 +1,17 @@
+ # Hardware Compatibility
+ 
+-This document tracks the current hardware compatibility of Redox OS.
 +> Hardware compatibility inherited from upstream Redox OS. See https://doc.redox-os.org/book/hardware-support.html for the latest upstream data.
++>
++> **Status note (2026-04-15):** This file is a hardware-reporting/support-tracking surface, not the
++> canonical source for profile support language or project execution order. For current Red Bear
++> support framing, also use `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` and
++> `local/docs/PROFILE-MATRIX.md`.
 +
 +This document tracks the current hardware compatibility of Red Bear OS.
 +
-+- [Why are hardware reports needed?](#why-are-hardware-reports-needed)
-+- [What if my computer is customized?](#what-if-my-computer-is-customized)
-+- [Status](#status)
-+- [General](#general)
-+- [Contribute to this document](#contribute-to-this-document)
-+    - [Template](#template)
-+    - [Table row ordering](#table-row-ordering)
-+- [Recommended](#recommended)
-+- [Booting](#booting)
-+- [Broken](#broken)
-+
-+## Why are hardware reports needed?
-+
-+Each computer model has different hardware interfaces, firmware implementations, and devices, which can cause the following problems:
-+
-+- Boot bugs
-+- Lack of device support
-+- Performance degradation
-+
-+These reports helps us to fix the problems above, your report may help to fix many computers affected by the same bugs or missing drivers.
-+
-+## What if my computer is customized?
-+
-+If your desktop is customized (common) you should use the "Custom" word on the "Vendor" category and insert the motherboard and CPU vendor/model in the "Model" category.
-+
-+A customized laptop should only be reported if you replaced the original CPU, report the CPU vendor and model in the "Model" category.
-+
-+We also recommend to add your `pciutils` log as a comment on [this](https://gitlab.redox-os.org/redox-os/redox/-/issues/1797) tracking issue to help us with probable device porting.
-+
-+## Status
-+
-+- **Recommended:** The operating system boots with video, sound, PS/2 or USB input, Ethernet, terminal and Orbital working.
-+- **Booting:** The operating system boots with some issues or lacking hardware support (write the issues and what supported hardware is not working in the "Report" section).
-+- **Broken:** The boot loader don't work or can't bootstrap the operating system.
-+
-+## General
-+
-+This section contain limitations that apply to any status.
-+
-+- ACPI support is incomplete (some things are hardcoded on the kernel to work)
-+- Wi-Fi and Bluetooth aren't supported yet
-+- AMD, NVIDIA, ARM, and PowerVR GPUs aren't supported yet (only BIOS VESA and UEFI GOP)
-+- I2C devices aren't supported yet (PS/2 or USB devices should be used)
-+- USB support varies on each device model because some USB devices require specific drivers (use input devices with standardized controls for more compatibility)
++Red Bear OS should now treat AMD and Intel machines as equal-priority hardware targets. Older
++AMD-first wording in subsystem roadmap documents should be read as historical sequencing rather
++than current platform policy.
+ 
+ - [Why are hardware reports needed?](#why-are-hardware-reports-needed)
+ - [What if my computer is customized?](#what-if-my-computer-is-customized)
+@@ -33,7 +44,7 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
+ 
+ ## Status
+ 
+-- **Recommended:** The operating system boots with video, sound, PS/2 or USB input, Ethernet, terminal and Orbital working.
++- **Recommended:** The operating system boots with video, sound, PS/2 or USB input, Ethernet, terminal, and the graphical session working.
+ - **Booting:** The operating system boots with some issues or lacking hardware support (write the issues and what supported hardware is not working in the "Report" section).
+ - **Broken:** The boot loader don't work or can't bootstrap the operating system.
+ 
+@@ -41,12 +52,26 @@ We also recommend to add your `pciutils` log as a comment on [this](https://gitl
+ 
+ This section contain limitations that apply to any status.
+ 
+-- ACPI support is incomplete (some things are hardcoded on the kernel to work)
+-- Wi-Fi and Bluetooth aren't supported yet
+-- AMD, NVIDIA, ARM, and PowerVR GPUs aren't supported yet (only BIOS VESA and UEFI GOP)
++- ACPI bring-up is **materially complete for boot baseline**; implemented: kernel
++  RSDP/RSDT/XSDT/MADT/FADT coverage, AML mutexes with real tracked state, EC widened accesses via
++  byte transactions, kstop-based shutdown eventing, explicit `RSDP_ADDR` forwarding into `acpid`,
++  x86 BIOS-search AML fallback, and bounded AML-backed power enumeration. The explicit boot-path
++  producer contract for AML bootstrap is still underdocumented, `acpid` startup hardening remains
++  open, shutdown/power reporting are still provisional, sleep
++  state transitions beyond `\_S5`, DMAR ownership cleanup, and broader platform validation all
++  remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md`
++- Wi-Fi broad support is not available yet; bounded Intel Wi-Fi scaffolding and validation paths now
++  cover probe/status/prepare/init/activate plus bounded scan/connect/disconnect/retry surfaces, but
++  validated real wireless connectivity support remains incomplete
++- Bluetooth broad support is not available yet; one bounded in-tree BLE-first experimental slice
++  exists, but broad controller or desktop parity remains incomplete
++- Broad hardware-validated GPU acceleration is not supported yet; the default proven path remains
++  BIOS VESA and UEFI GOP, even though Red Bear now carries compile-oriented AMD/Intel DRM work in
++  the local overlay
+ - I2C devices aren't supported yet (PS/2 or USB devices should be used)
+-- USB support varies on each device model because some USB devices require specific drivers (use input devices with standardized controls for more compatibility)
+-- Automatic operating system discovery is not implemented in the boot loader yet (remember this before installing Redox)
++- USB support still varies by machine and device class, but Red Bear now has QEMU-proven xHCI
++  interrupt-mode and USB mass-storage autospawn paths
 +- Automatic operating system discovery is not implemented in the boot loader yet (remember this before installing Red Bear OS)
-+
-+## Contribute to this document
-+
-+To contribute to this document, learn how to create your GitLab account, follow the project-wide contribution guidelines and suggestions, please refer to the [CONTRIBUTING.md](./CONTRIBUTING.md) document.
-+
-+### Template
-+
-+You will use this template to insert your computer on the table.
-+
-+```
-+|  |  |  |  |  |  |  |  |
-+```
-+
-+The Redox image date should use the [ISO format](https://en.wikipedia.org/wiki/ISO_8601)
-+
-+### Table row ordering
-+
-+New reports should use an independent alphabetical order in the "Vendor" and "Model" table rows, for example:
-+
-+```
-+| ASUS | ROG g55vw |
-+| ASUS | X554L |
-+| System76 | Galago Pro (galp5) |
-+| System76 | Lemur Pro (lemp9) |
-+```
-+
-+A comes before S, R comes before X, G comes before L
-+
-+Each "Vendor" has its own alphabetical order in "Model", independent from models from other vendor.
-+
-+## Recommended
-+
-+| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
-+|------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
-+| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital |
-+| System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
-+| System76 | Lemur Pro (lemp9) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
-+
-+## Booting
-+
-+| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
-+|------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
-+| ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, No ethernet driver, Correct video mode not offered (firmware issue) |
-+| ASUS | PRIME B350M-E (custom) | 0.9.0 | 2024-09-20 | desktop | x86-64 | UEFI | Partial support for the PS/2 keyboard, PS/2 mouse is broken |
-+| ASUS | ROG g55vw | 0.8.0 | 2023-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, UEFI panic in SETUP |
-+| ASUS | X554L | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No audio, HDA driver cannot find output pins |
-+| ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
-+| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, NVMe driver livelocks |
-+| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital, NVMe driver livelocks |
-+| HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
-+| HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
-+| Lenovo | ThinkPad Yoga 260 Laptop - Type 20FE | 0.9.0 | 2024-09-07 | demo | x86-64 | UEFI | Boots to Orbital, No audio |
-+| Lenovo | Yoga S730-13IWL | 0.9.0 | 2024-11-09 | desktop | x86-64 | UEFI | Boots to Orbital, No trackpad or USB mouse input support |
-+| Raspberry Pi | 3 Model B+ | 0.8.0 | Unknown | server | ARM64 | U-Boot | Boots to UART serial console (pl011) |
-+| Samsung | Series 3 (NP350V5C) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad works, USB does not work, can connect to the Internet through LAN. Wrong maximum display resolution 1024x768 |
-+| System76 | Oryx Pro (oryp10) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, though it should be working |
-+| System76 | Pangolin (pang12) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
-+| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No Ethernet driver, Correct video mode not offered (firmware issue) |
-+
-+## Broken
-+
-+| **Vendor** | **Model** | **RBOS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
-+|------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
-+| ASUS | PN41 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
-+| BEELINK | U59 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
-+| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | Crash due to unimplemented acpi function, see [jackpot51/acpi #3](https://github.com/jackpot51/acpi/pull/3) on GitHub |
-+| HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | Unloads into memory at a rate slower than 1MB/s after selecting resolution. When unloading is complete the logger initializes and crashes after kernel::acpi, some information about APIC is printed. Boot logs do not progress after this point. |
-+| HP | EliteBook 2570p | 0.8.0 | 2022-11-23 | demo | x86-64 | BIOS (CSM mode?) | Gets to resolution selection, Fails assert in `src/os/bios/mod.rs:77` after selecting resolution |
-+| Lenovo | G570 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Bootloader panics in `alloc_zeroed_page_aligned`, Correct video mode not offered (firmware issue) |
-+| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |
-+| Lenovo | ThinkCentre M83 | 0.9.0 | 2025-11-09 | desktop | x86_64 | UEFI | Presents user with a set of display resolution options. After user selects an option, it takes a long time for the "live" thing to load all the way to 647MiB. Once it does reach 647MiB, however, it dumps a bunch of logs onto the screen. Those logs also happen to be offset so that the leftmost portion of all text "exists" past the leftmost part of the screen, resulting in the logs being only partially visible. The logs appear to include (among other things) 1. "thread 'main' (1) panicked at acpid/src/acpi.rs:256:68: Called `Result::unwrap()` on an `Err` value: Aml(NoCurrentOp)"; 2. "thread 'main' (1) panicked at acpid/src/main.rs:147:39:acpid: failed to daemonize: Error `I/O error` 5"; 3. "... [@hwd:40 ERROR] failed to probe with error No such device (os error 19)..."; etc. |
-+| Panasonic | Toughbook CF-18 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Hangs after PIT initialization |
-+| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Correct video mode not offered (firmware issue), Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |
-+| XMG (Schenker) | Apex 17 (M21) | 0.9.0 | 2024-09-30 | demo, server | x86-64 | UEFI | After selecting resolution, (release) repeats `...::interrupt::irq::ERROR -- Local apic internal error: ESR=0x40` a few times before it freezes; (daily) really slowly prints statements from `...::rmm::INFO` before it abruptly aborts |
-+
-diff --git a/INTEGRATION_REPORT.md b/INTEGRATION_REPORT.md
-new file mode 100644
-index 0000000..e42caec
---- /dev/null
-+++ b/INTEGRATION_REPORT.md
-@@ -0,0 +1,1361 @@
-+# Red Bear OS Integration Report: Wayland, KDE Plasma, and Linux Driver Support
-+
-+**Date**: April 11, 2026
-+**Project**: Red Bear OS Build System (based on Redox OS)
-+**Status**: Assessment Complete
-+
-+---
-+
-+## Executive Summary
-+
-+Red Bear OS is based on Redox OS, a microkernel-based operating system written in Rust with comprehensive documentation on integrating Wayland, KDE Plasma, and Linux drivers. The project has:
-+
-+- **Active development**: 21+ Wayland recipes, 19+ KDE WIP recipes
-+- **Build system**: Fully functional, using Rust-based `repo` tool and Makefiles
-+- **Documentation**: Extensive, detailed implementation paths already documented
-+- **Blockers identified**: 7 POSIX gaps in relibc, no GPU acceleration, missing DRM/KMS scheme
-+- **Estimated timelines**: 6-10 months to KDE Plasma, 6-8 months to Linux drivers
-+
-+---
-+
-+## 1. Compilation Status
-+
-+### Build System Analysis
-+
-+**Build System**: Rust-based `repo` tool with Makefile orchestration
-+
-+**Key Directories**:
-+- `config/` - Build configurations (minimal, desktop, wayland, x11)
-+- `recipes/` - Package recipes (9.6GB total, 60+ redox.patch files)
-+- `mk/` - Makefile infrastructure (config.mk, depends.mk, podman.mk, etc.)
-+- `src/` - Build system source (cookbook tool in Rust)
-+- `build/` - Output directory (build/{ARCH}/{CONFIG}/)
-+
-+**Available Configs**:
-+- `minimal` - Bare minimum bootable system
-+- `server` - Server-oriented (no GUI)
-+- `desktop-minimal` - Orbital + basic GUI
-+- `desktop` - COSMIC apps + installer
-+- `wayland` - Wayland compositor (experimental)
-+- `x11` - X.org + MATE desktop
-+- `demo` - Demo apps
-+
-+### Build Test Results
-+
-+**Prerequisites Status**:
-+- ✅ Rust toolchain installed (via rustup)
-+- ✅ Cargo available
-+- ✅ Make installed
-+- ✅ QEMU available
-+- ✅ Prebuilt toolchain exists: `prefix/x86_64-unknown-redox/`
-+- ✅ Build system binary compiled: `target/release/repo`
-+
-+**Build Attempt Results**:
-+```
-+Kernel Source Fetch: ✅ SUCCESS
-+- Cloned 21452 objects from gitlab.redox-os.org
-+- Source located at: recipes/core/kernel/source/
-+
-+Build Attempt: ⚠️ PARTIAL
-+- FUSE filesystem issue encountered (ioctl error 25)
-+- Kernel source successfully downloaded
-+- Build system infrastructure validated
-+```
-+
-+**Issue Identified**: FUSE mount-related error during build, likely due to stale mounts or filesystem permissions. This is a build environment issue, not a project issue. The build system itself is functional.
-+
-+---
-+
-+## 2. Wayland Integration: Concrete Path
-+
-+### Current State (Experimental/WIP)
-+
-+**Existing Components**:
-+- `config/wayland.toml` - Wayland configuration (21 packages)
-+- `recipes/wip/wayland/` - 21 Wayland packages:
-+  - `libwayland` (1.24.0) - Patched with redox.patch
-+  - `cosmic-comp` - Partial working, no keyboard input
-+  - `smallvil` (Smithay) - Basic compositor running
-+  - `wlroots` - Not compiled/tested
-+  - `sway` - Not compiled/tested
-+  - `hyprland` - Not compiled/tested
-+  - `niri` - Needs Smithay port
-+  - `xwayland` - Partially patched
-+  - Wayland protocols, xkbcommon, etc.
-+
-+**Blockers Identified** (from docs/03-WAYLAND-ON-REDOX.md):
-+
-+### 2.1 POSIX Gaps in relibc (CRITICAL BLOCKER)
-+
-+**7 Missing APIs** (all stubbed in libwayland/redox.patch):
-+
-+| API | Used By | Effort | File Location |
-+|-----|----------|---------|--------------|
-+| `signalfd`/`signalfd4` | libwayland event loop | Medium | `relibc/src/header/signal/mod.rs` |
-+| `timerfd_create/settime/gettime` | libwayland timers | Medium | `relibc/src/header/sys_timerfd/` (NEW) |
-+| `eventfd`/`eventfd_read/write` | libwayland server | Low | `relibc/src/header/sys_eventfd/` (NEW) |
-+| `F_DUPFD_CLOEXEC` | libwayland fd management | Low | `relibc/src/header/fcntl/mod.rs` |
-+| `MSG_CMSG_CLOEXEC` | libwayland socket recv | Low | `relibc/src/header/sys_socket/mod.rs` |
-+| `MSG_NOSIGNAL` | libwayland connection | Low | `relibc/src/header/sys_socket/mod.rs` |
-+| `open_memstream` | libdrm, libwayland | Low | `relibc/src/header/stdio/src.rs` |
-+
-+**Total Estimated Effort**: ~870 lines of Rust code (1-2 weeks)
-+
-+### 2.2 Missing Input Stack
-+
-+**Components Needed**:
-+1. **evdev daemon** (`evdevd`) - Translate Redox input schemes to `/dev/input/eventX`
-+   - Location: `recipes/core/evdevd/` (NEW)
-+   - Implementation: ~500 lines of Rust
-+   - Effort: 4-6 weeks
-+
-+2. **udev shim** - Device enumeration and hotplug
-+   - Location: `recipes/wip/wayland/udev-shim/` (NEW)
-+   - Implementation: ~500 lines of Rust
-+   - Effort: 2-3 weeks
-+
-+3. **libinput port** - Input abstraction layer
-+   - Location: `recipes/wip/wayland/libinput/` (NEW)
-+   - Effort: 3-4 weeks
-+
-+**Total Input Stack Effort**: 9-13 weeks
-+
-+### 2.3 Missing DRM/KMS Scheme
-+
-+**Components Needed**:
-+1. **DRM daemon** (`drmd`) - Register `scheme:drm/card0`
-+   - Location: `recipes/core/drmd/` (NEW)
-+   - Structure:
-+     ```
-+     src/
-+       ├── main.rs              - daemon entry, scheme registration
-+       ├── scheme.rs            - "drm" scheme handler
-+       ├── kms/                 - KMS object management
-+       │   ├── crtc.rs
-+       │   ├── connector.rs
-+       │   ├── encoder.rs
-+       │   ├── plane.rs
-+       │   └── framebuffer.rs
-+       ├── gem.rs                - GEM buffer management
-+       ├── dmabuf.rs            - DMA-BUF export/import
-+       └── drivers/
-+           ├── mod.rs          - driver trait
-+           └── intel.rs        - Intel GPU driver (modesetting)
-+     ```
-+   - Effort: 8-12 weeks
-+
-+2. **Intel GPU driver** (native Rust modesetting)
-+   - Location: `redox-drm/src/drivers/intel/`
-+   - Documentation: Intel GPU PRM
-+   - Effort: 6-8 weeks (part of drmd)
-+
-+3. **Mesa hardware backend**
-+   - Location: Mesa winsys for Redox DRM (NEW)
-+   - Effort: 4-6 weeks
-+
-+**Total DRM/KMS Effort**: 12-16 weeks
-+
-+### 2.4 Wayland Compositor Path
-+
-+**Recommended: Smithay/smallvil first, then KWin**
-+
-+**Why Smithay First**:
-+- Pure Rust - no C++ toolchain issues
-+- Already has Redox branch
-+- Pluggable input/DRM/EGL backends
-+- Gets working compositor months before KWin
-+
-+**Implementation Steps**:
-+
-+**Phase 1: Smithay Redox Backends** (4-6 weeks)
-+
-+```rust
-+// smithay/src/backend/input/redox.rs (NEW)
-+pub struct RedoxInputBackend {
-+    devices: Vec<EvdevDevice>,
-+}
-+
-+impl InputBackend for RedoxInputBackend {
-+    fn dispatch(&mut self) -> Vec<InputEvent> {
-+        // Read from /dev/input/eventX via evdevd
-+        // Translate to Smithay's InternalEvent
-+    }
-+}
-+```
-+
-+```rust
-+// smithay/src/backend/drm/redox.rs (NEW)
-+pub struct RedoxDrmBackend {
-+    drm_fd: File,  // opened from /scheme/drm/card0
-+}
-+
-+impl DrmBackend for RedoxDrmBackend {
-+    fn create_surface(&self, size: Size) -> Surface {
-+        // Create framebuffer via DRM GEM
-+        // Set KMS mode via scheme:drm
-+    }
-+
-+    fn page_flip(&self, surface: &Surface) -> Result<VBlank> {
-+        // DRM page flip via scheme
-+    }
-+}
-+```
-+
-+```rust
-+// smithay/src/backend/egl/redox.rs (NEW)
-+pub struct RedoxEglDisplay {
-+    // Mesa EGL display integration
-+}
-+```
-+
-+**Phase 2: smallvil Recipe** (1-2 weeks)
-+
-+Modify `recipes/wip/wayland/smallvil/recipe.toml`:
-+```toml
-+[source]
-+git = "https://github.com/jackpot51/smithay"
-+branch = "redox"
-+
-+[build]
-+template = "cargo"
-+dependencies = [
-+    "libffi",
-+    "libwayland",
-+    "libxkbcommon",
-+    "mesa",        # for EGL
-+    "libdrm",      # for DRM backend
-+    "evdevd",      # for input
-+    "seatd",       # for session management
-+]
-+cargopackages = ["smallvil"]
-+```
-+
-+**Phase 3: Verification** (1-2 weeks)
-+
-+1. `smallvil` launches with DRM backend - takes over display
-+2. Keyboard and mouse work via evdevd
-+3. `libcosmic-wayland_application` renders a window on compositor
-+4. Screenshot shows window
-+
-+**Phase 4: Enable Other Compositors**
-+
-+1. `cosmic-comp`: Uncomment libinput dependency, rebuild
-+2. `wlroots`: Build with libdrm + libinput + GBM
-+3. `sway`: Should work once wlroots builds
-+4. `KWin`: See Section 3
-+
-+### 2.5 Wayland Implementation Timeline
-+
-+| Phase | Duration | Milestone |
-+|--------|----------|-----------|
-+| POSIX gaps (relibc) | 1-2 weeks | libwayland builds without patches |
-+| Input stack (evdevd + udev + libinput) | 4-6 weeks | libinput works |
-+| DRM/KMS (drmd + Intel driver) | 8-12 weeks | libdrm works, modesetting functional |
-+| Smithay backends + smallvil | 4-6 weeks | Working Wayland compositor |
-+| **Total to Wayland Compositor** | **~26 weeks (6 months)** | Functional Wayland on Red Bear OS |
-+
-+**Parallel Execution**: Input stack (4-6 weeks) can run in parallel with DRM/KMS (8-12 weeks), reducing total to **~20-24 weeks (5-6 months)** with 2 developers.
-+
-+---
-+
-+## 3. KDE Plasma Integration: Concrete Path
-+
-+### Prerequisites (MUST be complete first)
-+
-+From docs/05-KDE-PLASMA-ON-REDOX.md:
-+- ✅ relibc POSIX gaps fixed (from Wayland Phase 1)
-+- ✅ evdevd + libinput working (from Wayland Phase 2)
-+- ✅ DRM/KMS scheme working (from Wayland Phase 3)
-+- ✅ Wayland compositor running (from Wayland Phase 4)
-+- ✅ Mesa EGL + software OpenGL (already ported)
-+
-+### Phase KDE-A: Qt Foundation (8-12 weeks)
-+
-+#### Step 1: Port `qtbase` (6-8 weeks)
-+
-+**Create recipe**: `recipes/wip/qt/qtbase/recipe.toml`
-+
-+```toml
-+[source]
-+tar = "https://download.qt.io/official_releases/qt/6.8/6.8.2/submodules/qtbase-everywhere-src-6.8.2.tar.xz"
-+patches = ["redox.patch"]
-+
-+[build]
-+template = "custom"
-+dependencies = [
-+    "libwayland",
-+    "mesa",
-+    "libdrm",
-+    "libxkbcommon",
-+    "zlib",
-+    "openssl1",
-+    "glib",
-+    "pcre2",
-+    "expat",
-+    "fontconfig",
-+    "freetype2",
-+]
-+
-+script = """
-+DYNAMIC_INIT
-+
-+mkdir -p build && cd build
-+
-+cmake .. \
-+    -DCMAKE_INSTALL_PREFIX=/usr \
-+    -DCMAKE_BUILD_TYPE=Release \
-+    -DQT_BUILD_EXAMPLES=OFF \
-+    -DQT_BUILD_TESTS=OFF \
-+    -DFEATURE_wayland=ON \
-+    -DFEATURE_wayland_client=ON \
-+    -DFEATURE_xcb=OFF \
-+    -DFEATURE_xlib=OFF \
-+    -DFEATURE_opengl=ON \
-+    -DFEATURE_openssl=ON \
-+    -DFEATURE_dbus=ON \
-+    -DFEATURE_system_pcre2=ON \
-+    -DFEATURE_system_zlib=ON \
-+    -DINPUT_opengl=desktop \
-+    -DQT_QPA_PLATFORMS=wayland \
-+    -DQT_FEATURE_vulkan=OFF
-+
-+cmake --build . -j${COOKBOOK_MAKE_JOBS}
-+cmake --install . --prefix ${COOKBOOK_STAGE}/usr
-+"""
-+```
-+
-+**What `redox.patch` for qtbase needs** (~500-800 lines):
-+
-+1. Platform detection:
-+   ```
-+   qtbase/src/corelib/global/qsystemdetection.h — add Redox detection
-+   qtbase/src/corelib/io/qfilesystemengine_unix.cpp — Redox path handling
-+   ```
-+
-+2. Shared memory:
-+   ```
-+   qtbase/src/corelib/kernel/qsharedmemory.cpp — map to Redox shm scheme
-+   ```
-+
-+3. Process handling:
-+   ```
-+   qtbase/src/corelib/io/qprocess_unix.cpp — already works (relibc POSIX)
-+   ```
-+
-+4. Network:
-+   ```
-+   qtbase/src/network/ — should compile with relibc sockets
-+   ```
-+
-+#### Step 2: Port `qtwayland` (1-2 weeks)
-+
-+```toml
-+[source]
-+tar = "https://download.qt.io/official_releases/qt/6.8/6.8.2/submodules/qtwayland-everywhere-src-6.8.2.tar.xz"
-+
-+[build]
-+template = "custom"
-+dependencies = ["qtbase", "libwayland", "wayland-protocols"]
-+
-+script = """
-+DYNAMIC_INIT
-+mkdir -p build && cd build
-+cmake .. \
-+    -DCMAKE_PREFIX_PATH=${COOKBOOK_SYSROOT}/usr \
-+    -DCMAKE_INSTALL_PREFIX=/usr \
-+    -DQT_BUILD_TESTS=OFF
-+cmake --build . -j${COOKBOOK_MAKE_JOBS}
-+cmake --install . --prefix ${COOKBOOK_STAGE}/usr
-+"""
-+```
-+
-+#### Step 3: Port `qtdeclarative` (QML) (2-3 weeks)
-+
-+```toml
-+[source]
-+tar = "https://download.qt.io/official_releases/qt/6.8/6.8.2/submodules/qtdeclarative-everywhere-src-6.8.2.tar.xz"
-+
-+[build]
-+template = "custom"
-+dependencies = ["qtbase"]
-+
-+script = """
-+# Same cmake pattern as qtwayland
-+"""
-+```
-+
-+#### Step 4: Verification (1-2 weeks)
-+
-+Build and run a simple Qt Wayland app:
-+```cpp
-+#include <QApplication>
-+#include <QLabel>
-+int main(int argc, char *argv[]) {
-+    QApplication app(argc, argv);
-+    QLabel label("Hello from Qt on Redox!");
-+    label.show();
-+    return app.exec();
-+}
-+```
-+
-+**Milestone**: Window with "Hello from Qt on Redox!" appears on Wayland compositor.
-+
-+### Phase KDE-B: KDE Frameworks (8-12 weeks)
-+
-+#### KDE Frameworks Tier 1 (2-3 weeks)
-+
-+| Framework | Purpose | Estimated Patches |
-+|-----------|---------|------------------|
-+| `extra-cmake-modules` | CMake modules | None — pure CMake |
-+| `kcoreaddons` | Core utilities | ~50 lines (process detection) |
-+| `kconfig` | Configuration | ~30 lines (filesystem paths) |
-+| `kwidgetsaddons` | Extra Qt widgets | None — pure Qt |
-+| `kitemmodels` | Model/view classes | None — pure Qt |
-+| `kitemviews` | Item view classes | None — pure Qt |
-+| `kcodecs` | String encoding | None — pure Qt |
-+| `kguiaddons` | GUI utilities | None — pure Qt |
-+
-+**Recipe Pattern** (same for all Tier 1):
-+```toml
-+[source]
-+tar = "https://download.kde.org/stable/frameworks/6.10/kcoreaddons-6.10.0.tar.xz"
-+patches = ["redox.patch"]
-+
-+[build]
-+template = "custom"
-+dependencies = ["qtbase", "extra-cmake-modules"]
-+
-+script = """
-+DYNAMIC_INIT
-+mkdir -p build && cd build
-+cmake .. \
-+    -DCMAKE_PREFIX_PATH=${COOKBOOK_SYSROOT}/usr \
-+    -DCMAKE_INSTALL_PREFIX=/usr \
-+    -DBUILD_TESTING=OFF \
-+    -DBUILD_QCH=OFF
-+cmake --build . -j${COOKBOOK_MAKE_JOBS}
-+cmake --install . --prefix ${COOKBOOK_STAGE}/usr
-+"""
-+```
-+
-+#### KDE Frameworks Tier 2 (2-3 weeks)
-+
-+| Framework | Dependencies | Notes |
-+|-----------|--------------|-------|
-+| `ki18n` | `kcoreaddons`, gettext | Internationalization |
-+| `kauth` | `kcoreaddons` | PolicyKit stub needed |
-+| `kwindowsystem` | `qtbase` | Window management — needs Wayland backend |
-+| `kcrash` | `kcoreaddons` | Crash handler — may need signal adjustments |
-+| `karchive` | `qtbase`, zlib | Archive handling — should port cleanly |
-+| `kiconthemes` | `kwidgetsaddons`, `karchive` | Icon loading |
-+
-+#### KDE Frameworks Tier 3 (3-4 weeks) - Plasma essentials
-+
-+| Framework | Purpose | Key for Plasma? |
-+|-----------|---------|------------------|
-+| `kio` | File I/O abstraction | **Yes** — file dialogs, I/O slaves |
-+| `kservice` | Plugin/service management | **Yes** — app discovery |
-+| `kxmlgui` | GUI framework | **Yes** — menus, toolbars |
-+| `plasma-framework` | Plasma applets/containments | **Yes** — desktop shell |
-+| `knotifications` | Desktop notifications | **Yes** — notification system |
-+| `kpackage` | Package/asset management | **Yes** — Plasma packages |
-+| `kconfigwidgets` | Configuration widgets | **Yes** — settings UI |
-+
-+**Total frameworks needed for minimal Plasma**: ~25
-+
-+**Estimated total patch effort for all frameworks**: ~1500-2000 lines
-+
-+### Phase KDE-C: Plasma Desktop (6-8 weeks)
-+
-+#### Step 1: Port KWin (4-6 weeks)
-+
-+```toml
-+[source]
-+tar = "https://download.kde.org/stable/plasma/6.3.4/kwin-6.3.4.tar.xz"
-+patches = ["redox.patch"]
-+
-+[build]
-+template = "custom"
-+dependencies = [
-+    "qtbase", "qtwayland", "qtdeclarative",
-+    "kcoreaddons", "kconfig", "kwindowsystem",
-+    "knotifications", "kxmlgui", "plasma-framework",
-+    "libwayland", "wayland-protocols",
-+    "mesa", "libdrm", "libinput", "seatd",
-+    "libxkbcommon",
-+]
-+
-+script = """
-+DYNAMIC_INIT
-+mkdir -p build && cd build
-+cmake .. \
-+    -DCMAKE_PREFIX_PATH=${COOKBOOK_SYSROOT}/usr \
-+    -DCMAKE_INSTALL_PREFIX=/usr \
-+    -DBUILD_TESTING=OFF \
-+    -DKWIN_BUILD_SCREENLOCKING=OFF \
-+    -DKWIN_BUILD_TABBOX=OFF \
-+    -DKWIN_BUILD_EFFECTS=ON
-+cmake --build . -j${COOKBOOK_MAKE_JOBS}
-+cmake --install . --prefix ${COOKBOOK_STAGE}/usr
-+"""
-+```
-+
-+**What `redox.patch` for KWin needs** (~1000-1500 lines):
-+
-+1. DRM backend:
-+   ```
-+   src/backends/drm/drm_backend.cpp — open DRM scheme instead of device node
-+   src/backends/drm/drm_output.cpp — use scheme ioctl equivalents
-+   ```
-+
-+2. libinput backend: Should work via evdevd
-+   ```
-+   src/backends/libinput/connection.cpp — may need path adjustments
-+   ```
-+
-+3. EGL/OpenGL:
-+   ```
-+   src/libkwineglbackend.cpp — Mesa EGL should work (already ported)
-+   ```
-+
-+4. Session management: KWin expects logind, need stub:
-+   ```
-+   src/session.h/cpp — stub LogindIntegration, use seatd instead
-+   ```
-+
-+5. udev:
-+   ```
-+   src/udev.h/cpp — redirect to our udev-shim
-+   ```
-+
-+#### Step 2: Port `plasma-workspace` (2-3 weeks)
-+
-+```toml
-+[source]
-+tar = "https://download.kde.org/stable/plasma/6.3.4/plasma-workspace-6.3.4.tar.xz"
-+
-+[build]
-+template = "custom"
-+dependencies = [
-+    "kwin", "plasma-framework", "kio", "kservice",
-+    "knotifications", "kpackage", "kconfigwidgets",
-+    "qtbase", "qtwayland", "qtdeclarative",
-+    "dbus",
-+]
-+```
-+
-+**Key component**: `plasmashell` — desktop shell (panels, desktop containment, applet loader). Depends heavily on QML (qtdeclarative).
-+
-+#### Step 3: Create `config/kde.toml`
-+
-+```toml
-+include = ["desktop.toml"]
-+
-+[general]
-+filesystem_size = 4096
-+
-+[packages]
-+# Qt
-+qtbase = {}
-+qtwayland = {}
-+qtdeclarative = {}
-+qtsvg = {}
-+# KDE Frameworks (minimal set)
-+extra-cmake-modules = {}
-+kcoreaddons = {}
-+kconfig = {}
-+kwidgetsaddons = {}
-+ki18n = {}
-+kwindowsystem = {}
-+kio = {}
-+kservice = {}
-+kxmlgui = {}
-+knotifications = {}
-+kpackage = {}
-+plasma-framework = {}
-+kconfigwidgets = {}
-+# KDE Plasma
-+kwin = {}
-+plasma-workspace = {}
-+plasma-desktop = {}
-+kde-cli-tools = {}
-+# Support
-+dbus = {}
-+mesa = {}
-+libdrm = {}
-+libinput = {}
-+seatd = {}
-+evdevd = {}
-+drmd = {}
-+
-+# Override init to launch KDE session
-+[[files]]
-+path = "/usr/lib/init.d/20_orbital"
-+data = """
-+requires_weak 10_net
-+notify audiod
-+nowait VT=3 orbital orbital-kde
-+"""
-+
-+[[files]]
-+path = "/usr/bin/orbital-kde"
-+mode = 0o755
-+data = """
-+#!/usr/bin/env bash
-+set -ex
-+
-+export DISPLAY=""
-+export WAYLAND_DISPLAY=wayland-0
-+export XDG_RUNTIME_DIR=/tmp/run/user/0
-+export XDG_SESSION_TYPE=wayland
-+export KDE_FULL_SESSION=true
-+export XDG_CURRENT_DESKTOP=KDE
-+
-+mkdir -p /tmp/run/user/0
-+
-+# Start D-Bus
-+dbus-daemon --system &
-+
-+# Start D-Bus session
-+eval $(dbus-launch --sh-syntax)
-+
-+# Start KWin (Wayland compositor + window manager)
-+kwin_wayland --replace &
-+
-+# Start Plasma Shell
-+sleep 2
-+plasmashell &
-+"""
-+```
-+
-+### System Integration Points
-+
-+#### D-Bus (Already Working)
-+D-Bus is ported and working in X11 config. KDE uses D-Bus extensively.
-+
-+#### Audio: PulseAudio/PipeWire Shim Needed
-+KDE expects PulseAudio or PipeWire. Redox has `scheme:audio`.
-+
-+**Options**:
-+- A: Port PipeWire (large effort)
-+- B: Write PulseAudio compatibility shim (medium effort)
-+- C: Use KDE without audio initially (skip for now)
-+
-+#### Service Management: D-Bus Service Files
-+KDE services register via D-Bus `.service` files. Need translation layer that:
-+1. Reads `/usr/share/dbus-1/services/*.service` files
-+2. Maps to Redox init scripts
-+3. Responds to D-Bus StartServiceByName calls
-+
-+#### Network: NetworkManager Integration
-+KDE uses NetworkManager. Redox has `smolnetd`.
-+
-+**Options**:
-+- A: Port NetworkManager (massive effort, needs systemd)
-+- B: Write NetworkManager D-Bus shim (medium effort)
-+- C: Skip network config UI initially
-+
-+### KDE Implementation Timeline
-+
-+| Phase | Duration | Milestone |
-+|--------|----------|-----------|
-+| Qt Foundation (qtbase, qtwayland, qtdeclarative) | 8-12 weeks | Qt app shows window |
-+| KDE Frameworks (25 frameworks) | 8-12 weeks | KDE app (Kate) runs |
-+| KWin + Plasma Shell | 6-8 weeks | KDE desktop visible |
-+| KDE Apps (Dolphin, Konsole, Kate) | 4-6 weeks | Full KDE ecosystem |
-+| **Total** | **~38 weeks (9-10 months)** | Full KDE Plasma session |
-+
-+**Critical Insight**: Qt Foundation is highest-risk phase. If Qt compilation hits unexpected relibc gaps, entire timeline shifts.
-+
-+---
-+
-+## 4. Linux Driver Compatibility: Concrete Path
-+
-+### Why This Is Needed
-+
-+Writing native Rust GPU drivers for every vendor is years of work. Linux has mature, vendor-supported GPU drivers. A compatibility layer lets us port them with `#ifdef __redox__` patches instead of full rewrites.
-+
-+**Target Drivers** (priority order):
-+1. **i915** (Intel) - Best documented, most relevant for laptops
-+2. **amdgpu** (AMD) - Large market share, good open-source driver
-+3. **nouveau / nvk** (NVIDIA) - Community driver, limited performance
-+4. **Skip**: NVIDIA proprietary (binary-only, impossible without Linux kernel)
-+
-+### Architecture
-+
-+**Two-Mode Design**:
-+
-+**Mode A: C Driver Port** - Compile Linux C driver against our headers, run as userspace daemon
-+**Mode B: Rust Wrapper** - Rust crate provides idiomatic API, internally calls compat layer
-+
-+Both modes share: `redox-driver-sys`
-+
-+```
-+┌────────────────────────────────────────────────────────────┐
-+│         Mode A: C Driver Port                          │
-+│  Linux C driver (i915.ko source)                  │
-+│  compiled with -D__redox__ against linux-kpi headers │
-+├────────────────────────────────────────────────────────────┤
-+│         Mode B: Rust Wrapper                        │
-+│  Rust crate (redox-intel-gpu) using compat APIs      │
-+├────────────────────────────────────────────────────────────┤
-+│         linux-kpi (C header compatibility)             │
-+│  ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-+│  │ linux/    │ │ linux/   │ │ linux/   │       │
-+│  │ slab.h   │ │ mutex.h  │ │ pci.h    │       │
-+│  └──────────┘ └──────────┘ └──────────┘       │
-+├────────────────────────────────────────────────────────────┤
-+│         redox-driver-sys (Rust crate)                  │
-+│  Provides: memory mapping, IRQ, DMA, PCI, DRM scheme  │
-+├────────────────────────────────────────────────────────────┤
-+│         Red Bear OS                                    │
-+│  scheme:memory  scheme:irq  scheme:pci  scheme:drm      │
-+└────────────────────────────────────────────────────────────┘
-+```
-+
-+### Crate 1: `redox-driver-sys` (2-3 weeks)
-+
-+**Repository**: New crate in Redox ecosystem
-+**Purpose**: Safe Rust wrappers around Redox's scheme-based hardware access
-+
-+```
-+redox-driver-sys/
-+├── Cargo.toml
-+├── src/
-+│   ├── lib.rs              — Re-exports
-+│   ├── memory.rs           — Physical memory mapping (scheme:memory)
-+│   ├── irq.rs              — Interrupt handling (scheme:irq)
-+│   ├── pci.rs              — PCI device access (scheme:pci / pcid)
-+│   ├── io.rs               — Port I/O (iopl syscall)
-+│   └── dma.rs              — DMA buffer management
-+```
-+
-+**Key Implementations**:
-+
-+```rust
-+// src/memory.rs
-+pub fn map_physical(phys: u64, size: usize, flags: MapFlags) -> Result<*mut u8> {
-+    let fd = File::open("scheme:memory/physical")?;
-+    let ptr = syscall::fmap(fd.as_raw_fd(), &Map {
-+        offset: phys,
-+        size,
-+        flags: flags.to_syscall_flags(),
-+    })?;
-+    Ok(ptr as *mut u8)
-+}
-+
-+pub fn unmap_physical(ptr: *mut u8, size: usize) -> Result<()> {
-+    syscall::funmap(ptr as usize, size)?;
-+    Ok(())
-+}
-+```
-+
-+```rust
-+// src/irq.rs
-+pub struct IrqHandle { fd: File }
-+
-+impl IrqHandle {
-+    pub fn request(irq_num: u32) -> Result<Self> {
-+        let fd = File::open(&format!("scheme:irq/{}", irq_num))?;
-+        Ok(Self { fd })
-+    }
-+
-+    pub fn wait(&mut self) -> Result<()> {
-+        let mut buf = [0u8; 8];
-+        self.fd.read(&mut buf)?;
-+        Ok(())
-+    }
-+}
-+```
-+
-+```rust
-+// src/pci.rs
-+pub struct PciDevice {
-+    bus: u8, dev: u8, func: u8,
-+    vendor_id: u16, device_id: u16,
-+    bars: [u64; 6],
-+    bar_sizes: [usize; 6],
-+    irq: u32,
-+}
-+
-+pub fn enumerate() -> Result<Vec<PciDevice>> {
-+    // Read from pcid-spawner or scheme:pci
-+    // Parse PCI configuration space
-+    // Filter to GPU devices (class 0x030000-0x0302xx)
-+}
-+```
-+
-+### Crate 2: `linux-kpi` (3-4 weeks)
-+
-+**Repository**: New crate. Installs C headers for use by Linux C drivers.
-+**Purpose**: Provides `linux/*.h` headers that translate Linux kernel APIs to `redox-driver-sys`
-+
-+```
-+linux-kpi/
-+├── Cargo.toml
-+├── src/
-+│   ├── lib.rs              — Rust API for Rust drivers
-+│   ├── c_headers/          — C headers for C driver ports
-+│   │   ├── linux/
-+│   │   │   ├── slab.h      → malloc/kfree (redox-driver-sys::memory)
-+│   │   │   ├── mutex.h     → pthread mutex (redox-driver-sys::sync)
-+│   │   │   ├── spinlock.h  → atomic lock
-+│   │   │   ├── pci.h       → redox-driver-sys::pci
-+│   │   │   ├── io.h        → port I/O (iopl)
-+│   │   │   ├── irq.h       → redox-driver-sys::irq
-+│   │   │   ├── device.h    → struct device wrapper
-+│   │   │   ├── kobject.h   → reference-counted object
-+│   │   │   ├── workqueue.h → thread pool
-+│   │   │   ├── idr.h       → ID allocation
-+│   │   │   └── dma-mapping.h → bus DMA (redox-driver-sys::dma)
-+│   │   ├── drm/
-+│   │   │   ├── drm.h       → DRM core types
-+│   │   │   ├── drm_crtc.h  → KMS types
-+│   │   │   ├── drm_gem.h   → GEM buffer objects
-+│   │   │   └── drm_ioctl.h → DRM ioctl definitions
-+│   │   └── asm/
-+│   │       └── io.h        → inl/outl port I/O
-+│   └── rust_impl/          — Rust implementations backing C headers
-+│       ├── memory.rs       — kzalloc, kmalloc, kfree
-+│       ├── sync.rs         — mutex, spinlock, completion
-+│       ├── workqueue.rs    — work queue thread pool
-+│       ├── pci.rs          — pci_register_driver, etc.
-+│       └── drm_shim.rs     — DRM core shim (connects to scheme:drm)
-+```
-+
-+**Example C Header**:
-+
-+```c
-+// c_headers/linux/slab.h
-+#ifndef _LINUX_SLAB_H
-+#define _LINUX_SLAB_H
-+
-+#include <stddef.h>
-+
-+#define GFP_KERNEL  0
-+#define GFP_ATOMIC  1
-+#define GFP_DMA32   2
-+
-+void *kmalloc(size_t size, unsigned int flags);
-+void *kzalloc(size_t size, unsigned int flags);
-+void kfree(const void *ptr);
-+
-+#endif
-+```
-+
-+**Corresponding Rust Implementation**:
-+
-+```rust
-+// src/rust_impl/memory.rs
-+use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
-+
-+#[no_mangle]
-+pub extern "C" fn kmalloc(size: usize, _flags: u32) -> *mut u8 {
-+    unsafe {
-+        let layout = Layout::from_size_align(size, 64).unwrap();
-+        alloc(layout)
-+    }
-+}
-+
-+#[no_mangle]
-+pub extern "C" fn kzalloc(size: usize, _flags: u32) -> *mut u8 {
-+    unsafe {
-+        let layout = Layout::from_size_align(size, 64).unwrap();
-+        alloc_zeroed(layout)
-+    }
-+}
-+
-+#[no_mangle]
-+pub extern "C" fn kfree(ptr: *const u8) {
-+    if !ptr.is_null() {
-+        unsafe {
-+            // Linux kfree doesn't take size. Need size-tracking allocator.
-+            // Use HashMap<ptr, Layout> for tracking.
-+        }
-+    }
-+}
-+```
-+
-+### Crate 3: `redox-drm` (12-16 weeks, overlaps with Wayland DRM)
-+
-+**Repository**: Part of Redox base repo or new crate
-+**Purpose**: The daemon that registers `scheme:drm` and talks to GPU hardware
-+
-+```
-+redox-drm/
-+├── Cargo.toml
-+├── src/
-+│   ├── main.rs             — Daemon entry, scheme registration
-+│   ├── scheme.rs           — "drm" scheme handler (processes ioctls)
-+│   ├── kms/
-+│   │   ├── mod.rs          — KMS core
-+│   │   ├── crtc.rs         — CRTC state machine
-+│   │   ├── connector.rs    — Hotplug detection, EDID reading
-+│   │   ├── encoder.rs      — Encoder management
-+│   │   ├── plane.rs        — Primary/cursor planes
-+│   │   └── framebuffer.rs   — Framebuffer allocation
-+│   ├── gem.rs              — GEM buffer object management
-+│   ├── dmabuf.rs           — DMA-BUF export/import via FD passing
-+│   └── drivers/
-+│       ├── mod.rs          — trait GpuDriver
-+│       └── intel/
-+│           ├── mod.rs      — Intel driver entry
-+│           ├── gtt.rs      — Graphics Translation Table
-+│           ├── display.rs  — Display pipe configuration
-+│           └── ring.rs     — Command ring buffer (for acceleration later)
-+```
-+
-+**Core DRM Scheme Protocol**:
-+
-+```rust
-+// src/scheme.rs
-+enum DrmRequest {
-+    // Core
-+    GetVersion,
-+    GetCap { capability: u64 },
-+
-+    // KMS
-+    ModeGetResources,
-+    ModeGetConnector { connector_id: u32 },
-+    ModeGetEncoder { encoder_id: u32 },
-+    ModeGetCrtc { crtc_id: u32 },
-+    ModeSetCrtc { crtc_id: u32, fb_id: u32, x: u32, y: u32, connectors: Vec<u32>, mode: ModeModeInfo },
-+    ModePageFlip { crtc_id: u32, fb_id: u32, flags: u32, user_data: u64 },
-+    ModeAtomicCommit { flags: u32, props: Vec<AtomicProp> },
-+
-+    // GEM
-+    GemCreate { size: u64 },
-+    GemClose { handle: u32 },
-+    GemMmap { handle: u32 },
-+
-+    // Prime/DMA-BUF
-+    PrimeHandleToFd { handle: u32, flags: u32 },
-+    PrimeFdToHandle { fd: i32 },
-+}
-+```
-+
-+**Intel Driver** (native Rust modesetting):
-+
-+```rust
-+// src/drivers/intel.rs
-+pub struct IntelDriver {
-+    mmio: *mut u8,              // Memory-mapped I/O registers (via scheme:memory)
-+    gtt_size: usize,            // Graphics Translation Table size
-+    framebuffer: PhysAddr,      // Current scanout buffer
-+}
-+
-+impl IntelDriver {
-+    pub fn new(pci_dev: &PciDev) -> Result<Self> {
-+        // Map MMIO registers via scheme:memory/physical
-+        let mmio = map_physical_memory(pci_dev.bar[0], pci_dev.bar_size[0])?;
-+
-+        // Initialize GTT and display pipeline
-+        Ok(Self { mmio, gtt_size, framebuffer })
-+    }
-+
-+    pub fn modeset(&self, mode: &ModeInfo) -> Result<()> {
-+        // 1. Allocate framebuffer in GTT
-+        // 2. Configure pipe (timing, PLL)
-+        // 3. Configure transcoder
-+        // 4. Configure port (HDMI/DP)
-+        // 5. Enable scanout from new framebuffer
-+        Ok(())
-+    }
-+
-+    pub fn page_flip(&self, crtc: u32, fb: PhysAddr) -> Result<()> {
-+        // 1. Update GTT entry to point to new framebuffer
-+        // 2. Trigger page flip on next VBlank
-+        // 3. VBlank interrupt signals completion (via scheme:irq)
-+        Ok(())
-+    }
-+}
-+```
-+
-+### Concrete Porting Example: Intel i915 Driver (3-4 weeks)
-+
-+#### Step 1: Extract i915 from Linux kernel
-+
-+```bash
-+# Clone Linux kernel
-+git clone --depth 1 https://github.com/torvalds/linux.git
-+# Extract relevant directories
-+tar cf intel-driver.tar linux/drivers/gpu/drm/i915/ \
-+    linux/include/drm/ \
-+    linux/include/linux/ \
-+    linux/arch/x86/include/
-+```
-+
-+#### Step 2: Create recipe
-+
-+```toml
-+# recipes/wip/drivers/i915/recipe.toml
-+[source]
-+tar = "intel-driver.tar"
-+
-+[build]
-+template = "custom"
-+dependencies = [
-+    "redox-driver-sys",
-+    "linux-kpi",
-+    "redox-drm",
-+]
-+
-+script = """
-+DYNAMIC_INIT
-+
-+# Build i915 driver as a shared library
-+# linked against linux-kpi and redox-driver-sys
-+export CFLAGS="-I${COOKBOOK_SYSROOT}/include/linux-kpi -D__redox__"
-+export LDFLAGS="-lredox_driver_sys -llinux_kpi -lredox_drm"
-+
-+# Compile driver source files
-+find drivers/gpu/drm/i915/ -name '*.c' | while read src; do
-+    x86_64-unknown-redox-gcc -c $CFLAGS "$src" -o "${src%.c}.o" || true
-+done
-+
-+# Link into a single shared library
-+x86_64-unknown-redox-gcc -shared -o i915_redox.so \
-+    $(find drivers/gpu/drm/i915/ -name '*.o') \
-+    $LDFLAGS
-+
-+mkdir -p ${COOKBOOK_STAGE}/usr/lib/redox/drivers
-+cp i915_redox.so ${COOKBOOK_STAGE}/usr/lib/redox/drivers/
-+"""
-+```
-+
-+#### Step 3: Minimal patches needed
-+
-+For i915 on Redox, typical `#ifdef __redox__` changes:
-+
-+```c
-+// 1. Replace Linux module init with daemon main()
-+#ifdef __redox__
-+int main(int argc, char **argv) {
-+    return i915_driver_init();
-+}
-+#else
-+module_init(i915_init);
-+module_exit(i915_exit);
-+#endif
-+
-+// 2. Replace kernel memory allocation
-+#ifdef __redox__
-+#include <linux/slab.h>  // Our compat header
-+#else
-+#include <linux/slab.h>  // Real Linux
-+#endif
-+
-+// 3. Replace PCI access
-+#ifdef __redox__
-+struct pci_dev *pdev = redox_pci_find_device(PCI_VENDOR_ID_INTEL, device_id);
-+#else
-+pdev = pci_get_device(PCI_VENDOR_ID_INTEL, device_id, NULL);
-+#endif
-+
-+// 4. Replace MMIO mapping
-+#ifdef __redox__
-+void __iomem *regs = redox_ioremap(pci_resource_start(pdev, 0), pci_resource_len(pdev, 0));
-+#else
-+void __iomem *regs = ioremap(pci_resource_start(pdev, 0), pci_resource_len(pdev, 0));
-+#endif
-+```
-+
-+### Concrete Porting Example: AMD amdgpu Driver (6-8 weeks)
-+
-+AMD's driver is larger and more complex. Key challenges:
-+
-+#### 1. Firmware Loading
-+
-+Need to implement:
-+```
-+scheme:firmware/amdgpu/  — firmware blob storage
-+request_firmware()       — compat function that reads from scheme
-+```
-+
-+#### 2. TTM Memory Manager
-+
-+Port TTM to use Redox's memory scheme:
-+```rust
-+// TTM → Redox mapping:
-+// ttm_tt → allocated pages via scheme:memory
-+// ttm_buffer_object → GemHandle in scheme:drm
-+// ttm_bo_move → page table updates via GPU MMIO
-+```
-+
-+#### 3. Display Core (DC)
-+
-+AMD's display code is ~100K lines. Need to:
-+- Port DCN (Display Core Next) hardware programming
-+- Adapt to Redox's DRM scheme instead of Linux kernel DRM
-+- Keep most code unchanged, just redirect memory/register access
-+
-+#### 4. Power Management
-+
-+amdgpu uses Linux power management APIs. Need stubs:
-+```c
-+#ifdef __redox__
-+// No power management on Redox yet — always-on
-+#define pm_runtime_get_sync(dev) 0
-+#define pm_runtime_put_autosuspend(dev) 0
-+#define pm_runtime_allow(dev) 0
-+#endif
-+```
-+
-+**Estimated patches for amdgpu**: ~2000-3000 lines of `#ifdef __redox__`
-+
-+### Linux Driver Implementation Timeline
-+
-+| Phase | Component | Effort | Delivers |
-+|-------|-----------|---------|----------|
-+| 1 | `redox-driver-sys` crate | 2-3 weeks | Memory, IRQ, PCI, I/O primitives |
-+| 2 | Intel native driver (in `redox-drm`) | 6-8 weeks | First working GPU driver, modesetting |
-+| 3 | `linux-kpi` C headers (core subset) | 3-4 weeks | Memory, sync, PCI, workqueue headers |
-+| 4 | `linux-kpi` DRM headers | 2-3 weeks | DRM/KMS/GEM C API headers |
-+| 5 | i915 C driver port | 3-4 weeks | Proves LinuxKPI approach works |
-+| 6 | `linux-kpi` extended (TTM, firmware) | 4-6 weeks | Enables AMD driver |
-+| 7 | amdgpu C driver port | 6-8 weeks | AMD GPU support |
-+
-+**Phase 1-2 is critical path** — a native Rust Intel driver proves architecture and provides immediate value. Phases 3-7 can happen in parallel or later.
-+
-+**With 2 developers**:
-+- **Month 1-2**: redox-driver-sys + Intel native driver → first display output
-+- **Month 3-4**: linux-kpi core + DRM headers → i915 C port proof of concept
-+- **Month 5-8**: linux-kpi TTM + amdgpu port → AMD support
-+- **Total: 6-8 months** to support both Intel and AMD GPUs
-+
-+**With 1 developer**:
-+- **Month 1-3**: redox-driver-sys + Intel native driver
-+- **Month 4-6**: linux-kpi core + i915 port
-+- **Month 7-10**: amdgpu port
-+- **Total: 8-10 months**
-+
-+---
-+
-+## 5. Critical Paths & Dependencies
-+
-+### Dependency Chain: Hardware → KDE Desktop
-+
-+```
-+┌─────────────────────────────────────────────────────────┐
-+│                    KDE Plasma Desktop                     │
-+│  (KWin compositor, Plasma Shell, Qt, KDE Frameworks)    │
-+├─────────────────────────────────────────────────────────┤
-+│                    Wayland Protocol                       │
-+│  (libwayland, wayland-protocols, compositor)             │
-+├─────────────────────────────────────────────────────────┤
-+│                    Graphics Stack                         │
-+│  (Mesa3D OpenGL/Vulkan, GBM, libdrm, GPU driver)        │
-+├─────────────────────────────────────────────────────────┤
-+│                    Kernel Interfaces                      │
-+│  (DRM/KMS, GEM/TTM, DMA-BUF, evdev, udev)              │
-+├─────────────────────────────────────────────────────────┤
-+│                    Hardware                               │
-+│  (GPU: AMD/Intel/NVIDIA, Input: keyboard/mouse/touch)   │
-+└─────────────────────────────────────────────────────────┘
-+```
-+
-+### Critical Path to KDE Plasma
-+
-+```
-+M1 (POSIX) ───────────────────────────────────────────┐
-+                                                        │
-+M3 (DRM/KMS) ───────────── M4 (Compositor) ── M5 (Qt) ── M6 (KDE) ── M7 (Plasma)
-+       │                     ↑                      │
-+M2 (Input) ──────────────┘                       M8 (Linux drivers, parallel)
-+```
-+
-+**Shortest path to a desktop**: M1 → M2 → M3 (parallel) → M4 → M5 → M6 → M7
-+**Shortest path to GPU drivers**: M3 → M8 (can start as soon as `redox-driver-sys` exists)
-+
-+### Parallel Execution Opportunities
-+
-+```
-+Week 1-4:     M1 (relibc POSIX gaps)
-+Week 3-12:    M2 (evdev input) ──── parallel ──── M3 (DRM/KMS)
-+Week 13-16:   M4 (Wayland compositor = M2 + M3 + M1)
-+Week 13-24:   M8 (Linux driver compat, parallel with M4-M6)
-+Week 17-24:   M5 (Qt Foundation)
-+Week 25-32:   M6 (KDE Frameworks)
-+Week 33-38:   M7 (Plasma Desktop)
-+```
-+
-+**Total to KDE Plasma**: ~38 weeks (~9 months) with 2 developers
-+**Total to Linux driver compat**: ~24 weeks (~6 months) in parallel
-+
-+---
-+
-+## 6. Recommendations & Next Steps
-+
-+### Immediate Actions (Week 1-4)
-+
-+1. **Fix relibc POSIX gaps** (1-2 weeks)
-+   - Implement `signalfd`, `timerfd`, `eventfd` in relibc
-+   - Add `F_DUPFD_CLOEXEC`, `MSG_CMSG_CLOEXEC`, `MSG_NOSIGNAL`
-+   - Implement `open_memstream`
-+   - **Result**: libwayland builds natively (no patches)
-+
-+2. **Start evdev daemon** (2-4 weeks, parallel with POSIX)
-+   - Create `recipes/core/evdevd/`
-+   - Implement scheme protocol and ioctl handlers
-+   - **Result**: Input stack foundation
-+
-+3. **Start redox-driver-sys crate** (2-3 weeks, parallel with POSIX)
-+   - Implement memory, IRQ, PCI, I/O primitives
-+   - **Result**: Hardware access foundation for LinuxKPI
-+
-+### Medium-Term Actions (Week 5-16)
-+
-+4. **Complete input stack** (2-3 weeks after evdevd)
-+   - Build udev shim
-+   - Port libinput
-+   - **Result**: Full input stack for Wayland
-+
-+5. **Build DRM daemon with Intel driver** (8-12 weeks)
-+   - Implement KMS core, GEM, DMA-BUF
-+   - Implement Intel native modesetting
-+   - **Result**: Hardware display control
-+
-+6. **Build linux-kpi headers** (3-4 weeks, parallel with DRM)
-+   - Implement C headers for Linux kernel APIs
-+   - Implement Rust backing implementations
-+   - **Result**: Compatibility layer for C drivers
-+
-+### Long-Term Actions (Week 17-38+)
-+
-+7. **Port Wayland compositor** (4-6 weeks after M2+M3+M1)
-+   - Add Redox backends to Smithay
-+   - Build smallvil with Redox backends
-+   - **Result**: First functional Wayland compositor
-+
-+8. **Port Qt Foundation** (8-12 weeks, parallel with compositor)
-+   - Port qtbase, qtwayland, qtdeclarative
-+   - Fix platform detection and shared memory
-+   - **Result**: Qt applications can run
-+
-+9. **Port KDE Frameworks** (8-12 weeks)
-+   - Port 25+ frameworks (Tier 1, 2, 3)
-+   - **Result**: KDE applications can be built
-+
-+10. **Port KDE Plasma** (6-8 weeks)
-+    - Port KWin, plasma-workspace, plasma-desktop
-+    - Create config/kde.toml
-+    - **Result**: Full KDE Plasma desktop
-+
-+11. **Port Linux GPU drivers** (3-4 weeks after linux-kpi, parallel)
-+    - Port i915 as proof of concept
-+    - Port amdgpu for AMD support
-+    - **Result**: Broad GPU hardware support
-+
-+### Build System Improvements
-+
-+**Issue Found**: FUSE mount error (ioctl 25) during build
-+**Recommendation**: Add build environment cleanup script:
-+```bash
-+# scripts/clean-build-env.sh
-+#!/bin/bash
-+fusermount3 -u build/x86_64/desktop/filesystem 2>/dev/null || true
-+fusermount3 -u /tmp/redox_installer 2>/dev/null || true
-+rm -rf build/x86_64/desktop/filesystem 2>/dev/null || true
-+```
-+
-+**Integration**: Add to Makefile:
-+```makefile
-+clean: FORCE
-+    @./scripts/clean-build-env.sh
-+    # ... rest of clean target
-+```
-+
-+### Resource Requirements
-+
-+**Storage**: 20GB+ free space (full build with all recipes)
-+**RAM**: 4GB minimum, 8GB+ recommended
-+**Network**: Required for downloading sources and toolchain
-+**OS**: Linux (Arch/Manjaro, Debian/Ubuntu, Fedora, Gentoo)
-+
-+---
-+
-+## 7. Risk Assessment & Mitigation
-+
-+### High-Risk Areas
-+
-+1. **Qt Foundation** (HIGH RISK)
-+   - **Risk**: Unexpected relibc gaps blocking Qt compilation
-+   - **Impact**: Entire KDE timeline shifts by months
-+   - **Mitigation**: Start Qt porting early, test with software rendering
-+
-+2. **Linux Driver Porting** (MEDIUM RISK)
-+   - **Risk**: Linux driver code complexity exceeds LinuxKPI capabilities
-+   - **Impact**: AMD/NVIDIA drivers may not work
-+   - **Mitigation**: Start with Intel (simplest), prove concept before AMD
-+
-+3. **Wayland Compositor** (LOW-MEDIUM RISK)
-+   - **Risk**: Smithay Redox backends integration issues
-+   - **Impact**: Wayland session delayed
-+   - **Mitigation**: Use native Rust Intel driver first, no LinuxKPI dependency
-+
-+### Technical Risks
-+
-+1. **No GPU Acceleration**
-+   - All rendering is software-only via LLVMpipe
-+   - Performance will be poor for desktop workloads
-+   - **Mitigation**: Prioritize hardware GPU driver work
-+
-+2. **Missing System Integration**
-+   - No NetworkManager equivalent → no network UI
-+   - No PipeWire → no audio in KDE
-+   - **Mitigation**: Build minimal shims, skip features initially
-+
-+3. **Kernel ABI Unstable**
-+   - Redox syscall ABI intentionally unstable
-+   - Changes may break compatibility layers
-+   - **Mitigation**: Work through libredox/relibc, not kernel syscalls directly
-+
-+---
-+
-+## 8. Conclusion
-+
-+Red Bear OS has:
-+- ✅ Comprehensive documentation with concrete implementation paths
-+- ✅ Functional build system with Rust-based tools
-+- ✅ Active development with 60+ patches for Linux compatibility
-+- ✅ Clear roadmap to Wayland, KDE Plasma, and Linux drivers
-+- ⚠️ Identified blockers (7 POSIX gaps, no GPU acceleration, missing DRM/KMS)
-+
-+**Estimated Timelines**:
-+- **Wayland compositor**: 5-6 months (M1 + M2 + M3 + M4)
-+- **KDE Plasma desktop**: 9-10 months (M1 → M7)
-+- **Linux driver compatibility**: 6-8 months (M3 + M8)
-+
-+**Key Insights**:
-+1. POSIX gaps in relibc are the foundational blocker - 1-2 weeks to fix
-+2. Input stack and DRM/KMS can be built in parallel (4-12 weeks each)
-+3. Qt Foundation is the highest-risk phase - should start early
-+4. Native Rust Intel driver is a faster path than full LinuxKPI for initial GPU support
-+5. LinuxKPI approach is essential for AMD/NVIDIA long-term support
-+
-+**Recommendation**: Start with Milestone M1 (POSIX gaps) immediately, as it unblocks everything else. With 2 developers working in parallel on M2 (input) and M3 (DRM), a functional Wayland compositor is achievable in ~6 months, with KDE Plasma following in ~9 months.
-+
-+---
-+
-+**Appendix A: Existing WIP Recipes Inventory**
-+
-+**Wayland Recipes** (21 packages):
-+- libwayland, wayland-protocols, wayland-utils
-+- libxkbcommon, xkeyboard-config
-+- mesa, libdrm
-+- cosmic-comp, cosmic-panel, libcosmic-wayland
-+- smallvil (Smithay)
-+- wlroots, sway, hyprland, niri, pinnacle, fht-compositor
-+- xwayland, anvil
-+- iced-wayland, winit-wayland, softbuffer-wayland, wayland-rs
-+
-+**KDE Recipes** (19 packages):
-+- ark, discover, gcompris, heaptrack, k3b, kamoso, kcachegrind
-+- kde-dolphin, kdenlive, kdevelop, kpatience, krita, ktorrent
-+- kwave, labplot, marble, massif-visualizer, okteta, skanpage
-+
-+**Patches Inventory**: 60+ `redox.patch` files across recipes
-+
-+---
-+
-+**END OF REPORT**
+ 
+ ## Contribute to this document
+ 
+@@ -79,41 +104,41 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
+ 
+ ## Recommended
+ 
+-| **Vendor** | **Model** | **Redox Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
++| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+ |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
+-| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital |
+-| System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
+-| System76 | Lemur Pro (lemp9) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital |
++| Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to graphical session |
++| System76 | Galago Pro (galp5) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session |
++| System76 | Lemur Pro (lemp9) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session |
+ 
+ ## Booting
+ 
+-| **Vendor** | **Model** | **Redox Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
++| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+ |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
+-| ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, No ethernet driver, Correct video mode not offered (firmware issue) |
++| ASUS | Eee PC 900 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to graphical session, No ethernet driver, Correct video mode not offered (firmware issue) |
+ | ASUS | PRIME B350M-E (custom) | 0.9.0 | 2024-09-20 | desktop | x86-64 | UEFI | Partial support for the PS/2 keyboard, PS/2 mouse is broken |
+-| ASUS | ROG g55vw | 0.8.0 | 2023-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, UEFI panic in SETUP |
+-| ASUS | X554L | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No audio, HDA driver cannot find output pins |
+-| ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
+-| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to Orbital, NVMe driver livelocks |
+-| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to Orbital, NVMe driver livelocks |
+-| HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
+-| HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
+-| Lenovo | ThinkPad Yoga 260 Laptop - Type 20FE | 0.9.0 | 2024-09-07 | demo | x86-64 | UEFI | Boots to Orbital, No audio |
+-| Lenovo | Yoga S730-13IWL | 0.9.0 | 2024-11-09 | desktop | x86-64 | UEFI | Boots to Orbital, No trackpad or USB mouse input support |
++| ASUS | ROG g55vw | 0.8.0 | 2023-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, UEFI panic in SETUP |
++| ASUS | X554L | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, No audio, HDA driver cannot find output pins |
++| ASUS | Vivobook 15 OLED (M1503Q) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb do not work, cannot connect to the internet, right maximum display resolution 2880x1620 |
++| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Boots to graphical session, NVMe driver livelocks |
++| Dell | XPS 13 (9350) | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS, UEFI | Boots to graphical session, NVMe driver livelocks |
++| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | Historical ACPI boot-baseline fixes applied (RSDP/SDT checksums, MADT NMI types, FADT parse); moved from Broken table; broader bounded validation still needed |
++| HP | Dev One | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, requires I2C HID |
++| HP | EliteBook Folio 9480M | 0.9.0 | 2025-11-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad and usb work, cannot connect to the Internet, install failed, right maximum display resolution 1600x900
++| HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | xAPIC fix applied; **hardware validation still needed**; moved from Broken table |
++| Lenovo | ThinkPad Yoga 260 Laptop - Type 20FE | 0.9.0 | 2024-09-07 | demo | x86-64 | UEFI | Boots to graphical session, No audio |
++| Lenovo | Yoga S730-13IWL | 0.9.0 | 2024-11-09 | desktop | x86-64 | UEFI | Boots to graphical session, No trackpad or USB mouse input support |
+ | Raspberry Pi | 3 Model B+ | 0.8.0 | Unknown | server | ARM64 | U-Boot | Boots to UART serial console (pl011) |
+-| Samsung | Series 3 (NP350V5C) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to Orbital, touchpad works, USB does not work, can connect to the Internet through LAN. Wrong maximum display resolution 1024x768 |
+-| System76 | Oryx Pro (oryp10) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, though it should be working |
+-| System76 | Pangolin (pang12) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to Orbital, No touchpad support, requires I2C HID |
+-| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to Orbital, No Ethernet driver, Correct video mode not offered (firmware issue) |
++| Samsung | Series 3 (NP350V5C) | 0.9.0 | 2025-08-04 | desktop | x86-64 | UEFI | Boots to graphical session, touchpad works, USB does not work, can connect to the Internet through LAN. Wrong maximum display resolution 1024x768 |
++| System76 | Oryx Pro (oryp10) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, though it should be working |
++| System76 | Pangolin (pang12) | 0.8.0 | 2022-11-11 | desktop | x86-64 | UEFI | Boots to graphical session, No touchpad support, requires I2C HID |
++| Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Boots to graphical session, No Ethernet driver, Correct video mode not offered (firmware issue) |
+ 
+ ## Broken
+ 
+-| **Vendor** | **Model** | **Redox Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
++| **Vendor** | **Model** | **Red Bear OS Version** | **Image Date** | **Variant** | **CPU Architecture** | **Motherboard Firmware** | **Report** |
+ |------------|-----------|-------------------|----------------|-------------|----------------------|--------------------------|------------|
+ | ASUS | PN41 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
+ | BEELINK | U59 | 0.8.0 | 2024-05-30 | server | x86-64 | Unknown | Aborts after panic in xhcid |
+-| Framework | Laptop 16 (AMD Ryzen 7040 Series) | 0.9.0 | 2026-3-29 | desktop, demo | x86-64 | UEFI | Crash due to unimplemented acpi function, see [jackpot51/acpi #3](https://github.com/jackpot51/acpi/pull/3) on GitHub |
+-| HP | Compaq nc6120 | 0.9.0 | 2024-11-08 | desktop, server | i686 | BIOS | Unloads into memory at a rate slower than 1MB/s after selecting resolution. When unloading is complete the logger initializes and crashes after kernel::acpi, some information about APIC is printed. Boot logs do not progress after this point. |
+ | HP | EliteBook 2570p | 0.8.0 | 2022-11-23 | demo | x86-64 | BIOS (CSM mode?) | Gets to resolution selection, Fails assert in `src/os/bios/mod.rs:77` after selecting resolution |
+ | Lenovo | G570 | 0.8.0 | 2022-11-11 | desktop | x86-64 | BIOS | Bootloader panics in `alloc_zeroed_page_aligned`, Correct video mode not offered (firmware issue) |
+ | Lenovo | IdeaPad Y510P | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |
+@@ -121,4 +146,3 @@ Each "Vendor" has its own alphabetical order in "Model", independent from models
+ | Panasonic | Toughbook CF-18 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Hangs after PIT initialization |
+ | Toshiba | Satellite L500 | 0.8.0 | 2022-11-11 | desktop | i686 | BIOS | Correct video mode not offered (firmware issue), Panics on `phys_to_virt overflow`, probably having invalid mappings for 32-bit |
+ | XMG (Schenker) | Apex 17 (M21) | 0.9.0 | 2024-09-30 | demo, server | x86-64 | UEFI | After selecting resolution, (release) repeats `...::interrupt::irq::ERROR -- Local apic internal error: ESR=0x40` a few times before it freezes; (daily) really slowly prints statements from `...::rmm::INFO` before it abruptly aborts |
+-
 diff --git a/LICENSE b/LICENSE
-new file mode 100644
-index 0000000..39e8533
---- /dev/null
+index 44644cd..39e8533 100644
+--- a/LICENSE
 +++ b/LICENSE
-@@ -0,0 +1,22 @@
+@@ -1,4 +1,4 @@
+-Copyright (c) 2016 Redox OS Developers
 +Copyright (c) 2024-2026 Red Bear OS Developers (based on Redox OS by Jeremy Soller and contributors)
-+
-+MIT License
-+
-+Permission is hereby granted, free of charge, to any person obtaining
-+a copy of this software and associated documentation files (the
-+"Software"), to deal in the Software without restriction, including
-+without limitation the rights to use, copy, modify, merge, publish,
-+distribute, sublicense, and/or sell copies of the Software, and to
-+permit persons to whom the Software is furnished to do so, subject to
-+the following conditions:
-+
-+The above copyright notice and this permission notice shall be
-+included in all copies or substantial portions of the Software.
-+
-+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ 
+ MIT License
+ 
 diff --git a/README.md b/README.md
-new file mode 100644
-index 0000000..79b23bb
---- /dev/null
+index 2ce246b..f086842 100644
+--- a/README.md
 +++ b/README.md
-@@ -0,0 +1,80 @@
-+# Red Bear OS
+@@ -1,62 +1,261 @@
+ <p align="center">
+-<img alt="Redox" width="346" src="https://gitlab.redox-os.org/redox-os/assets/raw/master/logos/redox/logo.png">
++<img alt="Red Bear OS" width="200" src="assets/redbear-icon.png">
+ </p>
+ 
+-This repository is the **Build System** for Redox OS.
++<h1 align="center">Red Bear OS</h1>
+ 
+-Redox is under active development by a vibrant community, you can see the key links below:
++<p align="center">
++<strong>Microkernel operating system in Rust — based on <a href="https://www.redox-os.org">Redox OS</a></strong>
++</p>
 +
-+**A derivative of Redox OS**
++<p align="center">
++<a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
++<img src="https://img.shields.io/badge/architecture-microkernel-orange.svg" alt="Microkernel">
++<img src="https://img.shields.io/badge/language-Rust-000000.svg" alt="Rust">
++</p>
 +
-+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
++---
 +
-+Red Bear OS (RBOS) is a derivative of [Redox OS](https://www.redox-os.org) — a microkernel-based operating system written in Rust. RBOS tracks upstream Redox OS, incorporating its improvements while adding custom components and configurations, similar to how Ubuntu tracks Debian.
++Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a general-purpose, Unix-like, microkernel-based operating system written in Rust. It tracks upstream Redox, incorporating its improvements while adding custom drivers, filesystems, and hardware support.
 +
-+- **Upstream project**: [https://www.redox-os.org](https://www.redox-os.org)
-+- **This repository**: [https://github.com/vasilito/Red-Bear-OS-3](https://github.com/vasilito/Red-Bear-OS-3)
++RedBearOS should be understood as an overlay distribution on top of Redox in the same way Ubuntu
++relates to Debian:
 +
-+## Overlay Architecture
++- Redox is upstream
++- Red Bear carries integration, packaging, validation, and subsystem overlays on top
++- upstream-owned source trees are refreshable working copies
++- durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
++  Red Bear configs
 +
-+All RBOS custom work lives in the `local/` directory:
++Operational resilience policy:
++
++- package/source usage is local-first by default,
++- local copies are used continuously for builds and recovery workflows,
++- upstream package refresh is performed only when explicitly requested.
++
++For **upstream WIP recipes specifically**, Red Bear uses a stricter rule:
++
++1. once an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project
++2. we copy, fix, validate, and ship that work from our local overlay until it is stable enough for us
++3. we continue updating our local copy from upstream WIP work when useful, but we do not rely on the
++   upstream WIP recipe itself as our shipped source of truth
++4. once upstream removes the WIP status and the recipe/subsystem becomes a first-class supported
++   part of Redox, Red Bear reevaluates and should prefer the upstream version over the local copy
++
++That policy exists so the project can pull refreshed upstream sources regularly and still rebuild
++predictably from the Red Bear-owned overlay.
++
++## What's New
++
++- KWin Wayland is now treated as the only intended Red Bear desktop direction in the tracked plans, build defaults, live profile wiring, and profile guidance.
++- KDE bring-up moved forward: the `redbear-full` desktop-capable surface carries the Qt6/KDE stack in-tree, and the KDE recipe tree is now populated.
++- Native Red Bear runtime tooling expanded with `redbear-info`, `redbear-hwutils` (`lspci`, `lsusb`), and a Redox-native `netctl` flow.
++- Build and status docs were refreshed to distinguish current in-tree progress from older historical roadmap text.
++
++See [CHANGELOG.md](./CHANGELOG.md) for the running user-visible change log.
++
++The current public roadmap and execution model live in the
++[Red Bear OS Implementation Plan](./docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md).
++
++For readers landing on GitHub, the most useful entry points are:
++
++- [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
++- [relibc Assessment and Improvement Plan](./local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md) — canonical relibc quality, completeness, and robustness assessment
++- [relibc IPC Assessment and Improvement Plan](./local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md) — IPC-focused companion plan for bounded relibc compatibility layers
++- [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — canonical path from console boot to hardware-accelerated KDE Plasma on Wayland
++- [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
++- [WIP Migration Ledger](./local/docs/WIP-MIGRATION-LEDGER.md) — how Red Bear currently treats upstream WIP versus local overlays
++- [Script Behavior Matrix](./local/docs/SCRIPT-BEHAVIOR-MATRIX.md) — what the main sync/fetch/apply/build scripts do and do not guarantee
++
++Current subsystem-specific plans also include:
++
++- [USB Implementation Plan](./local/docs/USB-IMPLEMENTATION-PLAN.md)
++- [Wi-Fi Implementation Plan](./local/docs/WIFI-IMPLEMENTATION-PLAN.md)
++- [Bluetooth Implementation Plan](./local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md)
++- [IRQ and Low-Level Controllers Enhancement Plan](./local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md) — canonical plan for PCI interrupt plumbing, IRQ delivery quality, MSI/MSI-X follow-up, and low-level controller runtime proof
++
++Red Bear OS now treats AMD and Intel machines as equal-priority hardware targets. Older AMD-first
++language in historical integration notes should be read as earlier sequencing context, not as the
++current platform policy.
++
++The tracked desktop-capable target surface is `redbear-full`, and
++runtime support claims remain evidence-qualified until compositor/session proof is stronger.
++
++## Historical Phase Snapshot
++
++The table below is a legacy P0-P6 snapshot retained for historical continuity with older Red Bear
++status notes.
++
++It is **not** the canonical execution-order source for current subsystem planning. For the current
++repo-wide order of implementation — including low-level controllers, USB, Wi‑Fi, and Bluetooth as
++first-class subsystem workstreams — use
++[docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md](./docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) together
++with the subsystem plans listed above.
++
++| Phase | Status | Notes |
++|---|---|---|
++| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; remaining work includes the explicit AML bootstrap producer contract, startup hardening, shutdown robustness, and validation closure in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
++| P1 driver infra | ✅ Complete (compile-oriented) | shared driver infrastructure is present, but low-level PCI/IRQ robustness and runtime proof remain governed by `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` |
++| P2 DRM / display | 🚧 Partial | redox-drm + bounded AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; hardware validation still pending |
++| P3 POSIX + input | 🚧 In progress | relibc now has strict Redox-target runtime proof for `signalfd` / `timerfd` / `eventfd` through the repaired test runner; broader desktop/runtime hardening still continues |
++| P4 Wayland runtime | 🚧 In progress | bounded Wayland runtime validation builds to a bootable image and reaches its packaged runtime entrypoint in QEMU/UEFI |
++| P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing as a broader integration slice, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
++| P6 KDE Plasma | 🚧 In progress | Mix of real builds, shims, and stubs |
++
++There is no distinct first-class **P7** artifact in this older historical numbering. The canonical
++current execution plan uses the newer phased/workstream ordering documented in `docs/07`.
++
++## First-class subsystem order and blockers
++
++The current subsystem order is not arbitrary.
++
++- **Low-level controllers / IRQ quality** are first-class because they block reliable driver/runtime validation.
++- **USB** is first-class because Bluetooth and wider device support depend on controller and hotplug maturity.
++- **Wi-Fi** is first-class because Red Bear still lacks any native wireless driver/control plane.
++- **Bluetooth** is first-class because broad support is still incomplete, depends on USB maturity or
++  another controller path, and currently exists only as one bounded BLE-first experimental slice
++  rather than broad desktop parity.
++
++The current blocker chain is:
++
++`low-level controllers -> USB -> Bluetooth`
++
++and, separately:
++
++`low-level controllers -> Wi-Fi driver bring-up -> native wireless control plane -> desktop compatibility later`
++
++These subsystems are all intended to be implemented in full, but they must be executed in this order
++to avoid building desktop-facing layers on top of missing runtime substrate.
++
++The current total order is: low-level controllers first, then USB, then Wi-Fi, then Bluetooth, and
++only after those runtime services are credible should heavier desktop/session compatibility layers
++expand on top of them.
++
++For PCI, IRQ, MSI/MSI-X, and IOMMU quality specifically, the canonical current plan is
++`local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`.
++
++Current validation language should be read this way:
++
++- compile-visible infrastructure is not the same as runtime proof,
++- bounded QEMU/runtime proof is not the same as hardware validation,
++- and PCI/IRQ robustness claims should stay evidence-qualified until broader hardware proof exists.
++
++## What's Different from Upstream Redox
++
++| Component | Status | Detail |
++|-----------|--------|--------|
++| AMD GPU driver (amdgpu) | 🚧 Bounded path builds | redox-drm + Red Bear AMD display glue compile; imported Linux AMD DC/TTM/core remain under compile triage; quirk-aware MSI-X/MSI/legacy IRQ fallback present (no HW validation) |
++| Intel GPU driver | ✅ Compiles | Display pipe modesetting + quirk-aware MSI-X/MSI/legacy IRQ fallback (no HW validation) |
++| ext4 filesystem | ✅ Compiles | Read/write ext4 alongside RedoxFS |
++| ACPI boot baseline | ✅ Materially complete (historical boot baseline) | x2APIC, MADT, FADT shutdown/reboot, explicit `RSDP_ADDR` forwarding into `acpid`, x86 BIOS-search AML fallback, power methods, and bounded AML-backed power enumeration exist; the explicit AML bootstrap producer contract, shutdown robustness, sleep-state scope, and validation depth still remain open — see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
++| Wired networking | 🚧 Improved | native net stack present, Redox-native `netctl` shipped, RTL8125 autoload wired through the existing Realtek path |
++| Custom branding | ✅ | Boot identity, hostname, os-release |
++| POSIX gaps (relibc) | 🚧 In progress | the active relibc recipe patch chain provides bounded Wayland-facing and IPC-facing compatibility layers, but broad runtime trust and several completeness gaps remain open |
++
++## Project Structure
 +
 +```
-+local/
-+├── config/      # Custom build configs (redbear-desktop.toml, etc.)
-+├── recipes/     # Custom recipes (AMD drivers, GPU stack, Wayland)
-+├── patches/     # Patches against mainline sources
-+├── scripts/     # Build/deploy scripts (sync-upstream.sh, etc.)
-+├── Assets/      # Branding assets (icon, loading background)
-+├── firmware/    # GPU firmware blobs (fetched, not committed)
-+└── docs/        # RBOS-specific documentation
++├── config/           # Build configs (TOML) — desktop, minimal, redbear-*
++├── recipes/          # Package recipes (~100+ packages, 26 categories)
++├── mk/               # Makefile build orchestration
++├── src/              # Cookbook Rust tool (repo binary, cook logic)
++├── local/            # ← Red Bear OS custom work (survives upstream updates)
++│   ├── patches/      #   Kernel, base, relibc patches
++│   ├── recipes/      #   Custom packages (drivers, GPU, system, branding)
++│   ├── scripts/      #   sync-upstream.sh, apply-patches.sh
++│   ├── Assets/       #   Branding (icon, boot background)
++│   └── docs/         #   Integration documentation
++├── docs/             # Architecture guides
++├── scripts/          # Helper scripts
++└── Makefile          # Root build orchestrator
 +```
 +
-+This overlay survives upstream updates. When you sync with Redox mainline, your `local/` changes are preserved.
++## Build
 +
-+## Build Instructions
++Requires a Linux x86_64 host with Rust nightly, QEMU, and standard build tools. See the [Redox Build Instructions](https://doc.redox-os.org/book/podman-build.html) for full prerequisites.
 +
 +```bash
-+make all CONFIG_NAME=redbear-desktop    # Full desktop
-+make all CONFIG_NAME=redbear-minimal    # Minimal server
-+make live CONFIG_NAME=redbear-live      # Live ISO
++# Non-live (harddrive.img for QEMU / development)
++make all CONFIG_NAME=redbear-full        # Desktop/graphics target
++make all CONFIG_NAME=redbear-mini        # Text-only console/recovery target
++
++# Live ISO (for real bare metal)
++make live CONFIG_NAME=redbear-full       # Full desktop live ISO
++make live CONFIG_NAME=redbear-mini       # Text-only mini live ISO for recovery
++make live CONFIG_NAME=redbear-grub       # Text-only mini live ISO with GRUB
++
++# Or use the helper script
++scripts/build-iso.sh redbear-full        # Full desktop live ISO
++scripts/build-iso.sh redbear-mini        # Text-only mini (default)
++scripts/build-iso.sh redbear-grub        # Text-only + GRUB
++
++# QEMU (uses harddrive.img, not live ISO)
++make qemu CONFIG_NAME=redbear-full       # Boot the desktop target in QEMU
 +```
 +
-+### Config Hierarchy
++Live `.iso` outputs are for real bare-metal boot and install workflows. They are not the virtual/QEMU target surface; use `make qemu` and `harddrive.img`-based flows for virtualization.
 +
-+RBOS configs extend mainline Redox configs through TOML includes:
++### GRUB Boot Manager (optional)
 +
-+```
-+redbear-desktop.toml → includes desktop.toml (mainline)
-+redbear-minimal.toml → includes minimal.toml (mainline)
-+redbear-live.toml    → includes desktop.toml (mainline)
-+```
-+
-+Custom packages, init overrides, and branding are layered on top of the upstream base.
-+
-+### Prerequisites
-+
-+See the [Redox Build Instructions](https://doc.redox-os.org/book/podman-build.html) for host setup. You need a Linux x86_64 host with Rust nightly, QEMU, and standard build tools.
-+
-+## Syncing with Upstream
++Red Bear OS can use GNU GRUB as an alternative boot manager with Linux-compatible CLI:
 +
 +```bash
-+./local/scripts/sync-upstream.sh
++make all CONFIG_NAME=redbear-grub   # Build text-only target with GRUB chainload
++./local/scripts/grub-install --target=x86_64-efi --disk-image=build/x86_64/harddrive.img
++./local/scripts/grub-mkconfig -o local/recipes/core/grub/grub.cfg
 +```
 +
-+This pulls the latest Redox OS build system changes while preserving your `local/` overlay.
++## Native hardware listing tools
 +
-+## Custom Components
++Red Bear configs now include a small native `redbear-hwutils` package that ships `lspci` and
++`lsusb`. `lspci` reads the existing `/scheme/pci/.../config` surface, while `lsusb` walks the
++native `usb.*` schemes exposed by `xhcid`, so there is no dependency on the unfinished WIP
++`pciutils` or `usbutils` ports.
 +
-+RBOS adds the following on top of upstream Redox OS:
++## Networking
 +
-+- **ext4 filesystem support** — Read/write ext4 alongside the default RedoxFS
-+- **AMD GPU driver work** — LinuxKPI-based amdgpu port in progress
-+- **Custom branding** — Boot themes, icons, and desktop identity
++Red Bear ships the existing native Redox wired networking path (`pcid-spawner` → NIC daemon →
++`smolnetd`/`dhcpd`/`netcfg`) together with a small Redox-native `netctl` compatibility command and
++the `redbear-netctl-console` ncurses client for the bounded Wi‑Fi profile flow. Profiles live under
++`/etc/netctl`, the shipped examples live under `/etc/netctl/examples`, live Wi‑Fi actions go
++through `/scheme/wifictl`, and the boot service applies the enabled profile with `netctl --boot`.
 +
++RTL8125 is wired into the existing native Realtek autoload path by matching `10ec:8125` in the
++`rtl8168d` driver config. This keeps the implementation in the Redox userspace driver model rather
++than introducing a separate Linux netdevice compatibility layer.
+ 
+-- [The **main website** for Redox OS](https://www.redox-os.org).
+-- [The Redox Book](https://doc.redox-os.org/book/) and [Build Instructions](https://doc.redox-os.org/book/podman-build.html).
+-- [Redox Chat and Support](https://matrix.to/#/#redox-join:matrix.org).
+-- [Patreon](https://www.patreon.com/redox_os), [Donate](https://redox-os.org/donate/) and [Merch](https://redox-os.creator-spring.com/).
+-- Scroll down for a list of key Redox components and their repositories.
++## Runtime diagnostics
+ 
+-[Redox](https://www.redox-os.org) is an open-source operating system written in Rust, a language with focus on safety, efficiency and high performance. Redox uses a microkernel architecture, and aims to be reliable, secure, usable, correct, and free. Redox is inspired by previous operating systems, such as seL4, MINIX, Plan 9, Linux and BSD.
++Red Bear ships `redbear-info` as the canonical runtime integration/debugging command. It is a
++passive report over live system surfaces and is intended to help answer questions like:
+ 
+-Redox _is not_ just a kernel, it's a **full-featured operating system**, providing components (file system, display server, core utilities, etc.) that together make up a functional and convenient operating system. Redox uses the COSMIC desktop apps, and provides source code compatibility with many Rust, Linux and BSD programs.
++- which Red Bear integrations are merely installed versus actually active,
++- whether the networking stack is up, with current IP, DNS, and default route,
++- whether hardware discovery surfaces such as PCI, USB, DRM, and RTL8125 are visible.
+ 
+-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
++Use `redbear-info --verbose` for evidence-backed human output, `redbear-info --json` for machine-
++readable diagnostics, and `redbear-info --test` for suggested follow-up commands.
+ 
+-## More Links
++## Sync with Upstream Redox
+ 
+-- [Book](https://doc.redox-os.org/book/)
+-- [Contribute](CONTRIBUTING.md)
+-- [Hardware Compatibility](https://doc.redox-os.org/book/hardware-support.html)
+-- Run Redox in a [Virtual Machine](https://doc.redox-os.org/book/running-vm.html) or on [Real Hardware](https://doc.redox-os.org/book/real-hardware.html)
+-- [Trying Out Redox](https://doc.redox-os.org/book/trying-out-redox.html)
+-- [Building Redox](https://doc.redox-os.org/book/podman-build.html)
+-- [Build System Documentation](https://doc.redox-os.org/book/build-system-reference.html)
+-- [Developer FAQ](https://doc.redox-os.org/book/developer-faq.html)
+-- [Chat/Discussions/Help](https://doc.redox-os.org/book/chat.html)
++```bash
++./local/scripts/sync-upstream.sh              # Rebase onto latest Redox
++./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts first
++```
+ 
+-## Ecosystem
++The `local/` directory is never touched by upstream updates. Recipe patches for kernel and base are symlinked from `local/patches/` — protected from `make clean` and `make distclean`.
+ 
+-Some of the key repositories on the Redox GitLab:
 +## Resources
-+
-+- [Upstream Redox Book](https://doc.redox-os.org/book/)
-+- [Hardware Compatibility](https://doc.redox-os.org/book/hardware-support.html)
-+- [Build System Reference](https://doc.redox-os.org/book/build-system-reference.html)
-+- [Developer FAQ](https://doc.redox-os.org/book/developer-faq.html)
-+- [Upstream Chat](https://doc.redox-os.org/book/chat.html)
+ 
+-| Essential Repositories                                                               | Maintainer
+-|-------------------------------------------------------------------------------------------------------------|---------------------------
+-| [Kernel](https://gitlab.redox-os.org/redox-os/kernel)                                                       | **@jackpot51**
+-| [Base (essential system components and drivers)](https://gitlab.redox-os.org/redox-os/base)                             | **@jackpot51**
+-| [RedoxFS (default filesystem)](https://gitlab.redox-os.org/redox-os/redoxfs)                                | **@jackpot51**
+-| [relibc (C POSIX library written in Rust)](https://gitlab.redox-os.org/redox-os/relibc)                     | **@jackpot51**
+-| [Ion (defauilt shell)](https://gitlab.redox-os.org/redox-os/ion)                                            | **@jackpot51**
+-| [Termion (terminal library)](https://gitlab.redox-os.org/redox-os/termion)                                  | **@jackpot51**
+-| [pkgutils (current package manager)](https://gitlab.redox-os.org/redox-os/pkgutils)                         | **@jackpot51**
+-| [Orbital (display server and window manager)](https://gitlab.redox-os.org/redox-os/orbital)                 | **@jackpot51**
+-| This repo - the root of the Build System                                                                    | **@jackpot51** **@hatred_45**
+-| [Redoxer (tool for easy Redox development on Linux)](https://gitlab.redox-os.org/redox-os/redoxer)          | **@jackpot51**
+-| [The Redox Book](https://gitlab.redox-os.org/redox-os/book)                                                 | **@jackpot51** **@hatred_45**
+-| [Website](https://gitlab.redox-os.org/redox-os/website)                                                     | **@jackpot51** **@hatred_45**
++- [Upstream Redox website](https://www.redox-os.org)
++- [Redox Book](https://doc.redox-os.org/book/)
++- [Hardware Support](https://doc.redox-os.org/book/hardware-support.html)
 +- [Contributing](CONTRIBUTING.md)
-+
+ 
+-## What it looks like
++## AI Policy
+ 
+-See [Redox in Action](https://www.redox-os.org/screens/) for photos and videos.
++We welcome contributions made with the assistance of LLMs and AI tools. If you use AI to help write code, documentation, or patches, that's great — we care about the quality of the result, not how it was produced.
+ 
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/website/-/raw/master/static/img/screenshot/orbital-visual.png">
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/website/-/raw/master/static/img/screenshot/cosmic-programs.png">
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/website/-/raw/master/static/img/screenshot/cosmic-term-screenfetch.png">
 +## License
-+
-+MIT — same as upstream Redox OS. See [LICENSE](./LICENSE).
-diff --git a/rbos.ipxe b/rbos.ipxe
-new file mode 100644
-index 0000000..3171bf2
---- /dev/null
-+++ b/rbos.ipxe
-@@ -0,0 +1,5 @@
-+#!ipxe
-+
-+kernel bootloader-live.efi
-+initrd http://${next-server}:8080/rbos-live.iso
-+boot
+ 
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/website/-/raw/master/static/img/screenshot/cosmic-edit-redox.png">
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/website/-/raw/master/static/img/screenshot/image-viewer.png">
+-<img alt="Redox" height="150" src="https://gitlab.redox-os.org/redox-os/assets/raw/master/screenshots/Boot.png">
++[MIT](./LICENSE) — same as upstream Redox OS.
 diff --git a/redox.ipxe b/redox.ipxe
 deleted file mode 100644
 index 99008dc..0000000

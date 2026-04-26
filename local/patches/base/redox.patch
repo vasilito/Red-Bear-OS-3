@@ -2144,7 +2144,7 @@ index 94a1eb17..a7cde5d6 100644
              Ok(dsdt) => dsdt,
              Err(error) => {
                  log::error!("Failed to load DSDT: {}", error);
-@@ -805,8 +2001,20 @@ impl Fadt {
+@@ -805,8 +2001,12 @@ impl Fadt {
  
          context.fadt = Some(fadt.clone());
          context.dsdt = Some(Dsdt(dsdt_sdt.clone()));
@@ -2154,14 +2154,6 @@ index 94a1eb17..a7cde5d6 100644
 +        context.reset_value = reset_value;
  
          context.tables.push(dsdt_sdt);
-+
-+        if context.pci_ready() {
-+            if let Err(error) = context.refresh_s5_values() {
-+                log::warn!("Failed to evaluate \\_S5 during FADT init: {error}");
-+            }
-+        } else {
-+            log::debug!("Deferring \\_S5 evaluation until PCI registration");
-+        }
      }
  }
  

@@ -8,3 +8,6 @@ template = "meson"
 mesonflags = [
     "-Dman-pages=disabled",
 ]
+
+[package.files]
+"/usr/bin/seatd" = "/usr/bin/seatd"

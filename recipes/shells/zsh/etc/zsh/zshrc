@@ -1,0 +1,105 @@
+# /etc/zsh/zshrc — System-wide configuration for interactive zsh(1) shells.
+# Red Bear OS / Manjaro-inspired defaults.
+
+# If not running interactively, don't do anything
+[[ -o interactive ]] || return
+
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt HIST_IGNORE_DUPS      # Don't record duplicate consecutive entries
+setopt HIST_IGNORE_SPACE     # Don't record entries starting with a space
+setopt HIST_REDUCE_BLANKS    # Remove superfluous blanks
+setopt SHARE_HISTORY         # Share history between all sessions
+setopt APPEND_HISTORY        # Append to history file, don't overwrite
+
+# ---------------------------------------------------------------------------
+# Completion
+# ---------------------------------------------------------------------------
+autoload -Uz compinit
+compinit
+
+zstyle ':completion:*' auto-description 'specify: %d'
+zstyle ':completion:*' completer _expand _complete _correct _approximate
+zstyle ':completion:*' format 'Completing %d'
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*' menu select=2
+zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
+zstyle ':completion:*' list-colors ''
+zstyle ':completion:*' list-prompt %SAt %p: Hit TAB for more, or the character to insert%s
+zstyle ':completion:*' matcher-list '' 'm:{a-z}={A-Z}' 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=* l:|=*'
+zstyle ':completion:*' menu select=long
+zstyle ':completion:*' select-prompt %SScrolling active: current selection at %p%s
+zstyle ':completion:*' use-compctl false
+zstyle ':completion:*' verbose true
+zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
+zstyle ':completion:*:kill:*' command 'ps -u $USER -o pid,%cpu,tty,cputime,cmd'
+
+# ---------------------------------------------------------------------------
+# Key bindings
+# ---------------------------------------------------------------------------
+bindkey -e  # Emacs-style key bindings
+
+# ---------------------------------------------------------------------------
+# Colors & Prompt
+# ---------------------------------------------------------------------------
+autoload -Uz colors
+colors
+
+# Set LS_COLORS for colorized directory listings
+export LS_COLORS='di=1;34:ln=1;36:so=1;35:pi=33:ex=1;32:bd=33;47:cd=33;47:su=37;41:sg=30;43:tw=30;42:ow=34;42'
+
+# Manjaro-style colored prompt
+# User:  green, Root: red
+if [[ $EUID -eq 0 ]]; then
+    PROMPT='%F{red}%n%f@%F{magenta}%m%f %F{blue}%B%~%b%f %# '
+else
+    PROMPT='%F{green}%n%f@%F{magenta}%m%f %F{blue}%B%~%b%f %# '
+fi
+
+# Right-side prompt: show return code on error
+RPROMPT='%(?..%F{red}%? ↵%f)'
+
+# ---------------------------------------------------------------------------
+# Aliases
+# ---------------------------------------------------------------------------
+alias ls='ls --color=auto -F'
+alias ll='ls --color=auto -alF'
+alias la='ls --color=auto -A'
+alias l='ls --color=auto -CF'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+alias cp='cp -i'
+alias mv='mv -i'
+alias rm='rm -i'
+alias ..='cd ..'
+alias ...='cd ../..'
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+setopt AUTO_CD              # Type a directory name to cd into it
+setopt CORRECT              # Spell correction
+setopt NO_BEEP              # No beep on error
+
+# Enable color support of ls
+if command -v dircolors >/dev/null 2>&1; then
+    eval "$(dircolors -b)"
+fi
+
+# ---------------------------------------------------------------------------
+# Optional plugins (loaded if available)
+# ---------------------------------------------------------------------------
+# zsh-syntax-highlighting
+if [[ -f /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]]; then
+    source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+fi
+
+# zsh-autosuggestions
+if [[ -f /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]]; then
+    source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+fi

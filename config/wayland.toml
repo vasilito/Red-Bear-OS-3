@@ -45,11 +45,8 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
-]
+cmd = "dbus-daemon"
+args = ["--system"]
 type = "oneshot_async"
 """
 
@@ -91,11 +88,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-sessiond",
-]
+cmd = "redbear-sessiond"
 type = "oneshot_async"
 """
 

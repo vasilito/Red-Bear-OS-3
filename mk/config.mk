@@ -177,6 +177,15 @@ LIVE_IPXE=$(LIVE_BUILD)/$(LIVE_IMAGE_NAME).ipxe
 MOUNT_DIR=$(BUILD)/filesystem
 FSTOOLS=build/fstools
 INSTALLER=$(FSTOOLS)/bin/redox_installer
+FAKEROOT_BIN:=$(shell command -v fakeroot 2>/dev/null)
+ifeq ($(FSTOOLS_IN_PODMAN),0)
+ifneq ($(HOSTED_REDOX),1)
+ifeq ($(shell id -u),0)
+else ifneq ($(FAKEROOT_BIN),)
+INSTALLER=$(FAKEROOT_BIN) $(FSTOOLS)/bin/redox_installer
+endif
+endif
+endif
 REDOXFS=$(FSTOOLS)/bin/redoxfs
 REDOXFS_MKFS=$(FSTOOLS)/bin/redoxfs-mkfs
 INSTALLER_OPTS=--cookbook=.

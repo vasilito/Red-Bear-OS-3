@@ -1,0 +1,75 @@
+--- a/Src/builtin.c
++++ b/Src/builtin.c
+@@ -7158,18 +7158,10 @@
+ {
+     struct tms buf;
+     long clktck = get_clktck();
+-
+-    /* get time accounting information */
+-    if (times(&buf) == -1)
+-	return 1;
+-    pttime(buf.tms_utime);	/* user time */
+-    putchar(' ');
+-    pttime(buf.tms_stime);	/* system time */
+-    putchar('\n');
+-    pttime(buf.tms_cutime);	/* user time, children */
+-    putchar(' ');
+-    pttime(buf.tms_cstime);	/* system time, children */
+-    putchar('\n');
++    /* TODO: times() is not available on Redox; stubbed out.
++     * Re-enable when relibc gains times() support. */
++    (void)buf;
++    (void)clktck;
+     return 0;
+ }
+ 
+--- a/Src/Builtins/rlimits.c
++++ b/Src/Builtins/rlimits.c
+@@ -892,7 +892,8 @@
+ int
+ boot_(UNUSED(Module m))
+ {
+-    set_resinfo();
++    /* TODO: set_resinfo() relies on getrusage() which is unavailable on Redox.
++     * Re-enable when relibc gains getrusage() support. */
+     return 0;
+ }
+ 
+@@ -900,7 +901,8 @@
+ int
+ cleanup_(Module m)
+ {
+-    free_resinfo();
++    /* TODO: free_resinfo() paired with set_resinfo(); disabled on Redox.
++     * Re-enable when relibc gains getrusage() support. */
+     return setfeatureenables(m, &module_features, NULL);
+ }
+ 
+--- a/Src/zsh_system.h
++++ b/Src/zsh_system.h
+@@ -539,6 +539,14 @@
+ 
+ #ifdef HAVE_SYS_RESOURCE_H
+ # include <sys/resource.h>
++/* Redox: RLIM_NLIMITS may not be defined even with sys/resource.h */
++#ifndef RLIM_NLIMITS
++# ifdef RLIMIT_NLIMITS
++#  define RLIM_NLIMITS RLIMIT_NLIMITS
++# else
++#  define RLIM_NLIMITS 7
++# endif
++#endif
+ # if defined(__hpux) && !defined(RLIMIT_CPU)
+ /* HPUX does have the BSD rlimits in the kernel.  Officially they are *
+  * unsupported but quite a few of them like RLIMIT_CORE seem to work. *
+--- a/Src/jobs.c
++++ b/Src/jobs.c
+@@ -1029,7 +1029,7 @@
+ 	    return 1;
+ #else
+ 	{
+-	    clktck = get_clktck();
++	    long clktck = get_clktck();
+ 	    if ((j->procs->ti.ut + j->procs->ti.st) / clktck >= reporttime)
+ 		return 1;
+ 	}

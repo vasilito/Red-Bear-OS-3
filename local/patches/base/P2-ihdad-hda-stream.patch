@@ -1,14 +1,1016 @@
-# P2-ihdad-hda-stream.patch
-#
-# Intel HDA stream handling: add InputStream support, make stream types public,
-# add digital/dispatch/fixup/parser modules, derive Debug for node types.
-#
-# Covers:
-#   - ihdad/hda/mod.rs: add digital, dispatch, fixup, parser modules
-#   - ihdad/hda/node.rs: derive Debug for HDANode
-#   - ihdad/hda/stream.rs: public SampleRate fields, Debug+Copy derives for BitsPerSample,
-#     new InputStream struct, StreamBuffer::read_block method
-#
+diff --git a/drivers/audio/ihdad/src/hda/device.rs b/drivers/audio/ihdad/src/hda/device.rs
+index 78e8f0a2..e5742f80 100755
+--- a/drivers/audio/ihdad/src/hda/device.rs
++++ b/drivers/audio/ihdad/src/hda/device.rs
+@@ -1,6 +1,6 @@
+ #![allow(dead_code)]
+ 
+-use std::collections::HashMap;
++use std::collections::{HashMap, HashSet};
+ use std::fmt::Write;
+ use std::str;
+ use std::task::Poll;
+@@ -14,20 +14,55 @@ use redox_scheme::scheme::SchemeSync;
+ use redox_scheme::CallerCtx;
+ use redox_scheme::OpenResult;
+ use scheme_utils::{FpathWriter, HandleMap};
+-use syscall::error::{Error, Result, EACCES, EBADF, EIO, ENODEV, EWOULDBLOCK};
++use syscall::error::{Error, Result, EACCES, EBADF, EIO, ENODEV, ENOENT, EWOULDBLOCK};
+ 
+ use spin::Mutex;
+ use syscall::schemev2::NewFdFlags;
+ 
+ use super::common::*;
++use super::parser::AutoPinConfig;
+ use super::BitsPerSample;
+ use super::BufferDescriptorListEntry;
+ use super::CommandBuffer;
++use super::digital::DigitalCodecInfo;
++use super::dispatch::RouteDecision;
++use super::FixupEngine;
+ use super::HDANode;
++use super::InputStream;
+ use super::OutputStream;
+ use super::StreamBuffer;
+ use super::StreamDescriptorRegs;
+ 
++#[derive(Debug, Clone)]
++pub struct ControllerPolicy {
++    pub prefer_msi: bool,
++    pub single_cmd_fallback: bool,
++    pub probe_mask: u16,
++    pub position_fix: PositionFixPolicy,
++    pub poll_jack: bool,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum PositionFixPolicy {
++    Auto,
++    Lpib,
++    Posbuf,
++    Dpic,
++    None,
++}
++
++impl Default for ControllerPolicy {
++    fn default() -> Self {
++        ControllerPolicy {
++            prefer_msi: true,
++            single_cmd_fallback: false,
++            probe_mask: 0xFFFF,
++            position_fix: PositionFixPolicy::Auto,
++            poll_jack: false,
++        }
++    }
++}
++
+ // GCTL - Global Control
+ const CRST: u32 = 1 << 0; // 1 bit
+ const FNCTRL: u32 = 1 << 1; // 1 bit
+@@ -55,6 +90,20 @@ const RIRBDMAEN: u8 = 1 << 1; // 1 bit
+ const ICB: u16 = 1 << 0;
+ const IRV: u16 = 1 << 1;
+ 
++// INTCTL bits
++const INTCTL_GIE: u32 = 1 << 31; // Global Interrupt Enable
++const INTCTL_CIE: u32 = 1 << 30; // Controller Interrupt Enable
++
++// RIRBSTS bits (write-1-to-clear)
++const RIRBSTS_RINTFL: u8 = 1 << 0; // Response Interrupt Flag
++const RIRBSTS_RIRBOIS: u8 = 1 << 2; // RIRB Overrun Interrupt Status
++
++// CORBSTS bits (write-1-to-clear)
++const CORBSTS_CMEI: u8 = 1 << 0; // CORB Memory Error Interrupt
++
++// STATESTS mask — one bit per codec slot (bits 0-14)
++const STATESTS_MASK: u16 = 0x7FFF;
++
+ // CORB and RIRB offset
+ 
+ const COMMAND_BUFFER_OFFSET: usize = 0x40;
+@@ -63,9 +112,8 @@ const NUM_SUB_BUFFS: usize = 32;
+ const SUB_BUFF_SIZE: usize = 2048;
+ 
+ enum Handle {
+-    Todo,
+-    Pcmout(usize, usize, usize), // Card, index, block_ptr
+-    Pcmin(usize, usize, usize),  // Card, index, block_ptr
++    Pcmout { stream_index: usize },
++    Pcmin { stream_index: usize },
+     StrBuf(Vec<u8>),
+     SchemeRoot,
+ }
+@@ -121,6 +169,34 @@ struct Regs {
+     dpubase: Mmio<u32>, // 0x74
+ }
+ 
++struct CodecTopology {
++    codec_addr: CodecAddr,
++    afgs: Vec<NodeAddr>,
++    widget_map: HashMap<WidgetAddr, HDANode>,
++    outputs: Vec<WidgetAddr>,
++    inputs: Vec<WidgetAddr>,
++    output_pins: Vec<WidgetAddr>,
++    input_pins: Vec<WidgetAddr>,
++    beep_addr: Option<WidgetAddr>,
++    pin_config: AutoPinConfig,
++}
++
++impl CodecTopology {
++    fn new(codec_addr: CodecAddr) -> Self {
++        CodecTopology {
++            codec_addr,
++            afgs: Vec::new(),
++            widget_map: HashMap::new(),
++            outputs: Vec::new(),
++            inputs: Vec::new(),
++            output_pins: Vec::new(),
++            input_pins: Vec::new(),
++            beep_addr: None,
++            pin_config: AutoPinConfig::default(),
++        }
++    }
++}
++
+ pub struct IntelHDA {
+     vend_prod: u32,
+ 
+@@ -131,6 +207,7 @@ pub struct IntelHDA {
+     cmd: CommandBuffer,
+ 
+     codecs: Vec<CodecAddr>,
++    codecs_topology: HashMap<CodecAddr, CodecTopology>,
+ 
+     outputs: Vec<WidgetAddr>,
+     inputs: Vec<WidgetAddr>,
+@@ -140,15 +217,20 @@ pub struct IntelHDA {
+     output_pins: Vec<WidgetAddr>,
+     input_pins: Vec<WidgetAddr>,
+ 
+-    beep_addr: WidgetAddr,
++    beep_addr: Option<WidgetAddr>,
+ 
+     buff_desc: Dma<[BufferDescriptorListEntry; 256]>,
++    input_buff_desc: Dma<[BufferDescriptorListEntry; 256]>,
+ 
+     output_streams: Vec<OutputStream>,
++    input_streams: Vec<InputStream>,
+ 
+     buffs: Vec<Vec<StreamBuffer>>,
+ 
+     int_counter: usize,
++    policy: ControllerPolicy,
++    fixup_engine: FixupEngine,
++    digital_codecs: Vec<DigitalCodecInfo>,
+     handles: Mutex<HandleMap<Handle>>,
+ }
+ 
+@@ -160,6 +242,10 @@ impl IntelHDA {
+             .expect("Could not allocate physical memory for buffer descriptor list.")
+             .assume_init();
+ 
++        let input_buff_desc = Dma::<[BufferDescriptorListEntry; 256]>::zeroed()
++            .expect("Could not allocate physical memory for input buffer descriptor list.")
++            .assume_init();
++
+         log::debug!(
+             "Virt: {:016X}, Phys: {:016X}",
+             buff_desc.as_ptr() as usize,
+@@ -182,11 +268,12 @@ impl IntelHDA {
+ 
+             cmd: CommandBuffer::new(base + COMMAND_BUFFER_OFFSET, cmd_buff),
+ 
+-            beep_addr: (0, 0),
++            beep_addr: None,
+ 
+             widget_map: HashMap::<WidgetAddr, HDANode>::new(),
+ 
+             codecs: Vec::<CodecAddr>::new(),
++            codecs_topology: HashMap::<CodecAddr, CodecTopology>::new(),
+ 
+             outputs: Vec::<WidgetAddr>::new(),
+             inputs: Vec::<WidgetAddr>::new(),
+@@ -195,21 +282,34 @@ impl IntelHDA {
+             input_pins: Vec::<WidgetAddr>::new(),
+ 
+             buff_desc,
++            input_buff_desc,
+ 
+             output_streams: Vec::<OutputStream>::new(),
++            input_streams: Vec::<InputStream>::new(),
+ 
+             buffs: Vec::<Vec<StreamBuffer>>::new(),
+ 
+             int_counter: 0,
++            policy: ControllerPolicy::default(),
++            fixup_engine: FixupEngine::new(),
++            digital_codecs: Vec::new(),
+             handles: Mutex::new(HandleMap::new()),
+         };
+ 
+         module.init()?;
+ 
++        let vendor_id = ((module.vend_prod >> 16) & 0xFFFF) as u16;
++        let device_id = (module.vend_prod & 0xFFFF) as u16;
++        let route = RouteDecision::decide(vendor_id, device_id, 0x04, 0x03);
++        log::info!("IHDA: audio route decision: {:?} ({})", route.route, route.reason);
++
+         module.info();
+         module.enumerate()?;
+ 
+         module.configure()?;
++        if let Err(err) = module.configure_input() {
++            log::debug!("IHDA: input configuration skipped: {:?}", err);
++        }
+         log::debug!("IHDA: Initialization finished.");
+         Ok(module)
+     }
+@@ -219,23 +319,28 @@ impl IntelHDA {
+ 
+         let use_immediate_command_interface = match self.vend_prod {
+             0x8086_2668 => false,
+-            _ => true,
++            _ => !self.policy.single_cmd_fallback,
+         };
+ 
+         self.cmd.init(use_immediate_command_interface)?;
++
++        self.regs.gctl.writef(UNSOL, true);
++
+         self.init_interrupts();
+ 
+         Ok(())
+     }
+ 
+     pub fn init_interrupts(&mut self) {
+-        // TODO: provide a function to enable certain interrupts
+-        // This just enables the first output stream interupt and the global interrupt
+-
+         let iss = self.num_input_streams();
+-        self.regs
+-            .intctl
+-            .write((1 << 31) | /* (1 << 30) |*/ (1 << iss));
++
++        let mut wakeen: u16 = 0;
++        for &codec in &self.codecs {
++            wakeen |= 1 << codec;
++        }
++        self.regs.wakeen.write(wakeen);
++
++        self.regs.intctl.write(INTCTL_GIE | INTCTL_CIE | (1 << iss) | (1 << 0));
+     }
+ 
+     pub fn irq(&mut self) -> bool {
+@@ -248,6 +353,19 @@ impl IntelHDA {
+         self.int_counter
+     }
+ 
++    pub fn policy(&self) -> &ControllerPolicy {
++        &self.policy
++    }
++
++    pub fn set_policy(&mut self, policy: ControllerPolicy) {
++        log::info!(
++            "IHDA: policy updated msi={} single_cmd={} probe_mask={:04X} pos_fix={:?} poll_jack={}",
++            policy.prefer_msi, policy.single_cmd_fallback, policy.probe_mask,
++            policy.position_fix, policy.poll_jack
++        );
++        self.policy = policy;
++    }
++
+     pub fn read_node(&mut self, addr: WidgetAddr) -> Result<HDANode> {
+         let mut node = HDANode::new();
+         let mut temp: u64;
+@@ -341,70 +459,156 @@ impl IntelHDA {
+     }
+ 
+     pub fn enumerate(&mut self) -> Result<()> {
++        // Clear old global state (kept for migration safety)
+         self.output_pins.clear();
+         self.input_pins.clear();
++        self.outputs.clear();
++        self.inputs.clear();
++        self.widget_map.clear();
++        self.codecs_topology.clear();
++
++        let codec_addrs = self.codecs.clone();
++        for codec in codec_addrs {
++            let mut topo = CodecTopology::new(codec);
++
++            let root = self.read_node((codec, 0))?;
++            log::debug!("{}", root);
++
++            let root_count = root.subnode_count;
++            let root_start = root.subnode_start;
++
++            for i in 0..root_count {
++                let afg = self.read_node((codec, root_start + i))?;
++                log::debug!("{}", afg);
++
++                // Only process audio function groups (type 0x01)
++                if afg.function_group_type != 0x01 {
++                    log::debug!(
++                        "Codec {}: function group {} is type {}, not audio \u{2014} skipping",
++                        codec,
++                        afg.addr.1,
++                        afg.function_group_type
++                    );
++                    continue;
++                }
++
++                topo.afgs.push(afg.addr.1);
+ 
+-        let codec: u8 = 0;
+-
+-        let root = self.read_node((codec, 0))?;
+-
+-        log::debug!("{}", root);
+-
+-        let root_count = root.subnode_count;
+-        let root_start = root.subnode_start;
+-
+-        //FIXME: So basically the way this is set up is to only support one codec and hopes the first one is an audio
+-        for i in 0..root_count {
+-            let afg = self.read_node((codec, root_start + i))?;
+-            log::debug!("{}", afg);
+-            let afg_count = afg.subnode_count;
+-            let afg_start = afg.subnode_start;
+-
+-            for j in 0..afg_count {
+-                let mut widget = self.read_node((codec, afg_start + j))?;
+-                widget.is_widget = true;
+-                match widget.widget_type() {
+-                    HDAWidgetType::AudioOutput => self.outputs.push(widget.addr),
+-                    HDAWidgetType::AudioInput => self.inputs.push(widget.addr),
+-                    HDAWidgetType::BeepGenerator => self.beep_addr = widget.addr,
+-                    HDAWidgetType::PinComplex => {
+-                        let config = widget.configuration_default();
+-                        if config.is_output() {
+-                            self.output_pins.push(widget.addr);
+-                        } else if config.is_input() {
+-                            self.input_pins.push(widget.addr);
++                let afg_count = afg.subnode_count;
++                let afg_start = afg.subnode_start;
++
++                for j in 0..afg_count {
++                    let mut widget = self.read_node((codec, afg_start + j))?;
++                    widget.is_widget = true;
++                    match widget.widget_type() {
++                        HDAWidgetType::AudioOutput => {
++                            self.outputs.push(widget.addr);
++                            topo.outputs.push(widget.addr);
++                        }
++                        HDAWidgetType::AudioInput => {
++                            self.inputs.push(widget.addr);
++                            topo.inputs.push(widget.addr);
+                         }
++                        HDAWidgetType::BeepGenerator => {
++                            self.beep_addr = Some(widget.addr);
++                            topo.beep_addr = Some(widget.addr);
++                        }
++                        HDAWidgetType::PinComplex => {
++                            let config = widget.configuration_default();
++                            if config.is_output() {
++                                self.output_pins.push(widget.addr);
++                                topo.output_pins.push(widget.addr);
++                            } else if config.is_input() {
++                                self.input_pins.push(widget.addr);
++                                topo.input_pins.push(widget.addr);
++                            }
++                        }
++                        _ => {}
+                     }
+-                    _ => {}
++
++                    log::debug!("{}", widget);
++                    self.widget_map.insert(widget.addr(), widget.clone());
++                    topo.widget_map.insert(widget.addr(), widget);
+                 }
++            }
+ 
+-                log::debug!("{}", widget);
+-                self.widget_map.insert(widget.addr(), widget);
++            log::debug!(
++                "Codec {}: {} AFGs, {} outputs, {} inputs, {} output pins, {} input pins",
++                codec,
++                topo.afgs.len(),
++                topo.outputs.len(),
++                topo.inputs.len(),
++                topo.output_pins.len(),
++                topo.input_pins.len(),
++            );
++
++            let widget_list: Vec<(WidgetAddr, HDANode)> = topo.widget_map.iter().map(|(a, n)| (*a, n.clone())).collect();
++            topo.pin_config = AutoPinConfig::parse(&widget_list);
++
++            self.codecs_topology.insert(codec, topo);
++        }
++
++        for (codec, topo) in &self.codecs_topology {
++            if let Some(digi) = DigitalCodecInfo::detect_from_topology(*codec, &topo.widget_map) {
++                log::info!(
++                    "IHDA: digital codec detected at {} (hdmi={}, {} pins, {} converters)",
++                    codec, digi.is_hdmi, digi.pin_widgets.len(), digi.converter_widgets.len()
++                );
++                self.digital_codecs.push(digi);
+             }
+         }
+ 
+         Ok(())
+     }
+ 
+-    pub fn find_best_output_pin(&mut self) -> Result<WidgetAddr> {
+-        let outs = &self.output_pins;
++    fn pick_primary_codec_for_output(&self) -> Option<CodecAddr> {
++        let mut candidates: Vec<CodecAddr> = self
++            .codecs_topology
++            .values()
++            .filter(|topo| !topo.output_pins.is_empty() && !topo.outputs.is_empty())
++            .map(|topo| topo.codec_addr)
++            .collect();
++        candidates.sort();
++        candidates.into_iter().next()
++    }
++
++    pub fn find_best_output_pin(&mut self, codec: CodecAddr) -> Result<WidgetAddr> {
++        let outs: Vec<WidgetAddr> = self
++            .codecs_topology
++            .get(&codec)
++            .ok_or_else(|| {
++                log::error!("No topology for codec {}", codec);
++                Error::new(ENODEV)
++            })?
++            .output_pins
++            .clone();
++
+         if outs.len() == 1 {
+             return Ok(outs[0]);
+         } else if outs.len() > 1 {
+-            //TODO: change output based on "unsolicited response" interrupts
+-            // Check for devices in this order: Headphone, Speaker, Line Out
+             for supported_device in &[DefaultDevice::HPOut, DefaultDevice::Speaker] {
+-                for &out in outs {
+-                    let widget = self.widget_map.get(&out).unwrap();
+-                    let cd = widget.configuration_default();
++                for &out in &outs {
++                    let (addr, config_default) = {
++                        let widget = self
++                            .codecs_topology
++                            .get(&codec)
++                            .and_then(|t| t.widget_map.get(&out))
++                            .ok_or_else(|| {
++                                log::error!(
++                                    "Widget {:?} not found in codec {} topology",
++                                    out,
++                                    codec
++                                );
++                                Error::new(ENODEV)
++                            })?;
++                        (widget.addr, widget.config_default)
++                    };
++                    let cd = ConfigurationDefault::from_u32(config_default);
+                     if cd.sequence() == 0 && &cd.default_device() == supported_device {
+-                        // Check for jack detect bit
+-                        let pin_caps = self.cmd.cmd12(widget.addr, 0xF00, 0x0C)?;
++                        let pin_caps = self.cmd.cmd12(addr, 0xF00, 0x0C)?;
+                         if pin_caps & (1 << 2) != 0 {
+-                            // Check for presence
+-                            let pin_sense = self.cmd.cmd12(widget.addr, 0xF09, 0)?;
++                            let pin_sense = self.cmd.cmd12(addr, 0xF09, 0)?;
+                             if pin_sense & (1 << 31) == 0 {
+-                                // Skip if nothing is plugged in
+                                 continue;
+                             }
+                         }
+@@ -416,13 +620,26 @@ impl IntelHDA {
+         Err(Error::new(ENODEV))
+     }
+ 
+-    pub fn find_path_to_dac(&self, addr: WidgetAddr) -> Option<Vec<WidgetAddr>> {
+-        let widget = self.widget_map.get(&addr).unwrap();
++    pub fn find_path_to_dac(
++        &self,
++        addr: WidgetAddr,
++        codec: CodecAddr,
++        visited: &mut HashSet<WidgetAddr>,
++    ) -> Option<Vec<WidgetAddr>> {
++        if visited.contains(&addr) {
++            log::warn!("Cycle detected in widget graph at {:?}", addr);
++            return None;
++        }
++        visited.insert(addr);
++
++        let topo = self.codecs_topology.get(&codec)?;
++        let widget = topo.widget_map.get(&addr)?;
++
+         if widget.widget_type() == HDAWidgetType::AudioOutput {
+             Some(vec![addr])
+         } else {
+             let connection = widget.connections.get(widget.connection_default as usize)?;
+-            let mut path = self.find_path_to_dac(*connection)?;
++            let mut path = self.find_path_to_dac(*connection, codec, visited)?;
+             path.insert(0, addr);
+             Some(path)
+         }
+@@ -466,72 +683,92 @@ impl IntelHDA {
+     }
+ 
+     pub fn configure(&mut self) -> Result<()> {
+-        let outpin = self.find_best_output_pin()?;
++        let codec = self.pick_primary_codec_for_output().ok_or_else(|| {
++            log::error!("No suitable codec found for audio output");
++            Error::new(ENODEV)
++        })?;
++
++        log::debug!("Selected codec {} for output", codec);
++
++        let topo = self.codecs_topology.get(&codec).ok_or_else(|| {
++            log::error!("No topology for codec {}", codec);
++            Error::new(ENODEV)
++        })?;
++
++        let vendor_id = ((self.vend_prod >> 16) & 0xFFFF) as u16;
++        let device_id = (self.vend_prod & 0xFFFF) as u16;
++        self.fixup_engine.match_fixups(vendor_id, device_id, None, &topo.pin_config);
++
++        let primary_pins = topo.pin_config.primary_output_pins();
++        let outpin = primary_pins.first().map(|p| p.addr).ok_or_else(|| {
++            log::error!("No primary output pins found by parser on codec {}", codec);
++            Error::new(ENODEV)
++        })?;
+ 
+         log::debug!("Best pin: {:01X}:{:02X}", outpin.0, outpin.1);
+ 
+-        let path = self.find_path_to_dac(outpin).unwrap();
++        let path = {
++            let mut visited = HashSet::new();
++            self.find_path_to_dac(outpin, codec, &mut visited)
++                .ok_or_else(|| {
++                    log::error!(
++                        "No path to DAC from pin {:01X}:{:02X} on codec {}",
++                        outpin.0,
++                        outpin.1,
++                        codec
++                    );
++                    Error::new(ENODEV)
++                })?
++        };
+ 
+-        let dac = *path.last().unwrap();
+-        let pin = *path.first().unwrap();
++        let dac = *path.last().ok_or_else(|| {
++            log::error!("Empty DAC path for pin {:01X}:{:02X}", outpin.0, outpin.1);
++            Error::new(ENODEV)
++        })?;
++        let pin = *path.first().ok_or_else(|| {
++            log::error!("Empty path (no pin) for pin {:01X}:{:02X}", outpin.0, outpin.1);
++            Error::new(ENODEV)
++        })?;
+ 
+         log::debug!("Path to DAC: {:X?}", path);
+ 
+-        // Set power state 0 (on) for all widgets in path
+         for &addr in &path {
+             self.set_power_state(addr, 0)?;
+         }
+ 
+-        // Pin enable (0x80 = headphone amp enable, 0x40 = output enable)
+         self.cmd.cmd12(pin, 0x707, 0xC0)?;
+-
+-        // EAPD enable
+         self.cmd.cmd12(pin, 0x70C, 2)?;
+-
+-        // Set DAC stream and channel
++        self.cmd.cmd4(pin, 0x708, (1 << 8) | 1)?;
+         self.set_stream_channel(dac, 1, 0)?;
+ 
+         self.update_sound_buffers();
+ 
+-        log::debug!(
+-            "Supported Formats: {:08X}",
+-            self.get_supported_formats((0, 0x1))?
+-        );
+-        log::debug!("Capabilities: {:08X}", self.get_capabilities(path[0])?);
++        let (rate, bps, channels) = self.negotiate_stream_format(dac)?;
++        log::debug!("IHDA: negotiated stream format bps={:?} ch={}", bps, channels);
+ 
+-        // Create output stream
+         let output = self.get_output_stream_descriptor(0).unwrap();
+         output.set_address(self.buff_desc.physical());
+-        output.set_pcm_format(&super::SR_44_1, BitsPerSample::Bits16, 2);
+-        output.set_cyclic_buffer_length((NUM_SUB_BUFFS * SUB_BUFF_SIZE) as u32); // number of bytes
++        output.set_pcm_format(rate, bps, channels);
++        output.set_cyclic_buffer_length((NUM_SUB_BUFFS * SUB_BUFF_SIZE) as u32);
+         output.set_stream_number(1);
+         output.set_last_valid_index((NUM_SUB_BUFFS - 1) as u16);
+         output.set_interrupt_on_completion(true);
+ 
+-        // Set DAC converter format
+-        self.set_converter_format(dac, &super::SR_44_1, BitsPerSample::Bits16, 2)?;
++        self.set_converter_format(dac, rate, bps, channels)?;
+ 
+-        // Get DAC converter format
+-        //TODO: should validate?
+         self.cmd.cmd12(dac, 0xA00, 0)?;
+ 
+-        // Unmute and set gain to 0db for input and output amplifiers on all widgets in path
+         for &addr in &path {
+-            // Read widget capabilities
+             let caps = self.cmd.cmd12(addr, 0xF00, 0x09)?;
+ 
+-            //TODO: do we need to set any other indexes?
+             let left = true;
+             let right = true;
+             let index = 0;
+             let mute = false;
+ 
+-            // Check for input amp
+             if (caps & (1 << 1)) != 0 {
+-                // Read input capabilities
+                 let in_caps = self.cmd.cmd12(addr, 0xF00, 0x0D)?;
+                 let in_gain = (in_caps & 0x7f) as u8;
+-                // Set input gain
+                 let output = false;
+                 let input = true;
+                 self.set_amplifier_gain_mute(
+@@ -540,12 +777,9 @@ impl IntelHDA {
+                 log::debug!("Set {:X?} input gain to 0x{:X}", addr, in_gain);
+             }
+ 
+-            // Check for output amp
+             if (caps & (1 << 2)) != 0 {
+-                // Read output capabilities
+                 let out_caps = self.cmd.cmd12(addr, 0xF00, 0x12)?;
+                 let out_gain = (out_caps & 0x7f) as u8;
+-                // Set output gain
+                 let output = true;
+                 let input = false;
+                 self.set_amplifier_gain_mute(
+@@ -555,8 +789,6 @@ impl IntelHDA {
+             }
+         }
+ 
+-        //TODO: implement hda-verb?
+-
+         output.run();
+         {
+             log::debug!("Waiting for output 0 to start running...");
+@@ -632,20 +864,21 @@ impl IntelHDA {
+ 
+     */
+ 
+-    pub fn dump_codec(&self, codec: u8) -> String {
++    pub fn dump_all_codecs(&self) -> String {
+         let mut string = String::new();
+ 
+-        for (_, widget) in self.widget_map.iter() {
+-            let _ = writeln!(string, "{}", widget);
++        for (&codec, topo) in &self.codecs_topology {
++            let _ = writeln!(string, "Codec {}:", codec);
++            for (_, widget) in topo.widget_map.iter() {
++                let _ = writeln!(string, "  {}", widget);
++            }
+         }
+ 
+         string
+     }
+ 
+-    // BEEP!!
+     pub fn beep(&mut self, div: u8) {
+-        let addr = self.beep_addr;
+-        if addr != (0, 0) {
++        if let Some(addr) = self.beep_addr {
+             let _ = self.cmd.cmd12(addr, 0xF0A, div);
+         }
+     }
+@@ -700,7 +933,7 @@ impl IntelHDA {
+         log::debug!("Statests: {:04X}", statests);
+ 
+         for i in 0..15 {
+-            if (statests >> i) & 0x1 == 1 {
++            if (statests >> i) & 0x1 == 1 && (self.policy.probe_mask >> i) & 0x1 == 1 {
+                 self.codecs.push(i as CodecAddr);
+             }
+         }
+@@ -812,6 +1045,54 @@ impl IntelHDA {
+         Ok(self.cmd.cmd12(addr, 0xF00, 0x0A)? as u32)
+     }
+ 
++    fn negotiate_stream_format(
++        &mut self,
++        dac: WidgetAddr,
++    ) -> Result<(&'static super::SampleRate, BitsPerSample, u8)> {
++        let fmt = self.get_supported_formats(dac)?;
++        log::debug!("IHDA: DAC {:01X}:{:02X} supported formats: {:08X}", dac.0, dac.1, fmt);
++
++        let rate = if fmt & (1 << 14) != 0 {
++            &super::SR_48
++        } else if fmt & (1 << 13) != 0 {
++            &super::SR_44_1
++        } else if fmt & (1 << 12) != 0 {
++            &super::SR_32
++        } else if fmt & (1 << 11) != 0 {
++            &super::SR_22_05
++        } else if fmt & (1 << 10) != 0 {
++            &super::SR_16
++        } else if fmt & (1 << 9) != 0 {
++            &super::SR_11_025
++        } else if fmt & (1 << 8) != 0 {
++            &super::SR_8
++        } else {
++            log::error!("IHDA: no supported sample rate found in format {:08X}", fmt);
++            return Err(Error::new(ENODEV));
++        };
++
++        let bps = if fmt & (1 << 21) != 0 {
++            BitsPerSample::Bits16
++        } else if fmt & (1 << 23) != 0 {
++            BitsPerSample::Bits24
++        } else if fmt & (1 << 24) != 0 {
++            BitsPerSample::Bits32
++        } else if fmt & (1 << 22) != 0 {
++            BitsPerSample::Bits20
++        } else if fmt & (1 << 20) != 0 {
++            BitsPerSample::Bits8
++        } else {
++            log::error!("IHDA: no supported bit depth found in format {:08X}", fmt);
++            return Err(Error::new(ENODEV));
++        };
++
++        let caps = self.get_capabilities(dac)?;
++        let max_channels = ((caps >> 0) & 0xFF) as u8 + 1;
++        let channels = if max_channels >= 2 { 2 } else { max_channels };
++
++        Ok((rate, bps, channels))
++    }
++
+     fn get_capabilities(&mut self, addr: WidgetAddr) -> Result<u32> {
+         Ok(self.cmd.cmd12(addr, 0xF00, 0x09)? as u32)
+     }
+@@ -873,13 +1154,98 @@ impl IntelHDA {
+         //log::trace!("Status: {:02X} Pos: {:08X} Output CTL: {:06X}", output.status(), output.link_position(), output.control());
+ 
+         if os.current_block() == (open_block + 3) % NUM_SUB_BUFFS {
+-            // Block if we already are 3 buffers ahead
+             Poll::Pending
+         } else {
+             Poll::Ready(os.write_block(buf))
+         }
+     }
+ 
++    pub fn configure_input(&mut self) -> Result<()> {
++        let primary_codec = match self.pick_primary_codec_for_output() {
++            Some(c) => c,
++            None => return Err(Error::new(ENODEV)),
++        };
++
++        let topo = self.codecs_topology.get(&primary_codec).ok_or_else(|| {
++            log::error!("IHDA: no topology for codec {}", primary_codec);
++            Error::new(ENODEV)
++        })?;
++
++        let input_pin = topo.input_pins.first().cloned().ok_or_else(|| {
++            log::debug!("IHDA: no input pins found on codec {}", primary_codec);
++            Error::new(ENODEV)
++        })?;
++
++        let adc = topo.inputs.first().cloned().ok_or_else(|| {
++            log::debug!("IHDA: no ADC widgets found on codec {}", primary_codec);
++            Error::new(ENODEV)
++        })?;
++
++        log::debug!(
++            "IHDA: configuring input: pin={:01X}:{:02X} adc={:01X}:{:02X}",
++            input_pin.0, input_pin.1, adc.0, adc.1
++        );
++
++        self.cmd.cmd12(input_pin, 0x707, 0xC0)?;
++        self.set_power_state(input_pin, 0)?;
++        self.set_power_state(adc, 0)?;
++        self.set_stream_channel(adc, 2, 0)?;
++
++        let iss = self.num_input_streams();
++        if iss == 0 {
++            log::warn!("IHDA: no input streams available");
++            return Err(Error::new(ENODEV));
++        }
++
++        let input_regs = self.get_input_stream_descriptor(0).ok_or_else(|| {
++            log::error!("IHDA: failed to get input stream descriptor 0");
++            Error::new(ENODEV)
++        })?;
++
++        let mut input_stream = InputStream::new(NUM_SUB_BUFFS, SUB_BUFF_SIZE, input_regs);
++
++        for i in 0..NUM_SUB_BUFFS {
++            self.input_buff_desc[i].set_address(input_stream.phys() as u64 + (i * SUB_BUFF_SIZE) as u64);
++            self.input_buff_desc[i].set_length(SUB_BUFF_SIZE as u32);
++            self.input_buff_desc[i].set_interrupt_on_complete(true);
++        }
++
++        let (rate, bps, channels) = self.negotiate_stream_format(adc)?;
++
++        input_stream.regs().set_address(self.input_buff_desc.physical());
++        input_stream.regs().set_pcm_format(rate, bps, channels);
++        input_stream.regs().set_cyclic_buffer_length((NUM_SUB_BUFFS * SUB_BUFF_SIZE) as u32);
++        input_stream.regs().set_stream_number(2);
++        input_stream.regs().set_last_valid_index((NUM_SUB_BUFFS - 1) as u16);
++        input_stream.regs().set_interrupt_on_completion(true);
++
++        self.set_converter_format(adc, rate, bps, channels)?;
++
++        self.input_streams.push(input_stream);
++
++        let input_ref = self.input_streams.last_mut().unwrap();
++        input_ref.regs().run();
++
++        log::debug!("IHDA: input stream 0 configured and running");
++        Ok(())
++    }
++
++    pub fn read_from_input(&mut self, index: usize, buf: &mut [u8]) -> Poll<Result<usize>> {
++        let input_stream = match self.input_streams.get_mut(index) {
++            Some(s) => s,
++            None => return Poll::Ready(Err(Error::new(EBADF))),
++        };
++
++        let pos = input_stream.regs().link_position() as usize;
++        let hw_block = pos / input_stream.block_size();
++
++        if input_stream.current_block() == hw_block {
++            Poll::Pending
++        } else {
++            Poll::Ready(input_stream.read_block(buf))
++        }
++    }
++
+     pub fn handle_interrupts(&mut self) -> bool {
+         let intsts = self.regs.intsts.read();
+         if ((intsts >> 31) & 1) == 1 {
+@@ -897,7 +1263,56 @@ impl IntelHDA {
+         intsts != 0
+     }
+ 
+-    pub fn handle_controller_interrupt(&mut self) {}
++    pub fn handle_controller_interrupt(&mut self) {
++        let statests = self.regs.statests.read();
++        if statests & STATESTS_MASK != 0 {
++            for i in 0..15 {
++                if (statests >> i) & 1 != 0 {
++                    log::info!("IHDA: state change on codec {}", i);
++                }
++            }
++            self.regs.statests.write(statests);
++        }
++
++        let rirbsts = self.regs.rirbsts.read();
++        if rirbsts & (RIRBSTS_RINTFL | RIRBSTS_RIRBOIS) != 0 {
++            let rirbwp = self.regs.rirbwp.read();
++            let wp = rirbwp & 0xFF;
++            if wp != 0 {
++                log::debug!("IHDA: RIRB response available, wp={}", wp);
++            }
++            if rirbsts & RIRBSTS_RIRBOIS != 0 {
++                log::warn!("IHDA: RIRB overrun, clearing");
++            }
++            self.regs.rirbsts.write(rirbsts & (RIRBSTS_RINTFL | RIRBSTS_RIRBOIS));
++        }
++
++        let corbsts = self.regs.corbsts.read();
++        if corbsts & CORBSTS_CMEI != 0 {
++            log::error!("IHDA: CORB memory error, clearing");
++            self.regs.corbsts.write(CORBSTS_CMEI);
++        }
++    }
++
++    fn handle_unsolicited_response(&mut self, codec_addr: CodecAddr, response: u32) {
++        let tag = (response >> 26) & 0xF;
++        let payload = response & 0x03FFFFFF;
++
++        log::info!(
++            "IHDA: unsolicited response codec {} tag={} payload={:06X}",
++            codec_addr, tag, payload
++        );
++
++        if tag == 1 {
++            let pin_widget = payload & 0x7F;
++            let plugged = (payload >> 31) & 1;
++            log::info!(
++                "IHDA: jack sense codec {} pin {} {}",
++                codec_addr, pin_widget,
++                if plugged != 0 { "plugged" } else { "unplugged" }
++            );
++        }
++    }
+ 
+     pub fn handle_stream_interrupts(&mut self, sis: u32) {
+         let iss = self.num_input_streams();
+@@ -1017,9 +1432,10 @@ impl SchemeSync for IntelHDA {
+             return Err(Error::new(EACCES));
+         }
+         let handle = match path.trim_matches('/') {
+-            //TODO: allow multiple codecs
+-            "codec" => Handle::StrBuf(self.dump_codec(0).into_bytes()),
+-            _ => Handle::Todo,
++            "codec" => Handle::StrBuf(self.dump_all_codecs().into_bytes()),
++            "" | "pcmout" | "pcmout0" => Handle::Pcmout { stream_index: 0 },
++            "pcmin" | "pcmin0" => Handle::Pcmin { stream_index: 0 },
++            _ => return Err(Error::new(ENOENT)),
+         };
+         let id = self.handles.lock().insert(handle);
+ 
+@@ -1038,18 +1454,44 @@ impl SchemeSync for IntelHDA {
+         _flags: u32,
+         _ctx: &CallerCtx,
+     ) -> Result<usize> {
+-        let handles = self.handles.lock();
+-        let Handle::StrBuf(strbuf) = handles.get(id)? else {
+-            return Err(Error::new(EBADF));
++        let (is_strbuf, is_pcmin) = {
++            let handles = self.handles.lock();
++            match handles.get(id)? {
++                Handle::StrBuf(_) => (true, false),
++                Handle::Pcmin { .. } => (false, true),
++                _ => return Err(Error::new(EBADF)),
++            }
+         };
+ 
+-        let src = usize::try_from(offset)
+-            .ok()
+-            .and_then(|o| strbuf.get(o..))
+-            .unwrap_or(&[]);
+-        let len = src.len().min(buf.len());
+-        buf[..len].copy_from_slice(&src[..len]);
+-        Ok(len)
++        if is_strbuf {
++            let handles = self.handles.lock();
++            let Handle::StrBuf(strbuf) = handles.get(id)? else {
++                return Err(Error::new(EBADF));
++            };
++            let src = usize::try_from(offset)
++                .ok()
++                .and_then(|o| strbuf.get(o..))
++                .unwrap_or(&[]);
++            let len = src.len().min(buf.len());
++            buf[..len].copy_from_slice(&src[..len]);
++            return Ok(len);
++        }
++
++        if is_pcmin {
++            let index = {
++                let handles = self.handles.lock();
++                match handles.get(id)? {
++                    Handle::Pcmin { stream_index, .. } => *stream_index,
++                    _ => return Err(Error::new(EBADF)),
++                }
++            };
++            return match self.read_from_input(index, buf) {
++                Poll::Ready(r) => r,
++                Poll::Pending => Err(Error::new(EWOULDBLOCK)),
++            };
++        }
++
++        Err(Error::new(EBADF))
+     }
+ 
+     fn write(
+@@ -1061,23 +1503,29 @@ impl SchemeSync for IntelHDA {
+         _ctx: &CallerCtx,
+     ) -> Result<usize> {
+         let index = {
+-            let mut handles = self.handles.lock();
+-            match handles.get_mut(id)? {
+-                Handle::Todo => 0,
++            let handles = self.handles.lock();
++            match handles.get(id)? {
++                Handle::Pcmout { stream_index, .. } => *stream_index as u8,
+                 _ => return Err(Error::new(EBADF)),
+             }
+         };
+ 
+-        //log::debug!("Int count: {}", self.int_counter);
+-
+         match self.write_to_output(index, buf) {
+             Poll::Ready(r) => r,
+             Poll::Pending => Err(Error::new(EWOULDBLOCK)),
+         }
+     }
+ 
+-    fn fpath(&mut self, _id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
+-        FpathWriter::with(buf, "audiohw", |_| Ok(()))
++    fn fpath(&mut self, id: usize, buf: &mut [u8], _ctx: &CallerCtx) -> Result<usize> {
++        let handles = self.handles.lock();
++        let handle = handles.get(id)?;
++        let path = match handle {
++            Handle::Pcmout { .. } => "audiohw:pcmout0",
++            Handle::Pcmin { .. } => "audiohw:pcmin0",
++            Handle::StrBuf(_) => "audiohw:codec",
++            Handle::SchemeRoot => "audiohw:",
++        };
++        FpathWriter::with(buf, path, |_| Ok(()))
+     }
+ 
+     fn on_close(&mut self, id: usize) {
 diff --git a/drivers/audio/ihdad/src/hda/mod.rs b/drivers/audio/ihdad/src/hda/mod.rs
 index 7f01daf8..82ba89ae 100644
 --- a/drivers/audio/ihdad/src/hda/mod.rs

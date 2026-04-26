@@ -1,13 +1,11 @@
 # P2-ps2d-improvements.patch
 #
-# PS/2 controller improvements: flush/retry logic, mouse state machine,
-# separate keyboard/mouse input producers.
+# PS/2 controller improvements: flush/retry logic, mouse state machine fixes.
 #
 # Covers:
 #   - ps2d/controller.rs: flush stale bytes, self-test with retry, AUX port test
-#   - ps2d/main.rs: separate InputProducer for keyboard and mouse
 #   - ps2d/mouse.rs: ACK/RESEND/BAT constant names, resend handling, state machine fixes
-#   - ps2d/state.rs: dual InputProducer fields, non-fatal init error handling
+#   - ps2d/state.rs: non-fatal init error handling
 #
 diff --git a/drivers/input/ps2d/src/controller.rs b/drivers/input/ps2d/src/controller.rs
 index d7af4cba..638b7cc1 100644
@@ -31,7 +29,7 @@ index d7af4cba..638b7cc1 100644
 @@ -271,6 +279,50 @@ impl Ps2 {
          }
      }
- 
+
 +    /// Drain all pending bytes from the controller output buffer.
 +    /// Borrowed from Linux i8042_flush(): stale firmware/BIOS bytes can be
 +    /// misinterpreted as device responses during initialization.
@@ -78,10 +76,10 @@ index d7af4cba..638b7cc1 100644
 +
      pub fn init_keyboard(&mut self) -> Result<(), Error> {
          let mut b;
- 
+
 @@ -308,66 +360,125 @@ impl Ps2 {
      }
- 
+
      pub fn init(&mut self) -> Result<(), Error> {
 +        // Linux i8042_controller_check(): verify controller is present by
 +        // flushing any stale data. A stuck output buffer means no controller.
@@ -115,7 +113,7 @@ index d7af4cba..638b7cc1 100644
 +                warn!("disable second port failed: {:?}", err);
 +            }
          }
- 
+
 -        // Disable clocks, disable interrupts, and disable translate
 +        // Flush again after disabling — firmware may have queued more bytes
 +        self.flush();
@@ -131,7 +129,7 @@ index d7af4cba..638b7cc1 100644
                  | ConfigFlags::SECOND_DISABLED;
              self.set_config(config)?;
          }
- 
+
 -        // The keyboard seems to still collect bytes even when we disable
 -        // the port, so we must disable the keyboard too
 +        // Linux i8042_controller_selftest(): retry up to 5 times with delay.
@@ -184,7 +182,7 @@ index d7af4cba..638b7cc1 100644
 -
              Ok(b)
          })?;
- 
+
 -        {
 -            // Perform the self test
 -            self.command(Command::TestController)?;
@@ -199,7 +197,7 @@ index d7af4cba..638b7cc1 100644
              error!("failed to initialize keyboard: {:?}", err);
              return Err(err);
          }
- 
+
 -        // Enable second device
 -        let enable_mouse = match self.command(Command::EnableSecond) {
 -            Ok(()) => true,
@@ -223,7 +221,7 @@ index d7af4cba..638b7cc1 100644
 +            info!("skipping mouse init: aux port test did not pass");
 +            false
          };
- 
+
          {
 -            // Enable keyboard data reporting
 -            // Use inner function to prevent retries
@@ -233,41 +231,7 @@ index d7af4cba..638b7cc1 100644
 -                //TODO: fix by using interrupts?
              }
          }
- 
-diff --git a/drivers/input/ps2d/src/main.rs b/drivers/input/ps2d/src/main.rs
-index db17de2a..1ae055e4 100644
---- a/drivers/input/ps2d/src/main.rs
-+++ b/drivers/input/ps2d/src/main.rs
-@@ -11,7 +11,7 @@ use std::process;
- 
- use common::acquire_port_io_rights;
- use event::{user_data, EventQueue};
--use inputd::ProducerHandle;
-+use inputd::InputProducer;
- 
- use crate::state::Ps2d;
- 
-@@ -31,7 +31,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
- 
-     acquire_port_io_rights().expect("ps2d: failed to get I/O permission");
- 
--    let input = ProducerHandle::new().expect("ps2d: failed to open input producer");
-+    let keyboard_input = InputProducer::new_named_or_fallback("ps2-keyboard")
-+        .expect("ps2d: failed to open input producer");
-+    let mouse_input = InputProducer::new_named_or_fallback("ps2-mouse")
-+        .expect("ps2d: failed to open input producer");
- 
-     user_data! {
-         enum Source {
-@@ -93,7 +96,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
- 
-     daemon.ready();
- 
--    let mut ps2d = Ps2d::new(input, time_file);
-+    let mut ps2d = Ps2d::new(keyboard_input, mouse_input, time_file);
- 
-     let mut data = [0; 256];
-     for event in event_queue.map(|e| e.expect("ps2d: failed to get next event").user_data) {
+
 diff --git a/drivers/input/ps2d/src/mouse.rs b/drivers/input/ps2d/src/mouse.rs
 index 9e95ab88..8087c8c4 100644
 --- a/drivers/input/ps2d/src/mouse.rs
@@ -275,7 +239,7 @@ index 9e95ab88..8087c8c4 100644
 @@ -5,6 +5,11 @@ pub const RESET_RETRIES: usize = 10;
  pub const RESET_TIMEOUT: Duration = Duration::from_millis(1000);
  pub const COMMAND_TIMEOUT: Duration = Duration::from_millis(100);
- 
+
 +const CMD_ACK: u8 = 0xFA;
 +const CMD_RESEND: u8 = 0xFE;
 +const BAT_COMPLETE: u8 = 0xAA;
@@ -285,7 +249,7 @@ index 9e95ab88..8087c8c4 100644
  #[repr(u8)]
  #[allow(dead_code)]
 @@ -58,9 +63,11 @@ impl MouseTx {
- 
+
      fn handle(&mut self, data: u8, ps2: &mut Ps2) -> Result<bool, ()> {
          if self.write_i < self.write.len() {
 -            if data == 0xFA {
@@ -405,112 +369,16 @@ diff --git a/drivers/input/ps2d/src/state.rs b/drivers/input/ps2d/src/state.rs
 index 9018dc6b..da304e05 100644
 --- a/drivers/input/ps2d/src/state.rs
 +++ b/drivers/input/ps2d/src/state.rs
-@@ -1,4 +1,4 @@
--use inputd::ProducerHandle;
-+use inputd::InputProducer;
- use log::{error, warn};
- use orbclient::{ButtonEvent, KeyEvent, MouseEvent, MouseRelativeEvent, ScrollEvent};
- use std::{
-@@ -44,7 +44,8 @@ pub struct Ps2d {
-     ps2: Ps2,
-     vmmouse: bool,
-     vmmouse_relative: bool,
--    input: ProducerHandle,
-+    keyboard_input: InputProducer,
-+    mouse_input: InputProducer,
-     time_file: File,
-     extended: bool,
-     mouse_x: i32,
-@@ -59,9 +60,11 @@ pub struct Ps2d {
- }
- 
- impl Ps2d {
--    pub fn new(input: ProducerHandle, time_file: File) -> Self {
-+    pub fn new(keyboard_input: InputProducer, mouse_input: InputProducer, time_file: File) -> Self {
+@@ -61,9 +61,11 @@ impl Ps2d {
+     pub fn new(input: ProducerHandle, time_file: File) -> Self {
          let mut ps2 = Ps2::new();
 -        ps2.init().expect("failed to initialize");
 +        if let Err(err) = ps2.init() {
 +            log::error!("ps2d: controller init failed: {:?}", err);
 +        }
- 
+
          // FIXME add an option for orbital to disable this when an app captures the mouse.
          let vmmouse_relative = false;
-@@ -77,7 +80,8 @@ impl Ps2d {
-             ps2,
-             vmmouse,
-             vmmouse_relative,
--            input,
-+            keyboard_input,
-+            mouse_input,
-             time_file,
-             extended: false,
-             mouse_x: 0,
-@@ -273,7 +277,7 @@ impl Ps2d {
-                 };
- 
-                 if scancode != 0 {
--                    self.input
-+                    self.keyboard_input
-                         .write_event(
-                             KeyEvent {
-                                 character: '\0',
-@@ -304,7 +308,7 @@ impl Ps2d {
- 
-                 if self.vmmouse_relative {
-                     if dx != 0 || dy != 0 {
--                        self.input
-+                        self.mouse_input
-                             .write_event(
-                                 MouseRelativeEvent {
-                                     dx: dx as i32,
-@@ -320,14 +324,14 @@ impl Ps2d {
-                     if x != self.mouse_x || y != self.mouse_y {
-                         self.mouse_x = x;
-                         self.mouse_y = y;
--                        self.input
-+                        self.mouse_input
-                             .write_event(MouseEvent { x, y }.to_event())
-                             .expect("ps2d: failed to write mouse event");
-                     }
-                 };
- 
-                 if dz != 0 {
--                    self.input
-+                    self.mouse_input
-                         .write_event(
-                             ScrollEvent {
-                                 x: 0,
-@@ -348,7 +352,7 @@ impl Ps2d {
-                     self.mouse_left = left;
-                     self.mouse_middle = middle;
-                     self.mouse_right = right;
--                    self.input
-+                    self.mouse_input
-                         .write_event(
-                             ButtonEvent {
-                                 left,
-@@ -441,13 +445,13 @@ impl Ps2d {
-                 }
- 
-                 if dx != 0 || dy != 0 {
--                    self.input
-+                    self.mouse_input
-                         .write_event(MouseRelativeEvent { dx, dy }.to_event())
-                         .expect("ps2d: failed to write mouse event");
-                 }
- 
-                 if dz != 0 {
--                    self.input
-+                    self.mouse_input
-                         .write_event(ScrollEvent { x: 0, y: dz }.to_event())
-                         .expect("ps2d: failed to write scroll event");
-                 }
-@@ -462,7 +466,7 @@ impl Ps2d {
-                     self.mouse_left = left;
-                     self.mouse_middle = middle;
-                     self.mouse_right = right;
--                    self.input
-+                    self.mouse_input
-                         .write_event(
-                             ButtonEvent {
-                                 left,
+         let vmmouse = vm::enable(vmmouse_relative);
+
+         // TODO: QEMU hack, maybe do this when Init timed out?

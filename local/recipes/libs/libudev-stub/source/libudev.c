@@ -1018,6 +1018,11 @@ struct udev_device *udev_device_new_from_subsystem_sysname(struct udev *udev, co
     return ctx.result;
 }
 
+struct udev *udev_device_get_udev(struct udev_device *udev_device)
+{
+    return udev_device ? udev_device->udev : NULL;
+}
+
 const char *udev_device_get_devnode(struct udev_device *udev_device)
 {
     return udev_device ? udev_device->devnode : NULL;
@@ -1113,6 +1118,11 @@ const char *udev_device_get_sysnum(struct udev_device *udev_device)
 const char *udev_device_get_driver(struct udev_device *udev_device)
 {
     return udev_device ? udev_device->driver : NULL;
+}
+
+int udev_device_get_is_initialized(struct udev_device *udev_device)
+{
+    return udev_device ? 1 : 0;
 }
 
 int udev_device_has_tag(struct udev_device *udev_device, const char *tag)

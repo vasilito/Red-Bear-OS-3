@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 export DISPLAY=""
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
@@ -17,7 +17,7 @@ fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
 
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/scheme/null 2>&1; then
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2>&1; then
     eval "$(dbus-launch --sh-syntax)"
 fi
 

@@ -36,7 +36,7 @@ new file mode 100644
 +//! `sys/signalfd.h` implementation.
 +
 +use crate::{
-+    header::signal::{self, sigset_t, signalfd_siginfo},
++    header::signal::{self, signalfd_siginfo},
 +    platform::types::c_int,
 +};
 +

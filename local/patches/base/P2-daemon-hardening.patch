@@ -1,50 +1,3 @@
-diff --git a/Cargo.toml b/Cargo.toml
-index 9e776232..36d87870 100644
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -20,8 +20,17 @@ members = [
-     "drivers/common",
-     "drivers/executor",
- 
-+    "drivers/acpi-resource",
-     "drivers/acpid",
-+    "drivers/gpio/gpiod",
-+    "drivers/gpio/i2c-gpio-expanderd",
-+    "drivers/gpio/intel-gpiod",
-     "drivers/hwd",
-+    "drivers/i2c/amd-mp2-i2cd",
-+    "drivers/i2c/dw-acpi-i2cd",
-+    "drivers/i2c/i2c-interface",
-+    "drivers/i2c/i2cd",
-+    "drivers/i2c/intel-lpss-i2cd",
-     "drivers/pcid",
-     "drivers/pcid-spawner",
-     "drivers/rtcd",
-@@ -43,6 +52,8 @@ members = [
-     "drivers/graphics/virtio-gpud",
- 
-     "drivers/input/ps2d",
-+    "drivers/input/i2c-hidd",
-+    "drivers/input/intel-thc-hidd",
-     "drivers/input/usbhidd",
- 
-     "drivers/net/driver-network",
-@@ -63,6 +74,7 @@ members = [
-     "drivers/storage/usbscsid",
-     "drivers/storage/virtio-blkd",
- 
-+    "drivers/usb/ucsid",
-     "drivers/usb/xhcid",
-     "drivers/usb/usbctl",
-     "drivers/usb/usbhubd",
-@@ -81,6 +93,7 @@ drm = "0.15.0"
- drm-sys = "0.8.1"
- edid = "0.3.0" #TODO: edid is abandoned, fork it and maintain?
- fdt = "0.1.5"
-+nom = "3.2.0" # transitive dep via edid; needed to match on IResult variants
- libc = "0.2.181"
- log = "0.4"
- libredox = "0.1.16"
 diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
 index 9f507221..a0ba9d88 100644
 --- a/daemon/src/lib.rs
@@ -2432,7 +2385,7 @@ index 22a985ee..075502a2 100644
          self.control_queue.send(command).await;
 -        assert!(response.header.ty == CommandTy::RespOkDisplayInfo);
 +        if response.header.ty != CommandTy::RespOkDisplayInfo {
-+            return Err(Error::QueueSetup("unexpected response type for display info"));
++            return Err(Error::Probe("unexpected response type for display info"));
 +        }
  
          Ok(response)
@@ -2443,7 +2396,7 @@ index 22a985ee..075502a2 100644
          self.control_queue.send(command).await;
 -        assert!(response.header.ty == CommandTy::RespOkEdid);
 +        if response.header.ty != CommandTy::RespOkEdid {
-+            return Err(Error::QueueSetup("unexpected response type for EDID"));
++            return Err(Error::Probe("unexpected response type for EDID"));
 +        }
  
          Ok(response)
@@ -3262,7 +3215,7 @@ index d42a4e57..32f5076f 100644
 -            if !unit_store.unit(&unit_id).conditions_met() {
 +            if unit_store
 +                .unit(&unit_id)
-+                .map_or(false, |u| u.conditions_met())
++                .map_or(false, |u| !u.conditions_met())
 +            {
                  continue;
              }

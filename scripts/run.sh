@@ -9,6 +9,7 @@ ARCH="$(uname -m)"
 BUILD=0
 ALLOW_UPSTREAM=0
 QEMU_EXTRA_ARGS=()
+MAKE_ENV=()
 
 usage() {
     cat <<EOF
@@ -65,13 +66,18 @@ if [ "$BUILD" -eq 1 ]; then
     echo "==> Building cookbook..."
     cargo build --release
 
+    if [ "$(id -u)" -ne 0 ] && command -v fakeroot >/dev/null 2>&1; then
+        echo "==> Rootless build detected; using fakeroot redox_installer wrapper"
+        MAKE_ENV+=("INSTALLER=fakeroot build/fstools/bin/redox_installer")
+    fi
+
     echo "==> Building Red Bear OS ($CONFIG_NAME, $ARCH)..."
     if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
         echo "==> Upstream recipe refresh: enabled"
-        REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH"
+        REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make "${MAKE_ENV[@]}" all "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH"
     else
         echo "==> Upstream recipe refresh: disabled (pass --upstream to enable)"
-        REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH"
+        REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make "${MAKE_ENV[@]}" all "CONFIG_NAME=$CONFIG_NAME" ARCH="$ARCH"
     fi
     echo "==> Build complete."
 fi

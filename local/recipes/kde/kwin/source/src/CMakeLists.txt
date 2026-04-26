@@ -233,7 +233,6 @@ target_link_libraries(kwin
     PRIVATE
         Qt::Concurrent
         Qt::GuiPrivate
-        Qt::Qml
         Qt::Svg
 
         KF6::ColorScheme

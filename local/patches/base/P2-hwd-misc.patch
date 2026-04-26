@@ -1,64 +1,18 @@
 # P2-hwd-misc.patch
-# Extract hwd (hardware daemon) Cargo.toml and main.rs improvements.
-#
-# Files: drivers/hwd/Cargo.toml, drivers/hwd/src/main.rs
+# Keep hwd focused on hardware probing. Init owns boot-time pcid startup.
 
-diff --git a/drivers/hwd/Cargo.toml b/drivers/hwd/Cargo.toml
-index 3d37cfb3..40b51a1b 100644
---- a/drivers/hwd/Cargo.toml
-+++ b/drivers/hwd/Cargo.toml
-@@ -6,6 +6,7 @@ edition = "2018"
- 
- [dependencies]
- fdt.workspace = true
-+libc.workspace = true
- log.workspace = true
- ron.workspace = true
- libredox = { workspace = true, default-features = false, features = ["std", "call"] }
 diff --git a/drivers/hwd/src/main.rs b/drivers/hwd/src/main.rs
-index 79360e34..a0462f51 100644
+index 79360e34..4de3d9f3 100644
 --- a/drivers/hwd/src/main.rs
 +++ b/drivers/hwd/src/main.rs
-@@ -1,3 +1,5 @@
-+use std::os::fd::AsRawFd;
-+use std::os::unix::process::CommandExt;
- use std::process;
- 
- mod backend;
-@@ -37,8 +39,34 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+@@ -37,11 +37,6 @@ fn daemon(daemon: daemon::Daemon) -> ! {
  
      //TODO: launch pcid based on backend information?
      // Must launch after acpid but before probe calls /scheme/acpi/symbols
 -    #[allow(deprecated, reason = "we can't yet move this to init")]
 -    daemon::Daemon::spawn(process::Command::new("pcid"));
-+    // Fire-and-forget: daemon::Daemon::spawn blocks until pcid signals readiness,
-+    // but pcid only signals after full PCI enumeration. If enumeration hangs on
-+    // real hardware (unresponsive device, complex AML), hwd deadlocks initfs.
-+    {
-+        match std::io::pipe() {
-+            Ok((_read_end, write_end)) => {
-+                let write_fd: std::os::fd::OwnedFd = write_end.into();
-+                let raw_fd = write_fd.as_raw_fd();
-+                let mut cmd = std::process::Command::new("pcid");
-+                cmd.env("INIT_NOTIFY", raw_fd.to_string());
-+                unsafe {
-+                    cmd.pre_exec(move || {
-+                        if libc::fcntl(raw_fd, libc::F_SETFD, 0) == -1 {
-+                            return Err(std::io::Error::last_os_error());
-+                        }
-+                        Ok(())
-+                    });
-+                }
-+                match cmd.spawn() {
-+                    Ok(_) => {}
-+                    Err(err) => log::error!("hwd: failed to spawn pcid: {}", err),
-+                }
-+            }
-+            Err(err) => {
-+                log::error!("hwd: failed to create pcid notification pipe: {}", err);
-+            }
-+        }
-+    }
- 
+-
      daemon.ready();
+ 
+     //TODO: HWD is meant to locate PCI/XHCI/etc devices in ACPI and DeviceTree definitions and start their drivers
  

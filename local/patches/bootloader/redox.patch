@@ -377,21 +377,6 @@ index 3e36beb..bede418 100644
  
  unsafe fn dump_page_tables(table_phys: u64, table_virt: u64, table_level: u64) {
      unsafe {
-diff --git a/src/os/uefi/arch/riscv64/mod.rs b/src/os/uefi/arch/riscv64/mod.rs
-index ac3bc49..92dc280 100644
---- a/src/os/uefi/arch/riscv64/mod.rs
-+++ b/src/os/uefi/arch/riscv64/mod.rs
-@@ -1,8 +1,8 @@
--use crate::KernelArgs;
- use crate::arch::PHYS_OFFSET;
- use crate::logger::LOGGER;
--use crate::os::OsEfi;
- use crate::os::uefi::memory_map::memory_map;
-+use crate::os::OsEfi;
-+use crate::KernelArgs;
- use core::arch::asm;
- use core::mem;
- use uefi::status::Result;
 diff --git a/src/os/uefi/arch/x86_64.rs b/src/os/uefi/arch/x86_64.rs
 index e1ecaa5..52cef13 100644
 --- a/src/os/uefi/arch/x86_64.rs

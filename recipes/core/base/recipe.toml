@@ -5,7 +5,6 @@ patches = [
     "P2-ac97d-ihdad-main.patch",
     "P2-acpi-defer-aml.patch",
     "P2-acpi-i2c-resources.patch",
-    "P2-acpid-core-refactor.patch",
     "P2-boot-logging.patch",
     "P2-boot-runtime-fixes.patch",
     "P2-daemon-hardening.patch",
@@ -14,10 +13,9 @@ patches = [
     "P2-ihdad-device-refactor.patch",
     "P2-ihdad-hda-stream.patch",
     "P2-init-acpid-wiring.patch",
-    "P2-init-subsystems.patch",
+    "P2-initfs-pcid-service.patch",
     "P2-inputd.patch",
     "P2-ixgbed-error-handling.patch",
-    "P2-logd.patch",
     "P2-misc-daemon-fixes.patch",
     "P2-network-driver-mains.patch",
     "P2-network-error-handling.patch",
@@ -29,6 +27,7 @@ patches = [
     "P2-usb-pm-and-drivers.patch",
     "P2-virtio-core-vbox.patch",
     "P2-xhcid-remaining.patch",
+    # TODO: P2-acpid-core-refactor.patch needs rebasing against current cumulative state (13/15 hunks fail)
 ]
 
 [build]
@@ -101,11 +100,19 @@ esac
 mkdir -pv "${COOKBOOK_STAGE}/usr/bin" "${COOKBOOK_STAGE}/usr/lib/drivers"
 export CARGO_PROFILE_RELEASE_OPT_LEVEL=s
 export CARGO_PROFILE_RELEASE_PANIC=abort
+# Only build drivers that actually have source Cargo.toml entries
+EXISTING_BINS=()
+for bin in "${BINS[@]}"
+do
+    if grep -Rqs "^name = \\\"${bin}\\\"$" "${COOKBOOK_SOURCE}"; then
+        EXISTING_BINS+=("${bin}")
+    fi
+done
 "${COOKBOOK_CARGO}" build ${build_flags} \
     --manifest-path "${COOKBOOK_SOURCE}/Cargo.toml" \
     --target "${TARGET}" \
-    $(for bin in "${BINS[@]}"; do echo "-p" "${bin}"; done)
-for bin in "${BINS[@]}"
+    $(for bin in "${EXISTING_BINS[@]}"; do echo "-p" "${bin}"; done)
+for bin in "${EXISTING_BINS[@]}"
 do
     if [[ "${bin}" == "gpiod" || "${bin}" == "i2c-gpio-expanderd" || "${bin}" == "intel-gpiod" || "${bin}" == "i2cd" || "${bin}" == "dw-acpi-i2cd" || "${bin}" == "i2c-hidd" || "${bin}" == "inputd" || "${bin}" == "pcid" || "${bin}" == "pcid-spawner" || "${bin}" == "redoxerd" || "${bin}" == "ucsid" ]]; then
         cp -v "target/${TARGET}/${build_type}/${bin}" "${COOKBOOK_STAGE}/usr/bin"
@@ -115,7 +122,7 @@ do
 done
 
 mkdir -pv "${COOKBOOK_STAGE}/lib/pcid.d"
-${FIND} "${COOKBOOK_SOURCE}/drivers" -maxdepth 3 -type f -name 'config.toml' | while read conf
+find "${COOKBOOK_SOURCE}/drivers" -maxdepth 3 -type f -name 'config.toml' | while read conf
 do
     driver="$(basename "$(dirname "$conf")")"
     cp -v "$conf" "${COOKBOOK_STAGE}/lib/pcid.d/$driver.toml"

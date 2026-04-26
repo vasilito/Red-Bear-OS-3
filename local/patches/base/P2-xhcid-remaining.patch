@@ -379,34 +379,6 @@ index 74b9f732..493e79df 100644
 +        }
 +    }
  }
-diff --git a/drivers/usb/xhcid/src/xhci/irq_reactor.rs b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
-index ac492d5b..310fe51f 100644
---- a/drivers/usb/xhcid/src/xhci/irq_reactor.rs
-+++ b/drivers/usb/xhcid/src/xhci/irq_reactor.rs
-@@ -633,7 +633,10 @@ impl<const N: usize> Xhci<N> {
-     pub fn with_ring<T, F: FnOnce(&Ring) -> T>(&self, id: RingId, function: F) -> Option<T> {
-         use super::RingOrStreams;
- 
--        let slot_state = self.port_states.get(&id.port)?;
-+        let slot_state = self
-+            .port_states
-+            .get(&id.port)
-+            .or_else(|| self.staged_port_states.get(&id.port))?;
-         let endpoint_state = slot_state.endpoint_states.get(&id.endpoint_num)?;
- 
-         let ring_ref = match endpoint_state.transfer {
-@@ -650,7 +653,10 @@ impl<const N: usize> Xhci<N> {
-     ) -> Option<T> {
-         use super::RingOrStreams;
- 
--        let mut slot_state = self.port_states.get_mut(&id.port)?;
-+        let mut slot_state = self
-+            .port_states
-+            .get_mut(&id.port)
-+            .or_else(|| self.staged_port_states.get_mut(&id.port))?;
-         let mut endpoint_state = slot_state.endpoint_states.get_mut(&id.endpoint_num)?;
- 
-         let ring_ref = match endpoint_state.transfer {
 diff --git a/drivers/usb/xhcid/src/xhci/mod.rs b/drivers/usb/xhcid/src/xhci/mod.rs
 index f2143676..0d2ec432 100644
 --- a/drivers/usb/xhcid/src/xhci/mod.rs

@@ -1,8 +1,20 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index f014279..950afdc 100644
+index 8daba8746..fbbc4a49c 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -855,19 +855,7 @@ dependencies = [
+@@ -38,9 +38,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "anyhow"
+-version = "1.0.102"
++version = "1.0.100"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
++checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+ 
+ [[package]]
+ name = "arg_parser"
+@@ -855,22 +855,11 @@ dependencies = [
  ]
  
  [[package]]
@@ -19,11 +31,15 @@ index f014279..950afdc 100644
 -
 -[[package]]
 -name = "redox_cookbook"
-+name = "rbos_cookbook"
++name = "redbear_cookbook"
  version = "0.1.0"
  dependencies = [
   "ansi-to-tui",
-@@ -892,6 +880,18 @@ dependencies = [
++ "anyhow",
+  "blake3",
+  "globset",
+  "ignore",
+@@ -891,6 +880,18 @@ dependencies = [
   "walkdir",
  ]
  
@@ -43,13 +59,13 @@ index f014279..950afdc 100644
  name = "redox_installer"
  version = "0.2.42"
 diff --git a/Cargo.toml b/Cargo.toml
-index 54479d5..4d6e8e2 100644
+index ad32286ff..bf4634cea 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -1,5 +1,5 @@
  [package]
 -name = "redox_cookbook"
-+name = "rbos_cookbook"
++name = "redbear_cookbook"
  version = "0.1.0"
  authors = ["Jeremy Soller <jackpot51@gmail.com>"]
  edition = "2024"
@@ -58,15 +74,854 @@ index 54479d5..4d6e8e2 100644
  
  [[bin]]
 -name = "cookbook_redoxer"
-+name = "cookbook_rbos_redoxer"
++name = "cookbook_redbear_redoxer"
  path = "src/bin/cookbook_redoxer.rs"
  
  [[bin]]
+@@ -30,6 +30,7 @@ default = ["tui"]
+ tui = ["ratatui", "ansi-to-tui", "strip-ansi-escapes"]
+ 
+ [dependencies]
++anyhow = "1"
+ blake3 = "1"
+ globset = "0.4"
+ libc = "0.2"
 diff --git a/src/bin/repo.rs b/src/bin/repo.rs
-index 954bad4..709e63b 100644
+index d30360dc6..167ac78cd 100644
 --- a/src/bin/repo.rs
 +++ b/src/bin/repo.rs
-@@ -1549,8 +1549,15 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
+@@ -1,15 +1,16 @@
+ use ansi_to_tui::IntoText;
++use anyhow::{Context, anyhow, bail};
+ use cookbook::config::{CookConfig, get_config, init_config};
+ use cookbook::cook::cook_build::{build, get_stage_dirs, remove_stage_dir};
+ use cookbook::cook::fetch::{FetchResult, fetch, fetch_offline};
+-use cookbook::cook::fs::{create_dir, create_target_dir, remove_all, run_command};
++use cookbook::cook::fs::{create_target_dir, run_command};
+ use cookbook::cook::ident;
+ use cookbook::cook::package::{package, package_handle_push};
+ use cookbook::cook::pty::{PtyOut, UnixSlavePty, flush_pty, setup_pty, write_to_pty};
+ use cookbook::cook::script::KILL_ALL_PID;
+ use cookbook::cook::tree::{self, WalkTreeEntry};
+ use cookbook::recipe::{CookRecipe, recipes_flatten_package_names, recipes_mark_as_deps};
+-use cookbook::{Error, Result, staged_pkg};
++use cookbook::{Error, staged_pkg};
+ use pkg::{PackageName, PackageState};
+ use ratatui::Terminal;
+ use ratatui::layout::{Constraint, Direction, Layout, Rect};
+@@ -19,9 +20,9 @@ use ratatui::text::{Line, Span, Text};
+ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+ use redox_installer::PackageConfig;
+ use std::borrow::Cow;
+-use std::collections::{BTreeMap, HashMap, HashSet};
++use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+ use std::io::{Read, Write, stderr, stdin, stdout};
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
+ use std::process::Command;
+ use std::str::FromStr;
+ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+@@ -37,6 +38,24 @@ use termion::{color, style};
+ 
+ // A repo manager, to replace repo.sh
+ 
++/// Check if a recipe directory is a local Red Bear overlay (symlink into local/).
++/// Local overlay recipes must never have their source/ deleted by unfetch/clean.
++fn is_local_overlay(recipe_dir: &Path) -> bool {
++    if let Ok(resolved) = recipe_dir.canonicalize() {
++        let resolved_str = resolved.to_string_lossy();
++        return resolved_str.contains("/local/recipes/");
++    }
++    false
++}
++
++/// Check if the operator has explicitly allowed destructive operations on local overlays.
++fn redbear_allow_local_unfetch() -> bool {
++    matches!(
++        std::env::var("REDBEAR_ALLOW_LOCAL_UNFETCH").ok().as_deref(),
++        Some("1" | "true" | "TRUE" | "yes" | "YES")
++    )
++}
++
+ const REPO_HELP_STR: &str = r#"
+     Usage: repo <command> [flags] <recipe1> <recipe2> ...
+ 
+@@ -121,9 +140,9 @@ impl CliCommand {
+ }
+ 
+ impl FromStr for CliCommand {
+-    type Err = Error;
++    type Err = anyhow::Error;
+ 
+-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
++    fn from_str(s: &str) -> Result<Self, Self::Err> {
+         match s {
+             "fetch" => Ok(CliCommand::Fetch),
+             "cook" => Ok(CliCommand::Cook),
+@@ -134,7 +153,7 @@ impl FromStr for CliCommand {
+             "push-tree" => Ok(CliCommand::PushTree),
+             "cook-tree" => Ok(CliCommand::CookTree),
+             "find" => Ok(CliCommand::Find),
+-            _ => bail_options_err!("Unknown command {:?}", s),
++            _ => Err(anyhow!("Unknown command '{}'\n{}\n", s, REPO_HELP_STR)),
+         }
+     }
+ }
+@@ -156,10 +175,9 @@ impl ToString for CliCommand {
+ }
+ 
+ impl CliConfig {
+-    fn new() -> Result<Self> {
+-        let current_dir = env::current_dir().map_err(|e| Error::from_io_error(e, "Getting cwd"))?;
++    fn new() -> Result<Self, std::io::Error> {
++        let current_dir = env::current_dir()?;
+         Ok(CliConfig {
+-            //FIXME: This config is unused as redox-pkg harcoded this to $PWD/recipes
+             cookbook_dir: current_dir.join("recipes"),
+             repo_dir: current_dir.join("repo"),
+             // build dir here is hardcoded in repo_builder as well
+@@ -185,19 +203,17 @@ impl CliConfig {
+ fn main() {
+     init_config();
+     if let Err(e) = main_inner() {
+-        match e {
+-            Error::Options(e) => eprintln!("{}\n{}", e, REPO_HELP_STR),
+-            e => eprintln!("{}", e),
+-        }
++        eprintln!("{:?}", e);
+         process::exit(1);
+     };
+ }
+ 
+-fn main_inner() -> Result<()> {
++fn main_inner() -> anyhow::Result<()> {
+     let args: Vec<String> = env::args().skip(1).collect();
+ 
+     if args.is_empty() || args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+-        bail_options_err!("");
++        println!("{}", REPO_HELP_STR);
++        process::exit(1);
+     }
+ 
+     let (config, command, recipes) = parse_args(args)?;
+@@ -206,16 +222,14 @@ fn main_inner() -> Result<()> {
+     }
+     if command == CliCommand::Cook && config.cook.tui {
+         match run_tui_cook(config.clone(), recipes.clone()) {
+-            Ok(TuiApp {
+-                dump_logs_on_exit: Some((name, err)),
+-                ..
+-            }) => {
+-                let _ = stderr().write(err.as_bytes());
+-                let _ = stderr().write(b"\n\n");
+-                print_failed(&command, &name);
+-                return Err(Error::from(format!("Execution has failed")));
+-            }
+-            Ok(app) => {
++            Ok(mut app) => {
++                app.shutdown_log_writer();
++                if let Some((name, err)) = app.dump_logs_on_exit.take() {
++                    let _ = stderr().write(err.as_bytes());
++                    let _ = stderr().write(b"\n\n");
++                    print_failed(&command, &name);
++                    return Err(anyhow!("Execution has failed"));
++                }
+                 for (recipe, status) in app.recipes {
+                     match status {
+                         RecipeStatus::Cached => print_cached(&command, &recipe.name),
+@@ -229,7 +243,7 @@ fn main_inner() -> Result<()> {
+                     }
+                 }
+             }
+-            Err(e) => return Err(e),
++            Err(e) => return Err(anyhow!(e)),
+         }
+         return publish_packages(&recipes, &config.repo_dir);
+     }
+@@ -258,10 +272,10 @@ fn main_inner() -> Result<()> {
+             Err(e) => {
+                 if config.cook.nonstop {
+                     if verbose {
+-                        eprintln!("{}", e);
++                        eprintln!("{:?}", e);
+                     }
+                     if let Err(e) = handle_nonstop_fail(recipe) {
+-                        eprintln!("{}", e)
++                        eprintln!("{:?}", e)
+                     };
+                 }
+                 print_failed(&command, &recipe.name);
+@@ -322,10 +336,14 @@ fn print_cached(command: &CliCommand, recipe: &PackageName) {
+     );
+ }
+ 
+-fn repo_inner(config: &CliConfig, command: &CliCommand, recipe: &CookRecipe) -> Result<bool> {
++fn repo_inner(
++    config: &CliConfig,
++    command: &CliCommand,
++    recipe: &CookRecipe,
++) -> Result<bool, anyhow::Error> {
+     Ok(match *command {
+         CliCommand::Fetch | CliCommand::Cook => {
+-            let repo_inner_fn = move |logger: &PtyOut| -> Result<bool> {
++            let repo_inner_fn = move |logger: &PtyOut| -> Result<bool, anyhow::Error> {
+                 let is_cook = *command == CliCommand::Cook;
+                 let fetch_result = handle_fetch(recipe, config, is_cook, logger)?;
+                 let cached = if is_cook {
+@@ -347,7 +365,10 @@ fn repo_inner(config: &CliConfig, command: &CliCommand, recipe: &CookRecipe) ->
+             let th = thread::spawn(move || {
+                 while let Ok(update) = status_rx.recv() {
+                     match &update {
+-                        StatusUpdate::CookThreadFinished => break,
++                        StatusUpdate::CookThreadFinished => {
++                            app.shutdown_log_writer();
++                            break;
++                        }
+                         StatusUpdate::FailCook(r, _) => {
+                             let (logs, line) = app.get_recipe_log(&r.name);
+                             if let Some(logs) = logs {
+@@ -361,7 +382,7 @@ fn repo_inner(config: &CliConfig, command: &CliCommand, recipe: &CookRecipe) ->
+             let mut logger = Some((&mut stdout_writer, &mut stderr_writer));
+             let result = repo_inner_fn(&logger);
+             if let Err(err_ctx) = &result {
+-                write_to_pty(&logger, &format!("\n{err_ctx}"));
++                write_to_pty(&logger, &format!("\n{:?}", err_ctx));
+             }
+             // successful cached build is not that useful to log
+             if !matches!(result, Ok(true)) {
+@@ -396,12 +417,8 @@ fn repo_inner(config: &CliConfig, command: &CliCommand, recipe: &CookRecipe) ->
+     })
+ }
+ 
+-fn publish_packages(recipe_names: &Vec<CookRecipe>, repo_path: &PathBuf) -> Result<()> {
+-    let repo_bin = env::current_exe()
+-        .map_err(|e| Error::from_io_error(e, "Getting exe path"))?
+-        .parent()
+-        .unwrap()
+-        .join("repo_builder");
++fn publish_packages(recipe_names: &Vec<CookRecipe>, repo_path: &PathBuf) -> anyhow::Result<()> {
++    let repo_bin = env::current_exe()?.parent().unwrap().join("repo_builder");
+     let mut command = Command::new(repo_bin);
+     command
+         .arg(repo_path)
+@@ -413,10 +430,10 @@ fn publish_packages(recipe_names: &Vec<CookRecipe>, repo_path: &PathBuf) -> Resu
+             }
+         }));
+ 
+-    run_command(command, &None)
++    run_command(command, &None).map_err(|e| anyhow!(e))
+ }
+ 
+-fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecipe>)> {
++fn parse_args(args: Vec<String>) -> anyhow::Result<(CliConfig, CliCommand, Vec<CookRecipe>)> {
+     let mut config = CliConfig::new()?;
+     let mut command: Option<String> = None;
+     let mut recipe_names: Vec<PackageName> = Vec::new();
+@@ -432,10 +449,13 @@ fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecip
+                     "--filesystem" => {
+                         config.filesystem = Some({
+                             let r = redox_installer::Config::from_file(&PathBuf::from(value));
+-                            r.map_err(|e| Error::Other(format!("{:?}", e)))?
++                            r.context("Unable to read filesystem installer config")?
+                         })
+                     }
+-                    _ => bail_options_err!("Error: Unknown flag with value: {}", arg),
++                    _ => {
++                        eprintln!("Error: Unknown flag with value: {}", arg);
++                        process::exit(1);
++                    }
+                 }
+             } else if arg.starts_with("--category-") {
+                 // to workaround make command limit we provide this option
+@@ -445,19 +465,25 @@ fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecip
+                     "--repo-binary" => override_filesystem_repo_binary = true,
+                     "--with-package-deps" => config.with_package_deps = true,
+                     "--all" => config.all = true,
+-                    _ => bail_options_err!("Error: Unknown flag: {}", arg),
++                    _ => {
++                        eprintln!("Error: Unknown flag: {}", arg);
++                        process::exit(1);
++                    }
+                 }
+             }
+         } else if arg.starts_with('-') {
+             match arg.as_str() {
+-                _ => bail_options_err!("Error: Unknown flag: {}", arg),
++                _ => {
++                    eprintln!("Error: Unknown flag: {}", arg);
++                    process::exit(1);
++                }
+             }
+         } else if command.is_none() {
+             // The first non-flag argument is the command
+             command = Some(arg);
+         } else {
+             // Subsequent non-flag arguments are recipe names
+-            recipe_names.push(arg.try_into().map_err(Error::from)?);
++            recipe_names.push(arg.try_into().context("Invalid package name")?);
+         }
+     }
+ 
+@@ -466,13 +492,11 @@ fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecip
+         config.category = Some(PathBuf::from("recipes").join(c));
+     }
+     if let Some(c) = config.logs_dir.as_mut() {
+-        create_dir(&c.join(redoxer::target()))?;
+-        create_dir(&c.join(redoxer::host_target()))?;
++        fs::create_dir_all(c.join(redoxer::target())).map_err(|e| anyhow!(e))?;
++        fs::create_dir_all(c.join(redoxer::host_target())).map_err(|e| anyhow!(e))?;
+     }
+ 
+-    let Some(command) = command else {
+-        bail_options_err!("Error: No command specified");
+-    };
++    let command = command.ok_or(anyhow!("Error: No command specified."))?;
+     let command: CliCommand = str::parse(&command)?;
+     if command.is_informational() {
+         // avoid extra data that clobber stdout
+@@ -484,17 +508,15 @@ fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecip
+     if recipe_names.is_empty() {
+         if config.all || config.category.is_some() {
+             if !recipe_names.is_empty() {
+-                bail_options_err!(
+-                    "Do not specify recipe names when using the --all or --category flag"
+-                );
++                bail!("Do not specify recipe names when using the --all or --category flag.");
+             }
+             if config.all && config.category.is_some() {
+-                bail_options_err!("Do not specify both --all and --category flag.");
++                bail!("Do not specify both --all and --category flag.");
+             }
+             if config.all && !command.is_cleaning() {
+                 // because read_recipe is false by logic below
+                 // some recipes on wip folders are invalid anyway
+-                bail_options_err!(
++                bail!(
+                     "Refusing to run an unrealistic command to {} all recipes",
+                     command.to_string()
+                 );
+@@ -522,7 +544,7 @@ fn parse_args(args: Vec<String>) -> Result<(CliConfig, CliCommand, Vec<CookRecip
+                     .filter_map(|k| PackageName::new(k.to_string()).ok())
+                     .collect();
+             } else {
+-                bail_options_err!(
++                bail!(
+                     "Error: No recipe names or filesystem config provided and --all flag was not used."
+                 );
+             }
+@@ -692,11 +714,14 @@ fn handle_fetch(
+     config: &CliConfig,
+     allow_offline: bool,
+     logger: &PtyOut,
+-) -> Result<FetchResult> {
+-    match config.cook.offline && allow_offline {
++) -> anyhow::Result<FetchResult> {
++    let source_dir = match config.cook.offline && allow_offline {
+         true => fetch_offline(&recipe, logger),
+         false => fetch(&recipe, !recipe.is_deps, logger),
+     }
++    .map_err(|e| anyhow!("failed to fetch: {}", e))?;
++
++    Ok(source_dir)
+ }
+ 
+ fn handle_cook(
+@@ -704,9 +729,9 @@ fn handle_cook(
+     config: &CliConfig,
+     source_dir: PathBuf,
+     logger: &PtyOut,
+-) -> Result<bool> {
++) -> anyhow::Result<bool> {
+     let recipe_dir = &recipe.dir;
+-    let target_dir = create_target_dir(recipe_dir, recipe.target)?;
++    let target_dir = create_target_dir(recipe_dir, recipe.target).map_err(|e| anyhow!(e))?;
+     let build_result = build(
+         recipe_dir,
+         &source_dir,
+@@ -714,9 +739,11 @@ fn handle_cook(
+         &recipe,
+         &config.cook,
+         logger,
+-    )?;
++    )
++    .map_err(|err| anyhow!("failed to build: {}", err))?;
+ 
+-    package(&recipe, &build_result, &config.cook, logger)?;
++    package(&recipe, &build_result, &config.cook, logger)
++        .map_err(|err| anyhow!("failed to package: {}", err))?;
+ 
+     if config.cook.clean_target || config.cook.write_filetree {
+         for stage_dir in &build_result.stage_dirs {
+@@ -724,12 +751,12 @@ fn handle_cook(
+                 if config.cook.write_filetree {
+                     let mut stage_files_buf = String::new();
+                     tree::walk_file_tree(&stage_dir, "", &mut stage_files_buf)
+-                        .map_err(|e| Error::from_io_error(e, "Walking files tree"))?;
++                        .context("failed to walk stage files tree")?;
+                     fs::write(stage_dir.with_added_extension("files"), stage_files_buf)
+-                        .map_err(|e| Error::from_io_error(e, "Writing files tree"))?;
++                        .context("unable to write stage files")?;
+                 }
+                 if config.cook.clean_target {
+-                    remove_all(&stage_dir)?;
++                    fs::remove_dir_all(&stage_dir).context("failed to remove stage dir")?;
+                 }
+             }
+         }
+@@ -747,54 +774,66 @@ fn handle_nonstop_fail(recipe: &CookRecipe) -> cookbook::Result<()> {
+     Ok(())
+ }
+ 
+-fn handle_clean(recipe: &CookRecipe, _config: &CliConfig, command: &CliCommand) -> Result<bool> {
++fn handle_clean(
++    recipe: &CookRecipe,
++    _config: &CliConfig,
++    command: &CliCommand,
++) -> anyhow::Result<bool> {
+     let mut dir = recipe.dir.join("target");
+     let mut cached = true;
+     if matches!(*command, CliCommand::CleanTarget) {
+         dir = dir.join(redoxer::target())
+     }
+     if dir.exists() {
+-        remove_all(&dir)?;
++        fs::remove_dir_all(&dir).context(format!("failed to delete {}", dir.display()))?;
+         cached = false;
+     }
+     let dir = recipe.dir.join("source");
+     if dir.exists() && matches!(*command, CliCommand::Unfetch) {
+-        remove_all(&dir)?;
+-        cached = false;
++        if is_local_overlay(&recipe.dir) && !redbear_allow_local_unfetch() {
++            eprintln!(
++                "[WARN] skipping unfetch for local overlay recipe {} \
++                 (source lives in local/; set REDBEAR_ALLOW_LOCAL_UNFETCH=1 to override)",
++                recipe.name.name()
++            );
++        } else {
++            fs::remove_dir_all(&dir).context(format!("failed to delete {}", dir.display()))?;
++            cached = false;
++        }
+     }
+     Ok(cached)
+ }
+ 
+ static PUSH_SYSROOT_DIR: OnceLock<PathBuf> = OnceLock::new();
+-fn handle_push(recipes: &Vec<CookRecipe>, config: &CliConfig) -> Result<()> {
++fn handle_push(recipes: &Vec<CookRecipe>, config: &CliConfig) -> anyhow::Result<()> {
+     let recipe_map: HashMap<&PackageName, &CookRecipe> =
+         recipes.iter().map(|r| (&r.name, r)).collect();
+     let mut total_size: u64 = 0;
+     let mut total_count: u64 = 0;
+     let mut visited: HashSet<PackageName> = HashSet::new();
+     let num_recipes = recipes.len();
+-    PUSH_SYSROOT_DIR.set(config.sysroot_dir.clone()).unwrap();
++    PUSH_SYSROOT_DIR.get_or_init(|| config.sysroot_dir.clone());
+     let handle_push_inner = move |package_name: &PackageName,
+                                   _prefix: &str,
+                                   _is_last: bool,
+                                   entry: &WalkTreeEntry|
+-          -> Result<bool> {
++          -> anyhow::Result<bool> {
+         let r = match entry {
+             WalkTreeEntry::Built(archive_path, _) => {
+                 let install_path = PUSH_SYSROOT_DIR.get().unwrap();
+-                let mut state = PackageState::from_sysroot(install_path).map_err(Error::from)?;
+-                let r = package_handle_push(&mut state, archive_path, &install_path, false);
++                let mut state =
++                    PackageState::from_sysroot(install_path).map_err(|e| anyhow!("{e:?}"))?;
++                let r = package_handle_push(&mut state, archive_path, &install_path, false)
++                    .map_err(|e| anyhow!("{e:?}"));
+                 if matches!(r, Ok(false)) {
+-                    state
+-                        .to_sysroot(install_path)
+-                        .map_err(|e| Error::from_io_error(e, "Extracting package"))?;
++                    state.to_sysroot(install_path)?;
+                 }
+                 r
+             }
+-            WalkTreeEntry::NotBuilt => Err(Error::Other(format!(
++            WalkTreeEntry::NotBuilt => Err(anyhow!(
+                 "Package {} has not been built",
+                 package_name.name()
+-            ))),
++            )),
+             WalkTreeEntry::Deduped | WalkTreeEntry::Missing => {
+                 // does not matter
+                 return Ok(false);
+@@ -850,7 +889,11 @@ fn handle_push(recipes: &Vec<CookRecipe>, config: &CliConfig) -> Result<()> {
+     Ok(())
+ }
+ 
+-fn handle_tree(recipes: &Vec<CookRecipe>, is_build_tree: bool, _config: &CliConfig) -> Result<()> {
++fn handle_tree(
++    recipes: &Vec<CookRecipe>,
++    is_build_tree: bool,
++    _config: &CliConfig,
++) -> anyhow::Result<()> {
+     let recipe_map: HashMap<&PackageName, &CookRecipe> =
+         recipes.iter().map(|r| (&r.name, r)).collect();
+     let mut total_size: u64 = 0;
+@@ -915,55 +958,6 @@ enum RecipeStatus {
+     Failed(String),
+ }
+ 
+-impl RecipeStatus {
+-    pub fn fetch_is_part_of(&self) -> bool {
+-        matches!(*self, RecipeStatus::Pending | RecipeStatus::Fetching)
+-    }
+-    pub fn fetch_style(&self) -> Style {
+-        match *self {
+-            RecipeStatus::Fetching => Style::default().fg(Color::Yellow),
+-            _ => Style::default(),
+-        }
+-    }
+-    pub fn fetch_icon(&self, spin: char) -> char {
+-        match *self {
+-            RecipeStatus::Pending => ' ',
+-            RecipeStatus::Fetching => spin,
+-            _ => '?',
+-        }
+-    }
+-    pub fn cook_is_part_of(&self) -> bool {
+-        matches!(
+-            *self,
+-            RecipeStatus::Fetched
+-                | RecipeStatus::Cooking
+-                | RecipeStatus::Done
+-                | RecipeStatus::Cached
+-                | RecipeStatus::Failed(_)
+-        )
+-    }
+-    pub fn cook_style(&self) -> Style {
+-        match *self {
+-            RecipeStatus::Fetched => Style::default(),
+-            RecipeStatus::Cooking => Style::default().fg(Color::Yellow),
+-            RecipeStatus::Done => Style::default().fg(Color::Green),
+-            RecipeStatus::Cached => Style::default().fg(Color::Cyan),
+-            RecipeStatus::Failed(_) => Style::default().fg(Color::Red),
+-            _ => Style::default(),
+-        }
+-    }
+-    pub fn cook_icon(&self, spin: char) -> char {
+-        match *self {
+-            RecipeStatus::Fetched => ' ',
+-            RecipeStatus::Cooking => spin,
+-            RecipeStatus::Done => '+',
+-            RecipeStatus::Cached => ' ',
+-            RecipeStatus::Failed(_) => 'X',
+-            _ => '?',
+-        }
+-    }
+-}
+-
+ #[derive(Debug, Clone, PartialEq)]
+ enum StatusUpdate {
+     StartFetch(PackageName),
+@@ -978,6 +972,19 @@ enum StatusUpdate {
+     CookThreadFinished,
+ }
+ 
++/// Messages sent to the background log-writer thread so that file I/O
++/// never blocks the TUI event loop.
++enum LogWriterMessage {
++    /// Write `content` to `path` (log file for `name`).
++    Write {
++        _name: PackageName,
++        path: PathBuf,
++        content: String,
++    },
++    /// Shut down the writer thread.
++    Shutdown,
++}
++
+ #[derive(PartialEq)]
+ enum JobType {
+     Fetch,
+@@ -998,6 +1005,9 @@ const PROMPT_WAIT: Duration = Duration::from_millis(101);
+ 
+ struct TuiApp {
+     recipes: Vec<(CookRecipe, RecipeStatus)>,
++    fetch_queue: VecDeque<CookRecipe>,
++    cook_queue: VecDeque<CookRecipe>,
++    done: Vec<PackageName>,
+     active_fetch: Option<PackageName>,
+     active_cook: Option<PackageName>,
+     logs: HashMap<PackageName, Vec<String>>,
+@@ -1006,22 +1016,46 @@ struct TuiApp {
+     log_view_job: JobType,
+     auto_scroll: bool,
+     cook_scroll: usize,
++    cook_auto_scroll: bool,
+     cook_list_state: ListState,
+     fetch_complete: bool,
+     cook_complete: bool,
+     prompt: Option<FailurePrompt>,
+     dump_logs_anyway: bool,
+     dump_logs_on_exit: Option<(PackageName, String)>,
++    log_writer_tx: mpsc::Sender<LogWriterMessage>,
+ }
+ 
+ impl TuiApp {
+     fn new(recipes: Vec<CookRecipe>) -> Self {
++        let (log_writer_tx, log_writer_rx) = mpsc::channel::<LogWriterMessage>();
++        thread::spawn(move || {
++            while let Ok(msg) = log_writer_rx.recv() {
++                match msg {
++                    LogWriterMessage::Write { _name, path, content } => {
++                        if content.trim_end().is_empty() {
++                            continue;
++                        }
++                        if let Some(parent) = path.parent() {
++                            let _ = fs::create_dir_all(parent);
++                        }
++                        if let Err(e) = fs::write(&path, &content) {
++                            eprintln!("log writer: failed to write {}: {e}", path.display());
++                        }
++                    }
++                    LogWriterMessage::Shutdown => break,
++                }
++            }
++        });
+         Self {
+             recipes: recipes
+                 .iter()
+                 .cloned()
+                 .map(|r| (r, RecipeStatus::Pending))
+                 .collect(),
++            fetch_queue: recipes.iter().cloned().map(|r| r.clone()).collect(),
++            cook_queue: VecDeque::new(),
++            done: Vec::new(),
+             active_fetch: None,
+             active_cook: None,
+             logs: HashMap::new(),
+@@ -1030,12 +1064,14 @@ impl TuiApp {
+             auto_scroll: true,
+             log_view_job: JobType::Fetch,
+             cook_scroll: 0,
++            cook_auto_scroll: true,
+             cook_list_state: ListState::default(),
+             fetch_complete: false,
+             cook_complete: false,
+             prompt: None,
+             dump_logs_anyway: false,
+             dump_logs_on_exit: None,
++            log_writer_tx,
+         }
+     }
+ 
+@@ -1077,17 +1113,6 @@ impl TuiApp {
+         (log_text, log_line)
+     }
+ 
+-    pub fn write_log(&self, recipe_name: &PackageName, log_path: &PathBuf) -> Result<()> {
+-        let (Some(logs), line) = self.get_recipe_log(recipe_name) else {
+-            return Ok(());
+-        };
+-        let str = strip_ansi_escapes::strip_str(join_logs(logs, line));
+-        if !str.trim_end().is_empty() {
+-            fs::write(log_path, str).map_err(|e| Error::from_io_error(e, "Writing log"))?;
+-        }
+-        return Ok(());
+-    }
+-
+     // Update the state based on a message from a worker thread
+     fn update_status(&mut self, update: StatusUpdate) {
+         let (name, new_status) = match update {
+@@ -1117,20 +1142,30 @@ impl TuiApp {
+                     let _ = std::io::stdout().write_all(&chunk);
+                 }
+                 let log_list = self.logs.entry(name.clone()).or_default();
+-                // TODO: multibyte-aware line split?
+-                while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
+-                    let line_bytes = buffer.drain(..=newline_pos);
+-                    let line_str = String::from_utf8_lossy(&line_bytes.as_slice());
+-                    let line_str_pos = line_str.trim_end();
+-                    let line_str = line_str_pos.rsplit('\r').next().unwrap_or(&line_str_pos);
++                let text = String::from_utf8_lossy(&buffer);
++                let mut last_end = 0;
++                while let Some(pos) = text[last_end..].find('\n') {
++                    let line_end = last_end + pos;
++                    let line_str = text[last_end..line_end].trim_end();
++                    let line_str = line_str.rsplit('\r').next().unwrap_or(line_str);
+                     log_list.push(line_str.to_owned());
++                    last_end = line_end + 1;
+                 }
++                let consumed = text[..last_end].len();
++                buffer.drain(..consumed);
+                 return;
+             }
+             StatusUpdate::FlushLog(name, path) => {
+-                // TODO: This blocks the TUI, maybe open separate thread?
+-                // FIXME: handle error here?
+-                let _ = self.write_log(&name, &path);
++                let (logs, line) = self.get_recipe_log(&name);
++                let content = strip_ansi_escapes::strip_str(join_logs(
++                    logs.unwrap_or(&Vec::new()),
++                    line,
++                ));
++                let _ = self.log_writer_tx.send(LogWriterMessage::Write {
++                    _name: name,
++                    path,
++                    content,
++                });
+                 return;
+             }
+             StatusUpdate::Cooked(recipe, cached) => {
+@@ -1165,10 +1200,34 @@ impl TuiApp {
+         if let Some((_, status)) = self.recipes.iter_mut().find(|(r, _)| r.name == name) {
+             *status = new_status;
+         }
++
++        // Re-compute the queues for display
++        self.fetch_queue = self
++            .recipes
++            .iter()
++            .filter(|(_, s)| *s == RecipeStatus::Pending)
++            .map(|(r, _)| r.clone())
++            .collect();
++        self.cook_queue = self
++            .recipes
++            .iter()
++            .filter(|(_, s)| *s == RecipeStatus::Fetched)
++            .map(|(r, _)| r.clone())
++            .collect();
++        self.done = self
++            .recipes
++            .iter()
++            .filter(|(_, s)| *s == RecipeStatus::Done || *s == RecipeStatus::Cached)
++            .map(|(r, _)| r.name.clone())
++            .collect();
++    }
++
++    fn shutdown_log_writer(&self) {
++        let _ = self.log_writer_tx.send(LogWriterMessage::Shutdown);
+     }
+ }
+ 
+-fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
++fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, cookbook::Error> {
+     let (work_tx, work_rx) = mpsc::channel::<(CookRecipe, FetchResult)>();
+     let (status_tx, status_rx) = mpsc::channel::<StatusUpdate>();
+ 
+@@ -1201,7 +1260,7 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+                     && !matches!(handler, Ok(true))
+                 {
+                     if let Err(err_ctx) = &handler {
+-                        write_to_pty(&logger, &format!("\n{err_ctx}"));
++                        write_to_pty(&logger, &format!("\n{:?}", err_ctx));
+                     }
+                     flush_pty(&mut logger);
+                     let log_path = log_path.join(format!("{}/{}.log", recipe.target, name.name()));
+@@ -1306,7 +1365,7 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+                     && !matches!(handler, Ok(FetchResult { cached: true, .. }))
+                 {
+                     if let Err(err_ctx) = &handler {
+-                        write_to_pty(&logger, &format!("\n{err_ctx}"));
++                        write_to_pty(&logger, &format!("\n{:?}", err_ctx));
+                     }
+                     flush_pty(&mut logger);
+                     let log_path = log_path.join(format!("{}/{}.log", recipe.target, name.name()));
+@@ -1379,6 +1438,7 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+     terminal
+         .clear()
+         .map_err(|e| Error::from_io_error(e, "Clearing terminal pty"))?;
++
+     let mut app = TuiApp::new(recipes);
+ 
+     let spinner = ['-', '\\', '|', '/'];
+@@ -1406,10 +1466,20 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+             let fetch_items: Vec<ListItem> = app
+                 .recipes
+                 .iter()
+-                .filter(|(_, s)| s.fetch_is_part_of())
++                .filter(|(_, s)| *s == RecipeStatus::Pending || *s == RecipeStatus::Fetching)
+                 .map(|(r, s)| {
+-                    let icon = s.fetch_icon(spin);
+-                    ListItem::new(format!("{icon} {}", r.name)).style(s.fetch_style())
++                    let style = if *s == RecipeStatus::Fetching {
++                        Style::default().fg(Color::Yellow)
++                    } else {
++                        Style::default()
++                    };
++                    let icon = match s {
++                        RecipeStatus::Pending => ' ',
++                        RecipeStatus::Fetching => spin,
++                        _ => '?',
++                    };
++
++                    ListItem::new(format!("{icon} {}", r.name)).style(style)
+                 })
+                 .collect();
+             let fetch_list = List::new(fetch_items).block(
+@@ -1423,17 +1493,44 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+             let cook_items: Vec<ListItem> = app
+                 .recipes
+                 .iter()
+-                .filter(|(_, s)| s.cook_is_part_of())
++                .filter(|(_, s)| {
++                    *s == RecipeStatus::Fetched
++                        || *s == RecipeStatus::Cooking
++                        || *s == RecipeStatus::Done
++                        || *s == RecipeStatus::Cached
++                        || matches!(s, RecipeStatus::Failed(_))
++                })
+                 .map(|(r, s)| {
+-                    let icon = s.cook_icon(spin);
+-                    ListItem::new(format!("{icon} {}", r.name)).style(s.cook_style())
++                    let style = match s {
++                        RecipeStatus::Fetched => Style::default(),
++                        RecipeStatus::Cooking => Style::default().fg(Color::Yellow),
++                        RecipeStatus::Done => Style::default().fg(Color::Green),
++                        RecipeStatus::Cached => Style::default().fg(Color::Cyan),
++                        RecipeStatus::Failed(_) => Style::default().fg(Color::Red),
++                        _ => Style::default(),
++                    };
++                    let icon = match s {
++                        RecipeStatus::Fetched => ' ',
++                        RecipeStatus::Cooking => spin,
++                        RecipeStatus::Done => '+',
++                        RecipeStatus::Cached => ' ',
++                        RecipeStatus::Failed(_) => 'X',
++                        _ => '?',
++                    };
++                    ListItem::new(format!("{icon} {}", r.name)).style(style)
+                 })
+                 .collect();
+-            {
++            let total_items = cook_items.len();
++            if app.cook_auto_scroll {
+                 let cooking_index = app
+                     .recipes
+                     .iter()
+-                    .filter(|(_, s)| s.cook_is_part_of())
++                    .filter(|(_, s)| {
++                        *s == RecipeStatus::Fetched
++                            || *s == RecipeStatus::Cooking
++                            || *s == RecipeStatus::Done
++                            || matches!(s, RecipeStatus::Failed(_))
++                    })
+                     .position(|(_r, s)| *s == RecipeStatus::Cooking);
+ 
+                 if let Some(index) = cooking_index {
+@@ -1444,6 +1541,16 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
+ 
+                     *app.cook_list_state.offset_mut() = new_offset;
+                 }
++            } else {
++                app.cook_list_state.select(None);
++                if total_items > 0 {
++                    let max_offset = total_items.saturating_sub(panel_height as usize);
++                    if *app.cook_list_state.offset_mut() > max_offset {
++                        *app.cook_list_state.offset_mut() = max_offset;
++                    }
++                } else {
++                    *app.cook_list_state.offset_mut() = 0;
++                }
+             }
+             let cook_items: Vec<ListItem> = cook_items[app.cook_scroll..].into();
+             let cook_chunk = chunks[if app.fetch_complete { 0 } else { 1 }];
+@@ -1497,21 +1604,29 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp> {
                      }
                  };
  
@@ -77,25 +932,241 @@ index 954bad4..709e63b 100644
 +                    cmp::min(panel_height + start, total_log_lines - 1)
 +                };
  
+-                log_text[start..end]
+-                    .iter()
+-                    .map(|s| {
+-                        let text_with_colors = s
+-                            .into_text()
+-                            .unwrap_or_else(|_| Text::raw("--unrenderable line--"));
+-                        text_with_colors
+-                            .lines
+-                            .into_iter()
+-                            .next()
+-                            .unwrap_or_else(|| Line::raw("--unrenderable line--"))
+-                    })
+-                    .collect()
 +                if start >= end || log_text.is_empty() {
 +                    vec![Line::from("No logs yet")]
 +                } else {
-                 log_text[start..end]
-                     .iter()
-                     .map(|s| {
-@@ -1564,6 +1571,7 @@ fn run_tui_cook(config: CliConfig, recipes: Vec<CookRecipe>) -> Result<TuiApp, c
-                             .unwrap_or_else(|| Line::raw("--unrenderable line--"))
-                     })
-                     .collect()
++                    log_text[start..end]
++                        .iter()
++                        .map(|s| {
++                            let text_with_colors = s
++                                .into_text()
++                                .unwrap_or_else(|_| Text::raw("--unrenderable line--"));
++                            text_with_colors
++                                .lines
++                                .into_iter()
++                                .next()
++                                .unwrap_or_else(|| Line::raw("--unrenderable line--"))
++                        })
++                        .collect()
 +                }
              } else {
                  vec![Line::from("No logs yet")]
              };
+@@ -1669,6 +1784,8 @@ fn handle_main_event(app: &mut TuiApp, event: &Event) {
+             }
+             _ => {}
+         },
++
++        Event::Mouse(_) => {}
+         _ => {}
+     }
+ }
+@@ -1859,11 +1976,3 @@ impl FailurePrompt {
+         }
+     }
+ }
+-
+-macro_rules! bail_options_err {
+-    ($($arg:tt)*) => {
+-        return Err(cookbook::Error::Options(format!($($arg)*)))
+-    };
+-}
+-
+-use bail_options_err;
 diff --git a/src/cook/fetch.rs b/src/cook/fetch.rs
-index 50aab92..0f57c09 100644
+index 2305cdaa9..129a53580 100644
 --- a/src/cook/fetch.rs
 +++ b/src/cook/fetch.rs
-@@ -162,8 +162,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+@@ -21,6 +21,7 @@ use pkg::SourceIdentifier;
+ use pkg::net_backend::DownloadBackendWriter;
+ use std::cell::RefCell;
+ use std::collections::BTreeMap;
++use std::env;
+ use std::fs;
+ use std::fs::File;
+ use std::io::Read;
+@@ -34,6 +35,138 @@ pub struct FetchResult {
+     pub cached: bool,
+ }
+ 
++fn redbear_protected_recipe(name: &str) -> bool {
++    matches!(
++        name,
++        // Core patched recipes (upstream + Red Bear patches)
++        "relibc"
++            | "bootloader"
++            | "kernel"
++            | "base"
++            | "base-initfs"
++            | "installer"
++            | "redoxfs"
++            | "grub"
++        // Red Bear custom core recipes
++            | "ext4d"
++            | "fatd"
++        // Red Bear driver infrastructure
++            | "redox-driver-sys"
++            | "linux-kpi"
++            | "firmware-loader"
++            | "redbear-btusb"
++            | "redbear-iwlwifi"
++        // Red Bear GPU stack
++            | "redox-drm"
++            | "amdgpu"
++        // Red Bear system tools
++            | "cub"
++            | "evdevd"
++            | "udev-shim"
++            | "iommu"
++            | "redbear-firmware"
++            | "redbear-hwutils"
++            | "redbear-info"
++            | "rbos-info"
++            | "redbear-meta"
++            | "redbear-netctl"
++            | "redbear-netctl-console"
++            | "redbear-netstat"
++            | "redbear-btctl"
++            | "redbear-wifictl"
++            | "redbear-traceroute"
++            | "redbear-mtr"
++            | "redbear-nmap"
++            | "redbear-sessiond"
++            | "redbear-authd"
++            | "redbear-session-launch"
++            | "redbear-greeter"
++            | "redbear-dbus-services"
++            | "redbear-notifications"
++            | "redbear-upower"
++            | "redbear-udisks"
++            | "redbear-polkit"
++            | "redbear-quirks"
++        // Red Bear branding
++            | "redbear-release"
++        // Red Bear library stubs and custom libs
++            | "libepoxy-stub"
++            | "libdisplay-info-stub"
++            | "lcms2-stub"
++            | "libxcvt-stub"
++            | "libudev-stub"
++            | "zbus"
++            | "libqrencode"
++        // Red Bear Wayland
++            | "qt6-wayland-smoke"
++            | "smallvil"
++            | "seatd-redox"
++        // Red Bear KDE (47 recipes)
++            | "kf6-extra-cmake-modules"
++            | "kf6-kcoreaddons"
++            | "kf6-kwidgetsaddons"
++            | "kf6-kconfig"
++            | "kf6-ki18n"
++            | "kf6-kcodecs"
++            | "kf6-kguiaddons"
++            | "kf6-kcolorscheme"
++            | "kf6-kauth"
++            | "kf6-kitemmodels"
++            | "kf6-kitemviews"
++            | "kf6-karchive"
++            | "kf6-kwindowsystem"
++            | "kf6-knotifications"
++            | "kf6-kjobwidgets"
++            | "kf6-kconfigwidgets"
++            | "kf6-kcrash"
++            | "kf6-kdbusaddons"
++            | "kf6-kglobalaccel"
++            | "kf6-kservice"
++            | "kf6-kpackage"
++            | "kf6-kiconthemes"
++            | "kf6-kxmlgui"
++            | "kf6-ktextwidgets"
++            | "kf6-solid"
++            | "kf6-sonnet"
++            | "kf6-kio"
++            | "kf6-kbookmarks"
++            | "kf6-kcompletion"
++            | "kf6-kdeclarative"
++            | "kf6-kcmutils"
++            | "kf6-kidletime"
++            | "kf6-kwayland"
++            | "kf6-knewstuff"
++            | "kf6-kwallet"
++            | "kf6-prison"
++            | "kf6-kirigami"
++            | "kdecoration"
++            | "kwin"
++            | "plasma-desktop"
++            | "plasma-workspace"
++            | "plasma-framework"
++            | "plasma-wayland-protocols"
++            | "kirigami"
++        // Orbutils (has local patch)
++            | "orbutils"
++    )
++}
++
++fn redbear_allow_protected_fetch() -> bool {
++    matches!(
++        env::var("REDBEAR_ALLOW_PROTECTED_FETCH").ok().as_deref(),
++        Some("1" | "true" | "TRUE" | "yes" | "YES")
++    )
++}
++
++/// Check if a recipe directory is a local Red Bear overlay (symlink into local/).
++fn is_local_overlay(recipe_dir: &Path) -> bool {
++    if let Ok(resolved) = recipe_dir.canonicalize() {
++        let resolved_str = resolved.to_string_lossy();
++        return resolved_str.contains("/local/recipes/");
++    }
++    false
++}
++
+ impl FetchResult {
+     pub fn new(source_dir: PathBuf, ident: String, cached: bool) -> Self {
+         Self {
+@@ -77,7 +210,11 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
+     }
+ 
+     let result = match &recipe.recipe.source {
+-        Some(SourceRecipe::Path { path: _ }) | None => fetch(recipe, true, logger)?,
++        Some(SourceRecipe::Path { path: _ }) | None => {
++            offline_check_exists(&source_dir)?;
++            let ident = fetch_apply_source_info(recipe, "".to_string())?;
++            FetchResult::cached(source_dir, ident)
++        }
+         Some(SourceRecipe::SameAs { same_as }) => {
+             let recipe = fetch_resolve_canon(recipe_dir, &same_as, recipe.name.is_host())?;
+             // recursively fetch
+@@ -139,6 +276,15 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
+ }
+ 
+ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result<FetchResult> {
++    if redbear_protected_recipe(recipe.name.name()) && !redbear_allow_protected_fetch() {
++        log_to_pty!(
++            logger,
++            "[INFO]: protected recipe {} uses local source (fetch disabled; set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
++            recipe.name.name()
++        );
++        return fetch_offline(recipe, logger);
++    }
++
+     let recipe_dir = &recipe.dir;
+     let source_dir = recipe_dir.join("source");
+     match recipe.recipe.build.kind {
+@@ -162,8 +308,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
              r
          }
          Some(SourceRecipe::Path { path }) => {
@@ -106,7 +1177,7 @@ index 50aab92..0f57c09 100644
              if !cached {
                  log_to_pty!(
                      logger,
-@@ -171,8 +171,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+@@ -171,8 +317,8 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
                      path.display(),
                      source_dir.display()
                  );
@@ -117,8 +1188,137 @@ index 50aab92..0f57c09 100644
                      source_dir,
                      "Copying source"
                  ))?;
+@@ -300,11 +446,25 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+                 }
+ 
+                 if !patches.is_empty() || script.is_some() {
+-                    // Hard reset
+-                    let mut command = Command::new("git");
+-                    command.arg("-C").arg(&source_dir);
+-                    command.arg("reset").arg("--hard");
+-                    run_command(command, logger)?;
++                    if is_local_overlay(recipe_dir) && !redbear_allow_protected_fetch() {
++                        log_to_pty!(
++                            logger,
++                            "[WARN] skipping git reset --hard for local overlay recipe at {} \
++                             (set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
++                            recipe_dir.display()
++                        );
++                    } else {
++                        let mut clean_cmd = Command::new("git");
++                        clean_cmd.arg("-C").arg(&source_dir);
++                        clean_cmd.arg("clean").arg("-fd");
++                        let _ = run_command(clean_cmd, logger);
++
++                        // Hard reset
++                        let mut command = Command::new("git");
++                        command.arg("-C").arg(&source_dir);
++                        command.arg("reset").arg("--hard");
++                        run_command(command, logger)?;
++                    }
+                 }
+ 
+                 if let Some(rev) = rev {
+@@ -412,11 +572,20 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
+             let mut cached = true;
+             if source_dir.is_dir() {
+                 if tar_updated || fetch_is_patches_newer(recipe_dir, patches, &source_dir)? {
+-                    log_to_pty!(
+-                        logger,
+-                        "DEBUG: source tar or patches is newer than the source directory"
+-                    );
+-                    remove_all(&source_dir)?
++                    if is_local_overlay(recipe_dir) && !redbear_allow_protected_fetch() {
++                        log_to_pty!(
++                            logger,
++                            "[WARN] refusing to wipe source for local overlay recipe at {} \
++                             (set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
++                            recipe_dir.display()
++                        );
++                    } else {
++                        log_to_pty!(
++                            logger,
++                            "DEBUG: source tar or patches is newer than the source directory"
++                        );
++                        remove_all(&source_dir)?
++                    }
+                 }
+             }
+             if !source_dir.is_dir() {
+@@ -628,9 +797,9 @@ pub(crate) fn fetch_cargo(
+         source_dir = source_dir.join(cargopath);
+     }
+ 
+-    let local_redoxer = Path::new("target/release/cookbook_redoxer");
++    let local_redoxer = Path::new("target/release/cookbook_redbear_redoxer");
+     let mut command = if is_redox() && !local_redoxer.is_file() {
+-        Command::new("cookbook_redoxer")
++        Command::new("cookbook_redbear_redoxer")
+     } else {
+         let cookbook_redoxer = local_redoxer
+             .canonicalize()
+@@ -690,19 +859,23 @@ pub fn fetch_remote(
+             if !source_toml.is_file() {
+                 {
+                     let toml_file = File::create(&source_toml)
+-                        .map_err(wrap_io_err!(source_toml, "Creating file"))?;
++                        .map_err(|e| format!("Unable to create source.toml: {e:?}"))?;
+                     let mut writer = DownloadBackendWriter::ToFile(toml_file);
+-                    manager.download(&format!("{}.toml", &source_name), None, &mut writer)?;
++                    manager
++                        .download(&format!("{}.toml", &source_name), None, &mut writer)
++                        .map_err(|e| format!("Unable to download source.toml: {e:?}"))?;
+                 }
+                 let pkg_toml = read_source_toml(&source_toml)?;
+                 let pkgar_file = File::create(&source_pkgar)
+-                    .map_err(wrap_io_err!(source_pkgar, "Creating file"))?;
++                    .map_err(|e| format!("Unable to create source.pkgar: {e:?}"))?;
+                 let mut writer = DownloadBackendWriter::ToFile(pkgar_file);
+-                manager.download(
+-                    &format!("{}.pkgar", &source_name),
+-                    Some(pkg_toml.network_size),
+-                    &mut writer,
+-                )?;
++                manager
++                    .download(
++                        &format!("{}.pkgar", &source_name),
++                        Some(pkg_toml.network_size),
++                        &mut writer,
++                    )
++                    .map_err(|e| format!("Unable to download source.pkgar: {e:?}"))?;
+ 
+                 cached = false;
+             }
+@@ -739,11 +912,13 @@ pub fn fetch_remote(
+ }
+ 
+ fn read_source_toml(source_toml: &Path) -> Result<pkg::Package> {
+-    let mut file = File::open(source_toml).map_err(wrap_io_err!(source_toml, "Opening file"))?;
++    let mut file =
++        File::open(source_toml).map_err(|e| format!("Unable to open source.toml: {e:?}"))?;
+     let mut contents = String::new();
+     file.read_to_string(&mut contents)
+-        .map_err(wrap_io_err!(source_toml, "Reading file"))?;
+-    let pkg_toml = pkg::Package::from_toml(&contents)?;
++        .map_err(|e| format!("Unable to read source.toml: {e:?}"))?;
++    let pkg_toml = pkg::Package::from_toml(&contents)
++        .map_err(|e| format!("Unable to parse source.toml: {e:?}"))?;
+     Ok(pkg_toml)
+ }
+ 
+@@ -836,5 +1011,9 @@ pub(crate) fn fetch_apply_source_info_from_remote(
+ pub fn fetch_get_source_info(recipe: &CookRecipe) -> Result<SourceIdentifier> {
+     let target_dir = recipe.target_dir();
+     let source_toml_path = target_dir.join("source_info.toml");
+-    read_toml(&source_toml_path)
++    let toml_content = fs::read_to_string(source_toml_path)
++        .map_err(|e| format!("Unable to read source_info.toml: {:?}", e))?;
++    let parsed = toml::from_str(&toml_content)
++        .map_err(|e| format!("Unable to parse source_info.toml: {:?}", e))?;
++    Ok(parsed)
+ }
 diff --git a/src/staged_pkg.rs b/src/staged_pkg.rs
-index d7abbce..a32cf23 100644
+index 7248915c0..a32cf2362 100644
 --- a/src/staged_pkg.rs
 +++ b/src/staged_pkg.rs
 @@ -13,7 +13,9 @@ use pkg::{Package, PackageError, PackageName};
@@ -132,8 +1332,19 @@ index d7abbce..a32cf23 100644
          let Ok(entry) = entry_res else {
              continue;
          };
+@@ -71,7 +73,9 @@ pub fn from_path(dir: &Path, feature: Option<&str>) -> Result<Package, PackageEr
+         return Err(PackageError::FileMissing(file));
+     }
+ 
+-    Package::from_file(file)
++    let toml = std::fs::read_to_string(&file)
++        .map_err(|err| PackageError::FileError(err.raw_os_error(), file.clone()))?;
++    toml::from_str(&toml).map_err(|err| PackageError::Parse(err, Some(file)))
+ }
+ 
+ pub fn new_recursive(
 diff --git a/src/web/html.rs b/src/web/html.rs
-index e7905fe..7907dbd 100644
+index e7905fe23..7907dbda9 100644
 --- a/src/web/html.rs
 +++ b/src/web/html.rs
 @@ -140,7 +140,7 @@ pub fn generate_html_pkg(

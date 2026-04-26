@@ -31,7 +31,7 @@ endif()
 
 include(FeatureSummary)
 include(KDEInstallDirs)
-find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE COMPONENTS Core Gui Concurrent)
+find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE COMPONENTS Core Gui Concurrent Qml Quick Qml Quick Qml Quick)
 if (BUILD_TESTING)
     find_package(Qt6QuickTest ${REQUIRED_QT_VERSION} CONFIG QUIET)
 endif()

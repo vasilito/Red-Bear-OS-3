@@ -1,17 +1,14 @@
 diff --git a/src/header/pthread/mod.rs b/src/header/pthread/mod.rs
+index c742a425..a6721cad 100644
 --- a/src/header/pthread/mod.rs
 +++ b/src/header/pthread/mod.rs
-@@ -304,9 +304,17 @@
- /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_setcancelstate.html>.
- #[unsafe(no_mangle)]
- pub unsafe extern "C" fn pthread_testcancel() {
+@@ -307,6 +307,13 @@ pub unsafe extern "C" fn pthread_testcancel() {
      unsafe { pthread::testcancel() };
  }
  
 +/// <https://man7.org/linux/man-pages/man3/pthread_yield.3.html>
 +///
 +/// Non-standard GNU extension. Prefer `sched_yield()` instead.
-+// #[unsafe(no_mangle)]
 +pub extern "C" fn pthread_yield() {
 +    let _ = Sys::sched_yield();
 +}

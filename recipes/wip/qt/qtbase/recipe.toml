@@ -4,7 +4,10 @@
 # Redox platform detection and syscall adaptations in redox.patch
 [source]
 tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtbase-everywhere-src-6.11.0.tar.xz"
-patches = ["redox.patch"]
+patches = [
+    "redox.patch",
+    "../../../../local/patches/qtbase/P0-remove-redox-linkat-unlinkat-stubs.patch",
+]
 
 [build]
 template = "custom"

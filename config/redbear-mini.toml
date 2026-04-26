@@ -188,7 +188,7 @@ requires_weak = [
 
 [service]
 cmd = "gpiod"
-type = "oneshot_async"
+type = { scheme = "gpio" }
 """
 
 [[files]]
@@ -202,7 +202,7 @@ requires_weak = [
 
 [service]
 cmd = "i2cd"
-type = "oneshot_async"
+type = { scheme = "i2c" }
 """
 
 [[files]]
@@ -278,7 +278,7 @@ requires_weak = [
 
 [service]
 cmd = "ucsid"
-type = "oneshot_async"
+type = { scheme = "ucsi" }
 """
 
 [[files]]
@@ -333,7 +333,7 @@ requires_weak = [
 
 [service]
 cmd = "redbear-wifictl"
-type = { scheme = "wifictl" }
+type = "oneshot_async"
 """
 
 [[files]]
@@ -346,11 +346,8 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "mkdir -p /var/lib/dbus /run/dbus; rm -f /run/dbus/pid; dbus-uuidgen --ensure; dbus-daemon --system",
-]
+cmd = "dbus-daemon"
+args = ["--system"]
 type = "oneshot_async"
 """
 

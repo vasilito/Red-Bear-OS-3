@@ -1,5 +1,4 @@
 diff --git a/drivers/hwd/src/backend/acpi.rs b/drivers/hwd/src/backend/acpi.rs
-index c24dfc4b..12d26261 100644
 --- a/drivers/hwd/src/backend/acpi.rs
 +++ b/drivers/hwd/src/backend/acpi.rs
 @@ -1,27 +1,36 @@
@@ -21,7 +20,7 @@ index c24dfc4b..12d26261 100644
 -        // Spawn acpid
 -        //TODO: pass rxsdt data to acpid?
 -        #[allow(deprecated, reason = "we can't yet move this to init")]
--        let _ = daemon::Daemon::spawn(Command::new("acpid"));
+-        daemon::Daemon::spawn(Command::new("acpid"));
 -
 -        Ok(Self { rxsdt })
 +        Ok(Self { _rxsdt: rxsdt })
@@ -48,7 +47,7 @@ index c24dfc4b..12d26261 100644
          // TODO: Reimplement with getdents?
          let symbols_fd = libredox::Fd::open(
              "/scheme/acpi/symbols",
-@@ -100,12 +109,103 @@ impl Backend for AcpiBackend {
+@@ -100,12 +109,103 @@
                          "PNP0C0F" => "PCI interrupt link",
                          "PNP0C50" => "I2C HID",
                          "PNP0F13" => "PS/2 port for PS/2-style mouse",
@@ -152,8 +151,8 @@ index c24dfc4b..12d26261 100644
 +fn is_non_hid_i2c_input_id(id: &str) -> bool {
 +    is_elan_touchpad_id(id) || is_cypress_touchpad_id(id) || is_synaptics_rmi_id(id)
 +}
+
 diff --git a/drivers/pcid-spawner/src/main.rs b/drivers/pcid-spawner/src/main.rs
-index e41caee0..31a4af5a 100644
 --- a/drivers/pcid-spawner/src/main.rs
 +++ b/drivers/pcid-spawner/src/main.rs
 @@ -1,11 +1,40 @@
@@ -197,7 +196,7 @@ index e41caee0..31a4af5a 100644
  fn main() -> Result<()> {
      let mut args = pico_args::Arguments::from_env();
      let initfs = args.contains("--initfs");
-@@ -30,6 +59,7 @@ fn main() -> Result<()> {
+@@ -30,6 +59,7 @@
      }
  
      let config: Config = toml::from_str(&config_data)?;
@@ -205,18 +204,20 @@ index e41caee0..31a4af5a 100644
  
      for entry in fs::read_dir("/scheme/pci")? {
          let entry = entry.context("failed to get entry")?;
-@@ -107,24 +137,61 @@ fn main() -> Result<()> {
+@@ -87,14 +117,70 @@
  
          log::info!("pcid-spawner: spawn {:?}", command);
+ 
++        let device_addr = handle.config().func.addr;
++
+         handle.enable_device();
+ 
+         let channel_fd = handle.into_inner_fd();
+         command.env("PCID_CLIENT_CHANNEL", channel_fd.to_string());
+ 
          #[allow(deprecated, reason = "we can't yet move this to init")]
--        if let Err(err) = daemon::Daemon::spawn(command) {
--            log::error!(
--                "pcid-spawner: spawn/readiness failed for {}: {}",
--                device_addr,
--                err
--            );
--            log::error!(
--                "pcid-spawner: {} remains enabled without a confirmed ready driver",
+-        daemon::Daemon::spawn(command);
+-        syscall::close(channel_fd as usize).unwrap();
 +        if should_detach_in_initfs(
 +            initfs,
 +            full_device_id.class,
@@ -225,16 +226,8 @@ index e41caee0..31a4af5a 100644
 +        ) {
 +            log::warn!(
 +                "pcid-spawner: detached initfs spawn for {} to avoid blocking early boot",
-                 device_addr
-             );
--        }
--        if let Err(err) = syscall::close(channel_fd as usize) {
--            log::error!(
--                "pcid-spawner: failed to close channel fd {} for {}: {}",
--                channel_fd,
--                device_addr,
--                err
--            );
++                device_addr
++            );
 +
 +            let device_addr = device_addr.to_string();
 +            thread::spawn(move || {
@@ -280,14 +273,15 @@ index e41caee0..31a4af5a 100644
 +                    err
 +                );
 +            }
-         }
++        }
      }
  
+     Ok(())
+
 diff --git a/drivers/pcid/src/main.rs b/drivers/pcid/src/main.rs
-index 61cd9a78..6da034ef 100644
 --- a/drivers/pcid/src/main.rs
 +++ b/drivers/pcid/src/main.rs
-@@ -12,6 +12,7 @@ use pci_types::{
+@@ -12,6 +12,7 @@
  };
  use redox_scheme::scheme::register_sync_scheme;
  use scheme_utils::Blocking;
@@ -295,7 +289,7 @@ index 61cd9a78..6da034ef 100644
  
  use crate::cfg_access::Pcie;
  use pcid_interface::{FullDeviceId, LegacyInterruptLine, PciBar, PciFunction, PciRom};
-@@ -262,14 +263,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+@@ -262,14 +263,13 @@
                  let access_fd = socket
                      .create_this_scheme_fd(0, access_id, syscall::O_RDWR, 0)
                      .expect("failed to issue this resource");

@@ -1,0 +1,25 @@
+# /etc/zsh/zshenv — System-wide environment for all zsh(1) shells.
+
+# Set PATH if not already set
+if [[ -z "$PATH" ]]; then
+    export PATH=/usr/local/bin:/usr/bin:/bin
+fi
+
+# Ensure /usr/local/bin and /usr/bin are in PATH
+if [[ ":$PATH:" != *":/usr/local/bin:"* ]]; then
+    PATH=/usr/local/bin:$PATH
+fi
+if [[ ":$PATH:" != *":/usr/bin:"* ]]; then
+    PATH=/usr/bin:$PATH
+fi
+
+# Default editor
+export EDITOR="nano"
+export VISUAL="nano"
+
+# Locale
+export LANG="C.UTF-8"
+
+# Pager
+export PAGER="less"
+export LESS="-R -M --shift 5"

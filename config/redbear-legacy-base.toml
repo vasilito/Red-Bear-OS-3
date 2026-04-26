@@ -13,6 +13,9 @@
 #          getty/login. Using oneshot_async lets init proceed to start console
 #          services while drivers spawn in the background.
 
+[packages]
+zsh = {}
+
 [[files]]
 path = "/usr/lib/init.d/00_base.service"
 data = """

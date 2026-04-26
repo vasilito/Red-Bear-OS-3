@@ -39,11 +39,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = [
-    "-c",
-    "redbear-authd",
-]
+cmd = "redbear-authd"
 type = "oneshot_async"
 """
 
@@ -73,8 +69,7 @@ requires_weak = [
 ]
 
 [service]
-cmd = "ion"
-args = ["-c", "true"]
+cmd = "/usr/bin/true"
 type = "oneshot_async"
 """
 

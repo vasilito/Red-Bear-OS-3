@@ -1,0 +1,6 @@
+# /etc/zsh/zprofile — System-wide profile for login zsh(1) shells.
+
+# Source /etc/profile if it exists (for compatibility with Bourne-style login shells)
+if [[ -f /etc/profile ]]; then
+    emulate sh -c 'source /etc/profile'
+fi

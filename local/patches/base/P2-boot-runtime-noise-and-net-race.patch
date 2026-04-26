@@ -1,0 +1,144 @@
+# P2-boot-runtime-noise-and-net-race.patch
+#
+# Reduce expected boot-time warning noise and harden netstack startup ordering:
+# - procmgr: unknown cancellation is trace-level (benign race)
+# - acpid: warn once for unsupported power surface
+# - ahcid: SATAPI probe failures are informational on empty media
+# - netstack: retry network adapter discovery during early boot races
+
+diff --git a/bootstrap/src/procmgr.rs b/bootstrap/src/procmgr.rs
+--- a/bootstrap/src/procmgr.rs
++++ b/bootstrap/src/procmgr.rs
+@@ -296,7 +296,7 @@ fn handle_scheme<'a>(
+                     }
+                 }
+             } else {
+-                log::warn!("Cancellation for unknown id {:?}", req.id);
++                log::trace!("Cancellation for unknown id {:?}", req.id);
+                 Pending
+             }
+         }
+
+diff --git a/drivers/acpid/src/scheme.rs b/drivers/acpid/src/scheme.rs
+--- a/drivers/acpid/src/scheme.rs
++++ b/drivers/acpid/src/scheme.rs
+@@ -8,6 +8,7 @@ use ron::de::SpannedError;
+ use scheme_utils::HandleMap;
+ use std::convert::{TryFrom, TryInto};
+ use std::str::FromStr;
++use std::sync::atomic::{AtomicBool, Ordering};
+ use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
+ use syscall::schemev2::NewFdFlags;
+ use syscall::FobtainFdFlags;
+@@ -29,6 +30,8 @@ use crate::acpi::{
+ };
+ use crate::resources::{decode_resource_template, ResourceDescriptor};
+ 
++static POWER_SURFACE_UNAVAILABLE_WARNED: AtomicBool = AtomicBool::new(false);
++
+ pub struct AcpiScheme<'acpi, 'sock> {
+     ctx: &'acpi AcpiContext,
+     handles: HandleMap<Handle<'acpi>>,
+@@ -307,7 +310,9 @@ impl<'acpi, 'sock> AcpiScheme<'acpi, 'sock> {
+         self.ctx.power_snapshot().map_err(|error| match error {
+             crate::acpi::AmlEvalError::NotInitialized => Error::new(EAGAIN),
+             crate::acpi::AmlEvalError::Unsupported(message) => {
+-                log::warn!("ACPI power surface unavailable: {message}");
++                if !POWER_SURFACE_UNAVAILABLE_WARNED.swap(true, Ordering::Relaxed) {
++                    log::warn!("ACPI power surface unavailable: {message}");
++                }
+                 Error::new(EOPNOTSUPP)
+             }
+             other => {
+
+diff --git a/drivers/storage/ahcid/src/ahci/mod.rs b/drivers/storage/ahcid/src/ahci/mod.rs
+--- a/drivers/storage/ahcid/src/ahci/mod.rs
++++ b/drivers/storage/ahcid/src/ahci/mod.rs
+@@ -64,7 +64,7 @@ pub fn disks(base: usize, name: &str) -> (&'static mut HbaMem, Vec<AnyDisk>) {
+                 HbaPortType::SATAPI => match DiskATAPI::new(i, port) {
+                     Ok(disk) => Some(AnyDisk::Atapi(disk)),
+                     Err(err) => {
+-                        error!("{}: {}", i, err);
++                        info!("{}: {}", i, err);
+                         None
+                     }
+                 },
+
+diff --git a/netstack/src/main.rs b/netstack/src/main.rs
+--- a/netstack/src/main.rs
++++ b/netstack/src/main.rs
+@@ -6,6 +6,8 @@ use anyhow::{anyhow, bail, Context, Result};
+ use event::{EventFlags, EventQueue};
+ use libredox::flag::{O_NONBLOCK, O_RDWR};
+ use libredox::Fd;
++use std::thread;
++use std::time::Duration;
+ 
+ use redox_scheme::Socket;
+ use scheme::Smolnetd;
+@@ -22,34 +24,47 @@ mod scheme;
+ fn get_network_adapter() -> Result<String> {
+     use std::fs;
+ 
+-    let mut adapters = vec![];
++    const MAX_ATTEMPTS: u32 = 50;
++    const RETRY_DELAY: Duration = Duration::from_millis(100);
+ 
+-    for entry_res in fs::read_dir("/scheme")? {
+-        let Ok(entry) = entry_res else {
+-            continue;
+-        };
++    for attempt in 1..=MAX_ATTEMPTS {
++        let mut adapters = vec![];
+ 
+-        let Ok(scheme) = entry.file_name().into_string() else {
+-            continue;
+-        };
++        for entry_res in fs::read_dir("/scheme")? {
++            let Ok(entry) = entry_res else {
++                continue;
++            };
+ 
+-        if !scheme.starts_with("network") {
+-            continue;
+-        }
++            let Ok(scheme) = entry.file_name().into_string() else {
++                continue;
++            };
+ 
+-        adapters.push(scheme);
+-    }
++            if !scheme.starts_with("network") {
++                continue;
++            }
+ 
+-    if adapters.is_empty() {
+-        bail!("no network adapter found");
+-    } else {
+-        let adapter = adapters.remove(0);
++            adapters.push(scheme);
++        }
++
+         if !adapters.is_empty() {
+-            // FIXME allow using multiple network adapters at the same time
+-            warn!("Multiple network adapters found. Only {adapter} will be used");
++            let adapter = adapters.remove(0);
++            if !adapters.is_empty() {
++                // FIXME allow using multiple network adapters at the same time
++                warn!("Multiple network adapters found. Only {adapter} will be used");
++            }
++            return Ok(adapter);
++        }
++
++        if attempt < MAX_ATTEMPTS {
++            warn!(
++                "no network adapter found yet (attempt {attempt}/{MAX_ATTEMPTS}), waiting {} ms",
++                RETRY_DELAY.as_millis()
++            );
++            thread::sleep(RETRY_DELAY);
+         }
+-        Ok(adapter)
+     }
++
++    bail!("no network adapter found")
+ }

@@ -1,0 +1,45 @@
+diff --git a/init.initfs.d/40_pcid.service b/init.initfs.d/40_pcid.service
+new file mode 100644
+--- /dev/null
++++ b/init.initfs.d/40_pcid.service
+@@ -0,0 +1,7 @@
++[unit]
++description = "PCI daemon"
++requires_weak = ["41_acpid.service"]
++
++[service]
++cmd = "pcid"
++type = "notify"
+diff --git a/init.initfs.d/40_drivers.target b/init.initfs.d/40_drivers.target
+--- a/init.initfs.d/40_drivers.target
++++ b/init.initfs.d/40_drivers.target
+@@ -3,6 +3,7 @@ description = "Initfs drivers"
+ requires_weak = [
+     "10_lived.service",
+     "20_graphics.target",
++    "40_pcid.service",
+     "40_ps2d.service",
+     "40_bcm2835-sdhcid.service",
+     "40_hwd.service",
+diff --git a/init.initfs.d/40_hwd.service b/init.initfs.d/40_hwd.service
+--- a/init.initfs.d/40_hwd.service
++++ b/init.initfs.d/40_hwd.service
+@@ -1,6 +1,6 @@
+ [unit]
+ description = "Hardware manager"
+-requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target", "41_acpid.service"]
++requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target", "40_pcid.service", "41_acpid.service"]
+ 
+ [service]
+ cmd = "hwd"
+diff --git a/init.initfs.d/40_pcid-spawner-initfs.service b/init.initfs.d/40_pcid-spawner-initfs.service
+--- a/init.initfs.d/40_pcid-spawner-initfs.service
++++ b/init.initfs.d/40_pcid-spawner-initfs.service
+@@ -1,6 +1,6 @@
+ [unit]
+ description = "PCI driver spawner"
+-requires_weak = ["10_inputd.service", "20_graphics.target", "40_hwd.service"]
++requires_weak = ["10_inputd.service", "20_graphics.target", "40_pcid.service"]
+ 
+ [service]
+ cmd = "pcid-spawner"

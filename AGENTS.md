@@ -157,6 +157,8 @@ make all
 - **DO NOT** hardcode `/dev/` paths — use scheme paths (`/scheme/drm/card0`)
 - **DO NOT** skip patches in WIP recipes — document what's missing with `#TODO`
 - **DO NOT** skip warnings — investigate, diagnose, and fix the root cause; suppressing or ignoring warnings is not acceptable when a fix is feasible
+- **DO NOT** remove patches from `recipe.toml` to fix build failures — rebase the patch instead (see `local/docs/PATCH-GOVERNANCE.md`)
+- **DO NOT** remove BINS entries to fix build failures — fix the source or use EXISTING_BINS filtering
 
 ## DURABILITY POLICY
 

@@ -29,18 +29,3 @@ diff -urN a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
                  }
              }
          }
-@@ -2004,8 +2008,12 @@
- 
-         context.tables.push(dsdt_sdt);
- 
--        if let Err(error) = context.refresh_s5_values() {
--            log::warn!("Failed to evaluate \\_S5 during FADT init: {error}");
-+        if context.pci_ready() {
-+            if let Err(error) = context.refresh_s5_values() {
-+                log::warn!("Failed to evaluate \\_S5 during FADT init: {error}");
-+            }
-+        } else {
-+            log::debug!("Deferring \\_S5 evaluation until PCI registration");
-         }
-     }
- }

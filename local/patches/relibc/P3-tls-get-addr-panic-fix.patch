@@ -1,9 +1,8 @@
 diff --git a/src/header/dl-tls/mod.rs b/src/header/dl-tls/mod.rs
+index 0196bf7b..785ab343 100644
 --- a/src/header/dl-tls/mod.rs
 +++ b/src/header/dl-tls/mod.rs
-@@ -49,8 +49,18 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *mut dl_tls_index) -> *mut c_void {
-         let module_tls = unsafe {
-             // FIXME(andypython): master.align
+@@ -51,6 +51,14 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *mut dl_tls_index) -> *mut c_void {
              let layout = Layout::from_size_align_unchecked(master.segment_size, 16);
              let ptr = alloc(layout);
  
@@ -18,7 +17,7 @@ diff --git a/src/header/dl-tls/mod.rs b/src/header/dl-tls/mod.rs
              ptr::copy_nonoverlapping(master.ptr, ptr, master.image_size);
              ptr::write_bytes(
                  ptr.add(master.image_size),
-@@ -68,10 +78,14 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *mut dl_tls_index) -> *mut c_void {
+@@ -68,10 +76,11 @@ pub unsafe extern "C" fn __tls_get_addr(ti: *mut dl_tls_index) -> *mut c_void {
      let mut ptr = tcb.dtv_mut()[dtv_index];
  
      if ptr.is_null() {
@@ -26,8 +25,7 @@ diff --git a/src/header/dl-tls/mod.rs b/src/header/dl-tls/mod.rs
 -            "__tls_get_addr({ti:p}: {:#x}, {:#x})",
 -            ti.ti_module, ti.ti_offset
 +        eprintln!(
-+            "__tls_get_addr({:p}: {:#x}, {:#x}): \
-+             DTV entry is null, module {} TLS not available",
++            "__tls_get_addr({:p}: {:#x}, {:#x}): DTV entry is null, module {} TLS not available",
 +            ti, ti.ti_module, ti.ti_offset, ti.ti_module
          );
 +        return ptr::null_mut();

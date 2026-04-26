@@ -1,27 +1,20 @@
-diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
---- a/daemon/src/lib.rs
-+++ b/daemon/src/lib.rs
-@@ -52,7 +52,11 @@
+# P2-daemon-ready-graceful.patch
+#
+# Replace unwrap() in Daemon::ready() with graceful error handling.
+# When hwd spawns pcid fire-and-forget (dropping the pipe's read end
+# before pcid signals readiness), the unwrap() causes a BrokenPipe panic
+# that kills pcid and cascades into total boot failure.
+#
+# Also adds the log crate to daemon's dependencies for the debug message.
+#
+diff --git a/daemon/Cargo.toml b/daemon/Cargo.toml
+--- a/daemon/Cargo.toml
++++ b/daemon/Cargo.toml
+@@ -7,6 +7,7 @@ edition = "2024"
+ [dependencies]
+ libc.workspace = true
+ libredox.workspace = true
++log.workspace = true
+ redox-scheme.workspace = true
+ redox_syscall.workspace = true
  
-     /// Notify the process that the daemon is ready to accept requests.
-     pub fn ready(mut self) {
--        self.write_pipe.write_all(&[0]).unwrap();
-+        if let Err(err) = self.write_pipe.write_all(&[0]) {
-+            if err.kind() != io::ErrorKind::BrokenPipe {
-+                eprintln!("daemon::ready write failed: {err}");
-+            }
-+        }
-     }
- 
-     /// Executes `Command` as a child process.
-diff --git a/randd/src/main.rs b/randd/src/main.rs
---- a/randd/src/main.rs
-+++ b/randd/src/main.rs
-@@ -83,7 +83,7 @@
-     } // TODO integrate alternative entropy sources
-     if !have_seeded {
--        println!("randd: Seeding failed, no entropy source.  Random numbers on this platform are NOT SECURE");
-+        eprintln!("randd: no hardware entropy source, random numbers are NOT SECURE");
-     }
-     rng
- }

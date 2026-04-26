@@ -1,24 +1,12 @@
 diff --git a/src/header/unistd/mod.rs b/src/header/unistd/mod.rs
 --- a/src/header/unistd/mod.rs
 +++ b/src/header/unistd/mod.rs
-@@ -1214,12 +1214,20 @@
- /// See <https://pubs.opengroup.org/onlinepubs/009695399/functions/vfork.html>.
- ///
- /// # Deprecation
- /// The `vfork()` function was marked obsolescent in the Open Group Base
+@@ -1262,9 +1262,9 @@
  /// Specifications Issue 6, and removed in Issue 7.
  #[deprecated]
  // #[unsafe(no_mangle)]
  pub extern "C" fn vfork() -> pid_t {
 -    unimplemented!();
-+    // Simplified implementation: Redox uses copy-on-write fork semantics,
-+    // which provides the memory-sharing benefits of traditional vfork
-+    // without the dangerous shared-address-space semantics. This wrapper
-+    // simply delegates to fork().
-+    //
-+    // callers that depend on the parent being suspended until the child
-+    // calls exec or _exit will still work correctly, just without the
-+    // scheduling guarantee that vfork traditionally provided.
 +    unsafe { fork() }
  }
  

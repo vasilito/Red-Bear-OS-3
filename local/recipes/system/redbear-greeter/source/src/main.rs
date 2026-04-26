@@ -15,6 +15,8 @@ const GREETER_SOCKET_PATH: &str = "/run/redbear-greeterd.sock";
 const AUTH_SOCKET_PATH: &str = "/run/redbear-authd.sock";
 const BACKGROUND_PATH: &str = "/usr/share/redbear/greeter/background.png";
 const ICON_PATH: &str = "/usr/share/redbear/greeter/icon.png";
+const COMPOSITOR_BIN_PATH: &str = "/usr/bin/redbear-greeter-compositor";
+const COMPOSITOR_SHARE_PATH: &str = "/usr/share/redbear/greeter/redbear-greeter-compositor";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GreeterState {
@@ -255,7 +257,12 @@ impl GreeterDaemon {
 
     fn start_surface(&mut self) -> Result<(), String> {
         self.set_state(GreeterState::Starting, "Starting greeter surface");
-        self.compositor = Some(self.spawn_as_greeter("/usr/bin/redbear-greeter-compositor")?);
+        let compositor_path = if Path::new(COMPOSITOR_BIN_PATH).is_file() {
+            COMPOSITOR_BIN_PATH
+        } else {
+            COMPOSITOR_SHARE_PATH
+        };
+        self.compositor = Some(self.spawn_as_greeter(compositor_path)?);
         self.wait_for_wayland_socket()?;
         self.ui = Some(self.spawn_as_greeter("/usr/bin/redbear-greeter-ui")?);
         self.activate_vt(self.vt)?;
