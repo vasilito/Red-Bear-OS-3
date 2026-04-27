@@ -86,6 +86,14 @@ exit 0
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland"
 
+# Dummy kwin_wayland_wrapper binary
+cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
+#!/bin/sh
+echo "KWin stub: kwin_wayland_wrapper not yet available on Redox (args: $@)"
+exit 0
+EOFBIN
+chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
+
 # Minimal kwin header stubs for downstream compilation
 cat > "${STAGE}/include/kwin/kwinevents.h" << 'EOFHDR'
 #pragma once

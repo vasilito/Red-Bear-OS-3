@@ -126,3 +126,22 @@ index 3159b9c4..c691eb8d 100644
                      _ => MadtEntry::Unknown(entry_type),
                  };
  
+
+diff --git a/src/devices/graphical_debug/mod.rs b/src/devices/graphical_debug/mod.rs
+index b701c9a8..00cc984d 100644
+--- a/src/devices/graphical_debug/mod.rs
++++ b/src/devices/graphical_debug/mod.rs
+@@ -59,7 +59,12 @@ pub fn init(env: &[u8]) {
+     );
+ 
+     let debug_display = DebugDisplay::new(width, height, stride, virt as *mut u32);
+-    *DEBUG_DISPLAY.lock() = Some(debug_display);
++    // FIXME: Writing to the framebuffer during early boot causes a hang on some
++    // QEMU configurations (virtio-vga, ramfb). The bootloader maps the framebuffer
++    // with default caching; the kernel remaps it with write-combining in memory::init().
++    // Early kernel access before that remap appears to stall. Deferring DEBUG_DISPLAY
++    // setup avoids the hang; userspace vesad/fbbootlogd handles graphical output.
++    // *DEBUG_DISPLAY.lock() = Some(debug_display);
+ }
+ 
+ #[allow(unused)]

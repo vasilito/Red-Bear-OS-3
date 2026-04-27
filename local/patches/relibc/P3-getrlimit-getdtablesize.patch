@@ -1,0 +1,40 @@
+diff --git a/src/header/unistd/mod.rs b/src/header/unistd/mod.rs
+index 573d69ad..d7ebe10d 100644
+--- a/src/header/unistd/mod.rs
++++ b/src/header/unistd/mod.rs
+@@ -534,7 +534,7 @@ pub extern "C" fn getdtablesize() -> c_int {
+     };
+     if r == 0 {
+         let cur = unsafe { lim.assume_init() }.rlim_cur;
+-        match cur {
++        return match cur {
+             c if c < i32::MAX as u64 => c as i32,
+             _ => i32::MAX,
+         };
+     }
+     -1
+ }
+
+diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
+index 752339a7..3f44171b 100644
+--- a/src/platform/redox/mod.rs
++++ b/src/platform/redox/mod.rs
+@@ -736,10 +736,15 @@ impl Pal for Sys {
+     }
+ 
+     fn getrlimit(resource: c_int, mut rlim: Out<rlimit>) -> Result<()> {
+-        todo_skip!(0, "getrlimit({}, {:p}): not implemented", resource, rlim);
++        // Return sensible defaults without logging; full kernel syscall not yet available.
++        let (cur, max) = match resource {
++            sys_resource::RLIMIT_NOFILE => (65536, 65536),
++            sys_resource::RLIMIT_STACK => (8 * 1024 * 1024, RLIM_INFINITY as u64),
++            _ => (RLIM_INFINITY as u64, RLIM_INFINITY as u64),
++        };
+         rlim.write(rlimit {
+-            rlim_cur: RLIM_INFINITY,
+-            rlim_max: RLIM_INFINITY,
++            rlim_cur: cur,
++            rlim_max: max,
+         });
+         Ok(())
+     }
