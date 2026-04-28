@@ -75,3 +75,4 @@ local/firmware/
 TASK_COMPLETION_SUMMARY.md
 __pycache__/
 extra.img: 1073741824 bytes
+extra.img
