@@ -9,41 +9,63 @@ all: $(BUILD)/harddrive.img
 
 # ── Red Bear OS Build Cache ──────────────────────────────────────────────
 # The upstream Redox build system loses cached stages on make clean.
-# Red Bear provides snapshot/restore so the build can recover quickly.
-# Essential package caches are tracked in git under local/cache/essential/.
+# Red Bear provides a git-tracked cache that survives everything.
+#
+# Architecture:
+#   local/cache/pkgar/{pkgname}/stage.pkgar  — committed to git
+#   local/cache/rbos-cache-*/                — timestamped snapshots
 #
 # Usage:
-#   make cache-save              Save full cache snapshot
-#   make cache-save-essential    Save only essential (boot) packages
-#   make cache-restore           Auto-restore latest cache before build
-#   make cache-verify            Check cache integrity
+#   make cache-sync              Sync built packages → git-tracked cache
+#   make cache-commit            Sync + git commit
+#   make cache-restore           Restore from git-tracked cache
+#   make cache-save              Full timestamped snapshot (local only)
+#   make cache-status            Compare cache vs build state
+#   make cache-list              List available snapshots
 
-CACHE_SCRIPT = local/scripts/snapshot-cache.sh
-RESTORE_SCRIPT = local/scripts/restore-cache.sh
+CACHE_SYNC = local/scripts/cache-sync.sh
+CACHE_SAVE = local/scripts/snapshot-cache.sh
+CACHE_RESTORE = local/scripts/restore-cache.sh
 
-cache-save:
-	@bash $(CACHE_SCRIPT)
+cache-sync:
+	@bash $(CACHE_SYNC)
 
-cache-save-essential:
-	@bash $(CACHE_SCRIPT) --essential
+cache-commit:
+	@bash $(CACHE_SYNC) --commit
 
 cache-restore:
-	@bash $(RESTORE_SCRIPT)
+	@echo "Red Bear: restoring from git-tracked cache..."
+	@bash $(CACHE_SYNC) --restore
+	@bash $(CACHE_RESTORE) 2>/dev/null || true
+
+cache-save:
+	@bash $(CACHE_SAVE)
+
+cache-save-essential:
+	@bash $(CACHE_SAVE) --essential
 
 cache-verify:
-	@bash $(RESTORE_SCRIPT) --verify
+	@bash $(CACHE_RESTORE) --verify
 
 cache-list:
-	@bash $(CACHE_SCRIPT) --list
+	@bash $(CACHE_SAVE) --list
 
-# Auto-restore cache if available (runs before all builds)
+cache-status:
+	@bash $(CACHE_SYNC) --status
+
+# Auto-restore cache before build, sync after successful build
 cache-auto:
-	@if [ -d local/cache ] && ls local/cache/rbos-cache-* >/dev/null 2>&1; then \
-		echo "Red Bear: restoring build cache..."; \
-		bash $(RESTORE_SCRIPT); \
+	@if [ ! -f $(BUILD)/repo.tag ]; then \
+		if ls local/cache/pkgar/*/stage.pkgar >/dev/null 2>&1; then \
+			echo "Red Bear: build cache found, restoring..."; \
+			bash $(CACHE_SYNC) --restore; \
+		fi; \
+	fi
+	@if [ -f $(BUILD)/harddrive.img ]; then \
+		echo "Red Bear: build complete, syncing cache..."; \
+		bash $(CACHE_SYNC); \
 	fi
 
-# Ensure cache is restored before build
 $(BUILD)/harddrive.img: cache-auto
 
 live:
