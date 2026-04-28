@@ -1,25 +1,29 @@
---- /tmp/qtb-orig/src/plugins/platforms/wayland/hardwareintegration/qwaylandclientbufferintegration_p.h	2026-03-05 07:51:49.000000000 +0000
-+++ /tmp/qtb-mod/src/plugins/platforms/wayland/hardwareintegration/qwaylandclientbufferintegration_p.h	2026-04-28 13:47:16.739467291 +0100
-@@ -51,9 +51,13 @@
+--- qtb-orig/src/plugins/platforms/wayland/hardwareintegration/qwaylandclientbufferintegration_p.h	2026-03-05 07:51:49.000000000 +0000
++++ qtb-mod/src/plugins/platforms/wayland/hardwareintegration/qwaylandclientbufferintegration_p.h	2026-04-28 14:03:29.046092114 +0100
+@@ -51,9 +51,15 @@
      virtual bool supportsThreadedOpenGL() const { return false; }
      virtual bool supportsWindowDecoration() const { return false; }
  
 +    #if QT_CONFIG(opengl)
 +#if QT_CONFIG(opengl)
++#if QT_CONFIG(opengl)
      virtual QWaylandWindow *createEglWindow(QWindow *window) = 0;
      virtual QPlatformOpenGLContext *createPlatformOpenGLContext(const QSurfaceFormat &glFormat, QPlatformOpenGLContext *share) const = 0;
++#endif
 +#endif
      virtual bool canCreatePlatformOffscreenSurface() const { return false; }
 +#endif
  #if QT_CONFIG(opengl)
      virtual QOpenGLContext *createOpenGLContext(EGLContext context, EGLDisplay contextDisplay, QOpenGLContext *shareContext) const = 0;
      virtual QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const { Q_UNUSED(surface); return nullptr; }
-@@ -65,7 +69,9 @@
+@@ -65,7 +71,11 @@
          EglContext
      };
      virtual void *nativeResource(NativeResource /*resource*/) { return nullptr; }
 +#if QT_CONFIG(opengl)
++#if QT_CONFIG(opengl)
      virtual void *nativeResourceForContext(NativeResource /*resource*/, QPlatformOpenGLContext */*context*/) { return nullptr; }
++#endif
 +#endif
  };
  
