@@ -12,7 +12,7 @@ dependencies = [
 ]
 template = "meson"
 mesonflags = [
-    "-Depoll=enabled",
+    "-Depoll=disabled",
     "-Dx11_autolaunch=disabled",
     "-Dsystemd=disabled",
     "-Dlaunchd=disabled",

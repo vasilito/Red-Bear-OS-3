@@ -102,6 +102,8 @@ cosmic-edit = "ignore"
 cosmic-files = "ignore"
 cosmic-icons = "ignore"
 cosmic-term = "ignore"
+curl = "ignore"
+git = "ignore"
 
 [[files]]
 path = "/lib/firmware/amdgpu"
