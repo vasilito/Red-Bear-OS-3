@@ -81,3 +81,4 @@ local/cache/pkgar/
 # Red Bear git-tracked build cache (survives make clean)
 !local/cache/pkgar/
 !local/cache/pkgar/**
+Packages/redbear-firmware.pkgar

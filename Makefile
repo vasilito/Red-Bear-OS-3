@@ -224,3 +224,5 @@ FORCE:
 # Wireshark
 wireshark: FORCE
 	wireshark $(BUILD)/network.pcap
+packages-sync: ; @bash local/scripts/sync-packages.sh
+packages-list: ; @ls -la Packages/*.pkgar 2>/dev/null | wc -l && echo "pkgar files in Packages/"
