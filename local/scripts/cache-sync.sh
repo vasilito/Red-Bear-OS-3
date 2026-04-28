@@ -62,6 +62,11 @@ fi
 
 if [ "$MODE" = "--restore" ]; then
     echo "=== Restoring Cache to Recipes ==="
+    # Restore signing keys first (pkgar signatures depend on them)
+    if [ -d "${CACHE_ROOT}/../keys" ]; then
+        mkdir -p build
+        cp -f "${CACHE_ROOT}/../keys/id_ed25519"* build/ 2>/dev/null && echo "Keys restored"
+    fi
     count=0
     for pkgar in "${CACHE_ROOT}"/*/stage.pkgar; do
         [ -f "$pkgar" ] || continue
