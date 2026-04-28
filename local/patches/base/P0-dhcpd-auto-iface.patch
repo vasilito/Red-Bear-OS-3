@@ -1,0 +1,44 @@
+diff --git a/dhcpd/src/main.rs b/dhcpd/src/main.rs
+index a95b703e..45b7eab2 100644
+--- a/dhcpd/src/main.rs
++++ b/dhcpd/src/main.rs
+@@ -446,19 +446,36 @@ fn dhcp(iface: &str, verbose: bool) -> Result<(), String> {
+     Ok(())
+ }
+ 
++fn auto_detect_iface() -> String {
++    if let Ok(dir) = std::fs::read_dir("/scheme/netcfg/ifaces") {
++        for entry in dir.flatten() {
++            if let Ok(name) = entry.file_name().into_string() {
++                if !name.is_empty() && name != "." && name != ".." {
++                    return name;
++                }
++            }
++        }
++    }
++    String::from("eth0")
++}
++
+ fn main() {
+     let mut verbose = false;
+-    let iface = "eth0";
++    let mut iface = String::new();
+ 
+-    //TODO: parse iface from the args
+     for arg in env::args().skip(1) {
+         match arg.as_ref() {
+             "-v" => verbose = true,
++            other if !other.starts_with('-') && iface.is_empty() => iface = other.to_string(),
+             _ => (),
+         }
+     }
+ 
+-    if let Err(err) = dhcp(iface, verbose) {
++    if iface.is_empty() {
++        iface = auto_detect_iface();
++    }
++
++    if let Err(err) = dhcp(&iface, verbose) {
+         eprintln!("dhcpd: {err}");
+         process::exit(1);
+     }
