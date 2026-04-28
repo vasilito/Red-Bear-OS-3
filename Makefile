@@ -7,6 +7,45 @@ include mk/depends.mk
 
 all: $(BUILD)/harddrive.img
 
+# ── Red Bear OS Build Cache ──────────────────────────────────────────────
+# The upstream Redox build system loses cached stages on make clean.
+# Red Bear provides snapshot/restore so the build can recover quickly.
+# Essential package caches are tracked in git under local/cache/essential/.
+#
+# Usage:
+#   make cache-save              Save full cache snapshot
+#   make cache-save-essential    Save only essential (boot) packages
+#   make cache-restore           Auto-restore latest cache before build
+#   make cache-verify            Check cache integrity
+
+CACHE_SCRIPT = local/scripts/snapshot-cache.sh
+RESTORE_SCRIPT = local/scripts/restore-cache.sh
+
+cache-save:
+	@bash $(CACHE_SCRIPT)
+
+cache-save-essential:
+	@bash $(CACHE_SCRIPT) --essential
+
+cache-restore:
+	@bash $(RESTORE_SCRIPT)
+
+cache-verify:
+	@bash $(RESTORE_SCRIPT) --verify
+
+cache-list:
+	@bash $(CACHE_SCRIPT) --list
+
+# Auto-restore cache if available (runs before all builds)
+cache-auto:
+	@if [ -d local/cache ] && ls local/cache/rbos-cache-* >/dev/null 2>&1; then \
+		echo "Red Bear: restoring build cache..."; \
+		bash $(RESTORE_SCRIPT); \
+	fi
+
+# Ensure cache is restored before build
+$(BUILD)/harddrive.img: cache-auto
+
 live:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redbear_installer/ || true
