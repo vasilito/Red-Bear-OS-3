@@ -39,9 +39,9 @@ status claims, and backed by bounded runtime evidence.
 
 ## Purpose
 
-This plan does **not** replace `local/docs/ACPI-FIXES.md`.
+This plan does **not** replace `local/docs/BOOT-PROCESS-ASSESSMENT.md` (historical boot record).
 
-- `local/docs/ACPI-FIXES.md` remains the historical P0 bring-up ledger and implementation snapshot.
+- `local/docs/BOOT-PROCESS-ASSESSMENT.md` (historical boot record) remains the historical P0 bring-up ledger and implementation snapshot.
 - This file is the forward plan for correctness hardening, ownership cleanup, consumer integration,
   and validation closure.
 
@@ -70,13 +70,13 @@ kernel-ownership decisions are shared.
 
 Read these alongside this plan:
 
-- `local/docs/ACPI-FIXES.md`
-- `local/docs/BAREMETAL-LOG.md`
+- `local/docs/BOOT-PROCESS-ASSESSMENT.md` (historical boot record)
+- `local/docs/BOOT-PROCESS-ASSESSMENT.md`
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`
 - `local/docs/IOMMU-SPEC-REFERENCE.md`
 - `local/docs/QUIRKS-SYSTEM.md`
 - `local/docs/LINUX-BORROWING-RUST-IMPLEMENTATION-PLAN.md`
-- `docs/02-GAP-ANALYSIS.md`
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`
 
 ## Evidence Model
 
@@ -229,10 +229,10 @@ Without a contract, later hardening work turns into undocumented rewrites and do
 
 ### Primary files
 
-- `local/docs/ACPI-FIXES.md`
+- `local/docs/BOOT-PROCESS-ASSESSMENT.md` (historical boot record)
 - this file
 - `HARDWARE.md`
-- `docs/02-GAP-ANALYSIS.md`
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`
 - related status surfaces as needed
 
 ### Dependencies
@@ -252,9 +252,9 @@ Without a contract, later hardening work turns into undocumented rewrites and do
 | ID | Work slice | Concrete output | QA evidence |
 |---|---|---|---|
 | W0.1 | Vocabulary normalization | All ACPI-facing docs use the same status words for implemented / transitional / known gap | grep review across ACPI docs shows no conflicting support language |
-| W0.2 | Ownership statement | One canonical statement for kernel / `acpid` / `iommu` / future DMAR ownership | `ACPI-IMPROVEMENT-PLAN.md`, `ACPI-FIXES.md`, and `IOMMU-SPEC-REFERENCE.md` agree |
+| W0.2 | Ownership statement | One canonical statement for kernel / `acpid` / `iommu` / future DMAR ownership | `ACPI-IMPROVEMENT-PLAN.md`, `BOOT-PROCESS-ASSESSMENT.md`, and `IOMMU-SPEC-REFERENCE.md` agree |
 | W0.3 | Eventing scope truthfulness | `kstop` and shutdown-only semantics become explicit everywhere they are summarized | `DBUS-INTEGRATION-PLAN.md`, `DESKTOP-STACK-CURRENT-STATUS.md`, and `AGENTS.md` stay aligned |
-| W0.4 | Evidence-carrier cleanup | validation logs are treated as evidence carriers, not support-policy sources | `BAREMETAL-LOG.md` and `HARDWARE.md` no longer overclaim support |
+| W0.4 | Evidence-carrier cleanup | validation logs are treated as evidence carriers, not support-policy sources | `BOOT-PROCESS-ASSESSMENT.md` and `HARDWARE.md` no longer overclaim support |
 
 ### Specific tasks
 
@@ -350,7 +350,7 @@ Remove catastrophic or silent failure behavior from boot-critical ACPI initializ
 - boot-path evidence showing where AML bootstrap parameters come from or an explicit retained blocker stating that the producer remains unresolved,
 - one bounded AMD hardware boot recheck,
 - one bounded Intel hardware boot recheck,
-- evidence captured in `local/docs/BAREMETAL-LOG.md`.
+- evidence captured in `local/docs/BOOT-PROCESS-ASSESSMENT.md`.
 
 ### Exit criteria
 
@@ -675,10 +675,10 @@ Turn the current ACPI stack from bring-up evidence into release-grade trust.
 
 ### Primary files
 
-- `local/docs/BAREMETAL-LOG.md`
+- `local/docs/BOOT-PROCESS-ASSESSMENT.md`
 - `HARDWARE.md`
 - this file
-- `docs/02-GAP-ANALYSIS.md`
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md`
 - validation scripts such as `local/scripts/test-baremetal.sh` and bounded ACPI-related QEMU / runtime harnesses as they exist
 
 ### Dependencies
@@ -736,14 +736,14 @@ This plan should treat one successful run as **initial evidence**, not closure.
 
 | ID | Work slice | Concrete output | QA evidence |
 |---|---|---|---|
-| W7.1 | Matrix carrier | one canonical bounded validation matrix exists | `BAREMETAL-LOG.md` holds named platform entries |
+| W7.1 | Matrix carrier | one canonical bounded validation matrix exists | `BOOT-PROCESS-ASSESSMENT.md` holds named platform entries |
 | W7.2 | Positive proof set | QEMU + AMD + Intel + EC-backed paths each have bounded proof entries | repeated runs recorded with dates and configs |
 | W7.3 | Negative-result discipline | unresolved AML/EC/platform failures stay visible | negative results persist in logs/docs instead of disappearing |
 | W7.4 | Release-gate enforcement | stronger ACPI claims are tied to explicit gate passage | summary docs do not exceed the evidence in the matrix |
 
 ### Specific tasks
 
-1. Publish the platform matrix in `local/docs/BAREMETAL-LOG.md`.
+1. Publish the platform matrix in `local/docs/BOOT-PROCESS-ASSESSMENT.md`.
 2. Record for each platform: firmware mode, key ACPI tables, APIC mode, shutdown / reboot, DMI / power exposure, AML / EC failures, and notable degraded behavior.
 3. Preserve negative results such as unsupported AML opcodes or platform-specific regressions.
 4. Require evidence before any stronger ACPI completeness claim is made.

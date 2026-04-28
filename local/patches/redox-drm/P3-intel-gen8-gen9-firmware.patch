@@ -1,0 +1,61 @@
+diff --git a/local/recipes/gpu/redox-drm/source/src/main.rs b/local/recipes/gpu/redox-drm/source/src/main.rs
+index 717e3805b..612a64e0f 100644
+--- a/local/recipes/gpu/redox-drm/source/src/main.rs
++++ b/local/recipes/gpu/redox-drm/source/src/main.rs
+@@ -231,20 +231,48 @@ const AMD_DISPLAY_FIRMWARE_KEYS: &[&str] = &[
+     "amdgpu/dmcub_dcn31.bin",
+ ];
+ 
+-const INTEL_TGL_DMC_KEYS: &[&str] = &["i915/tgl_dmc.bin", "i915/tgl_dmc_ver2_12.bin"];
+-const INTEL_ADLP_DMC_KEYS: &[&str] = &["i915/adlp_dmc.bin", "i915/adlp_dmc_ver2_16.bin"];
++const INTEL_TGL_DMC_KEYS: &[&str] = &["i915/tgl_dmc.bin", "i915/tgl_dmc_ver2_12.bin", "i915/tgl_dmc_ver2_06.bin"];
++const INTEL_ADLP_DMC_KEYS: &[&str] = &["i915/adlp_dmc.bin", "i915/adlp_dmc_ver2_16.bin", "i915/adlp_dmc_ver2_12.bin"];
+ const INTEL_DG2_DMC_KEYS: &[&str] = &["i915/dg2_dmc.bin", "i915/dg2_dmc_ver2_06.bin"];
+ const INTEL_MTL_DMC_KEYS: &[&str] = &["i915/mtl_dmc.bin"];
++const INTEL_SKL_DMC_KEYS: &[&str] = &["i915/skl_dmc_ver1_27.bin", "i915/skl_dmc_ver1_23.bin"];
++const INTEL_KBL_DMC_KEYS: &[&str] = &["i915/kbl_dmc_ver1_04.bin", "i915/kbl_dmc_ver1_01.bin"];
++const INTEL_CNL_DMC_KEYS: &[&str] = &["i915/cnl_dmc_ver1_07.bin", "i915/cnl_dmc_ver1_06.bin"];
++const INTEL_ICL_DMC_KEYS: &[&str] = &["i915/icl_dmc_ver1_09.bin", "i915/icl_dmc_ver1_07.bin"];
++const INTEL_GLK_DMC_KEYS: &[&str] = &["i915/glk_dmc_ver1_04.bin"];
++const INTEL_RKL_DMC_KEYS: &[&str] = &["i915/rkl_dmc_ver2_03.bin", "i915/rkl_dmc_ver2_02.bin"];
++const INTEL_DG1_DMC_KEYS: &[&str] = &["i915/dg1_dmc_ver2_02.bin"];
+ 
+ fn intel_display_firmware_keys(device_id: u16) -> Option<&'static [&'static str]> {
+     match device_id {
+-        0x9A40 | 0x9A49 | 0x9A60 | 0x9A68 | 0x9A70 | 0x9A78 => Some(INTEL_TGL_DMC_KEYS),
++        // Gen12+ (Tiger Lake and newer)
++        0x9A40 | 0x9A49 | 0x9A59 | 0x9A60 | 0x9A68 | 0x9A70 | 0x9A78 | 0x9AC0 | 0x9AC9 | 0x9AD9 | 0x9AF8 => Some(INTEL_TGL_DMC_KEYS),
+         0x46A6 => Some(INTEL_ADLP_DMC_KEYS),
+-        0x5690 | 0x5691 | 0x5692 | 0x5693 | 0x5694 | 0x5696 | 0x5697 | 0x56A0 | 0x56A1
+-        | 0x56A5 | 0x56A6 | 0x56B0 | 0x56B1 | 0x56B2 | 0x56B3 | 0x56C0 | 0x56C1 => {
+-            Some(INTEL_DG2_DMC_KEYS)
+-        }
+-        0x7D55 | 0x7D45 | 0x7D40 => Some(INTEL_MTL_DMC_KEYS),
++        0x5690 | 0x5691 | 0x5692 | 0x5693 | 0x5694 | 0x5695 | 0x5696 | 0x5697
++        | 0x56A0 | 0x56A1 | 0x56A2 | 0x56A3 | 0x56A4 | 0x56A5 | 0x56A6
++        | 0x56B0 | 0x56B1 | 0x56B2 | 0x56B3 | 0x56BA | 0x56BB | 0x56BC | 0x56BD | 0x56BE | 0x56BF
++        | 0x56C0 | 0x56C1 => Some(INTEL_DG2_DMC_KEYS),
++        0x7D40 | 0x7D41 | 0x7D45 | 0x7D51 | 0x7D55 | 0x7D60 | 0x7D67 | 0x7DD1 | 0x7DD5 => Some(INTEL_MTL_DMC_KEYS),
++        // Gen9 (Ice Lake / Rocket Lake / Cannon Lake)
++        0x4905 | 0x4906 | 0x4907 | 0x4908 | 0x4909 => Some(INTEL_ICL_DMC_KEYS),
++        0x4C80 | 0x4C8A | 0x4C8B | 0x4C8C | 0x4C90 | 0x4C9A => Some(INTEL_RKL_DMC_KEYS),
++        0x5A40 | 0x5A41 | 0x5A42 | 0x5A44 | 0x5A49 | 0x5A4A | 0x5A4C
++        | 0x5A50 | 0x5A51 | 0x5A52 | 0x5A54 | 0x5A59 | 0x5A5A | 0x5A5C => Some(INTEL_CNL_DMC_KEYS),
++        // Gen8 (Skylake / Kaby Lake / Coffee Lake / Gemini Lake / Broxton)
++        0x1902 | 0x1906 | 0x190A | 0x190B | 0x190E
++        | 0x1912 | 0x1916 | 0x1917 | 0x191A | 0x191B | 0x191D | 0x191E
++        | 0x1921 | 0x1923 | 0x1926 | 0x1927 | 0x192A | 0x192B | 0x192D
++        | 0x1932 | 0x193A | 0x193B | 0x193D => Some(INTEL_SKL_DMC_KEYS),
++        0x3E90 | 0x3E91 | 0x3E92 | 0x3E93 | 0x3E94 | 0x3E96 | 0x3E98 | 0x3E99
++        | 0x3E9A | 0x3E9B | 0x3E9C | 0x3EA0 | 0x3EA1 | 0x3EA2 | 0x3EA3 | 0x3EA4
++        | 0x3EA5 | 0x3EA6 | 0x3EA7 | 0x3EA8 | 0x3EA9 => Some(INTEL_KBL_DMC_KEYS),
++        0x87C0 | 0x87CA => Some(INTEL_KBL_DMC_KEYS),
++        0x9B21 | 0x9B41 | 0x9BA2 | 0x9BA4 | 0x9BA5 | 0x9BA8
++        | 0x9BAA | 0x9BAC | 0x9BC2 | 0x9BC4 | 0x9BC5 | 0x9BC6 | 0x9BC8 | 0x9BCA
++        | 0x9BCC | 0x9BE6 | 0x9BF6 => Some(INTEL_KBL_DMC_KEYS),
++        0x0A84 | 0x1A84 | 0x1A85 | 0x5A84 | 0x5A85 => Some(INTEL_GLK_DMC_KEYS),
++        // DG1 (Gen12)
++        0x4905 | 0x4906 | 0x4907 | 0x4908 | 0x4909 => Some(INTEL_DG1_DMC_KEYS),
+         _ => None,
+     }
+ }

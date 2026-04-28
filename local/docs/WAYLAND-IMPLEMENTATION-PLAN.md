@@ -315,7 +315,7 @@ This plan supersedes the active planning role previously held by:
 It also reduces ambiguity in these adjacent surfaces:
 
 - `recipes/wip/AGENTS.md` Wayland status notes,
-- `docs/02-GAP-ANALYSIS.md` Wayland references,
+- `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` Wayland references,
 - current-status and canonical-plan references that still pointed to the old Wayland roadmap.
 
 ## Docs To Keep vs. Retire

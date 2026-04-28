@@ -1,0 +1,336 @@
+diff --git a/src/main.rs b/src/main.rs
+index 542b059..adc8da3 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -10,6 +10,7 @@ extern crate uefi_std as std;
+ use alloc::{format, string::String, vec::Vec};
+ use core::{
+     cmp,
++    convert::TryFrom,
+     fmt::{self, Write},
+     mem, ptr, slice, str,
+ };
+@@ -62,6 +63,10 @@ pub static mut KERNEL_64BIT: bool = false;
+ 
+ pub static mut LIVE_OPT: Option<(u64, &'static [u8])> = None;
+ 
++fn region_end(base: u64, size: u64) -> u64 {
++    base.saturating_add(size).next_multiple_of(0x1000)
++}
++
+ struct SliceWriter<'a> {
+     slice: &'a mut [u8],
+     i: usize,
+@@ -114,6 +119,10 @@ fn select_mode(
+     live: &mut bool,
+     edit_env: &mut bool,
+ ) -> Option<OsVideoMode> {
++    const DEFAULT_WIDTH: u32 = 1280;
++    const DEFAULT_HEIGHT: u32 = 720;
++    const AUTOBOOT_SECONDS: usize = 5;
++
+     let mut modes = Vec::new();
+     for mode in os.video_modes(output_i) {
+         let mut aspect_w = mode.width;
+@@ -141,15 +150,26 @@ fn select_mode(
+     // Sort modes by pixel area, reversed
+     modes.sort_by(|a, b| (b.0.width * b.0.height).cmp(&(a.0.width * a.0.height)));
+ 
+-    // Set selected based on best resolution
++    // Set selected based on Red Bear default resolution first, then best resolution fallback
+     print!("Output {}", output_i);
+     let mut selected = modes.first().map_or(0, |x| x.0.id);
+-    if let Some((best_width, best_height)) = os.best_resolution(output_i) {
+-        print!(", best resolution: {}x{}", best_width, best_height);
+-        for (mode, _text) in modes.iter() {
+-            if mode.width == best_width && mode.height == best_height {
+-                selected = mode.id;
+-                break;
++    let mut selected_from_default = false;
++    for (mode, _text) in modes.iter() {
++        if mode.width == DEFAULT_WIDTH && mode.height == DEFAULT_HEIGHT {
++            selected = mode.id;
++            selected_from_default = true;
++            print!(", default resolution: {}x{}", DEFAULT_WIDTH, DEFAULT_HEIGHT);
++            break;
++        }
++    }
++    if !selected_from_default {
++        if let Some((best_width, best_height)) = os.best_resolution(output_i) {
++            print!(", best resolution: {}x{}", best_width, best_height);
++            for (mode, _text) in modes.iter() {
++                if mode.width == best_width && mode.height == best_height {
++                    selected = mode.id;
++                    break;
++                }
+             }
+         }
+     }
+@@ -163,12 +183,19 @@ fn select_mode(
+         println!("Press l to  enable live mode");
+     }
+     println!("Press e to edit boot environment");
++    println!(
++        "Autobooting default mode in {} seconds (press any key to cancel countdown)",
++        AUTOBOOT_SECONDS
++    );
+     println!();
+     print!(" ");
+ 
+     let (off_x, off_y) = os.get_text_position();
+     let rows = 12;
+     let mut mode_opt = None;
++    let countdown_y = off_y.saturating_sub(2);
++    let mut countdown = AUTOBOOT_SECONDS;
++    let mut countdown_active = true;
+     while !modes.is_empty() {
+         let mut row = 0;
+         let mut col = 0;
+@@ -186,9 +213,38 @@ fn select_mode(
+             row += 1;
+         }
+ 
++        os.set_text_position(0, countdown_y);
++        os.set_text_highlight(false);
++        if countdown_active {
++            println!(
++                "Autobooting default mode in {} seconds (press any key to cancel countdown)",
++                countdown
++            );
++        } else {
++            println!("Manual mode selection active. Press Enter to boot selected mode.      ");
++        }
++
+         // Read keypress
+-        match os.get_key() {
++        match if countdown_active {
++            os.get_key_timeout(1000)
++        } else {
++            os.get_key()
++        } {
++            OsKey::Timeout => {
++                if countdown_active {
++                    if countdown == 0 {
++                        if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
++                            if let Some((mode, _text)) = modes.get(mode_i) {
++                                mode_opt = Some(*mode);
++                            }
++                        }
++                        break;
++                    }
++                    countdown = countdown.saturating_sub(1);
++                }
++            }
+             OsKey::Left => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if mode_i < rows {
+                         while mode_i < modes.len() {
+@@ -202,6 +258,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Right => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     mode_i += rows;
+                     if mode_i >= modes.len() {
+@@ -213,6 +270,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Up => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if mode_i % rows == 0 {
+                         mode_i += rows;
+@@ -227,6 +285,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Down => {
++                countdown_active = false;
+                 if let Some(mut mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     mode_i += 1;
+                     if mode_i % rows == 0 {
+@@ -241,6 +300,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Enter => {
++                countdown_active = false;
+                 if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if let Some((mode, _text)) = modes.get(mode_i) {
+                         mode_opt = Some(*mode);
+@@ -249,6 +309,7 @@ fn select_mode(
+                 break;
+             }
+             OsKey::Char('l') => {
++                countdown_active = false;
+                 *live = !*live;
+                 os.set_text_position(live_mode.0, live_mode.1);
+                 if *live {
+@@ -258,6 +319,7 @@ fn select_mode(
+                 }
+             }
+             OsKey::Char('e') => {
++                countdown_active = false;
+                 if let Some(mode_i) = modes.iter().position(|x| x.0.id == selected) {
+                     if let Some((mode, _text)) = modes.get(mode_i) {
+                         *edit_env = true;
+@@ -266,7 +328,9 @@ fn select_mode(
+                 }
+                 break;
+             }
+-            _ => (),
++            OsKey::Other | OsKey::Backspace | OsKey::Delete | OsKey::Char(_) => {
++                countdown_active = false;
++            }
+         }
+     }
+ 
+@@ -496,38 +560,84 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+     let live_opt = if live {
+         let size = fs.header.size();
+ 
+-        print!("live: 0/{} MiB", size / MIBI as u64);
++        let max_preload: u64 = 1024 * MIBI as u64; // Cap live preload at 1 GiB
++        let preload_size = if size > max_preload {
++            println!(
++                "live: filesystem is {} MiB, capping preload at {} MiB",
++                size / MIBI as u64,
++                max_preload / MIBI as u64
++            );
++            max_preload
++        } else {
++            size
++        };
+ 
+-        let ptr = os.alloc_zeroed_page_aligned(size as usize);
+-        if ptr.is_null() {
+-            panic!("Failed to allocate memory for live");
+-        }
++        print!("live: 0/{} MiB", preload_size / MIBI as u64);
+ 
+-        let live = unsafe { slice::from_raw_parts_mut(ptr, size as usize) };
++        let live_size = match usize::try_from(preload_size) {
++            Ok(live_size) => live_size,
++            Err(_) => {
++                println!("\rlive: disabled (image too large for bootloader address space)");
++                live = false;
++                0
++            }
++        };
+ 
+-        let mut i = 0;
+-        for chunk in live.chunks_mut(MIBI) {
+-            print!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
+-            i += unsafe {
+-                fs.disk
+-                    .read_at(fs.block + i / redoxfs::BLOCK_SIZE, chunk)
+-                    .expect("Failed to read live disk") as u64
+-            };
++        let ptr = if live {
++            os.alloc_zeroed_page_aligned(live_size)
++        } else {
++            ptr::null_mut()
++        };
++        if live && ptr.is_null() {
++            println!(
++                "\rlive: disabled (unable to allocate {} MiB upfront)",
++                size / MIBI as u64
++            );
++            live = false;
+         }
+-        println!("\rlive: {}/{} MiB", i / MIBI as u64, size / MIBI as u64);
+ 
+-        println!("Switching to live disk");
+-        unsafe {
+-            LIVE_OPT = Some((fs.block, slice::from_raw_parts_mut(ptr, size as usize)));
+-        }
++        let live = if live {
++            Some(unsafe { slice::from_raw_parts_mut(ptr, live_size) })
++        } else {
++            println!("Continuing without live preload");
++            None
++        };
+ 
+-        area_add(OsMemoryEntry {
+-            base: live.as_ptr() as u64,
+-            size: live.len() as u64,
+-            kind: OsMemoryKind::Reserved,
+-        });
++        if let Some(live) = live {
++            let mut i = 0;
++            for chunk in live.chunks_mut(MIBI) {
++                print!("\rlive: {}/{} MiB", i / MIBI as u64, preload_size / MIBI as u64);
++                i += unsafe {
++                    fs.disk
++                        .read_at(fs.block + i / redoxfs::BLOCK_SIZE, chunk)
++                        .expect("Failed to read live disk") as u64
++                };
++            }
++            println!("\rlive: {}/{} MiB", i / MIBI as u64, preload_size / MIBI as u64);
++
++            if preload_size < size {
++                println!(
++                    "live: preloaded {} MiB of {} MiB filesystem (remaining {} MiB from disk)",
++                    preload_size / MIBI as u64,
++                    size / MIBI as u64,
++                    (size - preload_size) / MIBI as u64
++                );
++            }
++            println!("Switching to live disk");
++            unsafe {
++                LIVE_OPT = Some((fs.block, slice::from_raw_parts_mut(ptr, live_size)));
++            }
++
++            area_add(OsMemoryEntry {
++                base: live.as_ptr() as u64,
++                size: live.len() as u64,
++                kind: OsMemoryKind::Reserved,
++            });
+ 
+-        Some(live)
++            Some(live)
++        } else {
++            None
++        }
+     } else {
+         None
+     };
+@@ -555,9 +665,6 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+         (memory.len() as u64, memory.as_mut_ptr() as u64)
+     };
+ 
+-    let page_phys = unsafe { paging_create(os, kernel.as_ptr() as u64, kernel.len() as u64) }
+-        .expect("Failed to set up paging");
+-
+     let max_env_size = 64 * KIBI;
+     let mut env_size = max_env_size;
+     let env_base = os.alloc_zeroed_page_aligned(env_size);
+@@ -565,6 +672,28 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+         panic!("Failed to allocate memory for stack");
+     }
+ 
++    let mut identity_map_end = region_end(kernel.as_ptr() as u64, kernel.len() as u64)
++        .max(region_end(stack_base as u64, stack_size as u64))
++        .max(region_end(bootstrap_base, bootstrap_size))
++        .max(region_end(env_base as u64, max_env_size as u64));
++
++    if let Some(ref live) = live_opt {
++        identity_map_end = identity_map_end.max(region_end(
++            live.as_ptr() as u64,
++            live.len() as u64,
++        ));
++    }
++
++    let page_phys = unsafe {
++        paging_create(
++            os,
++            kernel.as_ptr() as u64,
++            kernel.len() as u64,
++            identity_map_end,
++        )
++    }
++    .expect("Failed to set up paging");
++
+     {
+         let mut w = SliceWriter {
+             slice: unsafe { slice::from_raw_parts_mut(env_base, max_env_size) },

@@ -16,7 +16,6 @@ dependencies = [
     "kf6-kconfig",
     "kf6-kwindowsystem",
     "kf6-kglobalaccel",
-    "kdecoration",
 ]
 script = """
 DYNAMIC_INIT
@@ -78,19 +77,36 @@ EOFEVER
 # Dummy library for link resolution
 echo "/* kwin stub */" > "${STAGE}/lib/libkwin.a"
 
-# Dummy kwin_wayland binary
+# kwin_wayland — thin wrapper around redbear-compositor when available
 cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
 #!/bin/sh
-echo "KWin stub: Wayland compositor not yet available on Redox"
+if command -v redbear-compositor >/dev/null 2>&1; then
+    exec redbear-compositor "$@"
+fi
+echo "KWin: Wayland compositor not yet available on Redox"
 exit 0
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland"
 
-# Dummy kwin_wayland_wrapper binary
+# kwin_wayland_wrapper — launches the real compositor when available, or falls back to stub
 cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
 #!/bin/sh
-echo "KWin stub: kwin_wayland_wrapper not yet available on Redox (args: $@)"
-exit 0
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
+DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+mkdir -p "$RUNTIME_DIR"
+
+if command -v redbear-compositor >/dev/null 2>&1; then
+    echo "kwin_wayland_wrapper: launching redbear-compositor" >&2
+    export WAYLAND_DISPLAY="${DISPLAY}"
+    export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
+    exec redbear-compositor
+fi
+
+echo "kwin_wayland_wrapper: redbear-compositor not found, using stub" >&2
+if [ ! -e "$RUNTIME_DIR/$DISPLAY" ]; then
+    touch "$RUNTIME_DIR/$DISPLAY"
+fi
+while true; do sleep 3600; done
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
 

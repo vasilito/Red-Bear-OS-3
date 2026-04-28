@@ -16,9 +16,18 @@ index 573d69ad..d7ebe10d 100644
  }
 
 diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
-index 752339a7..3f44171b 100644
+index 752339a7..8f87913b 100644
 --- a/src/platform/redox/mod.rs
 +++ b/src/platform/redox/mod.rs
+@@ -43,7 +43,7 @@ use crate::{
+         sys_file,
+         sys_mman::{MAP_ANONYMOUS, PROT_READ, PROT_WRITE},
+         sys_random,
+-        sys_resource::{RLIM_INFINITY, rlimit, rusage},
++        sys_resource::{RLIM_INFINITY, RLIMIT_NOFILE, RLIMIT_STACK, rlimit, rusage},
+         sys_select::timeval,
+         sys_stat::{S_ISVTX, stat},
+         sys_statvfs::statvfs,
 @@ -736,10 +736,15 @@ impl Pal for Sys {
      }
  
@@ -26,8 +35,8 @@ index 752339a7..3f44171b 100644
 -        todo_skip!(0, "getrlimit({}, {:p}): not implemented", resource, rlim);
 +        // Return sensible defaults without logging; full kernel syscall not yet available.
 +        let (cur, max) = match resource {
-+            sys_resource::RLIMIT_NOFILE => (65536, 65536),
-+            sys_resource::RLIMIT_STACK => (8 * 1024 * 1024, RLIM_INFINITY as u64),
++            RLIMIT_NOFILE => (65536, 65536),
++            RLIMIT_STACK => (8 * 1024 * 1024, RLIM_INFINITY as u64),
 +            _ => (RLIM_INFINITY as u64, RLIM_INFINITY as u64),
 +        };
          rlim.write(rlimit {

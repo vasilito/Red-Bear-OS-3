@@ -285,6 +285,9 @@ fn build_environment(account: &Account, args: &Args, runtime_dir: &Path) -> BTre
         values.insert(String::from("LANG"), String::from("en_US.UTF-8"));
     }
 
+    if let Some(devices) = env_value(&["KWIN_DRM_DEVICES"]) {
+        values.insert(String::from("KWIN_DRM_DEVICES"), devices);
+    }
     if let Some(theme) = env_value(&["XCURSOR_THEME"]) {
         values.insert(String::from("XCURSOR_THEME"), theme);
     }
@@ -564,5 +567,31 @@ mod tests {
             command_for(&args),
             Err(String::from("unsupported session 'plasma-x11'"))
         );
+    }
+
+    #[test]
+    fn build_environment_propagates_kwin_drm_devices_when_set() {
+        unsafe { std::env::set_var("KWIN_DRM_DEVICES", "/scheme/drm/card0"); }
+        let account = Account {
+            username: String::from("greeter"),
+            uid: 101,
+            gid: 101,
+            home: String::from("/nonexistent"),
+            shell: String::from("/usr/bin/ion"),
+        };
+        let args = Args {
+            username: String::from("greeter"),
+            vt: 3,
+            session: String::from("kde-wayland"),
+            runtime_dir: None,
+            wayland_display: String::from("wayland-0"),
+            mode: LaunchMode::Command {
+                program: String::from("/usr/bin/redbear-greeter-compositor"),
+                args: Vec::new(),
+            },
+        };
+        let envs = build_environment(&account, &args, Path::new("/tmp/run/greeter"));
+        assert_eq!(envs["KWIN_DRM_DEVICES"], "/scheme/drm/card0");
+        unsafe { std::env::remove_var("KWIN_DRM_DEVICES"); }
     }
 }

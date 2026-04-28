@@ -21,7 +21,25 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2
     eval "$(dbus-launch --sh-syntax)"
 fi
 
+if ! command -v kwin_wayland_wrapper >/dev/null 2>&1; then
+    echo "redbear-greeter-compositor: kwin_wayland_wrapper not found in PATH" >&2
+    exit 1
+fi
+
+# Auto-detect DRM device if KWIN_DRM_DEVICES not explicitly set.
+# Wait up to 5 seconds for the DRM device to appear (pcid-spawner is async).
+if [ -z "${KWIN_DRM_DEVICES:-}" ]; then
+    for _ in $(seq 1 10); do
+        if [ -e /scheme/drm/card0 ]; then
+            export KWIN_DRM_DEVICES="/scheme/drm/card0"
+            break
+        fi
+        sleep 0.5
+    done
+fi
+
 if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
+    echo "redbear-greeter-compositor: using DRM KWin backend (KWIN_DRM_DEVICES=${KWIN_DRM_DEVICES})" >&2
     exec kwin_wayland_wrapper --drm
 else
     echo "redbear-greeter-compositor: using virtual KWin backend (set KWIN_DRM_DEVICES to enable DRM)" >&2

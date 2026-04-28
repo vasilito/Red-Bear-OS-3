@@ -29,7 +29,7 @@ It is grounded in the current repository state, especially:
 - `recipes/core/kernel/source/src/acpi/`
 - `recipes/core/base/source/drivers/acpid/`
 - `local/docs/IOMMU-SPEC-REFERENCE.md`
-- `local/docs/ACPI-FIXES.md`
+- `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 - `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 - `docs/04-LINUX-DRIVER-COMPAT.md`
 
@@ -451,7 +451,7 @@ Concrete current consumers/owners include:
 - legacy PIC handling in `recipes/core/kernel/source/src/arch/x86_shared/device/pic.rs`
 - port-I/O wrappers in `local/recipes/drivers/redox-driver-sys/source/src/io.rs`
 - ACPI reset fallback via keyboard-controller port writes in the base/acpid patch path documented in
-  `local/docs/ACPI-FIXES.md`
+  `local/docs/ACPI-IMPROVEMENT-PLAN.md`
 
 Open enhancement items:
 

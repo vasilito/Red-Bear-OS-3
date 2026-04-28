@@ -1,0 +1,9 @@
+[source]
+path = "source"
+
+[build]
+template = "cargo"
+
+[package.files]
+"/usr/bin/redbear-compositor" = "redbear-compositor"
+"/usr/bin/redbear-compositor-check" = "redbear-compositor-check"

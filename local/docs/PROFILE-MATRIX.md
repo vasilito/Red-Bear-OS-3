@@ -30,6 +30,34 @@ USB plan uses:
 | `redbear-grub` | Text-only with GRUB boot manager | `redbear-mini.toml`, `redbear-grub-policy.toml` | builds / live media variant with GRUB chainload for real bare metal / desktop graphics intentionally absent |
 | `redbear-full` | Desktop/network/session plumbing target | `desktop.toml`, `redbear-legacy-base.toml`, `redbear-legacy-desktop.toml`, `redbear-device-services.toml`, `redbear-netctl.toml`, `redbear-greeter-services.toml` | builds / boots in QEMU / active desktop-capable compile target / support claims remain evidence-qualified |
 
+## Build Artifacts (ISO Organization)
+
+All profiles produce outputs under `build/x86_64/`. Each profile gets its own directory:
+
+| Profile | ISO | harddrive.img | Image size | QEMU RAM | Boots via `make qemu`? |
+|---------|-----|---------------|------------|----------|------------------------|
+| `redbear-mini` | `redbear-mini.iso` | `redbear-mini/harddrive.img` | 1.5 GiB | **2 GiB** | ✅ Text login |
+| `redbear-grub` | `redbear-grub.iso` | `redbear-grub/harddrive.img` | 1.5 GiB | **2 GiB** | ✅ Text login |
+| `redbear-full` | `redbear-full.iso` | `redbear-full/harddrive.img` | 4.0 GiB | **2 GiB** | ⚠️ Text login only |
+
+> **⚠️ CRITICAL**: `redbear-full` requires **exactly 2 GiB** of guest RAM in QEMU. With 4 GiB or more, the kernel hangs silently during early SMP/memory initialization (x86_64 only). This is a confirmed kernel bug — see `BOOT-PROCESS-ASSESSMENT.md` Phase 7. The `make qemu` default of `QEMU_MEM=2048` is correct for all profiles.
+
+### Known QEMU Issues
+
+| Issue | Profiles affected | Workaround |
+|-------|-------------------|------------|
+| **Kernel hang with ≥4 GiB RAM** (nographic mode) | `redbear-full` | Use `-m 2048` or less. `make qemu` default is 2048, safe. |
+| **Graphical login fallback** — greeter uses text login, not Wayland | `redbear-full` | Set `KWIN_DRM_DEVICES=/dev/dri/card0` in greeter env; verify redox-drm daemon is running |
+| **Live ISO preload** — `unable to allocate 4078 MiB upfront` | `redbear-full` | Disable live mode (press `l` at bootloader); preload needs chunked allocation |
+| **EFI EDID unavailable** — `Failed to get EFI EDID` warning | All | Expected in QEMU; not a project issue |
+| **AHCI DVD I/O error** — empty DVD-ROM port probe | All | Benign; non-blocking |
+
+### ISO naming convention
+
+- **Profile ISOs**: `redbear-{profile}.iso` (e.g. `redbear-full.iso`, `redbear-mini.iso`)
+- **Legacy names** (`redbear-live-mini.iso`, `redbear-live-full.iso`) are **deprecated** and should not be used in new scripts or documentation.
+- `scripts/build-iso.sh` accepts profile names: `redbear-full`, `redbear-mini`, `redbear-grub`.
+
 ## Profile Notes
 
 ### `redbear-mini`

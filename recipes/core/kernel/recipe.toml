@@ -1,6 +1,6 @@
 [source]
 git = "https://gitlab.redox-os.org/redox-os/kernel.git"
-patches = ["redox.patch"]
+patches = ["redox.patch", "P0-canary.patch", "P1-memory-map-overflow.patch"]
 
 [build]
 template = "custom"

@@ -24,7 +24,6 @@ For current Red Bear OS status, also read:
 ```
 docs/
 ├── 01-REDOX-ARCHITECTURE.md   # Architecture reference: microkernel, scheme system, driver model, display architecture
-├── 02-GAP-ANALYSIS.md         # Historical gap matrix with corrected current-state notes
 ├── 04-LINUX-DRIVER-COMPAT.md  # Driver-compat architecture reference + historical porting path
 ├── 05-KDE-PLASMA-ON-REDOX.md  # Historical KDE implementation path + deeper rationale
 ├── 06-BUILD-SYSTEM-SETUP.md   # Build/setup mechanics guide (not canonical policy)

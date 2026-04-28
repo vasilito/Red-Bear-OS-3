@@ -94,7 +94,7 @@ with the subsystem plans listed above.
 
 | Phase | Status | Notes |
 |---|---|---|
-| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree and documented in `local/docs/ACPI-FIXES.md`; not release-grade complete; remaining work includes the explicit AML bootstrap producer contract, startup hardening, shutdown robustness, and validation closure in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
+| P0 ACPI boot | ✅ Materially complete (historical boot baseline) | In-tree; remaining work tracked in `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | P1 driver infra | ✅ Complete (compile-oriented) | shared driver infrastructure is present, but low-level PCI/IRQ robustness and runtime proof remain governed by `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` |
 | P2 DRM / display | 🚧 Partial | redox-drm + bounded AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; hardware validation still pending |
 | P3 POSIX + input | 🚧 In progress | relibc now has strict Redox-target runtime proof for `signalfd` / `timerfd` / `eventfd` through the repaired test runner; broader desktop/runtime hardening still continues |

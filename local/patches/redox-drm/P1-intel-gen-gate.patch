@@ -1,0 +1,146 @@
+diff --git a/local/recipes/gpu/redox-drm/source/src/drivers/mod.rs b/local/recipes/gpu/redox-drm/source/src/drivers/mod.rs
+index 43d392345..7ebdb0161 100644
+--- a/local/recipes/gpu/redox-drm/source/src/drivers/mod.rs
++++ b/local/recipes/gpu/redox-drm/source/src/drivers/mod.rs
+@@ -13,6 +13,125 @@ use crate::driver::{DriverError, GpuDriver, Result};
+ 
+ pub struct DriverRegistry;
+ 
++/// Intel GPU device IDs organized by generation.
++/// Source: Linux i915_pciids.h (kernel 7.0) and Intel public documentation.
++const INTEL_GEN12_TGL_IDS: &[u16] = &[
++    0x9A40, 0x9A49, 0x9A60, 0x9A68, 0x9A70, 0x9A78,
++];
++const INTEL_GEN12_ADLP_IDS: &[u16] = &[
++    0x46A6,
++];
++const INTEL_GEN12_DG2_IDS: &[u16] = &[
++    0x5690, 0x5691, 0x5692, 0x5693, 0x5694, 0x5695, 0x5696, 0x5697,
++    0x56A0, 0x56A1, 0x56A2, 0x56A3, 0x56A4, 0x56A5, 0x56A6,
++    0x56B0, 0x56B1, 0x56B2, 0x56B3, 0x56BA, 0x56BB, 0x56BC, 0x56BD, 0x56BE, 0x56BF,
++    0x56C0, 0x56C1,
++];
++const INTEL_GEN12_MTL_IDS: &[u16] = &[
++    0x7D40, 0x7D41, 0x7D45, 0x7D51, 0x7D55, 0x7D60, 0x7D67, 0x7DD1, 0x7DD5,
++];
++const INTEL_GEN12_ARL_IDS: &[u16] = &[
++    0x6420, 0x64A0, 0x64B0,
++];
++const INTEL_GEN12_LNL_IDS: &[u16] = &[
++    0xB640,
++];
++const INTEL_GEN12_BMG_IDS: &[u16] = &[
++    0xE202, 0xE209, 0xE20B, 0xE20C, 0xE20D, 0xE210, 0xE211, 0xE212, 0xE216,
++    0xE220, 0xE221, 0xE222, 0xE223,
++];
++
++fn is_supported_intel_generation(device_id: u16) -> bool {
++    // Gen8+ (Skylake and newer) have DMC firmware available in the firmware package
++    INTEL_SKL_KBL_CFL_IDS.contains(&device_id)
++        || INTEL_CNL_ICL_TGL_IDS.contains(&device_id)
++        || INTEL_GEN12_TGL_IDS.contains(&device_id)
++        || INTEL_GEN12_ADLP_IDS.contains(&device_id)
++        || INTEL_GEN12_DG2_IDS.contains(&device_id)
++        || INTEL_GEN12_MTL_IDS.contains(&device_id)
++        || INTEL_GEN12_ARL_IDS.contains(&device_id)
++        || INTEL_GEN12_LNL_IDS.contains(&device_id)
++        || INTEL_GEN12_BMG_IDS.contains(&device_id)
++}
++
++fn intel_generation_name(device_id: u16) -> &'static str {
++    if INTEL_GEN12_TGL_IDS.contains(&device_id) { return "12 (Tiger Lake)"; }
++    if INTEL_GEN12_ADLP_IDS.contains(&device_id) { return "12 (Alder Lake-P)"; }
++    if INTEL_GEN12_DG2_IDS.contains(&device_id) { return "12 (DG2/Alchemist)"; }
++    if INTEL_GEN12_MTL_IDS.contains(&device_id) { return "12 (Meteor Lake)"; }
++    if INTEL_GEN12_ARL_IDS.contains(&device_id) { return "12 (Arrow Lake)"; }
++    if INTEL_GEN12_LNL_IDS.contains(&device_id) { return "12 (Lunar Lake)"; }
++    if INTEL_GEN12_BMG_IDS.contains(&device_id) { return "12 (Battlemage)"; }
++    if is_intel_gen4_11(device_id) { return intel_gen4_11_name(device_id); }
++    "? (unknown/unsupported)"
++}
++
++fn is_intel_gen4_11(device_id: u16) -> bool {
++    INTEL_I965G_IDS.contains(&device_id)
++        || INTEL_ILK_IDS.contains(&device_id)
++        || INTEL_SNB_IDS.contains(&device_id)
++        || INTEL_IVB_HSW_BDW_IDS.contains(&device_id)
++        || INTEL_SKL_KBL_CFL_IDS.contains(&device_id)
++        || INTEL_CNL_ICL_TGL_IDS.contains(&device_id)
++}
++
++fn intel_gen4_11_name(device_id: u16) -> &'static str {
++    if INTEL_I965G_IDS.contains(&device_id) { return "4 (i965/G33/G45/GM45/Pineview)"; }
++    if INTEL_ILK_IDS.contains(&device_id) { return "5 (Ironlake)"; }
++    if INTEL_SNB_IDS.contains(&device_id) { return "6 (Sandy Bridge)"; }
++    if INTEL_IVB_HSW_BDW_IDS.contains(&device_id) { return "7 (Ivy Bridge/Haswell/Broadwell)"; }
++    if INTEL_SKL_KBL_CFL_IDS.contains(&device_id) { return "8 (Skylake/Kaby Lake/Coffee Lake)"; }
++    if INTEL_CNL_ICL_TGL_IDS.contains(&device_id) { return "9 (Cannon/Ice/Tiger/Rocket Lake)"; }
++    "Gen4-Gen11 (unsupported)"
++}
++
++const INTEL_I965G_IDS: &[u16] = &[
++    0x2972, 0x2982, 0x2992, 0x29A2, 0x29B2, 0x29C2, 0x29D2, 0x2A02,
++    0x2A12, 0x2A42, 0x2E02, 0x2E12, 0x2E22, 0x2E32, 0x2E42, 0x2E92,
++    0xA001, 0xA011,
++];
++const INTEL_ILK_IDS: &[u16] = &[
++    0x0042, 0x0046,
++];
++const INTEL_SNB_IDS: &[u16] = &[
++    0x0102, 0x0106, 0x010A, 0x0112, 0x0116, 0x0122, 0x0126,
++];
++const INTEL_IVB_HSW_BDW_IDS: &[u16] = &[
++    0x0152, 0x0156, 0x015A, 0x0162, 0x0166, 0x016A, 0x0402, 0x0406,
++    0x040A, 0x040B, 0x040E, 0x0412, 0x0416, 0x041A, 0x041B, 0x041E,
++    0x0422, 0x0426, 0x042A, 0x042B, 0x042E, 0x0A02, 0x0A06, 0x0A0A,
++    0x0A0B, 0x0A0E, 0x0A12, 0x0A16, 0x0A1A, 0x0A1B, 0x0A1E, 0x0A22,
++    0x0A26, 0x0A2A, 0x0A2B, 0x0A2E, 0x0D02, 0x0D06, 0x0D0A, 0x0D0B,
++    0x0D0E, 0x0D12, 0x0D16, 0x0D1A, 0x0D1B, 0x0D1E, 0x0D22, 0x0D26,
++    0x0D2A, 0x0D2B, 0x0D2E, 0x1602, 0x1606, 0x160A, 0x160B, 0x160D,
++    0x160E, 0x1612, 0x1616, 0x161A, 0x161B, 0x161D, 0x161E, 0x1622,
++    0x1626, 0x162A, 0x162B, 0x162D, 0x162E, 0x22B0, 0x22B1, 0x22B2,
++    0x22B3,
++];
++const INTEL_SKL_KBL_CFL_IDS: &[u16] = &[
++    0x1902, 0x1906, 0x190A, 0x190B, 0x190E, 0x1912, 0x1916, 0x1917,
++    0x191A, 0x191B, 0x191D, 0x191E, 0x1921, 0x1923, 0x1926, 0x1927,
++    0x192A, 0x192B, 0x192D, 0x1932, 0x193A, 0x193B, 0x193D,
++    0x3E90, 0x3E91, 0x3E92, 0x3E93, 0x3E94, 0x3E96, 0x3E98, 0x3E99,
++    0x3E9A, 0x3E9B, 0x3E9C, 0x3EA0, 0x3EA1, 0x3EA2, 0x3EA3, 0x3EA4,
++    0x3EA5, 0x3EA6, 0x3EA7, 0x3EA8, 0x3EA9,
++    0x5902, 0x5906, 0x5908, 0x590A, 0x590B, 0x590E, 0x5912, 0x5913,
++    0x5915, 0x5916, 0x5917, 0x591A, 0x591B, 0x591C, 0x591D, 0x591E,
++    0x5921, 0x5923, 0x5926, 0x5927, 0x593B, 0x87C0, 0x87CA, 0x9B21,
++    0x9B41, 0x9BA2, 0x9BA4, 0x9BA5, 0x9BA8, 0x9BAA, 0x9BAC, 0x9BC2,
++    0x9BC4, 0x9BC5, 0x9BC6, 0x9BC8, 0x9BCA, 0x9BCC, 0x9BE6, 0x9BF6,
++];
++const INTEL_CNL_ICL_TGL_IDS: &[u16] = &[
++    0x4541, 0x4551, 0x4555, 0x4557, 0x4570, 0x4571, 0x4905, 0x4906,
++    0x4907, 0x4908, 0x4909, 0x4C80, 0x4C8A, 0x4C8B, 0x4C8C, 0x4C90,
++    0x4C9A, 0x4E51, 0x4E55, 0x4E57, 0x4E61, 0x4E71, 0x5A40, 0x5A41,
++    0x5A42, 0x5A44, 0x5A49, 0x5A4A, 0x5A4C, 0x5A50, 0x5A51, 0x5A52,
++    0x5A54, 0x5A59, 0x5A5A, 0x5A5C, 0x8A50, 0x8A51, 0x8A52, 0x8A53,
++    0x8A54, 0x8A56, 0x8A57, 0x8A58, 0x8A59, 0x8A5A, 0x8A5B, 0x8A5C,
++    0x8A5D, 0x8A70, 0x8A71, 0x9A40, 0x9A49, 0x9A59, 0x9A60, 0x9A68,
++    0x9A70, 0x9A78, 0x9AC0, 0x9AC9, 0x9AD9, 0x9AF8,
++];
++
+ impl DriverRegistry {
+     pub fn probe(
+         info: PciDeviceInfo,
+@@ -49,6 +168,15 @@ impl DriverRegistry {
+                 Ok(Arc::new(driver))
+             }
+             PCI_VENDOR_ID_INTEL => {
++                // Gate unsupported Intel GPU generations.
++                // Only Gen12+ (Tiger Lake and newer) have validated firmware/DMC paths.
++                // Older generations are rejected with a clear message.
++                if !is_supported_intel_generation(full.device_id) {
++                    return Err(DriverError::Pci(format!(
++                        "Intel GPU {:#06x} at {} is Gen{} — Gen8+ (Skylake and newer) are supported; Gen4-Gen7 require different display hardware init and are not yet supported",
++                        full.device_id, full.location, intel_generation_name(full.device_id)
++                    )));
++                }
+                 let driver = intel::IntelDriver::new(full, firmware)?;
+                 Ok(Arc::new(driver))
+             }

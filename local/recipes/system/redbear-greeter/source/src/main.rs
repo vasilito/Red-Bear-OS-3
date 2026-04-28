@@ -257,16 +257,21 @@ impl GreeterDaemon {
 
     fn start_surface(&mut self) -> Result<(), String> {
         self.set_state(GreeterState::Starting, "Starting greeter surface");
+        println!("redbear-greeterd: starting compositor ({})...", COMPOSITOR_BIN_PATH);
         let compositor_path = if Path::new(COMPOSITOR_BIN_PATH).is_file() {
             COMPOSITOR_BIN_PATH
         } else {
             COMPOSITOR_SHARE_PATH
         };
         self.compositor = Some(self.spawn_as_greeter(compositor_path)?);
+        println!("redbear-greeterd: waiting for Wayland socket...");
         self.wait_for_wayland_socket()?;
+        println!("redbear-greeterd: compositor ready, launching greeter UI...");
         self.ui = Some(self.spawn_as_greeter("/usr/bin/redbear-greeter-ui")?);
+        println!("redbear-greeterd: greeter UI launched, activating VT {}", self.vt);
         self.activate_vt(self.vt)?;
         self.set_state(GreeterState::GreeterReady, "Ready");
+        println!("redbear-greeterd: greeter ready on VT {}", self.vt);
         Ok(())
     }
 
@@ -295,7 +300,13 @@ impl GreeterDaemon {
         if status.success() {
             self.message = String::from("Greeter UI exited");
         } else {
-            self.message = format!("Greeter UI exited unexpectedly: {status}");
+            let code = status.code().unwrap_or(-1);
+            let hint = if code == 1 {
+                " — QML loading failed (check QML2_IMPORT_PATH and QT_PLUGIN_PATH)"
+            } else {
+                ""
+            };
+            self.message = format!("Greeter UI exited unexpectedly: {status}{hint}");
         }
         self.note_restart()?;
         Self::kill_child(&mut self.compositor);

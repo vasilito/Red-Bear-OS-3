@@ -40,7 +40,7 @@ current/canonical versus historical/reference split obvious.
 | `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
 | `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | canonical current Red Bear subsystem plans and status |
 | `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
-| `docs/02-GAP-ANALYSIS.md`, `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
+| `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
 
 When a current-state local document conflicts with an older historical public roadmap, prefer the
 current local subsystem plan.
@@ -50,7 +50,6 @@ current local subsystem plan.
 | # | Document | Description |
 |---|----------|-------------|
 | 01 | [Architecture Overview](01-REDOX-ARCHITECTURE.md) | Architecture reference for Redox internals: microkernel, scheme system, driver model, display stack |
-| 02 | [Gap Analysis & Roadmap](02-GAP-ANALYSIS.md) | Historical gap matrix plus corrected current phase summary |
 | 04 | [Linux Driver Compatibility Layer](04-LINUX-DRIVER-COMPAT.md) | Historical/current hybrid design reference for the LinuxKPI-style driver compatibility model |
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Historical KDE implementation path plus deeper KDE-specific rationale |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
@@ -68,7 +67,7 @@ current local subsystem plan.
 - `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
 - `../local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` — canonical operator path for the bounded Bluetooth Battery Level QEMU validation slice
 - `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
-- `../local/docs/ACPI-FIXES.md` — historical P0 ACPI bring-up ledger and status record
+- `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
 - `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — canonical current plan for PCI/IRQ quality, low-level controller robustness, MSI/MSI-X follow-up, and controller runtime-proof sequencing
 - `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
 - `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path

@@ -1,0 +1,90 @@
+diff --git a/src/arch/x86_shared/start.rs b/src/arch/x86_shared/start.rs
+index 7a7c0ae8..f1dbb6b4 100644
+--- a/src/arch/x86_shared/start.rs
++++ b/src/arch/x86_shared/start.rs
+@@ -82,6 +82,15 @@ extern "C" fn kstart() {
+ /// The entry to Rust, all things must be initialized
+ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+     unsafe {
++        // EARLY CANARY: write 'R' to COM1 before any kernel init.
++        // This proves the serial hardware works and the kernel reached Rust entry.
++        // If this character appears but "Redox OS starting..." does not,
++        // the hang is in args_ptr.read(), serial::init(), or graphical_debug::init().
++        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++        {
++            core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'R', options(nostack, preserves_flags));
++        }
++
+         let bootstrap = {
+             let args = args_ptr.read();
+ 
+@@ -91,27 +100,49 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+             // Set up graphical debug
+             graphical_debug::init(args.env());
+ 
++            // SECOND CANARY: write 'S' to COM1 after serial init.
++            // If 'R' appears but 'S' does not, the hang is in serial::init() or graphical_debug::init().
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            {
++                core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'S', options(nostack, preserves_flags));
++            }
++
+             info!("Redox OS starting...");
+             args.print();
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'1', options(nostack, preserves_flags)); }
++
+             // Set up GDT
+             gdt::init_bsp(stack_end);
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'2', options(nostack, preserves_flags)); }
++
+             // Set up IDT
+             idt::init_bsp();
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'3', options(nostack, preserves_flags)); }
++
+             // Initialize RMM
+             #[cfg(target_arch = "x86")]
+             crate::startup::memory::init(&args, Some(0x100000), Some(0x40000000));
+             #[cfg(target_arch = "x86_64")]
+             crate::startup::memory::init(&args, Some(0x100000), None);
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'4', options(nostack, preserves_flags)); }
++
+             // Initialize paging
+             paging::init();
+ 
+             #[cfg(target_arch = "x86_64")]
+             crate::arch::alternative::early_init(true);
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'5', options(nostack, preserves_flags)); }
++
+             // Set up syscall instruction
+             interrupt::syscall::init();
+ 
+@@ -121,6 +152,9 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+             // Activate memory logging
+             crate::log::init();
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'6', options(nostack, preserves_flags)); }
++
+             // Initialize miscellaneous processor features
+             #[cfg(target_arch = "x86_64")]
+             crate::arch::misc::init(LogicalCpuId::BSP);
+@@ -128,6 +162,9 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+             // Initialize devices
+             device::init();
+ 
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'7', options(nostack, preserves_flags)); }
++
+             // Read ACPI tables, starts APs
+             if cfg!(feature = "acpi") {
+                 crate::acpi::init(args.acpi_rsdp());

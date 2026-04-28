@@ -1,0 +1,32 @@
+diff --git a/src/startup/memory.rs b/src/startup/memory.rs
+index 26922dde..60c7f061 100644
+--- a/src/startup/memory.rs
++++ b/src/startup/memory.rs
+@@ -74,14 +74,16 @@ impl MemoryEntry {
+ }
+ 
+ struct MemoryMap {
+-    entries: [MemoryEntry; 512],
++    entries: [MemoryEntry; 1024],
+     size: usize,
+ }
+ 
+ impl MemoryMap {
+     fn register(&mut self, base: usize, size: usize, kind: BootloaderMemoryKind) {
+         if self.size >= self.entries.len() {
+-            panic!("Early memory map overflow!");
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            unsafe { core::arch::asm!("out dx, al", in("dx") 0x3F8u16, in("al") b'!', options(nostack, preserves_flags)); }
++            panic!("Early memory map overflow at entry {} (max {})", self.size, self.entries.len());
+         }
+         let start = if kind == BootloaderMemoryKind::Free {
+             align_up(base)
+@@ -134,7 +136,7 @@ static MEMORY_MAP: SyncUnsafeCell<MemoryMap> = SyncUnsafeCell::new(MemoryMap {
+         start: 0,
+         end: 0,
+         kind: BootloaderMemoryKind::Null,
+-    }; 512],
++    }; 1024],
+     size: 0,
+ });
+ 

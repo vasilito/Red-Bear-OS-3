@@ -1,0 +1,84 @@
+diff --git a/local/recipes/gpu/redox-drm/source/src/drivers/intel/display.rs b/local/recipes/gpu/redox-drm/source/src/drivers/intel/display.rs
+index 6decc4b0e..891ef260d 100644
+--- a/local/recipes/gpu/redox-drm/source/src/drivers/intel/display.rs
++++ b/local/recipes/gpu/redox-drm/source/src/drivers/intel/display.rs
+@@ -7,8 +7,8 @@ use crate::driver::{DriverError, Result};
+ use crate::kms::connector::synthetic_edid;
+ use crate::kms::{ConnectorInfo, ConnectorStatus, ConnectorType, ModeInfo};
+ 
+-const PIPE_COUNT: usize = 3;
+-const PORT_COUNT: usize = 5;
++const PIPE_COUNT: usize = 4;
++const PORT_COUNT: usize = 6;
+ 
+ const PP_STATUS: usize = 0xC7200;
+ const PIPECONF_BASE: usize = 0x70008;
+@@ -148,10 +148,19 @@ impl IntelDisplay {
+     }
+ 
+     pub fn read_edid(&self, port: u8) -> Vec<u8> {
+-        debug!("redox-drm: Intel HDMI/DVI EDID fallback on port {}", port);
++        debug!("redox-drm: Intel EDID probe on port {}", port);
++        let mut edid = vec![0u8; 128];
++        if self.read_edid_block(port, 0, &mut edid).is_ok() && edid[0] == 0x00 && edid[1] == 0xFF {
++            return edid;
++        }
++        debug!("redox-drm: Intel EDID probe failed on port {}, using synthetic fallback", port);
+         synthetic_edid()
+     }
+ 
++    fn read_edid_block(&self, _port: u8, _block: u8, _buf: &mut [u8]) -> Result<()> {
++        Err(DriverError::Initialization("EDID I2C/DDC not yet implemented".into()))
++    }
++
+     pub fn read_dpcd(&self, port: u8) -> Vec<u8> {
+         let status = self.read32(ddi_offset(port)).unwrap_or(0);
+         if status & DDI_BUF_CTL_ENABLE == 0 {
+@@ -218,25 +227,25 @@ impl IntelDisplay {
+ 
+     pub fn page_flip(&self, pipe: &DisplayPipe, fb_addr: u64) -> Result<()> {
+         if fb_addr > u64::from(u32::MAX) {
+-            return Err(DriverError::Buffer(format!(
+-                "Intel DSPSURF supports 32-bit GGTT offsets in this skeleton, got {fb_addr:#x}"
+-            )));
++            self.write32(
++                pipe_offset(DSPSURF_BASE, usize::from(pipe.index)),
++                (fb_addr >> 32) as u32,
++            )?;
+         }
+         let index = usize::from(pipe.index);
+         self.write32(pipe_offset(DSPSURF_BASE, index), fb_addr as u32)
+     }
+ 
+     fn refresh_pipes(&self) -> Result<Vec<DisplayPipe>> {
+-        let detected = Self::detect_pipes(&self.mmio)?;
++        let mut detected = Self::detect_pipes(&self.mmio)?;
+         let mut cached = self
+             .pipes
+             .lock()
+             .map_err(|_| DriverError::Initialization("Intel display pipe state poisoned".into()))?;
+ 
+         let previous = cached.clone();
+-        let mut refreshed = Vec::with_capacity(detected.len());
+ 
+-        for mut pipe in detected {
++        for pipe in detected.iter_mut() {
+             if let Some(existing) = previous
+                 .iter()
+                 .find(|existing| existing.index == pipe.index)
+@@ -244,13 +253,11 @@ impl IntelDisplay {
+                 if pipe.port.is_none() {
+                     pipe.port = existing.port;
+                 }
+-                pipe.enabled |= existing.enabled;
+             }
+-            refreshed.push(pipe);
+         }
+ 
+-        *cached = refreshed.clone();
+-        Ok(refreshed)
++        *cached = detected.clone();
++        Ok(detected)
+     }
+ 
+     fn update_pipe(&self, index: u8, enabled: bool, port: Option<u8>) -> Result<()> {

@@ -457,9 +457,9 @@ P0 (ACPI boot)
 | Document | Location | Status |
 |----------|----------|--------|
 | This file | `local/docs/AMD-FIRST-INTEGRATION.md` | ✅ Created |
-| ACPI fix guide | `local/docs/ACPI-FIXES.md` | ✅ Created |
+| ACPI fix guide | `local/docs/ACPI-IMPROVEMENT-PLAN.md` | ✅ Created |
 | ACPI improvement plan | `local/docs/ACPI-IMPROVEMENT-PLAN.md` | ✅ Created |
-| Bare metal testing log | `local/docs/BAREMETAL-LOG.md` | ✅ Created |
+| Bare metal testing log | `local/docs/BOOT-PROCESS-ASSESSMENT.md` | ✅ Created |
 | Overlay usage guide | `local/AGENTS.md` | ✅ Created |
 | Desktop path plan | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | ✅ Created |
 

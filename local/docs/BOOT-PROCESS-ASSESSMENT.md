@@ -1,8 +1,8 @@
 # Red Bear OS Boot Process Assessment & Improvement Plan
 
 **Generated:** 2026-04-23
-**Updated:** 2026-04-24
-**Status:** Phase 1 ✅, Phase 2 ✅, Phase 3 ✅, Phase 4 ✅ (docs + known gaps), Phase 5 ✅, Phase 6 ✅ (boot to login confirmed)
+**Updated:** 2026-04-27
+**Status:** Phase 1 ✅, Phase 2 ✅, Phase 3 ✅, Phase 4 ✅ (docs + known gaps), Phase 5 ✅, Phase 6 ✅ (boot to login confirmed), Phase 7 ✅ (kernel RAM hang diagnosed + ISO organization documented)
 **Scope:** Comprehensive assessment of boot completeness, mistakes, robustness, resilience, and quality
 
 ## Boot Chain Overview
@@ -461,3 +461,68 @@ init: boot complete — entering waitpid loop
 | Keyboard not working | PS/2 unavailable, USB not ready | Modern hardware uses USB — ensure xHCI controller is functional |
 | No login prompt | Getty not starting | Check `30_console` service in config; verify getty respawn is set |
 | "missing field `unit`" parse error | Invalid service TOML | Run `./local/scripts/validate-service-files.sh config/` |
+| **No kernel output at all** (after initfs loading) | Kernel hangs before `serial::init()` finishes | **Reduce QEMU guest RAM to 2 GiB** (`-m 2048`). ≥4 GiB triggers a memory init bug on x86_64. See Phase 7. |
+
+## Phase 7: Kernel RAM Hang Diagnosis ✅ (2026-04-27)
+
+### Discovery
+
+The `redbear-full` harddrive image (4 GiB) boots correctly in QEMU with **2 GiB** of guest RAM,
+but **hangs silently with 4 GiB or more** — zero kernel serial output after bootloader loads
+kernel and initfs.
+
+### Evidence
+
+| Test | RAM | Result |
+|------|-----|--------|
+| `redbear-full` nographic | 2 GiB | ✅ Boots: kernel output, init, services, login prompt |
+| `redbear-full` nographic | 4 GiB | ❌ Hang: no kernel output, CPU spins in `pause`/`jmp` loop |
+| `redbear-mini` nographic | 2 GiB | ✅ Boots normally |
+| `redbear-mini` nographic | 4 GiB | ✅ Boots normally |
+
+The kernel and initfs binaries are **identical** between `redbear-full` and `redbear-mini`
+(MD5: `bb5402209aefd7d42c3adaca0682b39f` for kernel, same size for initfs). The bootloader
+binary is also identical. The only difference is the GPT partition layout (RedoxFS starts at
+sector 34816 in full vs 4096 in mini).
+
+QEMU ASM trace (`-d in_asm`) at 4 GiB confirms the kernel executes instructions but **never
+reaches** `info!("Redox OS starting...")` — it enters a spin-loop before `serial::init()`
+completes. At 2 GiB, the kernel boots normally and produces full serial output.
+
+### Root Cause (Analysis)
+
+The bootloader passes different memory maps to the kernel depending on available RAM. At 2 GiB,
+the memory map spans ~0x900000–0x7ED3F000 (~2 GiB). At 4 GiB, the map spans a larger range
+with different reservation patterns. The kernel's `startup::memory::init()` or early SMP
+bring-up code (`arch/x86_shared/start.rs`) likely encounters an overflow, bad page table
+mapping, or SMP deadlock on larger memory configurations.
+
+The spin-loop at the end of the ASM trace (`pause` + `jmp` to self) is consistent with a
+spinlock wait on a memory location that never gets released — likely SMP bring-up where one
+CPU waits for another that never initializes.
+
+### Impact
+
+| Affected | Not affected |
+|----------|-------------|
+| `redbear-full` with ≥4 GiB RAM | `redbear-mini` (any RAM) |
+| nographic mode specifically | `redbear-grub` (any RAM) |
+| Real hardware with >2 GiB RAM | All profiles at 2 GiB |
+| | `make qemu` default (QEMU_MEM=2048) |
+
+Since `make qemu` defaults to 2048 MiB and all profiles work correctly at that value, **day-to-day
+development is not affected**. The bug manifests only when developers manually override RAM or
+when testing on real hardware with larger memory configurations.
+
+### Recommended Fix
+
+Add early raw-serial output (`outb` to COM1 port 0x3F8) in `arch/x86_shared/start.rs` **before**
+`device::serial::init()` as a canary to confirm serial hardware works. Then add instrumentation
+around the memory map processing in `startup::memory::init()` and SMP bring-up to isolate
+whether the hang is in memory init, page table setup, or multi-core initialization.
+
+### References
+
+- `recipes/core/kernel/source/src/arch/x86_shared/start.rs` — early kernel entry, serial init, first `info!` log
+- `recipes/core/kernel/source/src/startup/memory.rs` — memory map processing
+- `recipes/core/bootloader/source/src/main.rs` — bootloader `KernelArgs` construction

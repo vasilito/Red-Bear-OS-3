@@ -1,5 +1,6 @@
 [source]
 path = "source"
+patches = ["P1-intel-gen-gate.patch", "P2-intel-display-fixes.patch", "P3-intel-gen8-gen9-firmware.patch", "P4-virtio-gpu-driver.patch"]
 
 [build]
 template = "cargo"
