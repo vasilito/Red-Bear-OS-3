@@ -3,6 +3,7 @@
 # redox.patch restores the Redox compatibility stubs plus Meson scanner detection.
 [source]
 tar = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz"
+patches = ["redox.patch"]
 
 [build]
 template = "custom"
@@ -14,10 +15,8 @@ dependencies = [
 ]
 script = """
 DYNAMIC_INIT
-
-RELIBC_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
-if [ ! -f "${RELIBC_INCLUDE_STAGE}/sys/signalfd.h" ]; then
-script = """
-DYNAMIC_INIT
 cookbook_meson -Ddocumentation=false -Dtests=false -Ddtd_validation=false -Dc_args=-Wno-error
 """
+
+[package]
+dependencies = ["libffi"]
