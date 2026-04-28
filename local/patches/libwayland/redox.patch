@@ -1,0 +1,97 @@
+diff -ruN libwayland-base/meson.build libwayland-mod/meson.build
+--- libwayland-base/meson.build	2025-07-06 13:11:26.000000000 +0100
++++ libwayland-mod/meson.build	2026-04-28 11:55:10.625896809 +0100
+@@ -80,8 +80,8 @@
+ 	ffi_dep = dependency('libffi')
+ 
+ 	decls = [
+-		{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' },
+-		{ 'header': 'sys/timerfd.h', 'symbol': 'TFD_CLOEXEC' },
++		{ 'header': 'signal.h', 'symbol': 'SIG_BLOCK' },
++		{ 'header': 'time.h', 'symbol': 'CLOCK_MONOTONIC' },
+ 		{ 'header': 'time.h', 'symbol': 'CLOCK_MONOTONIC' },
+ 	]
+ 
+diff -ruN libwayland-base/src/connection.c libwayland-mod/src/connection.c
+--- libwayland-base/src/connection.c	2025-07-06 13:11:26.000000000 +0100
++++ libwayland-mod/src/connection.c	2026-04-28 12:06:49.776451773 +0100
+@@ -40,6 +40,15 @@
+ #include <time.h>
+ #include <ffi.h>
+ 
++#ifndef MSG_NOSIGNAL
++#define MSG_NOSIGNAL 0
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++static FILE *open_memstream(char **bufp, size_t *sizep) {
++    *bufp = NULL; *sizep = 0; return NULL;
++}
++
+ #include "wayland-util.h"
+ #include "wayland-private.h"
+ #include "wayland-os.h"
+diff -ruN libwayland-base/src/event-loop.c libwayland-mod/src/event-loop.c
+--- libwayland-base/src/event-loop.c	2025-07-06 13:11:26.000000000 +0100
++++ libwayland-mod/src/event-loop.c	2026-04-28 11:58:30.794153149 +0100
+@@ -35,9 +35,45 @@
+ #include <sys/socket.h>
+ #include <sys/un.h>
+ #include <sys/epoll.h>
+-#include <sys/signalfd.h>
+-#include <sys/timerfd.h>
++/* #include <sys/signalfd.h> */
++/* #include <sys/timerfd.h> */
+ #include <unistd.h>
++
++#ifndef SFD_CLOEXEC
++#define SFD_CLOEXEC O_CLOEXEC
++#endif
++#ifndef SFD_NONBLOCK
++#define SFD_NONBLOCK O_NONBLOCK
++#endif
++#ifndef TFD_CLOEXEC
++#define TFD_CLOEXEC O_CLOEXEC
++#endif
++#ifndef TFD_NONBLOCK
++#define TFD_NONBLOCK O_NONBLOCK
++#endif
++#ifndef TFD_TIMER_ABSTIME
++#define TFD_TIMER_ABSTIME 0x1
++#endif
++
++struct signalfd_siginfo { uint8_t pad[128]; };
++static int signalfd_impl(int fd, const sigset_t *mask, uintptr_t masksize, int flags) {
++    int oflag = O_RDWR;
++    if (flags & SFD_CLOEXEC) oflag |= O_CLOEXEC;
++    if (flags & SFD_NONBLOCK) oflag |= O_NONBLOCK;
++    if (fd == -1) { fd = open("/scheme/event", oflag); if (fd < 0) return -1; }
++    else { if (flags & SFD_CLOEXEC) fcntl(fd, F_SETFD, FD_CLOEXEC); }
++    sigprocmask(SIG_BLOCK, mask, NULL);
++    return fd;
++}
++int signalfd(int fd, const sigset_t *mask, uintptr_t masksize) { return signalfd_impl(fd, mask, masksize, 0); }
++static int timerfd_create(int clockid, int flags) {
++    int oflag = O_RDWR;
++    if (flags & TFD_CLOEXEC) oflag |= O_CLOEXEC;
++    if (flags & TFD_NONBLOCK) oflag |= O_NONBLOCK;
++    char path[64];
++    snprintf(path, sizeof(path), "/scheme/time/%d", clockid);
++    return open(path, oflag);
++}
+ #include "timespec-util.h"
+ #include "wayland-util.h"
+ #include "wayland-private.h"
+diff -ruN libwayland-base/src/meson.build libwayland-mod/src/meson.build
+--- libwayland-base/src/meson.build	2025-07-06 13:11:26.000000000 +0100
++++ libwayland-mod/src/meson.build	2026-04-28 11:55:10.625994641 +0100
+@@ -81,8 +81,7 @@
+ endif
+ 
+ if meson.is_cross_build() or not get_option('scanner')
+-	scanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
+-	wayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
++wayland_scanner_for_build = find_program('wayland-scanner', native: true)
+ else
+ 	wayland_scanner_for_build = wayland_scanner
+ endif
