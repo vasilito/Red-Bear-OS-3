@@ -7,24 +7,21 @@ include mk/depends.mk
 
 all: $(BUILD)/harddrive.img
 
-# ── Red Bear OS Build Cache ──────────────────────────────────────────────
-# The upstream Redox build system loses cached stages on make clean.
-# Red Bear provides a git-tracked cache that survives everything.
+# ── Red Bear OS Build Cache (OBLIGATORY) ─────────────────────────────────
+# Cache sync is a mandatory part of every successful build.
+# The git-tracked cache survives make clean, make distclean, and git clone.
 #
-# Architecture:
-#   local/cache/pkgar/{pkgname}/stage.pkgar  — committed to git
-#   local/cache/rbos-cache-*/                — timestamped snapshots
+# Flow:
+#   make all → cache-restore (if needed) → build → cache-sync → cache-commit
 #
-# Usage:
-#   make cache-sync              Sync built packages → git-tracked cache
-#   make cache-commit            Sync + git commit
-#   make cache-restore           Restore from git-tracked cache
-#   make cache-save              Full timestamped snapshot (local only)
-#   make cache-status            Compare cache vs build state
-#   make cache-list              List available snapshots
+# Commands:
+#   make cache-sync         Sync built → git cache (manual)
+#   make cache-commit       Sync + git commit (manual)
+#   make cache-restore      Restore from git cache
+#   make cache-status       Compare cache vs build state
 
-CACHE_SYNC = local/scripts/cache-sync.sh
-CACHE_SAVE = local/scripts/snapshot-cache.sh
+CACHE_SYNC  = local/scripts/cache-sync.sh
+CACHE_SAVE  = local/scripts/snapshot-cache.sh
 CACHE_RESTORE = local/scripts/restore-cache.sh
 
 cache-sync:
@@ -53,17 +50,21 @@ cache-list:
 cache-status:
 	@bash $(CACHE_SYNC) --status
 
-# Auto-restore cache before build, sync after successful build
+# Obligatory cache pipeline — runs before AND after every build
 cache-auto:
+	@# ── BEFORE BUILD: restore cache if target is empty ──
 	@if [ ! -f $(BUILD)/repo.tag ]; then \
 		if ls local/cache/pkgar/*/stage.pkgar >/dev/null 2>&1; then \
-			echo "Red Bear: build cache found, restoring..."; \
+			echo "Red Bear: restoring build cache..."; \
 			bash $(CACHE_SYNC) --restore; \
 		fi; \
 	fi
+	@# ── AFTER BUILD: sync cache back to git-tracked storage ──
 	@if [ -f $(BUILD)/harddrive.img ]; then \
-		echo "Red Bear: build complete, syncing cache..."; \
+		echo "Red Bear: syncing build cache..."; \
 		bash $(CACHE_SYNC); \
+		echo "Red Bear: committing cache to git..."; \
+		bash $(CACHE_SYNC) --commit 2>/dev/null || echo "Red Bear: cache commit skipped (no changes or not in git repo)"; \
 	fi
 
 $(BUILD)/harddrive.img: cache-auto
