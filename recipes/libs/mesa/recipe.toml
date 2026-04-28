@@ -46,7 +46,8 @@ cookbook_meson \
     -Dosmesa=true \
     -Dplatforms=redox \
     -Dshader-cache=disabled \
-    -Dc_args=-Wno-error=implicit-function-declaration
+    -Dc_args="['-Wno-error=implicit-function-declaration','-Wno-error']" \
+    -Dcpp_args="['-Wno-error=implicit-function-declaration','-Wno-error']" \
     -Dvulkan-drivers=swrast \
     -Dshared-glapi=enabled
 
