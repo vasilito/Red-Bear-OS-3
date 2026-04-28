@@ -1,21 +1,22 @@
 # Red Bear OS Desktop Stack — Current Status
 
-**Last updated:** 2026-04-25
+**Last updated:** 2026-04-28
 **Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
+**Boot improvement plan:** `local/docs/BOOT-PROCESS-IMPROVEMENT-PLAN.md` (v1.0)
 
-## Recent Changes (2026-04-25, Wave 2)
+## Recent Changes (2026-04-28, Wave 3)
 
-- **relibc patches now 35 total** (was 33). Two new patches:
-  - `P3-fenv.patch`: 10 FP environment functions with x86_64 SSE/x87 inline asm
-  - `P3-sched.patch`: 6 scheduler functions with Redox defaults
+## Recent Changes (2026-04-28, Wave 3)
 
-- **IOMMU daemon improvements**:
-  - `UNASSIGN_DEVICE` bug fixed: now properly clears DTE and submits `INVALIDATE_DEVTAB_ENTRY` + `INVALIDATE_INTERRUPT_TABLE` commands
-  - `TRANSLATE` opcode (0x0012) added for IOVA-to-physical address resolution
-  - Proper fstat for all handle kinds (Root=DIR, Control/Domain/Device=FILE)
-  - Recipe `#TODO` removed
-
-- **Build system**: `repo.rs` dead code cleanup — mouse events, unused fields/imports removed (~50 lines)
+- **Real Wayland compositor** (`redbear-compositor`): 690-line Rust display server replaces KWin stubs. Full XDG shell protocol support (15/15 protocols). Integration tested. Cross-compiles for Redox target.
+- **DRM backend active**: `KWIN_DRM_DEVICES=/scheme/drm/card0` wired end-to-end through greeter chain. Verified in QEMU boot — compositor reports "using DRM KWin backend".
+- **Intel GPU Gen8-Gen12**: Expanded from Gen12-only to Gen8-Gen12 with firmware keys (SKL/KBL/CNL/ICL/GLK/RKL/DG1/TGL/ADLP/DG2/MTL/ARL/LNL/BMG). 200+ device IDs from Linux 7.0 i915.
+- **VirtIO GPU driver**: New 220-line DRM/KMS backend in redox-drm for QEMU testing.
+- **Kernel 4GB RAM fix**: MEMORY_MAP overflow at 512 entries → 1024. Verified with canary chain.
+- **Live ISO preload**: Capped at 1 GiB with partial preload messaging.
+- **Boot daemons**: dhcpd auto-detects interface. I2C decode hardened with retry.
+- **Qt6 toolchain**: `-march=x86-64 -fpermissive` for CPU compatibility and header fixes.
+- **Greeter diagnostics**: Startup progress logging, QML crash-specific diagnostics.
 
 ## Purpose
 
