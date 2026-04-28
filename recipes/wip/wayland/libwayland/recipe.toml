@@ -41,7 +41,7 @@ from pathlib import Path
 
 source_root = Path(os.environ["COOKBOOK_SOURCE"])
 
-meson = source_root / "src/meson.build"
+meson = source_root / "meson.build"
 meson_text = meson.read_text()
 meson_text = meson_text.replace(
     '''\tscanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
@@ -53,182 +53,31 @@ meson_text = meson_text.replace(
     "{ 'header': 'signal.h', 'symbol': 'SIG_BLOCK' }",
 )
 meson_text = meson_text.replace(
-    "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
-    "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
-)
-# Remove the meson error check entirely — we provide SFD_CLOEXEC as a macro
-import re
-meson_text = re.sub(
-    r"if not fd_cloexec.*?endif",
-    "fd_cloexec = true",
-    meson_text,
-    flags=re.DOTALL
+    "{ 'header': 'sys/timerfd.h', 'symbol': 'TFD_CLOEXEC' }",
+    "{ 'header': 'time.h', 'symbol': 'CLOCK_MONOTONIC' }",
 )
 meson.write_text(meson_text)
+
+src_meson = source_root / "src/meson.build"
+src_meson_text = src_meson.read_text()
+src_meson_text = src_meson_text.replace(
+    '''\tscanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
+\twayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))''',
+    '''\twayland_scanner_for_build = find_program('wayland-scanner', native: true)''',
+)
+src_meson.write_text(src_meson_text)
 
 event_loop = source_root / "src/event-loop.c"
 event_text = event_loop.read_text()
 event_text = event_text.replace(
-    '''#include <sys/epoll.h>
-#ifdef __redox__
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>
-#else
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>
-#endif''',
-    '''#include <sys/epoll.h>
-#ifdef __redox__
-#include <stdint.h>
-#include <time.h>
-
-#ifndef SFD_CLOEXEC
-#define SFD_CLOEXEC O_CLOEXEC
-#endif
-
-#ifndef SFD_NONBLOCK
-#define SFD_NONBLOCK O_NONBLOCK
-#endif
-
-struct signalfd_siginfo {
-	uint8_t pad[128];
-};
-
-#ifndef TFD_CLOEXEC
-#define TFD_CLOEXEC O_CLOEXEC
-#endif
-
-#ifndef TFD_NONBLOCK
-#define TFD_NONBLOCK O_NONBLOCK
-#endif
-
-#ifndef TFD_TIMER_ABSTIME
-#define TFD_TIMER_ABSTIME 0x1
-#endif
-
-int signalfd4(int fd, const sigset_t *mask, uintptr_t masksize, int flags);
-int signalfd(int fd, const sigset_t *mask, uintptr_t masksize);
-int timerfd_create(int clockid, int flags);
-int timerfd_gettime(int fd, struct itimerspec *curr);
-int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value);
-
-int signalfd4(int fd, const sigset_t *mask, uintptr_t masksize, int flags)
-{
-	const int supported = SFD_CLOEXEC | SFD_NONBLOCK;
-	int new_fd = fd;
-
-	if ((flags & ~supported) != 0) {
-		errno = EINVAL;
-		return -1;
-	}
-	if (mask == NULL || masksize != sizeof(*mask)) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	if (fd == -1) {
-		int oflag = O_RDWR;
-		if (flags & SFD_CLOEXEC)
-			oflag |= O_CLOEXEC;
-		if (flags & SFD_NONBLOCK)
-			oflag |= O_NONBLOCK;
-		new_fd = open("/scheme/event", oflag);
-		if (new_fd < 0)
-			return -1;
-	} else {
-		if ((flags & SFD_CLOEXEC) && fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
-			return -1;
-		if (flags & SFD_NONBLOCK) {
-			int current = fcntl(fd, F_GETFL, 0);
-			if (current < 0)
-				return -1;
-			if (fcntl(fd, F_SETFL, current | O_NONBLOCK) < 0)
-				return -1;
-		}
-	}
-
-	if (sigprocmask(SIG_BLOCK, mask, NULL) < 0) {
-		if (fd == -1)
-			close(new_fd);
-		return -1;
-	}
-
-	return new_fd;
-}
-
-int signalfd(int fd, const sigset_t *mask, uintptr_t masksize)
-{
-	return signalfd4(fd, mask, masksize, 0);
-}
-
-int timerfd_create(int clockid, int flags)
-{
-	const int supported = TFD_CLOEXEC | TFD_NONBLOCK;
-	int oflag = O_RDWR;
-	char path[64];
-
-	if ((flags & ~supported) != 0) {
-		errno = EINVAL;
-		return -1;
-	}
-	if (flags & TFD_CLOEXEC)
-		oflag |= O_CLOEXEC;
-	if (flags & TFD_NONBLOCK)
-		oflag |= O_NONBLOCK;
-
-	snprintf(path, sizeof(path), "/scheme/time/%d", clockid);
-	return open(path, oflag);
-}
-
-int timerfd_gettime(int fd, struct itimerspec *curr)
-{
-	ssize_t bytes_read;
-
-	if (curr == NULL) {
-		errno = EFAULT;
-		return -1;
-	}
-
-	curr->it_interval = (struct timespec){0};
-	bytes_read = read(fd, &curr->it_value, sizeof(struct timespec));
-	if (bytes_read != (ssize_t)sizeof(struct timespec)) {
-		if (bytes_read >= 0)
-			errno = EIO;
-		return -1;
-	}
-
-	return 0;
-}
-
-int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value)
-{
-	ssize_t bytes_written;
-
-	if (flags & ~TFD_TIMER_ABSTIME) {
-		errno = EINVAL;
-		return -1;
-	}
-	if (new_value == NULL) {
-		errno = EFAULT;
-		return -1;
-	}
-	if (old_value != NULL && timerfd_gettime(fd, old_value) < 0)
-		return -1;
-
-	bytes_written = write(fd, &new_value->it_value, sizeof(struct timespec));
-	if (bytes_written != (ssize_t)sizeof(struct timespec)) {
-		if (bytes_written >= 0)
-			errno = EIO;
-		return -1;
-	}
-
-	return 0;
-}
-#else
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>
-#endif''',
+    '#include <sys/signalfd.h>',
+    '// #include <sys/signalfd.h>  /* Redox compat */',
 )
+event_text = event_text.replace(
+    '#include <sys/timerfd.h>',
+    '// #include <sys/timerfd.h>  /* Redox compat */',
+)
+event_loop.write_text(event_text)
 event_loop.write_text(event_text)
 
 server = source_root / "src/wayland-server.c"
@@ -372,6 +221,9 @@ connection_text = connection_text.replace(
 connection.write_text(connection_text)
 PY
 
-COOKBOOK_MESON_FLAGS+=("-Ddocumentation=false" "-Dtests=false" "-Ddtd_validation=false" "-Dc_args=-DSFD_CLOEXEC=O_CLOEXEC")
+COOKBOOK_MESON_FLAGS+=("-Ddocumentation=false" "-Dtests=false" "-Ddtd_validation=false")
+COOKBOOK_MESON_FLAGS+=("-Dc_args=-DSFD_CLOEXEC=O_CLOEXEC")
+# Pre-define meson feature checks that fail on Redox (relibc gaps)
+export CFLAGS="${CFLAGS:-} -DSFD_CLOEXEC=O_CLOEXEC"
 cookbook_meson
 """
