@@ -18,5 +18,6 @@ script = """
 DYNAMIC_INIT
 cookbook_meson \
     -Ddefault_library=shared \
-    -Dxattr=false
+    -Dxattr=false \
+    -Dc_args=-Wno-error=implicit-function-declaration
 """
