@@ -270,11 +270,11 @@ pub fn build(
     let deps_modified = modified_all_btree(
         dep_pkgars.iter().map(|(_dep, pkgar)| pkgar.as_path()),
         modified,
-    )?;
+    ).unwrap_or(SystemTime::UNIX_EPOCH);
     let deps_host_modified = modified_all_btree(
         dep_host_pkgars.iter().map(|(_dep, pkgar)| pkgar.as_path()),
         modified,
-    )?;
+    ).unwrap_or(SystemTime::UNIX_EPOCH);
 
     // check stage dir modified against pkgar files, any files missing will result in UNIX_EPOCH
     let stage_modified = modified_all(&stage_pkgars, modified).unwrap_or(SystemTime::UNIX_EPOCH);
@@ -602,6 +602,10 @@ fn build_deps_dir(
 
         let pkey_path = "build/id_ed25519.pub.toml";
         for (name, archive_path) in dep_pkgars {
+            if !archive_path.is_file() {
+                eprintln!("WARNING: dependency '{}' stage.pkgar missing at '{}' — rebuilding", name, archive_path.display());
+                continue;
+            }
             let tag_file = tags_dir.join(name.without_prefix());
             fs::write(&tag_file, "")
                 .map_err(|e| format!("failed to write tag file {}: {:?}", tag_file.display(), e))?;
