@@ -28,3 +28,29 @@
  };
  
  }
+--- qtb-orig/src/plugins/platforms/wayland/qwaylandintegration.cpp	2026-03-05 07:51:49.000000000 +0000
++++ qtb-mod/src/plugins/platforms/wayland/qwaylandintegration.cpp	2026-04-28 14:34:26.740450805 +0100
+@@ -135,17 +135,23 @@
+     case ScreenWindowGrabbing: // whether QScreen::grabWindow() is supported
+         return false;
+     case OffscreenSurface:
++#if QT_CONFIG(opengl)
+         return mDisplay->clientBufferIntegration()
+                 && mDisplay->clientBufferIntegration()->canCreatePlatformOffscreenSurface();
++#else
++        return false;
++#endif
+     default: return QPlatformIntegration::hasCapability(cap);
+     }
+ }
+ 
+ QPlatformWindow *QWaylandIntegration::createPlatformWindow(QWindow *window) const
+ {
++#if QT_CONFIG(opengl)
+     if (window->surfaceType() == QWindow::OpenGLSurface
+         && mDisplay->clientBufferIntegration())
+         return mDisplay->clientBufferIntegration()->createEglWindow(window);
++#endif
+ 
+ #if QT_CONFIG(vulkan)
+     if (window->surfaceType() == QSurface::VulkanSurface)

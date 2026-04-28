@@ -20,6 +20,9 @@ name = "messagebus"
 home = "/nonexistent"
 shell = "/usr/bin/ion"
 
+[users.root]
+shell = "/usr/bin/zsh"
+
 [packages]
 # Firmware loading
 redbear-firmware = {}
@@ -82,7 +85,7 @@ seatd = {}
 # Greeter/login stack
 redbear-authd = {}
 redbear-session-launch = {}
-redbear-greeter = "ignore"
+redbear-greeter = {}
 amdgpu = "ignore"
 
 # Core Red Bear umbrella package

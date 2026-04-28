@@ -42,10 +42,10 @@ set(CMAKE_SYSTEM_VERSION 1)
 
 # Redox userspace currently must not emit CET/IBT entry instructions (endbr64),
 # because they trap as invalid opcode in the current runtime stack.
-set(CMAKE_C_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive" CACHE STRING "" FORCE)
-set(CMAKE_C_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
 
 # Flag for redox.patch: enables REDOX-specific CMake code paths (mkspec, QPA plugin).
 # QtPlatformSupport.cmake checks this variable. Set as CACHE INTERNAL so it persists
