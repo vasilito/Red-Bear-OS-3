@@ -82,7 +82,7 @@ seatd = {}
 # Greeter/login stack
 redbear-authd = {}
 redbear-session-launch = {}
-redbear-greeter = {}
+redbear-greeter = "ignore"
 amdgpu = "ignore"
 
 # Core Red Bear umbrella package
