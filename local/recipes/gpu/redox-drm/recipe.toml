@@ -5,12 +5,10 @@ patches = ["P1-intel-gen-gate.patch", "P2-intel-display-fixes.patch", "P3-intel-
 [build]
 template = "cargo"
 dependencies = [
-    "amdgpu",
     "redox-driver-sys",
     "linux-kpi",
 ]
 
 [package]
 dependencies = [
-    "amdgpu",
 ]

@@ -50,7 +50,19 @@ meson_text = meson_text.replace(
 )
 meson_text = meson_text.replace(
     "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
-    "{ 'header': 'signal.h', 'symbol': 'SFD_CLOEXEC' }",
+    "{ 'header': 'signal.h', 'symbol': 'SIG_BLOCK' }",
+)
+meson_text = meson_text.replace(
+    "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
+    "{ 'header': 'sys/signalfd.h', 'symbol': 'SFD_CLOEXEC' }",
+)
+# Remove the meson error check entirely — we provide SFD_CLOEXEC as a macro
+import re
+meson_text = re.sub(
+    r"if not fd_cloexec.*?endif",
+    "fd_cloexec = true",
+    meson_text,
+    flags=re.DOTALL
 )
 meson.write_text(meson_text)
 
@@ -360,6 +372,6 @@ connection_text = connection_text.replace(
 connection.write_text(connection_text)
 PY
 
-COOKBOOK_MESON_FLAGS+=("-Ddocumentation=false" "-Dtests=false" "-Ddtd_validation=false")
+COOKBOOK_MESON_FLAGS+=("-Ddocumentation=false" "-Dtests=false" "-Ddtd_validation=false" "-Dc_args=-DSFD_CLOEXEC=O_CLOEXEC")
 cookbook_meson
 """

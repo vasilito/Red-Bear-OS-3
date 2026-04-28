@@ -19,5 +19,5 @@ DYNAMIC_INIT
 cookbook_meson \
     -Ddefault_library=shared \
     -Dxattr=false \
-    -Dc_args=-Wno-error=implicit-function-declaration
+    -Dc_args="['-I${COOKBOOK_SYSROOT}/include','-Wno-error=implicit-function-declaration']"
 """
