@@ -1,4 +1,5 @@
 # Red Bear OS D-Bus Integration Plan
+**Implementation status (2026-04-29):** All DBUS plan code artifacts are build-verified. Remaining items are runtime validation gates requiring QEMU.
 
 **Version:** 3.0 — 2026-04-29
 **Status:** Active plan aligned with the desktop path v3.0

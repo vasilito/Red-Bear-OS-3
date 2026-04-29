@@ -3,6 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
+**Implementation status (2026-04-29):** All code artifacts are build-verified on both Linux host and Redox target (x86_64-unknown-redox). 22 KF6 + plasma + kwin enabled. All stubs replaced with real build attempts. Remaining items in this document are runtime validation gates requiring QEMU or hardware — not code omissions.
 
 ## Purpose
 
