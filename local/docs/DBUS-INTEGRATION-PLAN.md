@@ -1096,7 +1096,7 @@ Fragility ratings across services:
 | `redbear-polkit` | 5/5 security | Always-permit is not a production security model |
 | `dbus-daemon` | 2/5 | 24-line patch is stable but not validated under real session bus load |
 | `redbear-notifications` | 2-3/5 | Logs to stderr only; no ActionInvoked signal |
-| `redbear-upower` | 2-3/5 | Provisional ACPI surface; no Changed signal; polling not implemented |
+| `redbear-upower` | 2-3/5 | Provisional ACPI surface; no Changed signal; polling deferred (requires QEMU validation) |
 | `redbear-udisks` | 2-3/5 | Read-only; no mount/unmount operations |
 
 **Phase 2 assessment:** D-Bus is NOT on the critical path for `kwin_wayland --virtual`. The NoopSession backend in KWin bypasses logind entirely, which means Phase 2 compositor bring-up should succeed without D-Bus changes.
@@ -1114,7 +1114,7 @@ Four fixes are required before KWin can use real hardware devices through login1
 | 1 | `Manager.Inhibit` + `CanPowerOff`/`CanSuspend`/`CanHibernate` stubs | Implemented | Return `"na"` string from each method; required by KDE's session management layer |
 | 2 | `PauseDevice`/`ResumeDevice` signal emission | Declared but not emitted | Emit `uus` (major, minor, type) for PauseDevice and `uuh` (major, minor, fd) for ResumeDevice in `session.rs` when device state changes |
 | 3 | Dynamic device enumeration | Static `device_map.rs` with hardcoded major/minor | Query udev-shim at runtime for major/minor -> scheme path mapping; remove hardcoded lookup table |
-| 4 | Implemented Session methods | `SetIdleHint`, `SetLockedHint`, `SetType`, `Terminate` not implemented | Implement these or return errors; KDE session managers call these to track session state |
+| 4 | Session methods | `SetIdleHint`, `SetLockedHint`, `SetType`, `Terminate` return errors; runtime validation requires QEMU |
 
 ### Phase 4 Gate (KDE Plasma Session) — Required D-Bus Changes
 
