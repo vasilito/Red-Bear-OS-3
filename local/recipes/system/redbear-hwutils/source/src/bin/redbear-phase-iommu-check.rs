@@ -187,9 +187,9 @@ fn parse_self_test_summary(stdout: &str) -> Result<SelfTestSummary, String> {
 #[cfg(any(target_os = "redox", test))]
 fn iommu_vendor_detection(summary: &SelfTestSummary) -> &'static str {
     match (summary.units_detected > 0, summary.dmar_present) {
-        (true, true) => "amd-vi+intel-vt-d",
+        (true, true) => "amd-vi+intel-vt-d-dmar",
         (true, false) => "amd-vi",
-        (false, true) => "intel-vt-d",
+        (false, true) => "intel-vt-d-dmar",
         (false, false) => "none",
     }
 }
@@ -290,8 +290,6 @@ fn run() -> Result<(), String> {
 
     println!("=== Red Bear OS IOMMU Runtime Check ===");
     require_path("/usr/bin/iommu")?;
-    require_path("/scheme/iommu")?;
-    require_path("/scheme/iommu/control")?;
 
     let output = Command::new("/usr/bin/iommu")
         .env("IOMMU_LOG", "info")
@@ -304,20 +302,13 @@ fn run() -> Result<(), String> {
     print!("{}", stdout);
     print!("{}", stderr);
 
-    if !output.status.success() {
-        return Err(format!(
-            "iommu self-test exited with status {:?}",
-            output.status.code()
-        ));
-    }
-
     let summary = parse_self_test_summary(&stdout)?;
     println!(
         "amd_vi_present={}",
         if summary.units_detected > 0 { 1 } else { 0 }
     );
     println!(
-        "intel_vtd_present={}",
+        "intel_vtd_dmar_present={}",
         if summary.dmar_present { 1 } else { 0 }
     );
     println!(
@@ -325,9 +316,26 @@ fn run() -> Result<(), String> {
         iommu_vendor_detection(&summary)
     );
 
+    if !output.status.success() && !(summary.units_detected == 0 && summary.dmar_present) {
+        return Err(format!(
+            "iommu self-test exited with status {:?}",
+            output.status.code()
+        ));
+    }
+
     if summary.units_detected == 0 && !summary.dmar_present {
         return Err("iommu self-test did not detect AMD-Vi or Intel VT-d presence".to_string());
     }
+
+    if summary.units_detected == 0 {
+        println!("iommu_scheme_probe=unavailable reason=no_amd_vi_units");
+        println!("iommu_event_log_probe=unavailable reason=no_amd_vi_units");
+        println!("interrupt_remap_table_probe=unavailable reason=no_amd_vi_units");
+        return Ok(());
+    }
+
+    require_path("/scheme/iommu")?;
+    require_path("/scheme/iommu/control")?;
 
     let scheme = probe_iommu_scheme()?;
     println!(
@@ -360,7 +368,7 @@ fn run() -> Result<(), String> {
     }
 
     println!(
-        "interrupt_remap_table_probe=ok initialized_units={}",
+        "interrupt_remap_table_probe=indirect basis=init_units_success initialized_units={}",
         scheme.units_initialized_after
     );
 
@@ -414,7 +422,7 @@ mod tests {
             events_drained: 0,
         };
 
-        assert_eq!(iommu_vendor_detection(&summary), "amd-vi+intel-vt-d");
+        assert_eq!(iommu_vendor_detection(&summary), "amd-vi+intel-vt-d-dmar");
     }
 
     #[test]

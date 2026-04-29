@@ -3,6 +3,7 @@
 //! and WAYLAND_DISPLAY availability. Does NOT validate real KWin behavior
 //! (KWin recipe currently provides cmake stubs pending Qt6Quick/QML).
 
+use std::process;
 #[cfg(target_os = "redox")]
 use std::{
     env,
@@ -12,7 +13,6 @@ use std::{
     process::Command,
     time::Duration,
 };
-use std::process;
 
 const PROGRAM: &str = "redbear-phase3-kwin-check";
 const USAGE: &str = "Usage: redbear-phase3-kwin-check [--json]\n\n\
@@ -114,7 +114,9 @@ impl Report {
     }
 
     fn any_failed(&self) -> bool {
-        self.checks.iter().any(|check| check.result == CheckResult::Fail)
+        self.checks
+            .iter()
+            .any(|check| check.result == CheckResult::Fail)
     }
 
     fn check_passed(&self, name: &str) -> bool {
@@ -287,7 +289,10 @@ fn run_command(program: &str, args: &[&str], label: &str) -> Result<String, Stri
         } else {
             String::from("no output")
         };
-        return Err(format!("{label} exited with status {}: {detail}", output.status));
+        return Err(format!(
+            "{label} exited with status {}: {detail}",
+            output.status
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -295,14 +300,18 @@ fn run_command(program: &str, args: &[&str], label: &str) -> Result<String, Stri
 
 #[cfg(target_os = "redox")]
 fn resolve_wayland_endpoint() -> Result<WaylandEndpoint, String> {
-    let display = env_value("WAYLAND_DISPLAY")
-        .ok_or_else(|| String::from("WAYLAND_DISPLAY is not set"))?;
-    let runtime_dir = env_value("XDG_RUNTIME_DIR").unwrap_or_else(|| DEFAULT_RUNTIME_DIR.to_string());
+    let display =
+        env_value("WAYLAND_DISPLAY").ok_or_else(|| String::from("WAYLAND_DISPLAY is not set"))?;
+    let runtime_dir =
+        env_value("XDG_RUNTIME_DIR").unwrap_or_else(|| DEFAULT_RUNTIME_DIR.to_string());
     let path = PathBuf::from(runtime_dir).join(&display);
     if path.exists() {
         Ok(WaylandEndpoint { path, display })
     } else {
-        Err(format!("WAYLAND_DISPLAY is set but socket is missing at {}", path.display()))
+        Err(format!(
+            "WAYLAND_DISPLAY is set but socket is missing at {}",
+            path.display()
+        ))
     }
 }
 
@@ -407,10 +416,12 @@ fn run() -> Result<(), String> {
     {
         let mut report = Report::new(json_mode);
 
-        report.add(match require_one_path(&["/usr/bin/kwin_wayland", "/usr/bin/redbear-compositor"]) {
-            Ok(path) => Check::pass("COMPOSITOR_BINARY", path),
-            Err(err) => Check::fail("COMPOSITOR_BINARY", err),
-        });
+        report.add(
+            match require_one_path(&["/usr/bin/kwin_wayland", "/usr/bin/redbear-compositor"]) {
+                Ok(path) => Check::pass("COMPOSITOR_BINARY", path),
+                Err(err) => Check::fail("COMPOSITOR_BINARY", err),
+            },
+        );
 
         let (dbus_address_check, dbus_send_check) = check_dbus_session_bus();
         report.add(dbus_address_check);

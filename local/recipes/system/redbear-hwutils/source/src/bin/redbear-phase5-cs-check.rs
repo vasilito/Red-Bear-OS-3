@@ -98,7 +98,9 @@ impl Report {
     }
 
     fn any_failed(&self) -> bool {
-        self.checks.iter().any(|check| check.result == CheckResult::Fail)
+        self.checks
+            .iter()
+            .any(|check| check.result == CheckResult::Fail)
     }
 
     fn print(&self) {
@@ -284,7 +286,11 @@ fn decode_wire_exact<T: Copy>(bytes: &[u8]) -> Result<T, String> {
 
     let mut out = MaybeUninit::<T>::uninit();
     unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.as_mut_ptr().cast::<u8>(), size_of::<T>());
+        std::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            out.as_mut_ptr().cast::<u8>(),
+            size_of::<T>(),
+        );
         Ok(out.assume_init())
     }
 }
@@ -292,10 +298,7 @@ fn decode_wire_exact<T: Copy>(bytes: &[u8]) -> Result<T, String> {
 #[cfg(target_os = "redox")]
 fn bytes_of<T>(value: &T) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(
-            (value as *const T).cast::<u8>(),
-            std::mem::size_of::<T>(),
-        )
+        std::slice::from_raw_parts((value as *const T).cast::<u8>(), std::mem::size_of::<T>())
     }
 }
 
@@ -390,7 +393,10 @@ fn run_redox(json_mode: bool) -> Result<(), String> {
     let mut importer = match open_drm_card(card_path) {
         Ok(file) => file,
         Err(err) => {
-            report.add(Check::fail("CS_IOCTL_PROTOCOL", &format!("opened exporter but importer failed: {err}")));
+            report.add(Check::fail(
+                "CS_IOCTL_PROTOCOL",
+                &format!("opened exporter but importer failed: {err}"),
+            ));
             report.add(Check::skip(
                 "GEM_BUFFER_ALLOCATION",
                 "blocked: second DRM handle could not be opened",
@@ -420,14 +426,21 @@ fn run_redox(json_mode: bool) -> Result<(), String> {
         size: 4096,
         ..DrmGemCreateWire::default()
     };
-    match drm_query(&mut exporter, DRM_IOCTL_GEM_CREATE, bytes_of(&create_exporter))
-        .and_then(|response| decode_wire_exact::<DrmGemCreateWire>(&response))
+    match drm_query(
+        &mut exporter,
+        DRM_IOCTL_GEM_CREATE,
+        bytes_of(&create_exporter),
+    )
+    .and_then(|response| decode_wire_exact::<DrmGemCreateWire>(&response))
     {
         Ok(created) => {
             exporter_handle = Some(created.handle);
             report.add(Check::pass(
                 "GEM_BUFFER_ALLOCATION",
-                &format!("allocated exporter GEM handle {} (4096 bytes)", created.handle),
+                &format!(
+                    "allocated exporter GEM handle {} (4096 bytes)",
+                    created.handle
+                ),
             ));
         }
         Err(err) => {
@@ -455,24 +468,32 @@ fn run_redox(json_mode: bool) -> Result<(), String> {
 
     if let Some(handle) = exporter_handle {
         let export = DrmPrimeHandleToFdWire { handle, flags: 0 };
-        let prime_result = drm_query(&mut exporter, DRM_IOCTL_PRIME_HANDLE_TO_FD, bytes_of(&export))
-            .and_then(|response| decode_wire_exact::<DrmPrimeHandleToFdResponseWire>(&response))
-            .and_then(|exported| {
-                if exported.fd < 0 {
-                    return Err(format!(
-                        "PRIME export returned invalid token {} for GEM {}",
-                        exported.fd, handle
-                    ));
-                }
+        let prime_result = drm_query(
+            &mut exporter,
+            DRM_IOCTL_PRIME_HANDLE_TO_FD,
+            bytes_of(&export),
+        )
+        .and_then(|response| decode_wire_exact::<DrmPrimeHandleToFdResponseWire>(&response))
+        .and_then(|exported| {
+            if exported.fd < 0 {
+                return Err(format!(
+                    "PRIME export returned invalid token {} for GEM {}",
+                    exported.fd, handle
+                ));
+            }
 
-                let import = DrmPrimeFdToHandleWire {
-                    fd: exported.fd,
-                    pad: 0,
-                };
-                drm_query(&mut importer, DRM_IOCTL_PRIME_FD_TO_HANDLE, bytes_of(&import))
-                    .and_then(|response| decode_wire_exact::<DrmPrimeFdToHandleResponseWire>(&response))
-                    .map(|imported| (exported.fd, imported.handle))
-            });
+            let import = DrmPrimeFdToHandleWire {
+                fd: exported.fd,
+                pad: 0,
+            };
+            drm_query(
+                &mut importer,
+                DRM_IOCTL_PRIME_FD_TO_HANDLE,
+                bytes_of(&import),
+            )
+            .and_then(|response| decode_wire_exact::<DrmPrimeFdToHandleResponseWire>(&response))
+            .map(|imported| (exported.fd, imported.handle))
+        });
 
         match prime_result {
             Ok((token, imported_handle)) => {
@@ -510,8 +531,12 @@ fn run_redox(json_mode: bool) -> Result<(), String> {
         size: 4096,
         ..DrmGemCreateWire::default()
     };
-    match drm_query(&mut importer, DRM_IOCTL_GEM_CREATE, bytes_of(&create_importer))
-        .and_then(|response| decode_wire_exact::<DrmGemCreateWire>(&response))
+    match drm_query(
+        &mut importer,
+        DRM_IOCTL_GEM_CREATE,
+        bytes_of(&create_importer),
+    )
+    .and_then(|response| decode_wire_exact::<DrmGemCreateWire>(&response))
     {
         Ok(created) => importer_dst_handle = Some(created.handle),
         Err(err) => {

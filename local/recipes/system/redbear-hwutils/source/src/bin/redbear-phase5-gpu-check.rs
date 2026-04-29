@@ -21,48 +21,90 @@ const DRM_IOCTL_REDOX_PRIVATE_CS_SUBMIT: usize = DRM_IOCTL_BASE + 31;
 
 #[cfg(target_os = "redox")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CheckResult { Pass, Fail, Skip }
+enum CheckResult {
+    Pass,
+    Fail,
+    Skip,
+}
 
 #[cfg(target_os = "redox")]
 impl CheckResult {
     fn label(self) -> &'static str {
-        match self { Self::Pass => "PASS", Self::Fail => "FAIL", Self::Skip => "SKIP" }
+        match self {
+            Self::Pass => "PASS",
+            Self::Fail => "FAIL",
+            Self::Skip => "SKIP",
+        }
     }
 }
 
 #[cfg(target_os = "redox")]
-struct Check { name: String, result: CheckResult, detail: String }
+struct Check {
+    name: String,
+    result: CheckResult,
+    detail: String,
+}
 
 #[cfg(target_os = "redox")]
 impl Check {
     fn pass(name: &str, detail: &str) -> Self {
-        Check { name: name.to_string(), result: CheckResult::Pass, detail: detail.to_string() }
+        Check {
+            name: name.to_string(),
+            result: CheckResult::Pass,
+            detail: detail.to_string(),
+        }
     }
     fn fail(name: &str, detail: &str) -> Self {
-        Check { name: name.to_string(), result: CheckResult::Fail, detail: detail.to_string() }
+        Check {
+            name: name.to_string(),
+            result: CheckResult::Fail,
+            detail: detail.to_string(),
+        }
     }
     fn skip(name: &str, detail: &str) -> Self {
-        Check { name: name.to_string(), result: CheckResult::Skip, detail: detail.to_string() }
+        Check {
+            name: name.to_string(),
+            result: CheckResult::Skip,
+            detail: detail.to_string(),
+        }
     }
 }
 
 #[cfg(target_os = "redox")]
-struct Report { checks: Vec<Check>, json_mode: bool }
+struct Report {
+    checks: Vec<Check>,
+    json_mode: bool,
+}
 
 #[cfg(target_os = "redox")]
 impl Report {
-    fn new(json_mode: bool) -> Self { Report { checks: Vec::new(), json_mode } }
-    fn add(&mut self, check: Check) { self.checks.push(check); }
-    fn any_failed(&self) -> bool { self.checks.iter().any(|c| c.result == CheckResult::Fail) }
+    fn new(json_mode: bool) -> Self {
+        Report {
+            checks: Vec::new(),
+            json_mode,
+        }
+    }
+    fn add(&mut self, check: Check) {
+        self.checks.push(check);
+    }
+    fn any_failed(&self) -> bool {
+        self.checks.iter().any(|c| c.result == CheckResult::Fail)
+    }
 
     fn print(&self) {
-        if self.json_mode { self.print_json(); } else { self.print_human(); }
+        if self.json_mode {
+            self.print_json();
+        } else {
+            self.print_human();
+        }
     }
 
     fn print_human(&self) {
         for check in &self.checks {
             let icon = match check.result {
-                CheckResult::Pass => "[PASS]", CheckResult::Fail => "[FAIL]", CheckResult::Skip => "[SKIP]",
+                CheckResult::Pass => "[PASS]",
+                CheckResult::Fail => "[FAIL]",
+                CheckResult::Skip => "[SKIP]",
             };
             println!("{icon} {}: {}", check.name, check.detail);
         }
@@ -70,33 +112,79 @@ impl Report {
 
     fn print_json(&self) {
         #[derive(serde::Serialize)]
-        struct JsonCheck { name: String, result: String, detail: String }
+        struct JsonCheck {
+            name: String,
+            result: String,
+            detail: String,
+        }
         #[derive(serde::Serialize)]
         struct JsonReport {
-            drm_device: bool, gpu_firmware: bool, mesa_dri: bool,
-            display_modes: bool, cs_ioctl: bool, gem_buffers: bool,
-            hardware_rendering_ready: bool, checks: Vec<JsonCheck>,
+            drm_device: bool,
+            gpu_firmware: bool,
+            mesa_dri: bool,
+            display_modes: bool,
+            cs_ioctl: bool,
+            gem_buffers: bool,
+            hardware_rendering_ready: bool,
+            checks: Vec<JsonCheck>,
         }
-        let drm = self.checks.iter().find(|c| c.name == "DRM_DEVICE").map_or(false, |c| c.result == CheckResult::Pass);
-        let firmware = self.checks.iter().find(|c| c.name == "GPU_FIRMWARE").map_or(false, |c| c.result == CheckResult::Pass);
-        let mesa = self.checks.iter().find(|c| c.name == "MESA_DRI").map_or(false, |c| c.result == CheckResult::Pass);
-        let modes = self.checks.iter().find(|c| c.name == "DISPLAY_MODES").map_or(false, |c| c.result == CheckResult::Pass);
-        let cs_ioctl = self.checks.iter().find(|c| c.name == "CS_IOCTL_PROTOCOL").map_or(false, |c| c.result == CheckResult::Pass);
-        let gem_buffers = self.checks.iter().find(|c| c.name == "GEM_BUFFER_ALLOCATION").map_or(false, |c| c.result == CheckResult::Pass);
-        let hardware_ready = self.checks.iter().find(|c| c.name == "HARDWARE_RENDERING_READY").map_or(false, |c| c.result == CheckResult::Pass);
-        let checks: Vec<JsonCheck> = self.checks.iter().map(|c| JsonCheck {
-            name: c.name.clone(), result: c.result.label().to_string(), detail: c.detail.clone(),
-        }).collect();
-        if let Err(err) = serde_json::to_writer(std::io::stdout(), &JsonReport {
-            drm_device: drm,
-            gpu_firmware: firmware,
-            mesa_dri: mesa,
-            display_modes: modes,
-            cs_ioctl,
-            gem_buffers,
-            hardware_rendering_ready: hardware_ready,
-            checks,
-        }) {
+        let drm = self
+            .checks
+            .iter()
+            .find(|c| c.name == "DRM_DEVICE")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let firmware = self
+            .checks
+            .iter()
+            .find(|c| c.name == "GPU_FIRMWARE")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let mesa = self
+            .checks
+            .iter()
+            .find(|c| c.name == "MESA_DRI")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let modes = self
+            .checks
+            .iter()
+            .find(|c| c.name == "DISPLAY_MODES")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let cs_ioctl = self
+            .checks
+            .iter()
+            .find(|c| c.name == "CS_IOCTL_PROTOCOL")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let gem_buffers = self
+            .checks
+            .iter()
+            .find(|c| c.name == "GEM_BUFFER_ALLOCATION")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let hardware_ready = self
+            .checks
+            .iter()
+            .find(|c| c.name == "HARDWARE_RENDERING_READY")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let checks: Vec<JsonCheck> = self
+            .checks
+            .iter()
+            .map(|c| JsonCheck {
+                name: c.name.clone(),
+                result: c.result.label().to_string(),
+                detail: c.detail.clone(),
+            })
+            .collect();
+        if let Err(err) = serde_json::to_writer(
+            std::io::stdout(),
+            &JsonReport {
+                drm_device: drm,
+                gpu_firmware: firmware,
+                mesa_dri: mesa,
+                display_modes: modes,
+                cs_ioctl,
+                gem_buffers,
+                hardware_rendering_ready: hardware_ready,
+                checks,
+            },
+        ) {
             eprintln!("{PROGRAM}: failed to serialize JSON: {err}");
         }
     }
@@ -142,7 +230,10 @@ fn parse_args() -> Result<bool, String> {
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "--json" => json_mode = true,
-            "-h" | "--help" => { println!("{USAGE}"); return Err(String::new()); }
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                return Err(String::new());
+            }
             _ => return Err(format!("unsupported argument: {arg}")),
         }
     }
@@ -181,7 +272,10 @@ fn check_gpu_firmware() -> Check {
     if found {
         Check::pass("GPU_FIRMWARE", "GPU firmware blobs present")
     } else {
-        Check::skip("GPU_FIRMWARE", "no GPU firmware found (may need fetch-firmware.sh)")
+        Check::skip(
+            "GPU_FIRMWARE",
+            "no GPU firmware found (may need fetch-firmware.sh)",
+        )
     }
 }
 
@@ -190,13 +284,28 @@ fn check_mesa_dri_hardware() -> Check {
     let hw_drivers = ["/usr/lib/dri/radeonsi_dri.so", "/usr/lib/dri/iris_dri.so"];
     let mut found = Vec::new();
     for d in hw_drivers {
-        if std::path::Path::new(d).exists() { found.push(d); }
+        if std::path::Path::new(d).exists() {
+            found.push(d);
+        }
     }
     if !found.is_empty() {
-        let names: Vec<_> = found.iter().map(|s| s.rsplit('/').next().unwrap_or(s)).collect();
-        Check::pass("MESA_DRI", &format!("{} hardware DRI driver(s): {}", found.len(), names.join(", ")))
+        let names: Vec<_> = found
+            .iter()
+            .map(|s| s.rsplit('/').next().unwrap_or(s))
+            .collect();
+        Check::pass(
+            "MESA_DRI",
+            &format!(
+                "{} hardware DRI driver(s): {}",
+                found.len(),
+                names.join(", ")
+            ),
+        )
     } else {
-        Check::fail("MESA_DRI", "no hardware DRI drivers found (llvmpipe software only)")
+        Check::fail(
+            "MESA_DRI",
+            "no hardware DRI drivers found (llvmpipe software only)",
+        )
     }
 }
 
@@ -212,7 +321,10 @@ fn check_display_modes() -> Check {
                 Check::fail("DISPLAY_MODES", "no connectors found")
             }
         }
-        Err(_) => Check::skip("DISPLAY_MODES", "cannot enumerate connectors (may need hardware GPU)")
+        Err(_) => Check::skip(
+            "DISPLAY_MODES",
+            "cannot enumerate connectors (may need hardware GPU)",
+        ),
     }
 }
 
@@ -230,7 +342,11 @@ fn decode_wire_exact<T: Copy>(bytes: &[u8]) -> Result<T, String> {
 
     let mut out = MaybeUninit::<T>::uninit();
     unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.as_mut_ptr().cast::<u8>(), size_of::<T>());
+        std::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            out.as_mut_ptr().cast::<u8>(),
+            size_of::<T>(),
+        );
         Ok(out.assume_init())
     }
 }
@@ -238,10 +354,7 @@ fn decode_wire_exact<T: Copy>(bytes: &[u8]) -> Result<T, String> {
 #[cfg(target_os = "redox")]
 fn bytes_of<T>(value: &T) -> &[u8] {
     unsafe {
-        std::slice::from_raw_parts(
-            (value as *const T).cast::<u8>(),
-            std::mem::size_of::<T>(),
-        )
+        std::slice::from_raw_parts((value as *const T).cast::<u8>(), std::mem::size_of::<T>())
     }
 }
 
@@ -296,7 +409,10 @@ fn check_gem_buffer_allocation() -> Check {
             );
             Check::pass(
                 "GEM_BUFFER_ALLOCATION",
-                &format!("allocated GEM handle {} over /scheme/drm/card0", created.handle),
+                &format!(
+                    "allocated GEM handle {} over /scheme/drm/card0",
+                    created.handle
+                ),
             )
         }
         Err(err) => Check::fail("GEM_BUFFER_ALLOCATION", &err),
@@ -429,7 +545,10 @@ fn check_hardware_rendering_ready(report: &Report) -> Check {
 fn run() -> Result<(), String> {
     #[cfg(not(target_os = "redox"))]
     {
-        if std::env::args().any(|a| a == "-h" || a == "--help") { println!("{USAGE}"); return Err(String::new()); }
+        if std::env::args().any(|a| a == "-h" || a == "--help") {
+            println!("{USAGE}");
+            return Err(String::new());
+        }
         println!("{PROGRAM}: GPU check requires Redox runtime");
         return Ok(());
     }
@@ -446,14 +565,18 @@ fn run() -> Result<(), String> {
         let readiness = check_hardware_rendering_ready(&report);
         report.add(readiness);
         report.print();
-        if report.any_failed() { return Err("one or more Phase 5 checks failed".to_string()); }
+        if report.any_failed() {
+            return Err("one or more Phase 5 checks failed".to_string());
+        }
         Ok(())
     }
 }
 
 fn main() {
     if let Err(err) = run() {
-        if err.is_empty() { process::exit(0); }
+        if err.is_empty() {
+            process::exit(0);
+        }
         eprintln!("{PROGRAM}: {err}");
         process::exit(1);
     }

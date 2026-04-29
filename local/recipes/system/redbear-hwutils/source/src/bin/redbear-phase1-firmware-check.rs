@@ -360,9 +360,15 @@ fn run() -> Result<(), String> {
                 match read_firmware_blob(&key) {
                     Ok((size, _content)) => {
                         if size > 0 {
-                            report.add(Check::pass("BLOB_READ", &format!("size={} key={}", size, key)));
+                            report.add(Check::pass(
+                                "BLOB_READ",
+                                &format!("size={} key={}", size, key),
+                            ));
                         } else {
-                            report.add(Check::fail("BLOB_READ", &format!("blob {key} has zero size")));
+                            report.add(Check::fail(
+                                "BLOB_READ",
+                                &format!("blob {key} has zero size"),
+                            ));
                         }
                     }
                     Err(msg) => {
@@ -373,7 +379,10 @@ fn run() -> Result<(), String> {
                 report.add(check_blob_fstat(&key));
             }
             None => {
-                report.add(Check::skip("BLOB_READ", "no known blob key found in /scheme/firmware/"));
+                report.add(Check::skip(
+                    "BLOB_READ",
+                    "no known blob key found in /scheme/firmware/",
+                ));
                 report.add(Check::skip("BLOB_MMAP_PATH", "no blob to check"));
             }
         }
@@ -437,7 +446,11 @@ mod tests {
     fn parse_args_accepts_blob_flag() {
         let result = parse_args_with(&["--blob", "somename"]);
         let (_json_mode, blob_key) = result.expect("parse_args should succeed");
-        assert_eq!(blob_key, Some("somename".to_string()), "blob_key should be Some(\"somename\")");
+        assert_eq!(
+            blob_key,
+            Some("somename".to_string()),
+            "blob_key should be Some(\"somename\")"
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Phase 2 Wayland compositor proof checker.
 
+use std::process;
 #[cfg(target_os = "redox")]
 use std::{
     env, fs,
@@ -9,7 +10,6 @@ use std::{
     process::Command,
     time::Duration,
 };
-use std::process;
 
 const PROGRAM: &str = "redbear-phase2-wayland-check";
 const USAGE: &str = "Usage: redbear-phase2-wayland-check [--json]\n\n\
@@ -122,7 +122,9 @@ impl Report {
     }
 
     fn any_failed(&self) -> bool {
-        self.checks.iter().any(|check| check.result == CheckResult::Fail)
+        self.checks
+            .iter()
+            .any(|check| check.result == CheckResult::Fail)
     }
 
     fn check_passed(&self, name: &str) -> bool {
@@ -318,7 +320,8 @@ fn wayland_socket_candidates(runtime_dir: Option<&str>, display: Option<&str>) -
 #[cfg(target_os = "redox")]
 fn resolve_wayland_endpoint() -> Result<WaylandEndpoint, String> {
     let runtime_dir = env_value("XDG_RUNTIME_DIR");
-    let display = env_value("WAYLAND_DISPLAY").unwrap_or_else(|| DEFAULT_WAYLAND_DISPLAY.to_string());
+    let display =
+        env_value("WAYLAND_DISPLAY").unwrap_or_else(|| DEFAULT_WAYLAND_DISPLAY.to_string());
     let candidates = wayland_socket_candidates(runtime_dir.as_deref(), Some(&display));
 
     for candidate in candidates {
@@ -355,7 +358,10 @@ fn run_command(program: &str, args: &[&str], label: &str) -> Result<String, Stri
         } else {
             String::from("no output")
         };
-        return Err(format!("{label} exited with status {}: {detail}", output.status));
+        return Err(format!(
+            "{label} exited with status {}: {detail}",
+            output.status
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -454,7 +460,10 @@ fn check_software_renderer() -> Check {
     if Path::new("/usr/bin/glxinfo").exists() {
         match run_command("glxinfo", &[], "glxinfo") {
             Ok(output) if contains_software_renderer_text(&output) => {
-                return Check::pass("SOFTWARE_RENDERER", "glxinfo reports llvmpipe/software renderer");
+                return Check::pass(
+                    "SOFTWARE_RENDERER",
+                    "glxinfo reports llvmpipe/software renderer",
+                );
             }
             Ok(_) => details.push(String::from("glxinfo ran but did not report llvmpipe")),
             Err(err) => details.push(err),
@@ -474,7 +483,10 @@ fn check_software_renderer() -> Check {
             ),
         ),
         Ok(_) => {
-            details.push(format!("{} has no llvmpipe/swrast-style drivers", dri_dir.display()));
+            details.push(format!(
+                "{} has no llvmpipe/swrast-style drivers",
+                dri_dir.display()
+            ));
             Check::fail("SOFTWARE_RENDERER", details.join("; "))
         }
         Err(err) => {

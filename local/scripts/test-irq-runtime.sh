@@ -12,7 +12,7 @@
 # Exit codes:
 #   0 — all checks passed
 #   1 — one or more checks failed
-#   2 — QEMU boot or login failure
+#   2 — QEMU boot/login/runtime infrastructure failure
 
 set -euo pipefail
 
@@ -65,7 +65,7 @@ run_guest_checks() {
     echo
 
     echo "--- IOMMU ---"
-    run_check "iommu" "redbear-phase-iommu-check" "/scheme/iommu, AMD-Vi/Intel VT-d detection, event log, and interrupt remap setup"
+    run_check "iommu" "redbear-phase-iommu-check" "AMD-Vi scheme proof or Intel VT-d DMAR detection, event log, and interrupt remap status"
     echo
 
     echo "--- DMA ---"
@@ -114,9 +114,23 @@ run_qemu_checks() {
         truncate -s 1g "$extra"
     fi
 
-    expect <<EXPECT_SCRIPT
+expect <<EXPECT_SCRIPT
 log_user 1
 set timeout 300
+
+proc expect_or_exit2 {pattern message} {
+    expect {
+        \$pattern { }
+        timeout {
+            puts "ERROR: \$message"
+            exit 2
+        }
+        eof {
+            puts "ERROR: guest exited before \$message"
+            exit 2
+        }
+    }
+}
 
 proc run_check {name cmd description ok_marker fail_marker missing_marker} {
     global failures
@@ -137,11 +151,11 @@ proc run_check {name cmd description ok_marker fail_marker missing_marker} {
         }
         timeout {
             puts "  FAIL  \$name: timed out"
-            incr failures
+            exit 2
         }
         eof {
             puts "  FAIL  \$name: guest exited before check completion"
-            exit 1
+            exit 2
         }
     }
     puts ""
@@ -149,19 +163,19 @@ proc run_check {name cmd description ok_marker fail_marker missing_marker} {
 
 set failures 0
 spawn qemu-system-x86_64 -name {Red Bear OS x86_64} -device qemu-xhci -smp 4 -m 2048 -bios $firmware -chardev stdio,id=debug,signal=off,mux=on -serial chardev:debug -mon chardev=debug -machine q35 -device ich9-intel-hda -device hda-output -device virtio-net,netdev=net0 -netdev user,id=net0 -nographic -vga none -drive file=$image,format=raw,if=none,id=drv0 -device nvme,drive=drv0,serial=NVME_SERIAL -drive file=$extra,format=raw,if=none,id=drv1 -device nvme,drive=drv1,serial=NVME_EXTRA -enable-kvm -cpu host
-expect "login:"
+expect_or_exit2 "login:" "login prompt"
 send "root\r"
-expect "assword:"
+expect_or_exit2 "assword:" "password prompt"
 send "password\r"
-expect "Type 'help' for available commands."
+expect_or_exit2 "Type 'help' for available commands." "interactive shell prompt"
 send "echo __READY__\r"
-expect "__READY__"
+expect_or_exit2 "__READY__" "guest readiness marker"
 
 puts "=== Red Bear OS IRQ Runtime Validation ==="
 puts ""
 
 run_check "PCI IRQ" "redbear-phase-pci-irq-check" "/scheme/irq, MSI/MSI-X capability, affinity, and spurious IRQ routing quality" "__PCI_IRQ_OK__" "__PCI_IRQ_FAIL__" "__PCI_IRQ_MISSING__"
-run_check "IOMMU" "redbear-phase-iommu-check" "/scheme/iommu, AMD-Vi/Intel VT-d detection, event log, and interrupt remap setup" "__IOMMU_OK__" "__IOMMU_FAIL__" "__IOMMU_MISSING__"
+run_check "IOMMU" "redbear-phase-iommu-check" "AMD-Vi scheme proof or Intel VT-d DMAR detection, event log, and interrupt remap status" "__IOMMU_OK__" "__IOMMU_FAIL__" "__IOMMU_MISSING__"
 run_check "DMA" "redbear-phase-dma-check" "DMA buffer allocation and write/readback" "__DMA_OK__" "__DMA_FAIL__" "__DMA_MISSING__"
 run_check "PS/2 + serio" "redbear-phase-ps2-check" "/scheme/input/ps2 or serio runtime path" "__PS2_OK__" "__PS2_FAIL__" "__PS2_MISSING__"
 run_check "monotonic timer" "redbear-phase-timer-check" "/scheme/time/CLOCK_MONOTONIC monotonic progress" "__TIMER_OK__" "__TIMER_FAIL__" "__TIMER_MISSING__"
@@ -175,13 +189,23 @@ if {\$failures == 0} {
 }
 
 send "echo __IRQ_RUNTIME_DONE__\$failures__\r"
-expect "__IRQ_RUNTIME_DONE__\$failures__"
+expect_or_exit2 "__IRQ_RUNTIME_DONE__\$failures__" "final IRQ runtime summary marker"
+
+set final_status 0
 if {\$failures != 0} {
-    exit 1
+    set final_status 1
 }
 
 send "shutdown\r"
-expect eof
+expect {
+    eof { }
+    timeout {
+        if {\$final_status == 0} {
+            set final_status 2
+        }
+    }
+}
+exit \$final_status
 EXPECT_SCRIPT
 }
 
@@ -200,7 +224,7 @@ QEMU mode boots an image and runs checks automatically.
 
 Required binaries (must be in PATH inside the guest):
   redbear-phase-pci-irq-check  — PCI IRQ runtime reports, MSI/MSI-X capability, affinity, spurious IRQs
-  redbear-phase-iommu-check    — IOMMU runtime self-test + scheme control probes
+  redbear-phase-iommu-check    — IOMMU runtime self-test + AMD-Vi scheme or Intel VT-d DMAR probes
   redbear-phase-dma-check      — DMA buffer allocation/runtime proof
   redbear-phase-ps2-check      — PS/2 + serio runtime proof
   redbear-phase-timer-check    — monotonic timer runtime proof
