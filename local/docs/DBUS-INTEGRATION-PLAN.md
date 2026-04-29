@@ -124,7 +124,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **kf6-kio** | `local/recipes/kde/kf6-kio/` | ⚠️ D-Bus OFF | Built with `-DUSE_DBUS=OFF` — D-Bus IPC disabled, has systemd1 XML interfaces in source |
 | **kf6-solid** | `local/recipes/kde/kf6-solid/` | ⚠️ D-Bus OFF | Built with `-DUSE_DBUS=OFF` — UDev/UPower/udisks2 backends all disabled |
 | **kf6-kwallet: real API-only build (no daemon) | Dummy cmake configs only, no real implementation |
-| **plasma-workspace** | `local/recipes/kde/plasma-workspace/` | ⚠️ Partial | Explicit dbus dep, but many sub-services unimplemented |
+| **plasma-workspace** | `local/recipes/kde/plasma-workspace/` | ⚠️ Partial | Explicit dbus dep; sub-services activation files staged; runtime proof requires QEMU |
 
 ### 3.3 What Ships Today (Scaffolds and Deferred Items)
 
