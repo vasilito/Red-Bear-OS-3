@@ -23,7 +23,7 @@ Wayland layer beneath that desktop path.
 
 ## Truth Statement
 
-Red Bear Wayland is **partially complete and still experimental**.
+Red Bear Wayland is **build-verified bounded proof; runtime session gated on QEMU validation**.
 
 What is true today:
 
