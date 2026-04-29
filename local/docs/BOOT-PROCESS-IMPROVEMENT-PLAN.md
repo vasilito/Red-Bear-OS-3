@@ -1,6 +1,6 @@
 # Red Bear OS — Boot Process Improvement Plan
 
-**Version:** 1.0 — 2026-04-27
+**Version:** 1.1 — 2026-04-29
 **Status:** Active — supersedes ad-hoc boot fixes and replaces historical P0–P6 boot notes
 **Canonical plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0), `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md`
 **Diagnosis:** `local/docs/BOOT-PROCESS-ASSESSMENT.md` (Phase 7 kernel RAM hang + ISO organization)
@@ -11,7 +11,7 @@
 
 | Profile | Required boot outcome | Current state | Gap |
 |---------|----------------------|---------------|-----|
-| `redbear-full` | **Graphical Wayland greeter → KDE desktop session** | Text login only; KWin stub wrapper delegates to redbear-compositor | Three blockers |
+| `redbear-full` | **Graphical Wayland greeter → KDE desktop session** | Graphical Wayland greeter path (bounded compositor proof); real KWin gated on Qt6Quick | Three blockers |
 | `redbear-mini` | **Text login** | ✅ Working | None |
 | `redbear-grub` | **Text login** | ✅ Working | None |
 
@@ -30,7 +30,7 @@
 
 ### What does NOT work
 
-1. **No graphical login** — `redbear-greeter-compositor` falls back to `kwin_wayland_wrapper --virtual` because `KWIN_DRM_DEVICES` is empty. The Qt6/QML greeter UI never renders.
+1. **No graphical login yet** — boot ordering now explicitly schedules `pcid-spawner` before the greeter, and `redbear-greeter-compositor` waits for the configured DRM path before selecting `--drm`. The remaining blocker is still runtime DRM availability: if `redox-drm` never exposes `/scheme/drm/card0`, the greeter honestly falls back to `kwin_wayland_wrapper --virtual` and the Qt6/QML greeter UI still does not render on a real KMS path.
 2. **Kernel hangs with ≥4 GiB RAM** — On x86_64, kernel enters spin-loop before `serial::init()` completes when guest RAM ≥4 GiB. `make qemu` default 2048 MiB is unaffected.
 3. **Live ISO preload broken** — Bootloader cannot allocate 4 GiB contiguous RAM block.
 
@@ -75,19 +75,21 @@
 
 1. `redox-drm` daemon is not being spawned by `pcid-spawner` for the active GPU
 2. No `/scheme/drm/card0` device exists
-3. `KWIN_DRM_DEVICES` environment variable is not set to the correct path
-4. KWin's `--drm` path never activates
+3. `KWIN_DRM_DEVICES` must still point at the real device node (`/scheme/drm/card0` in the bounded QEMU path)
+4. The compositor wrapper must wait for that node even when the environment is already populated, because `pcid-spawner` is intentionally asynchronous in Red Bear OS
 
 **Files to modify:**
 
 | File | Change | Why |
 |------|--------|-----|
-| `config/redbear-full.toml` — `20_greeter.service` | Add `KWIN_DRM_DEVICES = "/scheme/drm/card0"` to greeter env | Tells greeter compositor where to find DRM device |
+| `config/redbear-full.toml` — `20_greeter.service` | Keep explicit `00_pcid-spawner.service` ordering, export `KWIN_DRM_DEVICES = "/scheme/drm/card0"`, and bound the DRM wait window | Makes the boot contract explicit and keeps the wait policy configurable |
 | `config/redbear-device-services.toml` | Verify `/lib/pcid.d/` rules are installed with correct paths and vendor/class match patterns | pcid-spawner needs matching rules to auto-spawn redox-drm |
 | `local/recipes/gpu/redox-drm/source/src/main.rs` | Add startup logging (which PCI device matched, driver initialized, scheme registered) | Diagnostic visibility — confirms daemon runs |
-| `local/recipes/system/redbear-greeter/source/redbear-greeter-compositor` | Add `KWIN_DRM_DEVICES` awareness and fallback logging | Already partially done — verify env propagation from init service |
+| `local/recipes/system/redbear-greeter/source/redbear-greeter-compositor` | Wait for the configured DRM node even when `KWIN_DRM_DEVICES` is pre-set, then fall back honestly if the node never appears | Service ordering alone cannot prove `/scheme/drm/card0` exists |
 
 **QEMU-specific fix:** The `virtio-vga` device (vendor `0x1AF4`, class `0x0300`) needs a pcid rule. Check if `config/redbear-full.toml`'s `virtio-gpud.toml` matches.
+
+**Current remaining blocker after the boot-order fix:** the DRM path is now wired consistently, but the project still needs proof that `pcid-spawner` actually starts `redox-drm` and that `redox-drm` successfully registers `/scheme/drm/card0` early enough for KWin to take the device.
 
 **Acceptance criteria:**
 - [ ] `redox-drm` daemon appears in `ps` after boot (or logs "DRM daemon started" in boot log)

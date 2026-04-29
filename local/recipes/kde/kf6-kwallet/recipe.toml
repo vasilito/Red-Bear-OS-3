@@ -1,17 +1,13 @@
-# KWallet — wallet management framework. Real reduced build (no QML, no GPG).
-# Full KWallet requires QML and GPG which are not yet available on Redox.
+#TODO: KWallet — build the real KF6 client library on Redox; kwalletd, kwallet-query, translations, and X11 runtime paths stay disabled until the broader runtime service surface is proven.
 [source]
 tar = "https://invent.kde.org/frameworks/kwallet/-/archive/v6.10.0/kwallet-v6.10.0.tar.gz"
-blake3 = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [build]
 template = "custom"
 dependencies = [
     "qtbase",
-    "qtdeclarative",
     "kf6-extra-cmake-modules",
     "kf6-kcoreaddons",
-    "kf6-ki18n",
     "kf6-kconfig",
 ]
 script = """
@@ -25,56 +21,34 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-BUILD_DIR="${COOKBOOK_SOURCE}/redox_build"
-mkdir -p "${BUILD_DIR}"
+sed -i 's/^find_package(KF6WindowSystem .* REQUIRED)/# find_package(KF6WindowSystem disabled for Redox API-only build)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^find_package(KF6I18n .* REQUIRED)/# find_package(KF6I18n disabled for Redox API-only build)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 
-cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
-    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_SYSROOT}/usr/share/cmake/redox.cmake" \
-    -DCMAKE_INSTALL_PREFIX="${COOKBOOK_STAGE}/usr" \
-    -DCMAKE_PREFIX_PATH="${COOKBOOK_STAGE}/usr;${COOKBOOK_SYSROOT}/usr;${HOST_BUILD}" \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
-    -DBUILD_WITH_QML=OFF \
-    -DQT_MAJOR_VERSION=6 \
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
-    || {
-        echo "=== KWallet cmake configure failed — falling back to stub configs ==="
-        STAGE="${COOKBOOK_STAGE}/usr"
-        mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
-        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
-add_library(KF6::Wallet INTERFACE IMPORTED)
-EOFCFG
-        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFVER
-        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletTargets.cmake" << 'EOFTGT'
-add_library(KF6::Wallet INTERFACE IMPORTED)
-EOFTGT
-        mkdir -p "${STAGE}/lib"
-        echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
-        echo "=== KWallet stub installed (cmake configure failed) ==="
-        exit 0
-    }
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DBUILD_KWALLETD=OFF \
+    -DBUILD_KWALLET_QUERY=OFF \
+    -DWITH_X11=OFF \
+    -Wno-dev
 
-cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || {
-    echo "=== KWallet build failed — falling back to stub ==="
-    STAGE="${COOKBOOK_STAGE}/usr"
-    mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
-    cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
-add_library(KF6::Wallet INTERFACE IMPORTED)
-EOFCFG
-    cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFVER
-    mkdir -p "${STAGE}/lib"
-    echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
-    echo "=== KWallet stub installed (build failed) ==="
-    exit 0
-}
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
 
-cmake --install "${BUILD_DIR}"
-echo "=== KWallet real build (no QML, no GPG) ==="
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
 """

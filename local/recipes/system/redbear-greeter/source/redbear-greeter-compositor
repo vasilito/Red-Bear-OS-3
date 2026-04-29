@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 export DISPLAY=""
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export XDG_SESSION_TYPE=wayland
@@ -18,6 +20,63 @@ fi
 
 mkdir -p "$XDG_RUNTIME_DIR"
 
+parse_drm_devices() {
+    local devices="${1:-}"
+    local part=""
+
+    IFS=':' read -r -a parts <<< "$devices"
+    for part in "${parts[@]}"; do
+        if [ -n "$part" ]; then
+            printf '%s\n' "$part"
+        fi
+    done
+}
+
+drm_devices_ready() {
+    local devices="${1:-}"
+    local device=""
+
+    while IFS= read -r device; do
+        if [ ! -e "$device" ]; then
+            return 1
+        fi
+    done < <(parse_drm_devices "$devices")
+
+    return 0
+}
+
+wait_for_drm_devices() {
+    local devices="${1:-}"
+    local wait_seconds="${REDBEAR_DRM_WAIT_SECONDS:-10}"
+    local attempts=0
+
+    if [ -z "$devices" ]; then
+        return 1
+    fi
+
+    if [ "$wait_seconds" -le 0 ] 2>/dev/null; then
+        drm_devices_ready "$devices"
+        return $?
+    fi
+
+    attempts=$((wait_seconds * 2))
+
+    if ! drm_devices_ready "$devices"; then
+        echo "redbear-greeter-compositor: waiting up to ${wait_seconds}s for DRM device(s): ${devices}" >&2
+    fi
+
+    while [ "$attempts" -gt 0 ]; do
+        if drm_devices_ready "$devices"; then
+            return 0
+        fi
+
+        sleep 0.5
+        attempts=$((attempts - 1))
+    done
+
+    drm_devices_ready "$devices"
+}
+
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2>&1; then
     eval "$(dbus-launch --sh-syntax)"
 fi
@@ -32,22 +91,16 @@ if ! command -v kwin_wayland_wrapper >/dev/null 2>&1; then
     exit 1
 fi
 
-# Auto-detect DRM device if KWIN_DRM_DEVICES not explicitly set.
-# Wait up to 5 seconds for the DRM device to appear (pcid-spawner is async).
-if [ -z "${KWIN_DRM_DEVICES:-}" ]; then
-    for _ in $(seq 1 10); do
-        if [ -e /scheme/drm/card0 ]; then
-            export KWIN_DRM_DEVICES="/scheme/drm/card0"
-            break
-        fi
-        sleep 0.5
-    done
-fi
+# pcid-spawner is intentionally async in Red Bear OS, so service ordering only guarantees that
+# spawning has started. The compositor wrapper still has to wait for the actual DRM node.
+desired_drm_devices="${KWIN_DRM_DEVICES:-/scheme/drm/card0}"
 
-if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
+if wait_for_drm_devices "$desired_drm_devices"; then
+    export KWIN_DRM_DEVICES="$desired_drm_devices"
     echo "redbear-greeter-compositor: using DRM compositor backend (KWIN_DRM_DEVICES=${KWIN_DRM_DEVICES})" >&2
     exec kwin_wayland_wrapper --drm
 else
-    echo "redbear-greeter-compositor: using virtual compositor backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
+    unset KWIN_DRM_DEVICES
+    echo "redbear-greeter-compositor: DRM device not ready after wait, using virtual compositor backend" >&2
     exec kwin_wayland_wrapper --virtual
 fi

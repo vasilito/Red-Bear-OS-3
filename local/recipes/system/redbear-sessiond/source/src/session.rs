@@ -60,6 +60,12 @@ impl LoginSession {
             .map(|runtime| runtime.clone())
             .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))
     }
+
+    fn runtime_write(&self) -> fdo::Result<std::sync::RwLockWriteGuard<'_, crate::runtime_state::SessionRuntime>> {
+        self.runtime
+            .write()
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))
+    }
 }
 
 #[interface(name = "org.freedesktop.login1.Session")]
@@ -192,10 +198,16 @@ impl LoginSession {
         let session_id = runtime.session_id.clone();
         drop(runtime);
 
-        if let Ok(mut guard) = self.runtime.write() {
-            guard.state = String::from("closing");
-        }
+        self.runtime_write()?.state = String::from("closing");
         eprintln!("redbear-sessiond: Terminate requested for session {session_id}");
+        Ok(())
+    }
+
+    fn kill(&self, who: &str, signal_number: i32) -> fdo::Result<()> {
+        eprintln!(
+            "redbear-sessiond: Kill requested for session {} (who={who}, signal={signal_number}) — no-op",
+            self.runtime()?.session_id
+        );
         Ok(())
     }
 

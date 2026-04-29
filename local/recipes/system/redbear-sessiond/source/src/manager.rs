@@ -44,6 +44,20 @@ impl LoginManager {
             .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))
     }
 
+    fn runtime_write(&self) -> fdo::Result<std::sync::RwLockWriteGuard<'_, crate::runtime_state::SessionRuntime>> {
+        self.runtime
+            .write()
+            .map_err(|_| fdo::Error::Failed(String::from("login1 runtime state is poisoned")))
+    }
+
+    fn session_matches(runtime: &crate::runtime_state::SessionRuntime, session_id: &str) -> bool {
+        session_id == runtime.session_id || session_id == "auto"
+    }
+
+    fn user_matches(runtime: &crate::runtime_state::SessionRuntime, uid: u32) -> bool {
+        uid == runtime.uid
+    }
+
 }
 
 #[interface(name = "org.freedesktop.login1.Manager")]
@@ -75,6 +89,15 @@ impl LoginManager {
         }
 
         Err(fdo::Error::Failed(format!("unknown login1 seat '{id}'")))
+    }
+
+    fn get_user(&self, uid: u32) -> fdo::Result<OwnedObjectPath> {
+        let runtime = self.runtime_read()?;
+        if Self::user_matches(&runtime, uid) {
+            return Ok(self.user_path.clone());
+        }
+
+        Err(fdo::Error::Failed(format!("unknown login1 user uid {uid}")))
     }
 
     fn inhibit(&self, what: &str, who: &str, why: &str, mode: &str) -> fdo::Result<OwnedFd> {
@@ -167,6 +190,10 @@ impl LoginManager {
         Ok(self.session_path.clone())
     }
 
+    fn get_user_by_pid(&self, _pid: u32) -> fdo::Result<OwnedObjectPath> {
+        Ok(self.user_path.clone())
+    }
+
     fn list_users(&self) -> fdo::Result<Vec<(u32, String, OwnedObjectPath)>> {
         let runtime = self.runtime_read()?;
         Ok(vec![(
@@ -200,22 +227,117 @@ impl LoginManager {
     }
 
     fn activate_session(&self, session_id: &str) -> fdo::Result<()> {
-        eprintln!("redbear-sessiond: ActivateSession({session_id}) — no-op");
+        let mut runtime = self.runtime_write()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+
+        runtime.active = true;
+        eprintln!("redbear-sessiond: ActivateSession({session_id})");
+        Ok(())
+    }
+
+    fn activate_session_on_seat(&self, session_id: &str, seat_id: &str) -> fdo::Result<()> {
+        let mut runtime = self.runtime_write()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+        if seat_id != runtime.seat_id {
+            return Err(fdo::Error::Failed(format!("unknown login1 seat '{seat_id}'")));
+        }
+
+        runtime.active = true;
+        eprintln!("redbear-sessiond: ActivateSessionOnSeat({session_id}, {seat_id})");
         Ok(())
     }
 
     fn lock_session(&self, session_id: &str) -> fdo::Result<()> {
+        let mut runtime = self.runtime_write()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+
+        runtime.locked_hint = true;
         eprintln!("redbear-sessiond: LockSession({session_id})");
         Ok(())
     }
 
     fn unlock_session(&self, session_id: &str) -> fdo::Result<()> {
+        let mut runtime = self.runtime_write()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+
+        runtime.locked_hint = false;
         eprintln!("redbear-sessiond: UnlockSession({session_id})");
         Ok(())
     }
 
+    fn lock_sessions(&self) -> fdo::Result<()> {
+        let session_id = {
+            let mut runtime = self.runtime_write()?;
+            runtime.locked_hint = true;
+            runtime.session_id.clone()
+        };
+
+        eprintln!("redbear-sessiond: LockSessions() -> {session_id}");
+        Ok(())
+    }
+
+    fn unlock_sessions(&self) -> fdo::Result<()> {
+        let session_id = {
+            let mut runtime = self.runtime_write()?;
+            runtime.locked_hint = false;
+            runtime.session_id.clone()
+        };
+
+        eprintln!("redbear-sessiond: UnlockSessions() -> {session_id}");
+        Ok(())
+    }
+
     fn terminate_session(&self, session_id: &str) -> fdo::Result<()> {
+        let mut runtime = self.runtime_write()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+
+        runtime.state = String::from("closing");
+        runtime.active = false;
         eprintln!("redbear-sessiond: TerminateSession({session_id})");
+        Ok(())
+    }
+
+    fn terminate_user(&self, uid: u32) -> fdo::Result<()> {
+        let mut runtime = self.runtime_write()?;
+        if !Self::user_matches(&runtime, uid) {
+            return Err(fdo::Error::Failed(format!("unknown login1 user uid {uid}")));
+        }
+
+        runtime.state = String::from("closing");
+        runtime.active = false;
+        eprintln!("redbear-sessiond: TerminateUser({uid})");
+        Ok(())
+    }
+
+    fn kill_session(&self, session_id: &str, who: &str, signal_number: i32) -> fdo::Result<()> {
+        let runtime = self.runtime_read()?;
+        if !Self::session_matches(&runtime, session_id) {
+            return Err(fdo::Error::Failed(format!("unknown login1 session '{session_id}'")));
+        }
+
+        eprintln!(
+            "redbear-sessiond: KillSession({session_id}, who={who}, signal={signal_number}) — no-op"
+        );
+        Ok(())
+    }
+
+    fn kill_user(&self, uid: u32, signal_number: i32) -> fdo::Result<()> {
+        let runtime = self.runtime_read()?;
+        if !Self::user_matches(&runtime, uid) {
+            return Err(fdo::Error::Failed(format!("unknown login1 user uid {uid}")));
+        }
+
+        eprintln!("redbear-sessiond: KillUser({uid}, signal={signal_number}) — no-op");
         Ok(())
     }
 
@@ -471,5 +593,50 @@ mod tests {
         let blocked = manager.block_inhibited();
         assert!(blocked.contains("sleep"));
         assert!(blocked.contains("shutdown"));
+    }
+
+    #[test]
+    fn get_user_accepts_runtime_uid() {
+        let runtime = shared_runtime();
+        runtime.write().expect("lock").uid = 1000;
+
+        let manager = LoginManager::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/session/c1")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            runtime,
+        );
+
+        let path = manager.get_user(1000).expect("runtime uid should resolve");
+        assert_eq!(path.as_str(), "/org/freedesktop/login1/user/current");
+    }
+
+    #[test]
+    fn lock_sessions_updates_runtime() {
+        let runtime = shared_runtime();
+        let manager = LoginManager::new(
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/session/c1")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/seat/seat0")).unwrap(),
+            OwnedObjectPath::try_from(String::from("/org/freedesktop/login1/user/current")).unwrap(),
+            runtime.clone(),
+        );
+
+        manager.lock_sessions().expect("lock_sessions should succeed");
+        assert!(runtime.read().expect("lock").locked_hint);
+
+        manager.unlock_sessions().expect("unlock_sessions should succeed");
+        assert!(!runtime.read().expect("lock").locked_hint);
+    }
+
+    #[test]
+    fn activate_session_on_seat_rejects_unknown_seat() {
+        let manager = test_manager();
+        let err = manager
+            .activate_session_on_seat("c1", "seat9")
+            .expect_err("unknown seat should fail");
+        match err {
+            fdo::Error::Failed(message) => assert!(message.contains("seat9")),
+            other => panic!("expected Failed error, got {other:?}"),
+        }
     }
 }

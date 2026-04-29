@@ -2,7 +2,6 @@
 # Full NewStuffQuick/NewStuffWidgets require Qt6Quick which is not yet QML-proven.
 [source]
 tar = "https://invent.kde.org/frameworks/knewstuff/-/archive/v6.10.0/knewstuff-v6.10.0.tar.gz"
-blake3 = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [build]
 template = "custom"

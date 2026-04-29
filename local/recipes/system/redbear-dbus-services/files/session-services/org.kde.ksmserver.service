@@ -1,0 +1,4 @@
+#TODO: ksmserver is not yet validated on Redox — D-Bus activation may fail until it is built and staged
+[D-BUS Service]
+Name=org.kde.ksmserver
+Exec=/usr/bin/ksmserver

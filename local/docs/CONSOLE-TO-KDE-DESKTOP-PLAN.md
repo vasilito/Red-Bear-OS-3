@@ -86,7 +86,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KF6 frameworks (30/32) | **build real** | 20 enabled + kglobalacceld | 30 real cmake builds; 2 stubs (knewstuff, kwallet); 3 suppressed (kirigami, knewstuff, kwallet) |
+| KF6 frameworks (30/32) | **build real** | 22 enabled + kglobalacceld | 30 real cmake builds; knewstuff/kwallet now have real cmake attempts; 1 suppressed (kirigami, QML-dependent) |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
 | kirigami | **stub** | suppressed | QML-dependent; gated on Qt6Quick downstream proof |
 | kf6-knewstuff | **stub** | suppressed | cmake configs only; deferrable |
@@ -152,7 +152,7 @@ Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 20 KF6 frameworks + kglobalacceld
+- 22 KF6 frameworks + kglobalacceld
 - 3 Plasma packages (framework, workspace, desktop)
 - kwin (stub with wrapper scripts) + redbear-compositor (real Rust compositor)
 - mesa + libdrm

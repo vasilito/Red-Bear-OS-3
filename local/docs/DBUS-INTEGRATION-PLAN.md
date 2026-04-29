@@ -1,6 +1,6 @@
 # Red Bear OS D-Bus Integration Plan
 
-**Version:** 1.0 — 2026-04-17
+**Version:** 3.0 — 2026-04-29
 **Status:** Active plan
 **Scope:** Full D-Bus infrastructure for KDE Plasma 6 on Wayland, tightly integrated with Redox scheme IPC
 **Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
@@ -23,10 +23,12 @@ This plan defines a Redox-native D-Bus service architecture built on three decis
    supports traditional `.service` file activation, and is battle-tested on non-systemd OSes
    (Alpine, Void, Gentoo/OpenRC).
 
-2. **Build `redbear-sessiond`** — a small Rust daemon (using `zbus`) that exposes the minimal
-   `org.freedesktop.login1` subset KWin already expects. Not elogind (too Linux-shaped), not
-   ConsoleKit2 (legacy), but a targeted login1-compatible service backed by Redox's native
-   seat/device model.
+2. **Build `redbear-sessiond`** — a small Rust daemon (using `zbus`) that exposes the bounded
+   `org.freedesktop.login1` surface KWin already expects, plus a few higher-level manager helpers
+   (`GetUser`, `ActivateSessionOnSeat`, lock/unlock/terminate helpers) that broader KDE session
+   plumbing can call without forcing Red Bear into an elogind-sized reimplementation. Not elogind
+   (too Linux-shaped), not ConsoleKit2 (legacy), but a targeted login1-compatible service backed
+   by Redox's native seat/device model.
 
 3. **Keep schemes and D-Bus separate.** Schemes are the native resource plane. D-Bus is the
    desktop compatibility plane. Only add D-Bus facades when there is a real published freedesktop
@@ -105,11 +107,12 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **libdbus-1** | Part of dbus package | ✅ Builds | `libdbus-1.so.3.38.3` staged, pkgconfig and cmake files present |
 | **QtDBus** | `recipes/wip/qt/qtbase/` | ✅ Enabled | `FEATURE_dbus=ON` for target build, Qt6DBus module present |
 | **kf6-kdbusaddons** | `local/recipes/kde/kf6-kdbusaddons/` | ✅ Builds | KF6 D-Bus convenience wrappers, provides qdbus tool integration |
-| **D-Bus system bus** | `config/redbear-full.toml`, `redbear-kde.toml` | ✅ Wired | `12_dbus.service` launches `dbus-daemon --system`, `messagebus` user (uid=100), `/var/lib/dbus` + `/run/dbus` directories |
-| **D-Bus session bus** | `config/redbear-kde.toml` | ✅ Scripted | `redbear-kde-session` launches `dbus-launch --sh-syntax` before KWin |
-| **seatd** | `config/redbear-kde.toml` | ✅ Wired | `13_seatd.service`, `LIBSEAT_BACKEND=seatd`, `SEATD_SOCK=/run/seatd.sock` |
+| **D-Bus system bus** | `config/redbear-full.toml` | ✅ Wired | `12_dbus.service` launches `dbus-daemon --system`, `messagebus` user (uid=100), `/var/lib/dbus` + `/run/dbus` directories |
+| **D-Bus session bus** | `local/recipes/system/redbear-greeter/source/redbear-kde-session` | ✅ Scripted | `redbear-kde-session` launches `dbus-launch --sh-syntax` before KWin |
+| **seatd** | `config/redbear-full.toml` | ✅ Wired | `13_seatd.service`, `LIBSEAT_BACKEND=seatd`, `SEATD_SOCK=/run/seatd.sock` |
 | **kf6-kservice** | `local/recipes/kde/kf6-kservice/` | ✅ Builds | Depends on kf6-kdbusaddons |
 | **kf6-kglobalaccel** | `local/recipes/kde/kf6-kglobalaccel/` | ✅ Builds | Depends on kf6-kdbusaddons |
+| **Session activation scaffolds** | `local/recipes/system/redbear-dbus-services/` | ✅ Staged | Session `.service` files now cover kded6, kglobalaccel, ActivityManager, JobViewServer, ksmserver, notifications, and StatusNotifierWatcher |
 | **KWin (D-Bus)** | `local/recipes/kde/kwin/` | ✅ USE_DBUS=ON | Registers `org.kde.KWin` on session bus |
 
 ### 3.2 What Exists But Is Incomplete
@@ -132,7 +135,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **Polkit** | `org.freedesktop.PolicyKit1` | Authorization scaffold (always-permit) | KAuth |
 | **UPower** | `org.freedesktop.UPower` | Provisional ACPI-backed power service; current backing power surface is still incomplete | kf6-solid, PowerDevil |
 | **UDisks2** | `org.freedesktop.UDisks2` | Bounded real `disk.*` / partition enumeration | kf6-solid |
-| **D-Bus service files** | `/usr/share/dbus-1/` | Activation is staged and shipped, but only for the current scaffold services | All D-Bus services |
+| **D-Bus service files** | `/usr/share/dbus-1/` | Activation is staged and shipped for the current scaffold services plus bounded KDE session daemons (`kded6`, `kglobalaccel`, ActivityManager, JobViewServer, ksmserver) | All D-Bus services |
 | **D-Bus policy files** | `/etc/dbus-1/` | Policy is staged and shipped for the current scaffold services | All D-Bus services |
 | **zbus crate marker** | `local/recipes/libs/zbus/` | Build-ordering marker; actual zbus crate is fetched by downstream Cargo builds | Future Rust D-Bus services |
 
@@ -166,8 +169,8 @@ from `openRestricted()` — meaning it can start but cannot manage real devices.
 ```
 plasma-workspace needs:
   org.kde.KWin                    ✅ KWin provides
-  org.kde.kglobalaccel            ❌ NEEDS SERVICE — kf6-kglobalaccel daemon
-  org.kde.kded6                   ❌ NEEDS SERVICE — KDE daemon
+  org.kde.kglobalaccel            ⚠️ activation file staged — daemon/runtime proof still needed
+  org.kde.kded6                   ⚠️ activation file staged — daemon/runtime proof still needed
   org.kde.plasmashell             ✅ plasmashell provides (self-register)
   org.kde.osdService              ✅ plasmashell provides
   org.freedesktop.Notifications   ✅ scaffold exists — current daemon logs to stderr only
@@ -181,10 +184,10 @@ Complete Plasma needs (after re-enabling disabled components):
   org.freedesktop.UDisks2         ✅ bounded real enumeration exists — still needs runtime validation for kf6-solid
   org.freedesktop.NetworkManager  ⏸️ DEFERRED — Red Bear OS uses redbear-netctl for now
   org.freedesktop.PolicyKit1      ⚠️ scaffold exists — KAuth still blocked on missing PolkitQt6-1 packaging
-  org.freedesktop.StatusNotifierWatcher  ❌ NEEDS SERVICE — system tray
-  org.kde.JobViewServer           ❌ NEEDS SERVICE — job progress tracking
-  org.kde.ksmserver               ❌ NEEDS SERVICE — session management
-  org.kde.ActivityManager         ❌ NEEDS SERVICE — KDE activities
+  org.freedesktop.StatusNotifierWatcher  ✅ activation file staged — runtime watcher still needs broader desktop proof
+  org.kde.JobViewServer           ⚠️ activation file staged — kuiserver binary/runtime still open
+  org.kde.ksmserver               ⚠️ activation file staged — session manager binary/runtime still open
+  org.kde.ActivityManager         ⚠️ activation file staged — activity manager binary/runtime still open
   org.freedesktop.ScreenSaver     ❌ NEEDS SERVICE — screen locking
 ```
 
@@ -195,7 +198,7 @@ Complete Plasma needs (after re-enabling disabled components):
 | `zbus` recipe is only a marker | Build-ordering marker exists; actual Rust crate comes from downstream Cargo resolution |
 | D-Bus service activation is scaffolded | `/usr/share/dbus-1/system-services/` and `session-services/` are staged for current services |
 | D-Bus policy configuration is scaffolded | `/etc/dbus-1/system.d/` XML policy files are staged for current services |
-| Activation coverage is still partial | Only current scaffold services have `.service` files and policies |
+| Activation coverage is still partial | Core system services and several KDE session daemons now have `.service` files, but screen-lock/session-polish services are still missing |
 | kf6-knotifications now D-Bus enabled | Enabled against a minimal notification daemon scaffold |
 | kf6-solid D-Bus disabled | Must re-enable after UPower/udisks2 backends exist |
 | kf6-kio D-Bus disabled | Must re-enable for full KIO functionality |
@@ -218,8 +221,11 @@ Complete Plasma needs (after re-enabling disabled components):
 │   ┌──────────────────────────────────────────────────────────────────┐  │
 │   │  org.kde.KWin           (KWin self-registers)                   │  │
 │   │  org.kde.plasmashell    (plasmashell self-registers)            │  │
-│   │  org.kde.kglobalaccel   (kglobalaccel daemon)                  │  │
+│   │  org.kde.kglobalaccel   (kglobalaccel daemon)                   │  │
 │   │  org.kde.kded6          (KDE daemon)                            │  │
+│   │  org.kde.ActivityManager (kactivitymanagerd scaffold)           │  │
+│   │  org.kde.JobViewServer  (kuiserver scaffold)                    │  │
+│   │  org.kde.ksmserver      (ksmserver scaffold)                    │  │
 │   │  org.freedesktop.Notifications  (redbear-notifications)         │  │
 │   │  org.freedesktop.StatusNotifierWatcher  (redbear-statusnotifier)│  │
 │   └──────────────────────────────────────────────────────────────────┘  │
@@ -301,8 +307,13 @@ device access control, session management, and power signaling.
 | Interface | Method/Signal | Signature | Description |
 |-----------|--------------|-----------|-------------|
 | `org.freedesktop.login1.Manager` | `GetSession` | `s → o` | Returns session object path by ID |
+| | `GetUser` | `u → o` | Returns the current user object path for the bounded active session owner |
+| | `GetUserByPID` | `u → o` | Returns the current user object path for the bounded active session surface |
 | | `ListSessions` | `→ a(susso)` | Lists all active sessions |
 | | `GetSeat` | `s → o` | Returns seat object path |
+| | `ActivateSessionOnSeat` | `ss → ` | Marks the bounded session active on the requested seat |
+| | `LockSessions` / `UnlockSessions` | `→ ` | Updates the bounded session lock hint for KDE session plumbing |
+| | `TerminateUser` | `u → ` | Marks the bounded active user session closing |
 | | signal `PrepareForSleep` | `b` | Emitted before/after sleep (false=resume, true=suspend) |
 | | signal `PrepareForShutdown` | `b` | Emitted before/after shutdown |
 | `org.freedesktop.DBus.Properties` | `Get` | `ss → v` | Property access |
@@ -408,6 +419,21 @@ org.kde.kded6.service:
   Name=org.kde.kded6
   Exec=/usr/bin/kded6
 
+org.kde.ActivityManager.service:
+  [D-BUS Service]
+  Name=org.kde.ActivityManager
+  Exec=/usr/bin/kactivitymanagerd
+
+org.kde.JobViewServer.service:
+  [D-BUS Service]
+  Name=org.kde.JobViewServer
+  Exec=/usr/bin/kuiserver
+
+org.kde.ksmserver.service:
+  [D-BUS Service]
+  Name=org.kde.ksmserver
+  Exec=/usr/bin/ksmserver
+
 org.freedesktop.Notifications.service:
   [D-BUS Service]
   Name=org.freedesktop.Notifications
@@ -427,6 +453,9 @@ local/recipes/system/redbear-dbus-services/
     ├── session-services/
     │   ├── org.kde.kglobalaccel.service
     │   ├── org.kde.kded6.service
+    │   ├── org.kde.ActivityManager.service
+    │   ├── org.kde.JobViewServer.service
+    │   ├── org.kde.ksmserver.service
     │   └── org.freedesktop.Notifications.service
     ├── system.d/
     │   ├── org.freedesktop.login1.conf
