@@ -40,7 +40,6 @@ impl Report {
     fn new(json_mode: bool) -> Self { Report { checks: Vec::new(), json_mode } }
     fn add(&mut self, check: Check) { self.checks.push(check); }
     fn any_failed(&self) -> bool { self.checks.iter().any(|c| c.result == CheckResult::Fail) }
-
     fn print(&self) {
         if self.json_mode { self.print_json(); } else { self.print_human(); }
     }
