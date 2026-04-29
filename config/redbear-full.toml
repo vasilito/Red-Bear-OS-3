@@ -52,10 +52,10 @@ qtwayland = {}
 qt6-wayland-smoke = {}
 
 # KF6 Frameworks — explicit real-build surface in alphabetical order
-# knewstuff/kwallet now have real cmake builds
-#kirigami = {}  # suppressed: QML stub, requires Qt6Quick downstream proof
-# kf6-knewstuff = {} # BLOCKED: requires Qt6::Network which is disabled in qtbase (relibc networking incomplete)
-# kf6-kwallet = {}   # BLOCKED: KF6::Attica dependency requires Qt6::Network
+# kirigami: core-only build (QML disabled), needed as build-dep for plasma-framework
+# kf6-kio: honest KIOCORE_ONLY build (source-local QtNetwork compat headers)
+kirigami = {}
+kf6-kio = {}
 
 kdecoration = {}
 kf6-karchive = {}
@@ -91,13 +91,18 @@ kf6-solid = {}
 kf6-sonnet = {}
 kglobalacceld = {}
 
-# KWin Wayland compositor (stub recipe provides cmake configs + kwin_wayland_wrapper delegating to redbear-compositor)
+# KWin Wayland compositor (stub — delegates to redbear-compositor)
 kwin = {}
 
-# KDE Plasma session — real cmake builds, gated on Qt6Quick/QML + real KWin
-# plasma-framework = {} # BLOCKED: requires network-dependent KF6 packages
-# plasma-workspace = {} # BLOCKED: depends on kf6-knewstuff
-# plasma-desktop = {}   # BLOCKED: depends on plasma-workspace
+# Plasma + app packages — attempted, blocked by cookbook dependency resolver bug
+# (kdecoration not scheduled before breeze; kf6-extra-cmake-modules not before kde-cli-tools)
+# kf6-knewstuff = {}  # core-only build, blocked by missing KF6Attica
+# kf6-kwallet = {}    # API-only build, blocked by missing KF6Attica
+# plasma-framework = {}  # depends on kirigami + kf6-kio (now enabled)
+# plasma-workspace = {}  # depends on kwin + all KF6
+# plasma-desktop = {}    # depends on plasma-workspace
+# breeze = {}            # depends on kdecoration
+# kde-cli-tools = {}     # depends on kf6-extra-cmake-modules
 
 # Greeter/login stack
 redbear-authd = {}

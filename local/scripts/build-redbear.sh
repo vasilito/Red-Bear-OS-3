@@ -217,11 +217,6 @@ else
     REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 fi
 
-# Archive fully-patched source packages for reproducibility
-echo ""
-echo ">>> Archiving fully-patched source packages..."
-"$SCRIPT_DIR/archive-sources.sh" --all 2>/dev/null || echo "    (archive step skipped — run manually with: local/scripts/archive-sources.sh --all)"
-
 ARCH="${ARCH:-$(uname -m)}"
 echo ""
 echo "========================================"
