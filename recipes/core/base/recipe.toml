@@ -5,6 +5,7 @@ patches = [
     "P0-daemon-fix-init-notify-unwrap.patch",
     "P0-workspace-add-bootstrap.patch",
     "P0-bootstrap-workspace-fix.patch",
+    "P2-i2c-gpio-ucsi-drivers.patch",
 ]
 
 [build]
@@ -37,13 +38,13 @@ BINS=(
     gpiod
     i2c-gpio-expanderd
     intel-gpiod
-    # amd-mp2-i2cd  # TODO: PCI API changed - try_mem removed; exclude until API updated
+    amd-mp2-i2cd
     dw-acpi-i2cd
     e1000d
     ihdad
     ihdgd
     i2c-hidd
-    # intel-thc-hidd  # TODO: PCI API changed - try_map_bar removed; exclude until API updated
+    intel-thc-hidd
     intel-lpss-i2cd
     ixgbed
     pcid

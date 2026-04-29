@@ -1,247 +1,5 @@
-diff --git a/Cargo.lock b/Cargo.lock
-index 9fcbd662..1d02f857 100644
---- a/Cargo.lock
-+++ b/Cargo.lock
-@@ -31,6 +31,14 @@ dependencies = [
-  "spinning_top",
- ]
- 
-+[[package]]
-+name = "acpi-resource"
-+version = "0.0.1"
-+dependencies = [
-+ "serde",
-+ "thiserror 2.0.18",
-+]
-+
- [[package]]
- name = "acpid"
- version = "0.1.0"
-@@ -80,6 +88,23 @@ dependencies = [
-  "memchr 2.8.0",
- ]
- 
-+[[package]]
-+name = "amd-mp2-i2cd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "pcid",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "serde",
-+]
-+
- [[package]]
- name = "amlserde"
- version = "0.0.1"
-@@ -642,6 +667,22 @@ dependencies = [
-  "linux-raw-sys 0.9.4",
- ]
- 
-+[[package]]
-+name = "dw-acpi-i2cd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "serde",
-+]
-+
- [[package]]
- name = "e1000d"
- version = "0.1.0"
-@@ -909,6 +950,22 @@ dependencies = [
-  "wasip3",
- ]
- 
-+[[package]]
-+name = "gpiod"
-+version = "0.1.0"
-+dependencies = [
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "libredox",
-+ "log",
-+ "redox-scheme",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "scheme-utils",
-+ "serde",
-+]
-+
- [[package]]
- name = "gpt"
- version = "3.1.0"
-@@ -1004,6 +1061,68 @@ dependencies = [
-  "ron",
- ]
- 
-+[[package]]
-+name = "i2c-gpio-expanderd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "serde",
-+]
-+
-+[[package]]
-+name = "i2c-hidd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "amlserde",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "inputd",
-+ "libredox",
-+ "log",
-+ "orbclient",
-+ "redox-scheme",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "scheme-utils",
-+ "serde",
-+]
-+
-+[[package]]
-+name = "i2c-interface"
-+version = "0.1.0"
-+dependencies = [
-+ "redox_syscall 0.7.4",
-+ "serde",
-+]
-+
-+[[package]]
-+name = "i2cd"
-+version = "0.1.0"
-+dependencies = [
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "redox-scheme",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "scheme-utils",
-+ "serde",
-+]
-+
- [[package]]
- name = "iana-time-zone"
- version = "0.1.65"
-@@ -1128,6 +1247,58 @@ dependencies = [
-  "scheme-utils",
- ]
- 
-+[[package]]
-+name = "intel-gpiod"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "libredox",
-+ "log",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "serde",
-+]
-+
-+[[package]]
-+name = "intel-lpss-i2cd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "serde",
-+]
-+
-+[[package]]
-+name = "intel-thc-hidd"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "amlserde",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "pci_types",
-+ "pcid",
-+ "redox-scheme",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "scheme-utils",
-+ "serde",
-+]
-+
- [[package]]
- name = "ioslice"
- version = "0.6.0"
-@@ -2390,6 +2561,24 @@ version = "1.19.0"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
- 
-+[[package]]
-+name = "ucsid"
-+version = "0.1.0"
-+dependencies = [
-+ "acpi-resource",
-+ "anyhow",
-+ "common",
-+ "daemon",
-+ "i2c-interface",
-+ "libredox",
-+ "log",
-+ "redox-scheme",
-+ "redox_syscall 0.7.4",
-+ "ron",
-+ "scheme-utils",
-+ "serde",
-+]
-+
- [[package]]
- name = "unicode-ident"
- version = "1.0.24"
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e776232..0d1b7797 100644
+index 9e776232..380f8d85 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -66,6 +66,22 @@ members = [
@@ -252,7 +10,7 @@ index 9e776232..0d1b7797 100644
 +
 +    "drivers/i2c/i2c-interface",
 +    "drivers/i2c/i2cd",
-+    #"drivers/i2c/amd-mp2-i2cd",       # TODO: PCI API changed - try_mem removed
++    "drivers/i2c/amd-mp2-i2cd",
 +    "drivers/i2c/dw-acpi-i2cd",
 +    "drivers/i2c/intel-lpss-i2cd",
 +
@@ -261,12 +19,25 @@ index 9e776232..0d1b7797 100644
 +    "drivers/gpio/i2c-gpio-expanderd",
 +
 +    "drivers/input/i2c-hidd",
-+    #"drivers/input/intel-thc-hidd",   # TODO: PCI API changed - try_map_bar removed
++    "drivers/input/intel-thc-hidd",
 +
 +    "drivers/acpi-resource",
  ]
  
  # Bootstrap needs it's own profile configuration
+diff --git a/bootstrap/Cargo.toml b/bootstrap/Cargo.toml
+index 82120c21..be1f8326 100644
+--- a/bootstrap/Cargo.toml
++++ b/bootstrap/Cargo.toml
+@@ -6,6 +6,8 @@ authors = ["4lDO2 <4lDO2@protonmail.com>"]
+ edition = "2024"
+ license = "MIT"
+ 
++[workspace]
++
+ [dependencies]
+ hashbrown = { version = "0.15", default-features = false, features = [
+     "inline-more",
 diff --git a/drivers/acpi-resource/Cargo.toml b/drivers/acpi-resource/Cargo.toml
 new file mode 100644
 index 00000000..f30c6d02
@@ -2455,10 +2226,10 @@ index 00000000..357ca948
 +workspace = true
 diff --git a/drivers/i2c/amd-mp2-i2cd/src/main.rs b/drivers/i2c/amd-mp2-i2cd/src/main.rs
 new file mode 100644
-index 00000000..ab06ad2a
+index 00000000..925b45e7
 --- /dev/null
 +++ b/drivers/i2c/amd-mp2-i2cd/src/main.rs
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,106 @@
 +use std::fs::{File, OpenOptions};
 +use std::io::{Read, Write};
 +use std::process;
@@ -2497,10 +2268,9 @@ index 00000000..ab06ad2a
 +        common::file_level(),
 +    );
 +
-+    let (bar_addr, bar_size) = pci_config.func.bars[0]
-+        .try_mem()
-+        .map_err(|err| anyhow::anyhow!("BAR0 is not a memory BAR: {err}"))?;
 +    let mapped_bar = unsafe { pcid_handle.map_bar(0) };
++    let bar_addr = mapped_bar.ptr.as_ptr() as usize;
++    let bar_size = mapped_bar.bar_size;
 +
 +    log::info!(
 +        "amd-mp2-i2cd: {} BAR0={:#x}+{:#x} mapped={:p}+{:#x}",
@@ -4856,7 +4626,7 @@ index 00000000..f6aa2248
 +workspace = true
 diff --git a/drivers/input/intel-thc-hidd/src/main.rs b/drivers/input/intel-thc-hidd/src/main.rs
 new file mode 100644
-index 00000000..55581462
+index 00000000..423977e0
 --- /dev/null
 +++ b/drivers/input/intel-thc-hidd/src/main.rs
 @@ -0,0 +1,260 @@
@@ -4913,7 +4683,7 @@ index 00000000..55581462
 +    }
 +
 +    pcid_handle.enable_device();
-+    let bar = unsafe { pcid_handle.try_map_bar(0) }.context("failed to map THC BAR0")?;
++    let bar = unsafe { pcid_handle.map_bar(0) };
 +    let controller = ThcController::new(bar.ptr.as_ptr(), bar.bar_size)
 +        .context("failed to create THC controller")?;
 +
