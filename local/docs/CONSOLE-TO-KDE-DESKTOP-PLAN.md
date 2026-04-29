@@ -114,16 +114,6 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 
 ## Honest Blocker Classification
 
-### Implementation Blockers (all are environmental/hardware gates; no code gaps remain)
-
-| Blocker | Layer | Impact | Status |
-|---------|-------|--------|--------|
-| GPU CS ioctl backend | DRM | Protocol exists in redox-drm; hardware backend validation deferred (hardware gate) | Environmental (hardware) |
-| Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target | Environmental (toolchain) |
-| KWin runtime proof | Compositor | Reduced-feature real build exists; bounded runtime proof requires Qt6Quick downstream validation | Environmental (Qt6Quick) |
-| kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof | Environmental (Qt6Quick) |
-
-### Environmental Blockers (need toolchain/hardware)
 
 | Blocker | What's needed |
 |---------|---------------|
