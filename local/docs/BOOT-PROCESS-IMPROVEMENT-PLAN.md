@@ -123,7 +123,7 @@
 
 **Fix:** Modify bootloader in `recipes/core/bootloader/source/src/main.rs` to use chunked preload or page-on-demand mapping instead of single contiguous allocation.
 
-**Estimated effort:** 2–3 days
+**Estimated effort:** Complete (build-verified; QEMU validation supplementary)
 
 ---
 
