@@ -386,7 +386,7 @@ qt6-wayland-smoke improved to create a visible QWindow:
 - Runs for 3 seconds (previously 1 second, no window)
 - This turns the smoke test from a bootstrap check into a real Wayland surface proof target
 
-KWin recipe updated — features re-enabled where deps are satisfied in the current reduced path:
+KWin recipe provides cmake config stubs and kwin_wayland_wrapper scripts that delegate to redbear-compositor (features re-enabled where deps are satisfied):
 - KWIN_BUILD_DECORATIONS=ON (kdecoration builds ✅)
 - KWIN_BUILD_RUNNERS=ON (kf6-kio builds ✅)
 - USE_DBUS=ON (D-Bus 1.16.2 builds ✅)
@@ -400,7 +400,7 @@ New dependency library:
 - kf6-kwayland ✅
 - seatd builds separately (runtime dependency, not needed for compilation)
 
-### Phase 6 — KWin (✅ reduced build verifies, 🚧 runtime incomplete)
+### Phase 6 — KWin (✅ stub recipe provides cmake configs + wrapper scripts; 🚧 real build needs Qt6Quick)
 
 ## Dependency Graph
 
@@ -434,13 +434,13 @@ Phase 1 ✅ (qtbase + qtdeclarative + qtsvg)
    and DMA-BUF ioctls plus a bounded private CS surface now exist, but real sync objects/shared fence semantics and broader graphics runtime validation are still unavailable.
 
 5. **KDE Plasma does NOT run end-to-end yet** — KWin, plasma-workspace, plasma-desktop recipes exist,
-   and KWin’s reduced build now verifies with honest `libudev.so` / `libdisplay-info.so` linkage and a successful current `kwin` cook, but runtime integration, compositor validation, and broader Plasma session proof are still missing.
+   and KWin is a stub recipe (cmake configs + kwin_wayland_wrapper delegating to redbear-compositor) with honest `libudev.so` / `libdisplay-info.so` linkage and a successful current `kwin` cook, but runtime integration, compositor validation, and broader Plasma session proof are still missing.
 
 ## Honest Status Assessment
 
 The Qt6/KF6 build stack is substantially further along than the earlier "~50%" estimate implied:
 - Qt6, QtWayland, Mesa EGL+GBM, Qt6 OpenGL, libdrm amdgpu, and all 32 KF6 frameworks now build
-- the remaining blockers are concentrated in KWin/Plasma runtime integration and in the still-shimmed or stub-only packages such as Kirigami, plus the bounded-not-full provider behavior of `libudev` and `libdisplay-info` in the current reduced KWin path
+- the remaining blockers are concentrated in KWin/Plasma runtime integration and in the still-shimmed or stub-only packages such as Kirigami, plus the bounded-not-full provider behavior of `libudev` and `libdisplay-info` in the current KWin stub path
 - hardware acceleration still requires GPU command submission and real hardware validation (PRIME/DMA-BUF buffer sharing is implemented)
 - a successful build stack is not yet the same thing as a working KDE Plasma session
 
