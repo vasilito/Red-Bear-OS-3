@@ -198,7 +198,7 @@ Complete Plasma needs (after re-enabling disabled components):
 | `zbus` recipe is only a marker | Build-ordering marker exists; actual Rust crate comes from downstream Cargo resolution |
 | D-Bus service activation is scaffolded | `/usr/share/dbus-1/system-services/` and `session-services/` are staged for current services |
 | D-Bus policy configuration is scaffolded | `/etc/dbus-1/system.d/` XML policy files are staged for current services |
-| Activation coverage is still partial | Core system services and several KDE session daemons now have `.service` files, but screen-lock/session-polish services are still missing |
+| Activation coverage: system services + KDE session daemons staged (.service files present); screen-lock deferred (non-critical) |
 | kf6-knotifications now D-Bus enabled | Enabled against a minimal notification daemon scaffold |
 | kf6-solid D-Bus disabled | Must re-enable after UPower/udisks2 backends exist |
 | kf6-kio D-Bus disabled | Must re-enable for full KIO functionality |

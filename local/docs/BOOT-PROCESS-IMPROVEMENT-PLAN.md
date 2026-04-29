@@ -108,7 +108,7 @@
 - [x] `kwin_wayland_wrapper --drm` — wrapper delegates to redbear-compositor; compositor start requires QEMU with DRM
 - [x] `plasmashell` / KWin desktop surface — plasma packages enabled in config; runtime desktop proof requires QEMU + Qt6Quick
 
-**Critical gap:** `redbear-full-session` — the script that `redbear-session-launch` invokes for the KDE session — was not found in the source tree. This script or binary must be created/staged at `/usr/bin/redbear-full-session`. It should set KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launch `kwin_wayland_wrapper` + `plasmashell`. The upstream KWin Wayland service entry (`plasma-kwin_wayland.service.in`) provides a reference template.
+**Resolved:** `redbear-kde-session` exists at `/usr/bin/redbear-kde-session` (staged by redbear-greeter recipe). Sets KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launches `kwin_wayland_wrapper` + `plasmashell`. Previously documented as `redbear-full-session`. Runtime proof requires QEMU boot.
 
 **Estimated effort:** 4–7 days (session handoff + KDE session bring-up + missing script creation)
 
