@@ -41,22 +41,13 @@ mkdir -p "${STAGE}/bin"
 
 
 
-# kwin_wayland_wrapper — launches the real compositor when available
+# kwin_wayland_wrapper — launches the real KWin compositor
 cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
 #!/bin/sh
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
-DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 mkdir -p "$RUNTIME_DIR"
-    echo "kwin_wayland_wrapper: launching KWin" >&2
-    export WAYLAND_DISPLAY="${DISPLAY}"
-    export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
-    exec /usr/bin/kwin_wayland
-fi
-echo "kwin_wayland_wrapper: KWin not found" >&2
-if [ ! -e "$RUNTIME_DIR/$DISPLAY" ]; then
-    touch "$RUNTIME_DIR/$DISPLAY"
-fi
-while true; do sleep 3600; done
+export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
+exec /usr/bin/kwin_wayland "$@"
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
 
@@ -85,55 +76,10 @@ cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
     -DKWIN_BUILD_RUNNERS=ON \
     -DUSE_DBUS=ON \
     -DQT_MAJOR_VERSION=6 \
-    -DCMAKE_BUILD_TYPE=Release \
-    || { exit 1; }
-        echo "=== KWin cmake configure failed — installing cmake config stubs ==="
-        mkdir -p "${STAGE}/lib/cmake/KWin" "${STAGE}/lib/cmake/KWinEffects"
-        mkdir -p "${STAGE}/include/kwin" "${STAGE}/lib"
-        cat > "${STAGE}/lib/cmake/KWin/KWinConfig.cmake" << 'EOFCFG'
-get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_FILE}" PATH)
-get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
-get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}" PATH)
-if(_IMPORT_PREFIX STREQUAL "/")
-  set(_IMPORT_PREFIX "")
-endif()
-add_library(KWin::kwin INTERFACE IMPORTED)
-set_target_properties(KWin::kwin PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include/kwin"
-)
-set(KWin_FOUND TRUE)
-set(KWin_VERSION "6.3.4")
-set(KWin_LIBRARIES KWin::kwin)
-EOFCFG
-        cat > "${STAGE}/lib/cmake/KWin/KWinConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.3.4")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFVER
-        cat > "${STAGE}/lib/cmake/KWin/KWinTargets.cmake" << 'EOFTGT'
-add_library(KWin::kwin INTERFACE IMPORTED)
-EOFTGT
-        cat > "${STAGE}/lib/cmake/KWinEffects/KWinEffectsConfig.cmake" << 'EOFECFG'
-add_library(KWin::Effects INTERFACE IMPORTED)
-set(KWinEffects_FOUND TRUE)
-EOFECFG
-        cat > "${STAGE}/lib/cmake/KWinEffects/KWinEffectsConfigVersion.cmake" << 'EOFEVER'
-set(PACKAGE_VERSION "6.3.4")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFEVER
-        cat > "${STAGE}/include/kwin/kwinevents.h" << 'EOFHDR'
-#pragma once
-/* KWin stub header for downstream dependency resolution */
-EOFHDR
-    }
+-DCMAKE_BUILD_TYPE=Release \
+    || { echo "KWin cmake configure failed"; exit 1; }
 
-cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { exit 1; }
-    echo "=== KWin build failed — installing cmake config stubs ==="
-    mkdir -p "${STAGE}/lib/cmake/KWin" "${STAGE}/lib"
-    cat > "${STAGE}/lib/cmake/KWin/KWinConfig.cmake" << 'EOFCFG'
-add_library(KWin::kwin INTERFACE IMPORTED)
-set(KWin_FOUND TRUE)
-EOFCFG
-}
+cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { echo "KWin build failed"; exit 1; }
 
 cmake --install "${BUILD_DIR}"
 echo "=== KWin real build (reduced features, no QML) ==="
