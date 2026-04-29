@@ -391,8 +391,6 @@ When mainline updates affect our work:
   including the bounded role of `linux-kpi` and the native wireless control-plane direction.
 - `local/docs/USB-IMPLEMENTATION-PLAN.md` and `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` should
   also be treated as first-class subsystem plans, not as side notes.
-- `local/docs/WIFI-VALIDATION-RUNBOOK.md` is the canonical operator runbook for bare-metal and
-  VFIO-backed Intel Wi-Fi validation, packaged checkers, and capture artifacts.
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` is the current umbrella plan for
   IRQ delivery, MSI/MSI-X quality, IOMMU validation, and other low-level controller completeness work.
 - `local/docs/QUIRKS-SYSTEM.md` documents the hardware quirks infrastructure: compiled-in tables,
@@ -571,6 +569,78 @@ local/Assets/
 - **DO NOT** use `my-*` naming for configs that should be tracked in git — use `redbear-*` instead
 - **DO NOT** edit config/base.toml directly — our configs include it and override via TOML merge
 - **DO NOT** forget to run sync-upstream.sh before major builds — stale upstream causes build failures
+
+## COMPREHENSIVE IMPLEMENTATION POLICY
+
+Red Bear OS has **zero tolerance for shortcuts, workarounds, and stubs**. Every package in the
+build must be a comprehensive, real implementation. No approximations.
+
+### The Rule
+
+When a package fails to build due to missing functionality:
+
+1. **DO NOT** mark packages as `"ignore"` to skip them
+2. **DO NOT** create stub recipes that provide fake cmake configs without real functionality
+3. **DO NOT** disable required dependencies via sed/cmake hacks without implementing the dependency
+
+Instead, **implement the missing functionality properly**:
+
+| Missing Component | Required Action |
+|------------------|----------------|
+| Missing POSIX function in relibc | Implement it in `recipes/core/relibc/source/` + create patch in `local/patches/relibc/` |
+| Missing KF6 package | Create full recipe in `local/recipes/kde/` with proper cmake build |
+| Disabled Qt feature (e.g., QtNetwork) | Implement the feature properly in qtbase recipe |
+| Missing system call | Implement in kernel recipe + create patch in `local/patches/kernel/` |
+
+### Why This Matters
+
+- Stubs and workarounds accumulate technical debt
+- They block real functionality from ever being implemented
+- They make the system unreliable and untestable
+- They hide the real work that needs to be done
+
+### Current Comprehensive Implementation Gaps
+
+**ROOT CAUSE (Credential Syscalls)**: The Redox microkernel lacks process credentials syscalls. This is NOT a relibc issue - the kernel itself does not implement them.
+
+| Gap | Root Cause | Required Work |
+|-----|-----------|---------------|
+| `setgroups` ENOSYS on Redox | Redox kernel has NO `SYS_SETGROUPS` syscall number or handler. `redox_syscall` crate (upstream) doesn't define it. | **KERNEL WORK**: Add syscall number to `redox_syscall` + implement handler in kernel + wire in `redox_rt` |
+| `getgroups` returns only egid | Redox kernel has no group table concept | **KERNEL WORK**: Design and implement supplementary groups |
+| `setuid/setgid/getuid/getgid` | Same - no credential syscalls in kernel | **KERNEL WORK**: Same pattern |
+| **CONFIG: KWin is a stub** | KWin recipe downloads real v6.3.4 source but build script never compiles it — only creates wrapper scripts + fake cmake configs | **KWin RECIPE WORK**: Convert from custom stub to real cmake build, or document as permanent stub |
+| **CONFIG: 22 KF6 recipes not enabled** | 47 KF6/Plasma/KWin recipes exist in local/recipes/kde/ with real cmake builds, but only 9 KF6 + kwin (stub) are in the built image — the rest are commented out in config | **CONFIG WORK**: Enable buildable KF6 packages in redbear-full.toml |
+| **CONFIG: Plasma packages blocked** | plasma-framework, plasma-workspace, plasma-desktop have real cmake builds but are commented out as BLOCKED in redbear-full.toml | **CONFIG WORK**: Resolve blockers (kwin stub → real, kf6-knewstuff → QtNetwork) then enable |
+| **CONFIG: Greeter service disabled** | 20_greeter.service runs `/usr/bin/true` instead of `redbear-greeterd` ("disabled for Phase 2 compositor proof") | **CONFIG WORK**: Wire redbear-greeterd as the active greeter service |
+| **RUNTIME: Greeter UI crash** | Qt Wayland integration fails (`wl-shell` deprecated, `xdg-shell` not working) | Fix Qt platform plugin initialization for Wayland |
+| **RUNTIME: D-Bus user lookup** | `root` and `messagebus` users not found in passwd database → ✅ RESOLVED: user/group config exists in redbear-full.toml; runtime files generated in build | Verify in QEMU runtime |
+| **RUNTIME: seatd missing** | `seatd` binary not in image despite being in config → ✅ RESOLVED: seatd builds and is in image | Verify in QEMU runtime |
+| **RUNTIME: getrlimit(7)** | relibc `getrlimit` not implemented → ✅ RESOLVED: implemented in relibc patches | Verify in QEMU runtime |
+
+### Kernel Syscall Gap Analysis
+
+The Redox kernel (`recipes/core/kernel/source/src/syscall/mod.rs`) match statement ends with:
+```rust
+_ => Err(Error::new(ENOSYS)),
+```
+
+All credential syscalls (`SYS_SETGROUPS`, `SYS_GETGROUPS`, `SYS_SETUID`, `SYS_SETGID`, etc.) fall through to this catch-all and return `ENOSYS`.
+
+The syscall numbers come from `redox_syscall` crate (external, versioned) - not defined in the kernel tree.
+
+### Fixes Applied (2026-04-29)
+
+1. **relibc/grp/cbindgen.toml**: Added group functions to export list
+2. **relibc/grp/mod.rs**: Implemented `getgroups()` with egid fallback
+3. **Patches created**: `local/patches/relibc/P3-grp-cbindgen-exports.patch`, `P3-getgroups-implementation.patch`
+4. **KERNEL GAP**: Cannot fix without upstream `redox_syscall` + kernel changes
+
+### Implementation Locations
+
+- POSIX functions: `recipes/core/relibc/source/src/header/<func>/` + `local/patches/relibc/`
+- New KF6 recipes: `local/recipes/kde/kf6-<name>/`
+- Kernel syscalls: `recipes/core/kernel/source/` + `local/patches/kernel/`
+- Qt fixes: `recipes/qt/qtbase/source/` + `local/patches/qtbase/`
 
 ## RED BEAR OS CONFIG HIERARCHY
 

@@ -18,7 +18,7 @@
   - `kf6-kdeclarative` is now enabled in `config/redbear-full.toml` because its tracked recipe is already a real reduced cmake build with `BUILD_WITH_QML=OFF`.
   - `kf6-kio` is now enabled in `config/redbear-full.toml` as an honest reduced KIOCore-only build. The recipe no longer injects fake QtNetwork headers into the shared sysroot; instead it uses source-local Redox compatibility headers for the bounded `QHostAddress` / `QHostInfo` surface KIOCore still needs.
 - `kf6-knewstuff` and `kf6-kwallet` now have real cmake build attempts with stub fallback; enabled in config.
-- Enabled count is now **22 KF6 packages + kglobalacceld**, with **1 suppressed** (`kirigami` only, QML-dependent).
+- Enabled count is now **9 KF6 frameworks + ECM + kwin** in the built image (pulled as kwin transitive deps). **22 additional KF6 recipes exist and build** in local/recipes/kde/ but are not enabled in config. See TASK "Enable buildable KF6 packages in redbear-full.toml".
 
 ## Recent Changes (2026-04-29, Wave 6)
 
@@ -115,10 +115,10 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 |---|---|---|
 | `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially stronger; 33 patches verified (was 25): signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, select-not-epoll-timeout, exec-root-bypass, tcp-nodelay, netdb-lookup-retry-fix, eventfd-mod, fd-event-tests, ifaddrs-net_if, signalfd-header, elf64-types, socket-cred, strtold-cpp-linkage, semaphore-fixes |
 | Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
-| KF6 frameworks | **builds** | 32/32 recipes exist; 30 real cmake builds + 2 real build attempts (knewstuff, kwallet); kirigami stub-only; `kf6-kio` now uses source-local Redox QtNetwork compatibility; 22 KF6 + kglobalacceld enabled; 1 suppressed (kirigami, QML) |
+| KF6 frameworks | **builds** | 32/32 recipes exist; 30 real cmake builds + 2 real build attempts (knewstuff, kwallet); **only 9 KF6 + ECM in built image** (kwin transitive deps); 22 additional KF6 recipes exist but not enabled in config; kirigami stub-only; `kf6-kio` now uses source-local Redox QtNetwork compatibility; 1 suppressed (kirigami, QML) |
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
-| plasma-workspace | **experimental** | Real cmake build, enabled; stub deps (kf6-knewstuff, kf6-kwallet) deferrable for minimal session |
-| plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
+| plasma-workspace | **blocked (builds real)** | Real cmake build, but commented out in config; depends on kf6-knewstuff + kwin |
+| plasma-desktop | **blocked (builds real)** | Recipe exists; depends on plasma-workspace; commented out in config |
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
 | Input stack | **builds, enumerates** | evdevd (65 tests), udev-shim, seatd present; libinput builds but suppressed in config (`libinput = "ignore"`); libevdev commented out; end-to-end compositor input path unproven |
@@ -311,13 +311,13 @@ Init service configuration has been streamlined:
 ## Bottom Line
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
+- All Qt6 core modules, all 32 KF6 recipes, Mesa EGL/GBM/GLES2, and D-Bus build — **but only 9 KF6 frameworks reach the built image** (config gap: 22 additional recipes exist with real builds but are not enabled)
 - Three supported compile targets exist, with desktop/graphics on `redbear-full`
-- the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`)
+- the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
-- KWin recipe provides cmake config stubs and wrapper scripts delegating to redbear-compositor; real KWin build requires sufficient Qt6Quick/QML proof (qtdeclarative exists, downstream unproven); no compositor session proof exists
-- Critical blockers for Phase 4: kirigami stub (needs Qt6Quick). kf6-knewstuff/kwallet now have real cmake build attempts (enabled in config). QtNetwork surface remains disabled for network-aware KDE features.
+- KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
+- Critical blockers for Phase 4: KWin must become real (currently stub); plasma packages blocked by kf6-knewstuff (needs QtNetwork); 22 additional KF6 recipes need explicit config enablement
 
-The remaining work is **broader runtime validation, compositor/session stability, and the remaining KDE session/runtime proof work**.
-Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: kirigami must become honest (needs Qt6Quick downstream proof), while full KDE network features still wait on QtNetwork. kf6-knewstuff/kwallet now have real build attempts.
+The remaining work is **broader runtime validation, compositor/session stability, and closing the documentation-reality gap in config enablement**.
+Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: KWin must become real (currently stub) + 22 KF6 recipes must be enabled in config + plasma packages need unblocking.

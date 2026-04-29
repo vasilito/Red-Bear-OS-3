@@ -51,19 +51,53 @@ qtsvg = {}
 qtwayland = {}
 qt6-wayland-smoke = {}
 
-# KF6 Frameworks — enabled: 22 KF6 + kglobalacceld (suppressed: kirigami only)
+# KF6 Frameworks — explicit real-build surface in alphabetical order
 # knewstuff/kwallet now have real cmake builds
 #kirigami = {}  # suppressed: QML stub, requires Qt6Quick downstream proof
-kf6-knewstuff = {}
-kf6-kwallet = {}
+# kf6-knewstuff = {} # BLOCKED: requires Qt6::Network which is disabled in qtbase (relibc networking incomplete)
+# kf6-kwallet = {}   # BLOCKED: KF6::Attica dependency requires Qt6::Network
+
+kdecoration = {}
+kf6-karchive = {}
+kf6-kauth = {}
+kf6-kbookmarks = {}
+kf6-kcmutils = {}
+kf6-kcodecs = {}
+kf6-kcolorscheme = {}
+kf6-kcompletion = {}
+kf6-kconfig = {}
+kf6-kconfigwidgets = {}
+kf6-kcoreaddons = {}
+kf6-kcrash = {}
+kf6-kdbusaddons = {}
+kf6-kdeclarative = {}
+kf6-kded6 = {}
+kf6-kguiaddons = {}
+kf6-ki18n = {}
+kf6-kiconthemes = {}
+kf6-kidletime = {}
+kf6-kitemmodels = {}
+kf6-kitemviews = {}
+kf6-kjobwidgets = {}
+kf6-knotifications = {}
+kf6-kpackage = {}
+kf6-kservice = {}
+kf6-ktextwidgets = {}
+kf6-kwayland = {}
+kf6-kwidgetsaddons = {}
+kf6-kxmlgui = {}
+kf6-prison = {}
+kf6-solid = {}
+kf6-sonnet = {}
+kglobalacceld = {}
 
 # KWin Wayland compositor (stub recipe provides cmake configs + kwin_wayland_wrapper delegating to redbear-compositor)
 kwin = {}
 
 # KDE Plasma session — real cmake builds, gated on Qt6Quick/QML + real KWin
-plasma-framework = {}
-plasma-workspace = {}
-plasma-desktop = {}
+# plasma-framework = {} # BLOCKED: requires network-dependent KF6 packages
+# plasma-workspace = {} # BLOCKED: depends on kf6-knewstuff
+# plasma-desktop = {}   # BLOCKED: depends on plasma-workspace
 
 # Greeter/login stack
 redbear-authd = {}

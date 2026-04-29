@@ -4,6 +4,7 @@ rev = "463f76b9608a896e6f6c9f63457f57f6409873c7"
 patches = [
     "P0-daemon-fix-init-notify-unwrap.patch",
     "P0-workspace-add-bootstrap.patch",
+    "P0-bootstrap-workspace-fix.patch",
 ]
 
 [build]
@@ -36,13 +37,13 @@ BINS=(
     gpiod
     i2c-gpio-expanderd
     intel-gpiod
-    amd-mp2-i2cd
+    # amd-mp2-i2cd  # TODO: PCI API changed - try_mem removed; exclude until API updated
     dw-acpi-i2cd
     e1000d
     ihdad
     ihdgd
     i2c-hidd
-    intel-thc-hidd
+    # intel-thc-hidd  # TODO: PCI API changed - try_map_bar removed; exclude until API updated
     intel-lpss-i2cd
     ixgbed
     pcid

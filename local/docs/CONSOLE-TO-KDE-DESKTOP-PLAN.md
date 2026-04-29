@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-29):** All code artifacts are build-verified on both Linux host and Redox target (x86_64-unknown-redox). 22 KF6 + plasma + kwin enabled. All stubs replaced with real build attempts. Remaining items in this document are runtime validation gates requiring QEMU or hardware — not code omissions.
+**Implementation status (2026-04-29):** All code artifacts are build-verified on both Linux host and Redox target (x86_64-unknown-redox). 9 KF6 frameworks + ECM + kwin are in the built image (pulled as transitive dependencies of kwin). 47 KDE recipes exist in local/recipes/kde/ with real cmake builds — but only kwin is explicitly enabled in config (and kwin is a stub that delegates to redbear-compositor). Plasma packages (framework, workspace, desktop) are blocked and commented out. The KF6 count discrepancy (22 claimed vs 9 actual) is a documentation gap — the recipes exist and build, but are not enabled in config. Remaining items in this document are runtime validation gates requiring QEMU or hardware plus config enablement gaps.
 
 ## Purpose
 
@@ -48,7 +48,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | libwayland 1.24.0 | **builds** | enabled | Wayland protocol library; durability patch applied |
 | wayland-protocols | **builds** | enabled | Protocol XML definitions |
 | redbear-compositor | **builds, 788 lines** | enabled | Real Rust Wayland compositor; zero warnings; 3/3 tests; known limitations: heap-memory framebuffer, payload-byte SHM, NUL-terminated wire encoding |
-| kwin | **builds** | enabled | Reduced-feature real cmake build; runtime proof requires Qt6Quick/QML downstream validation |
+| kwin | **stub** | enabled (but stub) | Stub — recipe downloads real KWin v6.3.4 source but build script only creates wrapper scripts + cmake config stubs; delegates to redbear-compositor; real cmake build requires Qt6Quick/QML downstream proof |
 | redbear-compositor-check | **builds** | in redbear-compositor pkg | Verifies compositor socket, binaries, framebuffer |
 
 **Verdict**: Working bounded compositor proof. Real KWin gated on Qt6Quick/QML downstream proof.
@@ -87,19 +87,19 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KF6 frameworks (30/32) | **build real** | 22 enabled + kglobalacceld | 30 real cmake builds; knewstuff/kwallet now have real cmake attempts; 1 suppressed (kirigami, QML-dependent) |
+| KF6 frameworks (32/32 recipes exist) | **builds** | 9 KF6 + ECM in built image; 30 real cmake builds + 2 real build attempts (knewstuff, kwallet); only kwin explicitly enabled in config; kirigami suppressed (QML-gated); 23 KF6 recipes exist but are not in image |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
 | kirigami | **builds, suppressed** | suppressed | Real core-only cmake build; QML runtime gated; gated on Qt6Quick downstream proof |
 | kf6-knewstuff | **builds** | enabled | Real NewStuffCore cmake build; QML disabled |
 | kf6-kwallet | **builds** | enabled | Real API-only core wallet cmake build; QML/GPG disabled |
-| plasma-framework | **builds** | enabled | BUILD_WITH_QML=OFF |
-| plasma-workspace | **builds** | enabled | 52 dependency items |
-| plasma-desktop | **builds** | enabled | Depends on plasma-workspace |
+| plasma-framework | **builds real, blocked** | commented out in config | BUILD_WITH_QML=OFF; blocked by kf6-knewstuff (needs QtNetwork) |
+| plasma-workspace | **builds real, blocked** | commented out in config | 52 dependency items; blocked by kf6-knewstuff + kwin (stub needs to become real) |
+| plasma-desktop | **builds real, blocked** | commented out in config | Depends on plasma-workspace |
 | kdecoration | **builds** | transitively via plasma-workspace | Window decoration library |
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
 | plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
 
-**Verdict**: KDE/Plasma surface enabled (20 KF6 + plasma packages). Real Plasma session requires Qt6Quick downstream proof + real KWin.
+**Verdict**: KDE/Plasma recipes exist (47 total) with real builds, but only kwin (stub) is explicitly enabled in config. 9 KF6 frameworks reach the image as transitive deps. Plasma packages and 23 KF6 frameworks are build-ready but commented out in config. Real Plasma session requires: enabling KF6+plasma packages in config + real KWin build (currently stub) + Qt6Quick downstream proof.
 
 ### LAYER 7 — Validation Infrastructure
 
@@ -143,13 +143,16 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 22 KF6 frameworks + kglobalacceld
-- 3 Plasma packages (framework, workspace, desktop)
-- kwin (reduced-feature real cmake build) + redbear-compositor (bounded validation compositor)
-- mesa + libdrm
+- kwin = {} (stub — delegates to redbear-compositor; the only KDE package explicitly in config)
+- 9 KF6 frameworks (pulled as transitive deps of kwin): extra-cmake-modules, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, kwidgetsaddons, kwindowsystem
+- 3 Plasma packages (commented out as BLOCKED): framework, workspace, desktop
+- 23 additional KF6 recipes exist in local/recipes/kde/ with real cmake builds but are not enabled in config
+- kirigami, kf6-knewstuff, kf6-kwallet (commented out as suppressed/blocked)
+- mesa + libdrm (GPU software stack)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
-- seatd + redbear-authd + redbear-session-launch + redbear-greeter + redbear-sessiond (via redbear-mini)
+- seatd + redbear-authd + redbear-session-launch + redbear-greeter (via redbear-mini)
 - dbus + firmware-loader + redox-drm + evdevd + udev-shim
+- redbear-compositor (real Rust Wayland compositor, kwin delegates to it)
 - plus inherited packages from redbear-mini profile
 
 ## Verification Steps (build-verified; supplementary QEMU validation) (ordered by impact)

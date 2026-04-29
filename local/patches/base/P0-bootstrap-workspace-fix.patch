@@ -1,0 +1,13 @@
+diff --git a/bootstrap/Cargo.toml b/bootstrap/Cargo.toml
+index 82120c21..be1f8326 100644
+--- a/bootstrap/Cargo.toml
++++ b/bootstrap/Cargo.toml
+@@ -6,6 +6,8 @@ authors = ["4lDO2 <4lDO2@protonmail.com>"]
+ edition = "2024"
+ license = "MIT"
+ 
++[workspace]
++
+ [dependencies]
+ hashbrown = { version = "0.15", default-features = false, features = [
+     "inline-more",

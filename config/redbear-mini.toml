@@ -39,7 +39,7 @@ redbear-nmap = {}
 redbear-wifictl = {}
 
 # Diagnostics and shell-side utilities.
-mc = {}
+mc = "ignore"
 redbear-info = {}
 
 # Keep package builder utility in live environment.
@@ -75,11 +75,12 @@ iommu = {}
 # ── Standard CLI tools (from server profile) ──
 bash = {}
 bottom = {}
-curl = {}
+#curl = {}  # suppressed: nghttp2 dependency chain fails; curl not needed for boot/recovery
 diffutils = {}
 findutils = {}
-git = {}
+#git = {}  # suppressed: cascading rebuild; git not needed for boot/recovery
 htop = {}
+#mc = {}  # suppressed: C99 format warning errors in compilation
 
 # ── Build / packaging utilities ──
 patchelf = {}

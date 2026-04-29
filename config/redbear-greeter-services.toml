@@ -64,12 +64,18 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/20_greeter.service"
 data = """
 [unit]
-description = "Red Bear greeter service (disabled for Phase 2 compositor proof; re-enable for Phase 3 user sessions)"
+description = "Red Bear greeter service (experimental — Phase 3 user session bring-up)"
 requires_weak = [
+    "00_pcid-spawner.service",
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+    "19_redbear-authd.service",
 ]
 
 [service]
-cmd = "/usr/bin/true"
+cmd = "/usr/bin/redbear-greeterd"
+envs = { VT = "3", REDBEAR_GREETER_USER = "greeter", KWIN_DRM_DEVICES = "/scheme/drm/card0", REDBEAR_DRM_WAIT_SECONDS = "10" }
 type = "oneshot_async"
 """
 

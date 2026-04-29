@@ -1,47 +1,34 @@
-# KWin Wayland compositor — real cmake build attempt with reduced feature set.
-# DRM backend → scheme:drm, libinput → via evdevd, session → seatd.
-# Full build requires Qt6Quick/QML (qtdeclarative exports metadata but downstream QML insufficient).
-# Requires real cmake configure + build; recipe fails hard if configure/build fails.
+#TODO: KWin remains a Red Bear transition stub for now. Upstream 6.3.4 lets us disable X11,
+# KCMs, screenlocker, tabbox, global shortcuts, runners, and notifications, but the top-level
+# CMake still hard-requires non-X11 pieces that are not part of the tracked Red Bear build
+# surface yet: Qt6::Sensors is only available as an uncompiled WIP recipe, libinput is still a
+# WIP port and is explicitly ignored in config/redbear-full.toml, and there is no canberra recipe
+# in-tree.
+# This recipe therefore does NOT invoke upstream CMake yet; it only stages
+# redbear-compositor-backed kwin_wayland/kwin_wayland_wrapper shims plus the minimal
+# KF6WindowSystem/KF6Config CMake config stubs consumed by downstream KDE recipes during the
+# transition.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
 blake3 = "2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f"
 
 [build]
 template = "custom"
-dependencies = [
-    "qtbase",
-    "kf6-extra-cmake-modules",
-    "kf6-kcoreaddons",
-    "kf6-kconfig",
-    "kf6-kwindowsystem",
-    "kf6-kglobalaccel",
-]
 script = """
-DYNAMIC_INIT
-
-HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
-
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
-
 STAGE="${COOKBOOK_STAGE}/usr"
 mkdir -p "${STAGE}/bin"
+mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem"
+mkdir -p "${STAGE}/lib/cmake/KF6Config"
 
+cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
+#!/bin/sh
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
+mkdir -p "$RUNTIME_DIR"
+export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
+exec /usr/bin/redbear-compositor "$@"
+EOFBIN
+chmod +x "${STAGE}/bin/kwin_wayland"
 
-
-
-
-
-
-
-
-
-
-
-# kwin_wayland_wrapper — launches the real KWin compositor
 cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
 #!/bin/sh
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
@@ -51,41 +38,20 @@ exec /usr/bin/kwin_wayland "$@"
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
 
-# Attempt real cmake build with reduced feature set
-BUILD_DIR="${COOKBOOK_SOURCE}/redox_build"
-mkdir -p "${BUILD_DIR}"
+cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
+add_definitions(-DKF6WINDOWSYSTEM_NO_EXPORT)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+set(KF6WindowSystem_LIBRARIES Qt6::Gui)
+EOFCMAKE
 
-cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
-    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_SYSROOT}/usr/share/cmake/redox.cmake" \
-    -DCMAKE_INSTALL_PREFIX="${COOKBOOK_STAGE}/usr" \
-    -DCMAKE_PREFIX_PATH="${COOKBOOK_STAGE}/usr;${COOKBOOK_SYSROOT}/usr;${HOST_BUILD}" \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
-    -DBUILD_WITH_QML=OFF \
-    -DKWIN_BUILD_KCMS=OFF \
-    -DKWIN_BUILD_EFFECTS=OFF \
-    -DKWIN_BUILD_TABBOX=OFF \
-    -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
-    -DKWIN_BUILD_NOTIFICATIONS=OFF \
-    -DKWIN_BUILD_SCREENLOCKING=OFF \
-    -DKWIN_BUILD_SCREENLOCKER=OFF \
-    -DKWIN_BUILD_RUNNING_IN_KDE=OFF \
-    -DKWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF \
-    -DKWIN_BUILD_DECORATIONS=ON \
-    -DKWIN_BUILD_RUNNERS=ON \
-    -DUSE_DBUS=ON \
-    -DQT_MAJOR_VERSION=6 \
--DCMAKE_BUILD_TYPE=Release \
-    || { echo "KWin cmake configure failed"; exit 1; }
-
-cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { echo "KWin build failed"; exit 1; }
-
-cmake --install "${BUILD_DIR}"
-echo "=== KWin real build (reduced features, no QML) ==="
+cat > "${STAGE}/lib/cmake/KF6Config/KF6ConfigConfig.cmake" << 'EOFCMAKE'
+add_definitions(-DKF6CONFIG_NO_EXPORT)
+find_package(Qt6 REQUIRED COMPONENTS Core)
+set(KF6Config_LIBRARIES Qt6::Core)
+EOFCMAKE
 """
 
 [package]
 dependencies = [
-    "kf6-kwindowsystem",
+    "redbear-compositor",
 ]
