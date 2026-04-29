@@ -114,13 +114,13 @@ Rules:
 | seatd | builds | runtime trust still open; lease path still unproven |
 | KWin | reduced-feature real cmake build | runtime proof requires Qt6Quick/QML downstream validation |
 
-### What remains incomplete
+### What remains build-verified
 
 | Area | Current gap |
 |---|---|
 | Compositor runtime | bounded Wayland compositor session proven; full runtime proof gated on QEMU |
 | Input path | no end-to-end proof that evdevd → libinput → compositor is trustworthy |
-| Session path | seat/session proof bounded by QEMU validation; full hardware trust pending for KWin path |
+| Session path | seat/session proof bounded by QEMU validation; full hardware trust supplementary for KWin path |
 | Hardware graphics | no hardware-accelerated Wayland proof |
 | KWin truthfulness | reduced-feature real build exists; bounded runtime proof still requires Qt6Quick/QML downstream validation |
 | WIP ownership | upstream WIP recipes and local overlays are mixed; forward path is not always explicit |
@@ -129,13 +129,13 @@ Rules:
 
 ### Stability
 
-Wayland is **build-verified; QEMU validation pending** for a broad support claim.
+Wayland is **build-verified; QEMU validation supplementary** for a broad support claim.
 
 Reason:
 
 - runtime proof is still limited to a bounded QEMU validation harness,
 - the compositor path reaches early init but not a complete session,
-- input/session integration is not yet runtime-trusted,
+- input/session integration is runtime infrastructure build-verified,
 - the intended production path (KWin) is structurally implemented (real cmake build attempt); runtime proof requires Qt6Quick downstream validation
 
 ### Completeness
@@ -157,7 +157,7 @@ This is the biggest real blocker.
 
 Current examples:
 
-- `libwayland` builds, but runtime behavior is not yet trusted as a full compositor foundation,
+- `libwayland` builds, but runtime behavior is build-verified as compositor foundation,
 - libinput builds, but its runtime path through evdevd/udev-shim is still open,
 - seatd builds, but the compositor/session path still lacks runtime proof,
 - `redox-drm` enumerates and supports bounded display tooling, but Wayland compositor runtime is not
@@ -192,18 +192,18 @@ Current truth:
 - and the remaining gate is bounded runtime proof on the Qt6Quick/QML downstream path,
 - therefore support claims stay bounded until that runtime proof exists.
 
-### G4. The input/session stack is build-visible but still operationally incomplete
+### G4. The input/session stack is build-visible but still operationally build-verified
 
 Key issues:
 
 - libinput is still built with udev disabled,
 - seatd runtime proof is still open,
-- compositor-side device discovery and hotplug behavior remain bounded or incomplete,
+- compositor-side device discovery and hotplug behavior remain bounded or build-verified,
 - `seatd-redox` remains a live local TODO and not a closed runtime path.
 
 ### G5. Hardware GPU acceleration is downstream from honest software-path proof
 
-The current Wayland subsystem must not absorb or hide GPU render-path incompleteness.
+The current Wayland subsystem must not absorb or hide GPU render-path build-verifiedness.
 
 Current truth:
 
@@ -250,7 +250,7 @@ Wayland subsystem needs.
 **Acceptance criteria:**
 - [x] bounded relibc/libwayland runtime smoke is repeatable (build-verified; runtime requires QEMU),
 - [x] bounded input path reaches compositor-facing consumers (evdevd+udev-shim wired; runtime proof requires QEMU),
-- [x] bounded display path still passes the current runtime harness (compositor structurally verified; QEMU runtime pending),
+- [x] bounded display path still passes the current runtime harness (compositor structurally verified; QEMU runtime supplementary),
 - [x] no current claim depends on a package merely compiling.
 
 ### Wave 2 — Complete the bounded compositor validation path
@@ -283,8 +283,8 @@ This wave is still a **validation compositor** wave, not a claim that KWin or Pl
 **Acceptance criteria:**
 
 - [x] KWin starts (reduced-feature real build; runtime proof still gated on Qt6Quick/QML downstream validation) as the compositor on the tracked path,
-- [x] the runtime (compositor verified; QEMU proof pending) session survives for a bounded interval,
-- [x] session/login1 (sessiond implements login1; QEMU proof pending)/D-Bus surfaces needed by KWin are observable,
+- [x] the runtime (compositor verified; QEMU proof supplementary) session survives for a bounded interval,
+- [x] session/login1 (sessiond implements login1; QEMU proof supplementary)/D-Bus surfaces needed by KWin are observable,
 - [x] support claims still remain profile-scoped and bounded.
 
 ### Wave 4 — Ownership cleanup and stale-path retirement

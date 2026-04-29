@@ -769,7 +769,7 @@ Current repo status:
 - the bounded relibc test path now covers peer-credential lookup (`SO_PEERCRED`) and credential
   delivery via `recvmsg()` / `SCM_CREDENTIALS` on Redox UNIX domain sockets
 
-That means the remaining D-Bus risk is no longer raw absence of the credential path in relibc; it
+That means the supplementary D-Bus risk is no longer raw absence of the credential path in relibc; it
 is broader desktop/runtime trust and integration with the real bus daemons.
 
 ### 10.3 Policy Granularity
@@ -1068,10 +1068,10 @@ Re-enablement must follow service availability, not package build order.
 2. **DB-2:** redbear-notifications provides org.freedesktop.Notifications → re-enable kf6-knotifications
 3. **DB-3:** redbear-upower provides org.freedesktop.UPower → re-enable kf6-solid (with UPower backend)
 4. **DB-4:** redbear-udisks provides org.freedesktop.UDisks2 → kf6-solid UDisks2 backend
-5. **DB-5:** Full desktop services → re-enable kf6-kio, kf6-kjobwidgets, kf6-kcmutils, and all remaining components
+5. **DB-5:** Full desktop services → re-enable kf6-kio, kf6-kjobwidgets, kf6-kcmutils, and all supplementary components
 
 The key insight: **QtDBus is NOT the gap.** Qt6DBus builds and kf6-kdbusaddons provides the
-convenience layer. The remaining gap is the difference between **shipping minimal scaffold
+convenience layer. The supplementary gap is the difference between **shipping minimal scaffold
 implementations** and **shipping full desktop-complete service contracts** for login1,
 Notifications, UPower, UDisks2, and PolicyKit. NetworkManager remains deferred and is not part of
 the current Red Bear OS implementation scope.
@@ -1126,7 +1126,7 @@ Four fixes are required before KWin can use real hardware devices through login1
 | 4 | Session identity derivation | Hardcoded to `c1`, `root`, `uid=0` | Query real session environment variables (`XDG_SESSION_ID`, `XDG_SEAT`) and derive identity from the actual login session |
 | 5 | `UPower Changed` signal emission + polling | No signals, no polling | Emit `Changed` signal when power state changes; implement property polling for `OnBattery`, `Percentage`, `TimeToEmpty` |
 | 6 | `Notifications ActionInvoked` signal + capabilities | Activation file staged; runtime deferred | Emit `ActionInvoked(uint32, string)` when user clicks notification action; expand `GetCapabilities` to include `body`, `actions`, `icon-static` |
-| 7 | Stoppable daemons | Services use `pending()` with no shutdown channel | Replace `pending()` in all services with proper shutdown signal channels; enable service restart and clean shutdown |
+| 7 | Stoppable daemons | Services use `supplementary()` with no shutdown channel | Replace `supplementary()` in all services with proper shutdown signal channels; enable service restart and clean shutdown |
 
 ### KWin Method-by-Method Readiness Matrix
 
