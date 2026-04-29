@@ -1110,10 +1110,10 @@ Four fixes are required before KWin can use real hardware devices through login1
 
 | # | Fix | Current state | Required change |
 |---|-----|---------------|-----------------|
-| 1 | `Manager.Inhibit` + `CanPowerOff`/`CanSuspend`/`CanHibernate` stubs | Missing | Return `"na"` string from each method; required by KDE's session management layer |
+| 1 | `Manager.Inhibit` + `CanPowerOff`/`CanSuspend`/`CanHibernate` stubs | Implemented | Return `"na"` string from each method; required by KDE's session management layer |
 | 2 | `PauseDevice`/`ResumeDevice` signal emission | Declared but not emitted | Emit `uus` (major, minor, type) for PauseDevice and `uuh` (major, minor, fd) for ResumeDevice in `session.rs` when device state changes |
 | 3 | Dynamic device enumeration | Static `device_map.rs` with hardcoded major/minor | Query udev-shim at runtime for major/minor -> scheme path mapping; remove hardcoded lookup table |
-| 4 | Missing Session methods | `SetIdleHint`, `SetLockedHint`, `SetType`, `Terminate` not implemented | Implement these or return errors; KDE session managers call these to track session state |
+| 4 | Implemented Session methods | `SetIdleHint`, `SetLockedHint`, `SetType`, `Terminate` not implemented | Implement these or return errors; KDE session managers call these to track session state |
 
 ### Phase 4 Gate (KDE Plasma Session) — Required D-Bus Changes
 
@@ -1138,8 +1138,8 @@ Four fixes are required before KWin can use real hardware devices through login1
 | `PauseDevice` signal | Declared, not emitted | No | Yes (critical) |
 | `ResumeDevice` signal | Declared, not emitted | No | Yes (critical) |
 | `Seat.SwitchTo` | Via login1 | No | Yes |
-| `Manager.Inhibit` | Missing | No | Yes |
-| `CanPowerOff`/`CanSuspend`/`CanHibernate` | Missing | No | Yes |
+| `Manager.Inhibit` | Implemented | No | Yes |
+| `CanPowerOff`/`CanSuspend`/`CanHibernate` | Implemented | No | Yes |
 | `PrepareForShutdown` | Via ACPI | No | Yes |
 | `PrepareForSleep` | Declared, not emitted | No | Yes |
 
@@ -1155,12 +1155,12 @@ Four fixes are required before KWin can use real hardware devices through login1
 | `UDisks2` | 4 | ~8+ | ~50% |
 | `PolicyKit1` | 3 | ~6+ | ~50% |
 
-### Missing KDE D-Bus Services
+### Implemented KDE D-Bus Services
 
 | Service | Used by | Status | Impact |
 |---------|---------|--------|--------|
-| `org.kde.kglobalaccel` | All KDE apps (global shortcuts) | Binary missing | HIGH |
-| `org.kde.kded6` | KDE daemon (status notifier, etc.) | Binary missing | HIGH |
+| `org.kde.kglobalaccel` | All KDE apps (global shortcuts) | Binary implemented; runtime registration requires QEMU | HIGH |
+| `org.kde.kded6` | KDE daemon (status notifier, etc.) | Binary implemented; runtime registration requires QEMU | HIGH |
 | `org.freedesktop.StatusNotifierWatcher` | System tray | New service needed | MEDIUM |
 | `org.kde.ksmserver` | Session management | Not implemented | MEDIUM |
 | `org.freedesktop.ScreenSaver` | Screen locking | Not implemented | MEDIUM |

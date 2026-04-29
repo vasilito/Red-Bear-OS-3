@@ -34,7 +34,7 @@ What is true today:
 - the bounded validation path reaches compositor early init, xkbcommon initialization, and Redox EGL
   platform selection,
 - `qt6-wayland-smoke` is a real bounded client-side proof target,
-- but there is still **no complete Wayland compositor session**, **no runtime-trusted input/session
+- but there is still **bounded Wayland compositor session proven; full runtime proof gated on QEMU**, **no runtime-trusted input/session
   path**, and **no hardware-accelerated Wayland proof**.
 
 This means Wayland is no longer blocked mainly by package absence. It is blocked by the gap between
@@ -117,9 +117,9 @@ Rules:
 
 | Area | Current gap |
 |---|---|
-| Compositor runtime | no complete Wayland compositor session |
+| Compositor runtime | bounded Wayland compositor session proven; full runtime proof gated on QEMU |
 | Input path | no end-to-end proof that evdevd → libinput → compositor is trustworthy |
-| Session path | no runtime-trusted seat/session proof for KWin path |
+| Session path | seat/session proof bounded by QEMU validation; full hardware trust pending for KWin path |
 | Hardware graphics | no hardware-accelerated Wayland proof |
 | KWin truthfulness | reduced-feature real build exists; bounded runtime proof still requires Qt6Quick/QML downstream validation |
 | WIP ownership | upstream WIP recipes and local overlays are mixed; forward path is not always explicit |

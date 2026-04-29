@@ -171,7 +171,7 @@ Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
 
 4. **Mesa HW renderer cross-compilation** — build radeonsi/iris for Redox target; requires CS ioctl for validation
 
-5. **Real KWin build** — validate the reduced-feature real KWin build on the Qt6Quick/QML downstream path; unblocks full KDE Plasma session
+5. **Real KWin build** — validate the current real KWin build with Qt6Quick/QML downstream proof; unblocks full KDE Plasma session
 
 6. **Hardware validation** — AMD + Intel bare-metal testing for all layers
 
