@@ -114,7 +114,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
-| Input stack | **builds, enumerates** | evdevd (65 tests), libevdev, libinput, seatd present; evdevd registers scheme at boot; end-to-end compositor input path unproven |
+| Input stack | **builds, enumerates** | evdevd (65 tests), udev-shim, seatd present; libinput builds but suppressed in config (`libinput = "ignore"`); libevdev commented out; end-to-end compositor input path unproven |
 | D-Bus | **builds, bounded (in improvement)** | System bus wired in `redbear-full`; session bus incomplete; Phase 3/4 improvement plan active; completeness: login1.Manager ~10%, login1.Session ~47%, login1.Seat ~20%, Notifications ~80%, UPower ~60%, UDisks2 ~50%, PolicyKit1 ~50%; `StatusNotifierWatcher` is the new service being added in Phase 4 |
 | redbear-sessiond | **builds, scaffold (Phase 3/4 improvement active)** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; Phase 3 hard gate is TakeDevice FD passing plus PauseDevice/ResumeDevice signal emission; Priority 1 in Phase 3/4 improvement plan |
 | redbear-authd | **builds** | Privileged local-user auth daemon; `/etc/passwd`/`/etc/shadow`/`/etc/group` parsing, SHA-256/SHA-512 crypt verification, bounded lockout, target-side recipe build proven |
@@ -310,7 +310,7 @@ The Red Bear desktop stack has crossed major build-side gates and one important 
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
 - KWin recipe provides cmake config stubs and wrapper scripts delegating to redbear-compositor; real KWin build requires sufficient Qt6Quick/QML proof (qtdeclarative exists, downstream unproven); no compositor session proof exists
-- Critical blockers for Phase 4: kirigami stub (needs Qt6Quick), kf6-knewstuff/kwallet stubs, and the still-disabled QtNetwork surface for network-aware KDE features
+- Critical blockers for Phase 4: kirigami stub (needs Qt6Quick). kf6-knewstuff/kwallet cmake config stubs are deferrable for minimal Plasma session proof. QtNetwork surface remains disabled for network-aware KDE features.
 
 The remaining work is **broader runtime validation, compositor/session stability, and the remaining KDE session/runtime proof work**.
-Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: kirigami and the remaining Phase 4 stub recipes must become honest, while full KDE network features still wait on QtNetwork.
+Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: kirigami must become honest (needs Qt6Quick downstream proof), while full KDE network features still wait on QtNetwork. kf6-knewstuff/kwallet cmake stubs are deferrable.
