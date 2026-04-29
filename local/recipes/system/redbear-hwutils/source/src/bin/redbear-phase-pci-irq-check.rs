@@ -54,8 +54,9 @@ struct SpuriousIrqStats {
 }
 
 #[cfg(target_os = "redox")]
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct AffinityProbe {
+    device: String,
     irq: u32,
     cpu_id: u8,
     cpu_mask: u64,
@@ -290,14 +291,22 @@ fn read_bsp_cpu_id() -> Result<u8, String> {
 }
 
 #[cfg(target_os = "redox")]
-fn probe_interrupt_affinity(probes: &[PciDeviceProbe]) -> Result<AffinityProbe, String> {
-    let irq = probes
+fn probe_interrupt_affinity(
+    reports: &[IrqReport],
+    probes: &[PciDeviceProbe],
+) -> Result<Option<AffinityProbe>, String> {
+    let Some((device, irq)) = reports
         .iter()
-        .filter_map(|probe| probe.irq_line)
-        .next()
-        .ok_or_else(|| {
-            "no active PCI device exposed a legacy IRQ line for affinity validation".to_string()
-        })?;
+        .find(|report| report.mode.contains("legacy"))
+        .and_then(|report| {
+            probes
+                .iter()
+                .find(|probe| probe.device == report.device)
+                .and_then(|probe| probe.irq_line.map(|irq| (report.device.clone(), irq)))
+        })
+    else {
+        return Ok(None);
+    };
 
     let cpu_id = read_bsp_cpu_id()?;
     let cpu_mask = 1u64
@@ -310,11 +319,12 @@ fn probe_interrupt_affinity(probes: &[PciDeviceProbe]) -> Result<AffinityProbe, 
         .set_affinity(cpu_mask)
         .map_err(|err| format!("failed to set IRQ {irq} affinity to mask {cpu_mask:#x}: {err}"))?;
 
-    Ok(AffinityProbe {
+    Ok(Some(AffinityProbe {
+        device,
         irq,
         cpu_id,
         cpu_mask,
-    })
+    }))
 }
 
 fn run() -> Result<(), String> {
@@ -390,11 +400,17 @@ fn run() -> Result<(), String> {
 
     #[cfg(target_os = "redox")]
     {
-        let affinity = probe_interrupt_affinity(&probes)?;
-        println!(
-            "PCI_IRQ_AFFINITY=ok irq={} cpu={} mask={:#x}",
-            affinity.irq, affinity.cpu_id, affinity.cpu_mask
-        );
+        match probe_interrupt_affinity(&reports, &probes)? {
+            Some(affinity) => {
+                println!(
+                    "PCI_IRQ_AFFINITY=ok device={} irq={} cpu={} mask={:#x}",
+                    affinity.device, affinity.irq, affinity.cpu_id, affinity.cpu_mask
+                );
+            }
+            None => {
+                println!("PCI_IRQ_AFFINITY=not_applicable reason=no_active_legacy_irq_report");
+            }
+        }
     }
 
     #[cfg(not(target_os = "redox"))]

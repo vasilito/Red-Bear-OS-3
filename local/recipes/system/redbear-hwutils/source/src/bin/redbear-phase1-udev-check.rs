@@ -181,18 +181,27 @@ fn run_redox(config: &Config) -> Result<bool, String> {
         drm_status.render("DRM devices");
     }
 
-Ok(overall_success(&report, &config))
+    Ok(overall_success(&report, &config))
 }
 
 #[cfg(any(target_os = "redox", test))]
 fn overall_success(report: &Report, config: &Config) -> bool {
-    report.udev_scheme
-        && (!config.keyboard || report.keyboard_count > 0)
-        && (!config.pointer || report.pointer_count > 0)
-        && (!config.drm || report.drm_count > 0)
+    let checks: Vec<CheckStatus> = [
+        (!config.keyboard || report.keyboard_count > 0),
+        (!config.pointer || report.pointer_count > 0),
+        (!config.drm || report.drm_count > 0),
+    ].iter().map(|&pass| if pass { CheckStatus::Pass("ok".to_string()) } else { CheckStatus::Fail("none found".to_string()) }).collect();
+    checks.iter().all(|c| matches!(c, CheckStatus::Pass(_)))
 }
 
-#[cfg(target_os = "redox")]
+fn count_status(count: usize, label: &str) -> CheckStatus {
+    if count > 0 {
+        CheckStatus::Pass(format!("{} {} device(s) found", count, label))
+    } else {
+        CheckStatus::Fail(format!("no {} devices found", label))
+    }
+}
+
 fn list_dir_names(path: &str) -> Result<Vec<String>, String> {
     let entries = fs::read_dir(path).map_err(|err| format!("failed to read {path}: {err}"))?;
     let mut names = entries
