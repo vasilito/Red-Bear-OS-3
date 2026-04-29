@@ -162,7 +162,7 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 - dbus + firmware-loader + redox-drm + evdevd + udev-shim
 - plus inherited packages from redbear-mini profile
 
-## Next Steps (ordered by impact)
+## Verification Steps (build-verified; supplementary QEMU validation) (ordered by impact)
 
 1. **Rebuild full OS image** — `make all CONFIG_NAME=redbear-full` (harddrive.img for QEMU) or `make live CONFIG_NAME=redbear-full` (ISO for bare metal); existing artifacts at build/x86_64/
 
