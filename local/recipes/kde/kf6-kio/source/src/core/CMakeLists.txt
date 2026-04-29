@@ -183,6 +183,10 @@ target_include_directories(KF6KIOCore PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>" # kio_version.h
 )
 
+target_include_directories(KF6KIOCore PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/redox_qtnetwork_compat
+)
+
 target_include_directories(KF6KIOCore INTERFACE
     "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR_KF}/KIOCore>"
     "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR_KF}/KIO>"
@@ -327,4 +331,3 @@ install(FILES
 
 # make available to ecm_add_qch in parent folder
 set(KIOCore_QCH_SOURCES ${KIOCore_HEADERS} ${KIO_namespaced_HEADERS} PARENT_SCOPE)
-

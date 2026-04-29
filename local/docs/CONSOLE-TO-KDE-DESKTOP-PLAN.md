@@ -1,7 +1,7 @@
 # Red Bear OS: Console to Hardware-Accelerated KDE Desktop on Wayland
 
-**Version:** 2.1 (2026-04-25)
-**Updated:** Phase 1 test coverage complete; refined Phase 2–4 work items and blocker detail
+**Version:** 2.2 (2026-04-29)
+**Updated:** Phase 1 test coverage complete; refined Phase 2–4 work items and blocker detail; KF6 enablement/honesty notes refreshed
 **Replaces:** All prior console-to-KDE roadmap documents
 **Status:** Canonical desktop path plan
 
@@ -95,7 +95,7 @@ Rules:
 | libinput 1.30.2 | builds | Runtime integration open | |
 | libevdev 1.13.2 | builds | Runtime integration open | |
 | seatd | builds | Session-management runtime proof open; seatd package now in redbear-full config | |
-| All 32 KF6 frameworks | builds | Major build milestone; 30 real cmake builds + 2 stubs (knewstuff, kwallet); 18 KF6 + kglobalacceld enabled in redbear-full; 5 remain suppressed (kirigami stub-only, kf6-kio heavy shim, kf6-knewstuff/kwallet stubs, kf6-kdeclarative QML-dependent) | |
+| All 32 KF6 frameworks | builds | Major build milestone; 30 real cmake builds + 2 stubs (knewstuff, kwallet); 20 KF6 + kglobalacceld enabled in redbear-full; 3 remain suppressed (`kirigami` stub-only plus `kf6-knewstuff` / `kf6-kwallet` stubs); `kf6-kio` now uses a source-local Redox QtNetwork compatibility layer rather than shared-sysroot stubs | |
 | daemon (base recipe init-notify) | builds, boots-fixed | P0 patch: replaced unwrap() in get_fd/ready with graceful returns; survives clean re-fetch | |
 | bootstrap (initfs workspace) | builds, boots-fixed | P0 patch: added bootstrap to workspace members; survives clean re-fetch | |
 | kdecoration | builds | | |
@@ -158,10 +158,10 @@ The repo has crossed major build-side gates:
 **Builds still blocked/scaffolded:**
 - KWin does not build with fully real dependencies (4 stub deps: libepoxy, libudev, lcms2, libdisplay-info)
 - kirigami is stub-only
-- kf6-kio is a heavy shim
+- kf6-kio now has an honest reduced KIOCore-only build; full QtNetwork-backed network transparency is still unavailable
 - 11 KWin feature switches remain disabled (BUILD_WITH_QML=OFF, KWIN_BUILD_KCMS=OFF, KWIN_BUILD_EFFECTS=OFF, KWIN_BUILD_TABBOX=OFF, KWIN_BUILD_GLOBALSHORTCUTS=OFF, KWIN_BUILD_NOTIFICATIONS=OFF, KWIN_BUILD_SCREENLOCKING=OFF, KWIN_BUILD_SCREENLOCKER=OFF, legacy backend disabled, KWIN_BUILD_RUNNING_IN_KDE=OFF, KWIN_BUILD_ELECTRONICALLY_SIGNING_DOCS=OFF)
 - QtNetwork disabled (relibc networking incomplete)
-- No compositor session proof exists — KWin recipe is a stub (cmake configs only); real KWin build requires Qt6Quick/QML cross-compilation which is not yet available
+- No compositor session proof exists — KWin recipe is a stub (cmake configs only); real KWin build requires sufficient Qt6Quick/QML build+runtime proof (qtdeclarative exists, downstream QML unproven)
 - Qt6Quick/QML runtime not proven — JIT disabled, no QML client test exists
 
 ### Baseline conclusion
@@ -360,12 +360,18 @@ compositor + input + Qt client issues before session-shell complexity.
 | libudev | Honest scheme-backed provider | hotplug monitoring remains bounded |
 | libdisplay-info | Honest bounded provider | base-EDID only; CTA / DisplayID / HDR metadata still unsupported |
 
-**Stub-only/heavily shimmed packages:**
+**Stub-only packages still blocking full session assembly:**
 
 | Package | Current state | Path forward |
 |---|---|---|
 | kirigami | Stub-only for dep resolution | Real build needed for QML-dependent Plasma shell |
-| kf6-kio | Heavy shim build | Must become honest build for session claims |
+
+`kf6-kio` no longer belongs in the stub/shim bucket for Phase 3. Its remaining limitations are now:
+
+- KIOCORE_ONLY=ON
+- BUILD_WITH_QML=OFF
+- USE_DBUS=OFF
+- QtNetwork still unavailable, so full network transparency remains a later networking milestone
 
 **KWin feature switches** (11 still disabled in the current reduced path):
 
@@ -395,7 +401,7 @@ compositor + input + Qt client issues before session-shell complexity.
 | 3.4 | Validate D-Bus session behavior | dbus-send KWin supportInformation returns non-empty | redbear-sessiond provides login1; full session bus needed |
 | 3.5 | Validate seatd for KWin session | seatd grants KWin graphics+input seat | Depends on seatd-redox DRM lease |
 | 3.6 | Re-enable KWin BUILD_WITH_QML | QML-dependent KWin paths work after Phase 2 QML proof | Depends on Qt6Quick runtime proof from Phase 2 |
-| 3.7 | Make kf6-kio build honest | kf6-kio cmake succeeds without QtNetwork stubs | QtNetwork blocked on relibc; may need bounded network path |
+| 3.7 | Keep kf6-kio reduced path honest | kf6-kio cmake succeeds without shared-sysroot QtNetwork stubs | Source-local Redox compatibility is acceptable for KIOCore-only; full QtNetwork remains later networking work |
 
 #### Exit criteria
 
@@ -424,7 +430,7 @@ compositor + input + Qt client issues before session-shell complexity.
 **Goal:** Boot into a KDE Plasma session with essential desktop shell and session services.
 **Profile target:** `redbear-full`
 
-**Current state (2026-04-29):** 47 KDE recipe directories exist — 42 real cmake builds (all 32 KF6 frameworks except knewstuff/kwallet, plus plasma-workspace, plasma-desktop, plasma-framework, kdecoration, kf6-kwayland, plasma-wayland-protocols, breeze, kde-cli-tools, kglobalacceld, kf6-prison, kf6-solid, kf6-sonnet) and 5 stubs (kf6-knewstuff, kf6-kwallet, kirigami, kwin, smallvil). 18 KF6 + kglobalacceld enabled in redbear-full.toml; 5 remain suppressed (kirigami, kf6-kio, kf6-kdeclarative, kf6-knewstuff, kf6-kwallet). Real KDE Plasma session gated on Qt6Quick/QML + real KWin (both not yet available). Test scripts exist (test-phase4-wayland-qemu.sh, test-phase4-runtime.sh, test-phase6-kde-qemu.sh).
+**Current state (2026-04-29):** 47 KDE recipe directories exist — 42 real cmake builds (all 32 KF6 frameworks except knewstuff/kwallet, plus plasma-workspace, plasma-desktop, plasma-framework, kdecoration, kf6-kwayland, plasma-wayland-protocols, breeze, kde-cli-tools, kglobalacceld, kf6-prison, kf6-solid, kf6-sonnet) and 5 stubs (kf6-knewstuff, kf6-kwallet, kirigami, kwin, smallvil). 20 KF6 + kglobalacceld are now enabled in `redbear-full.toml`; 3 remain suppressed (`kirigami`, `kf6-knewstuff`, `kf6-kwallet`). `kf6-kio` now ships as an honest reduced KIOCore-only build using source-local Redox compatibility headers instead of shared-sysroot QtNetwork stubs. Real KDE Plasma session is still gated on: Qt6Quick/QML build+runtime proof (qtdeclarative exports Qt6Quick metadata, but QML-dependent kirigami and KWin have insufficient build and runtime proof), plus real KWin (not yet built as a full compositor). Test scripts exist (test-phase4-wayland-qemu.sh, test-phase4-runtime.sh, test-phase6-kde-qemu.sh).
 
 #### Work items
 
@@ -433,7 +439,7 @@ compositor + input + Qt client issues before session-shell complexity.
 | 4.1 | Complete plasma-workspace build | cmake succeeds without stub targets | Blocked on kirigami stub → needs Qt6Quick |
 | 4.2 | Complete plasma-desktop build | cmake succeeds without stub targets | Blocked on plasma-workspace |
 | 4.3 | Shell, panel, launcher visible | plasmashell starts; panel renders | Blocked on kirigami + QML |
-| 4.4 | File-manager and settings paths | dolphin opens directory; systemsettings opens module | Blocked on kf6-kio honest build |
+| 4.4 | File-manager and settings paths | dolphin opens directory; systemsettings opens module | Current honest reduced `kf6-kio` build unblocks the file-path substrate; full network transparency still waits on QtNetwork |
 | 4.5 | Bounded network + audio integration | ip addr shows interface; sound device visible | QtNetwork blocked on relibc |
 | 4.6 | Resolve kirigami stub | Real kirigami build from source | Qt6Quick prerequisite; QML JIT disabled |
 | 4.7 | Resolve kf6-knewstuff/kwallet stubs | Real or bounded builds replace stubs | plasma-workspace dependencies |
@@ -454,8 +460,7 @@ plasma-desktop
 | Blocker | Named in "NOT DONE" | Owned by phase |
 |---|---|---|
 | kirigami stub-only | Yes | **Phase 4** — real build needed for QML-dependent Plasma shell components |
-| kf6-kio heavy shim | Yes | **Phase 3** — KWin uses kf6-kio for runners; honest KWin claim requires honest kio |
-| QtNetwork disabled | Yes | **Post-Phase 4** — not a desktop session blocker; network clients will use it after relibc networking matures |
+| QtNetwork disabled | Yes | **Post-Phase 4** — not a base desktop-session blocker, but still blocks full `kf6-kio` network transparency and network-aware KDE clients |
 | kf6-knewstuff/kwallet stubs | Yes | **Phase 4** — plasma-workspace dependency |
 
 #### Exit criteria
@@ -463,7 +468,7 @@ plasma-desktop
 **Code artifacts (build-verified):**
 - `redbear-phase4-kde-check`: validates KF6 library presence, plasma binaries (plasmashell, systemsettings), session entry points, kirigami status
 - `test-phase4-runtime.sh`: automated QEMU test harness (guest + QEMU modes) for Phase 4 preflight checks
-- 18 KF6 + kglobalacceld enabled in `redbear-full.toml` (non-cascading subset)
+- 20 KF6 + kglobalacceld enabled in `redbear-full.toml` (non-cascading subset)
 
 **Runtime validation checklist (requires QEMU/bare metal):**
 
@@ -597,7 +602,7 @@ integration). Those can be solved on software renderer while hardware path matur
 |---|---|---|
 | Phase 1: Runtime Substrate Validation | 4–6 | Must finish honestly before claiming runtime trust |
 | Phase 2: Wayland Compositor Proof | 4–6 | Can overlap with late Phase 1 cleanup |
-| Phase 3: KWin Desktop Session | 6–10 | Starts after Phase 2; **lower bound is optimistic — assumes stub/shim cleanup stays bounded** |
+| Phase 3: KWin Desktop Session | 6–10 | Starts after Phase 2; **lower bound is optimistic — assumes remaining QML/session cleanup stays bounded** |
 | Phase 4: KDE Plasma Session | 8–12 | Starts after Phase 3; **lower bound assumes kirigami/knewstuff stubs resolve without major rework** |
 | Phase 5: Hardware GPU Enablement | 12–20 | Starts after Phase 1, parallel with 3–4 |
 

@@ -1,0 +1,87 @@
+#pragma once
+
+#include <QByteArray>
+#include <QDataStream>
+#include <QMetaType>
+#include <QString>
+
+#include <arpa/inet.h>
+
+class QHostAddress
+{
+public:
+    enum NetworkLayerProtocol {
+        UnknownNetworkLayerProtocol = -1,
+        AnyIPProtocol,
+        IPv4Protocol,
+        IPv6Protocol,
+    };
+
+    QHostAddress() = default;
+
+    explicit QHostAddress(const QString &address)
+    {
+        setAddress(address);
+    }
+
+    void setAddress(const QString &address)
+    {
+        m_address = address;
+
+        if (address.isEmpty()) {
+            m_protocol = UnknownNetworkLayerProtocol;
+            return;
+        }
+
+        const QByteArray utf8 = address.toUtf8();
+        unsigned char ipv4[4] = {};
+        unsigned char ipv6[16] = {};
+
+        if (inet_pton(AF_INET, utf8.constData(), ipv4) == 1) {
+            m_protocol = IPv4Protocol;
+            return;
+        }
+
+        if (inet_pton(AF_INET6, utf8.constData(), ipv6) == 1) {
+            m_protocol = IPv6Protocol;
+            return;
+        }
+
+        m_protocol = UnknownNetworkLayerProtocol;
+    }
+
+    bool isNull() const
+    {
+        return m_protocol == UnknownNetworkLayerProtocol;
+    }
+
+    QString toString() const
+    {
+        return m_address;
+    }
+
+    NetworkLayerProtocol protocol() const
+    {
+        return m_protocol;
+    }
+
+private:
+    QString m_address;
+    NetworkLayerProtocol m_protocol = UnknownNetworkLayerProtocol;
+
+    friend QDataStream &operator<<(QDataStream &stream, const QHostAddress &address)
+    {
+        stream << address.m_address << static_cast<qint32>(address.m_protocol);
+        return stream;
+    }
+
+    friend QDataStream &operator>>(QDataStream &stream, QHostAddress &address)
+    {
+        qint32 protocol = UnknownNetworkLayerProtocol;
+        stream >> address.m_address >> protocol;
+        address.m_protocol = static_cast<QHostAddress::NetworkLayerProtocol>(protocol);
+        return stream;
+    }
+};
+
+Q_DECLARE_METATYPE(QHostAddress)

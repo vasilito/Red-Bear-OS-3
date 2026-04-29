@@ -1,4 +1,5 @@
-#TODO: KDeclarative — KDE QtQuick integration. QML disabled for Redox.
+# KDeclarative — reduced real build for Red Bear OS.
+# QML-backed runtime pieces stay disabled with BUILD_WITH_QML=OFF.
 [source]
 tar = "https://invent.kde.org/frameworks/kdeclarative/-/archive/v6.10.0/kdeclarative-v6.10.0.tar.gz"
 

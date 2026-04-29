@@ -133,22 +133,11 @@ public:
         return m_hostName;
     }
 
-    int lookupId() const
-    {
-        return m_lookupId;
-    }
-
-    void setLookupId(int id)
-    {
-        m_lookupId = id;
-    }
-
 private:
     Q_DISABLE_COPY(NameLookupThreadRequest)
     QString m_hostName;
     QSemaphore m_semaphore;
     QHostInfo m_hostInfo;
-    int m_lookupId;
 };
 }
 
@@ -162,30 +151,9 @@ class NameLookUpThreadWorker : public QObject
 public Q_SLOTS:
     void lookupHost(const std::shared_ptr<KIO::NameLookupThreadRequest> &request)
     {
-        const QString hostName = request->hostName();
-        const int lookupId = QHostInfo::lookupHost(hostName, this, SLOT(lookupFinished(QHostInfo)));
-        request->setLookupId(lookupId);
-        m_lookups.insert(lookupId, request);
+        request->setResult(QHostInfo::fromName(request->hostName()));
+        request->semaphore()->release();
     }
-
-    void abortLookup(const std::shared_ptr<KIO::NameLookupThreadRequest> &request)
-    {
-        QHostInfo::abortHostLookup(request->lookupId());
-        m_lookups.remove(request->lookupId());
-    }
-
-    void lookupFinished(const QHostInfo &hostInfo)
-    {
-        auto it = m_lookups.find(hostInfo.lookupId());
-        if (it != m_lookups.end()) {
-            (*it)->setResult(hostInfo);
-            (*it)->semaphore()->release();
-            m_lookups.erase(it);
-        }
-    }
-
-private:
-    QMap<int, std::shared_ptr<NameLookupThreadRequest>> m_lookups;
 };
 
 class NameLookUpThread : public QThread
@@ -271,11 +239,6 @@ QHostInfo HostInfo::lookupHost(const QString &hostName, unsigned long timeout)
         if (!hostInfo.hostName().isEmpty() && hostInfo.error() == QHostInfo::NoError) {
             HostInfo::cacheLookup(hostInfo); // cache the look up...
         }
-    } else {
-        auto abortFunc = [worker, request]() {
-            worker->abortLookup(request);
-        };
-        QMetaObject::invokeMethod(worker, abortFunc, Qt::QueuedConnection);
     }
 
     // qDebug() << "Name look up succeeded for" << hostName;

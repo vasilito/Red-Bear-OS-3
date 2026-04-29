@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+VALIDATION_REQUEST="/run/redbear-kde-session.validation-request"
+VALIDATION_SUCCESS="/run/redbear-kde-session.validation-success"
+
+kwin_pid=""
+optional_pids=()
+
+export DESKTOP_SESSION="${DESKTOP_SESSION:-plasmawayland}"
+export DISPLAY=""
+export KDE_FULL_SESSION="${KDE_FULL_SESSION:-true}"
+export KDE_SESSION_VERSION="${KDE_SESSION_VERSION:-6}"
+export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
+export LOGNAME="${LOGNAME:-${USER:-root}}"
+export PATH="${PATH:-/usr/bin:/bin}"
+export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:-/usr/qml}"
+export QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/plugins}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_QPA_PLATFORM_PLUGIN_PATH:-/usr/plugins/platforms}"
+export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
+export USER="${USER:-root}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-KDE}"
+export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-KDE}"
+export XDG_SESSION_ID="${XDG_SESSION_ID:-c1}"
+export XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-wayland}"
+export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
+
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/run/user/$(id -u)"
+fi
+
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+choose_state_dir() {
+    local requested="${REDBEAR_KDE_SESSION_STATE_DIR:-}"
+
+    if [ -n "$requested" ]; then
+        mkdir -p "$requested" 2>/dev/null || true
+        if [ -d "$requested" ] && [ -w "$requested" ]; then
+            printf '%s\n' "$requested"
+            return 0
+        fi
+    fi
+
+    if [ -d /run ] && [ -w /run ]; then
+        printf '%s\n' "/run"
+        return 0
+    fi
+
+    printf '%s\n' "$XDG_RUNTIME_DIR"
+}
+
+session_state_dir="$(choose_state_dir)"
+mkdir -p "$session_state_dir"
+chmod 700 "$session_state_dir" 2>/dev/null || true
+
+session_env_file="$session_state_dir/redbear-kde-session.env"
+session_ready_file="$session_state_dir/redbear-kde-session.ready"
+panel_ready_file="$session_state_dir/redbear-kde-session.panel-ready"
+
+rm -f "$session_ready_file" "$panel_ready_file"
+
+cleanup() {
+    local status=$?
+
+    trap - EXIT INT TERM
+
+    for pid in "${optional_pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+        fi
+    done
+
+    if [ -n "$kwin_pid" ] && kill -0 "$kwin_pid" 2>/dev/null; then
+        kill "$kwin_pid" 2>/dev/null || true
+        wait "$kwin_pid" 2>/dev/null || true
+    fi
+
+    exit "$status"
+}
+
+trap cleanup EXIT INT TERM
+
+kwin_mode="virtual"
+
+set_kwin_mode() {
+    local requested="${REDBEAR_KDE_SESSION_BACKEND:-auto}"
+
+    case "$requested" in
+        drm)
+            if [ -z "${KWIN_DRM_DEVICES:-}" ] && [ -e /scheme/drm/card0 ]; then
+                export KWIN_DRM_DEVICES=/scheme/drm/card0
+            fi
+            if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
+                kwin_mode="drm"
+            else
+                kwin_mode="virtual"
+            fi
+            ;;
+        virtual)
+            kwin_mode="virtual"
+            ;;
+        auto|"")
+            if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
+                kwin_mode="drm"
+            elif [ -e /scheme/drm/card0 ]; then
+                export KWIN_DRM_DEVICES=/scheme/drm/card0
+                kwin_mode="drm"
+            else
+                kwin_mode="virtual"
+            fi
+            ;;
+        *)
+            kwin_mode="virtual"
+            ;;
+    esac
+}
+
+set_kwin_mode
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2>&1; then
+    eval "$(dbus-launch --sh-syntax)"
+fi
+
+write_session_environment() {
+    {
+        printf 'DBUS_SESSION_BUS_ADDRESS=%s\n' "${DBUS_SESSION_BUS_ADDRESS:-}"
+        printf 'DESKTOP_SESSION=%s\n' "$DESKTOP_SESSION"
+        printf 'KDE_FULL_SESSION=%s\n' "$KDE_FULL_SESSION"
+        printf 'KDE_SESSION_VERSION=%s\n' "$KDE_SESSION_VERSION"
+        printf 'KWIN_DRM_DEVICES=%s\n' "${KWIN_DRM_DEVICES:-}"
+        printf 'KWIN_MODE=%s\n' "$kwin_mode"
+        printf 'QML2_IMPORT_PATH=%s\n' "$QML2_IMPORT_PATH"
+        printf 'QT_PLUGIN_PATH=%s\n' "$QT_PLUGIN_PATH"
+        printf 'QT_QPA_PLATFORM=%s\n' "$QT_QPA_PLATFORM"
+        printf 'QT_QPA_PLATFORM_PLUGIN_PATH=%s\n' "$QT_QPA_PLATFORM_PLUGIN_PATH"
+        printf 'SEATD_SOCK=%s\n' "$SEATD_SOCK"
+        printf 'SESSION_STATE_DIR=%s\n' "$session_state_dir"
+        printf 'WAYLAND_DISPLAY=%s\n' "$WAYLAND_DISPLAY"
+        printf 'XDG_CURRENT_DESKTOP=%s\n' "$XDG_CURRENT_DESKTOP"
+        printf 'XDG_RUNTIME_DIR=%s\n' "$XDG_RUNTIME_DIR"
+        printf 'XDG_SESSION_DESKTOP=%s\n' "$XDG_SESSION_DESKTOP"
+        printf 'XDG_SESSION_ID=%s\n' "$XDG_SESSION_ID"
+        printf 'XDG_SESSION_TYPE=%s\n' "$XDG_SESSION_TYPE"
+        printf 'XKB_CONFIG_ROOT=%s\n' "$XKB_CONFIG_ROOT"
+    } > "$session_env_file"
+    chmod 600 "$session_env_file" 2>/dev/null || true
+}
+
+write_session_environment
+
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment \
+        DBUS_SESSION_BUS_ADDRESS \
+        DBUS_SESSION_BUS_PID \
+        DESKTOP_SESSION \
+        KDE_FULL_SESSION \
+        KDE_SESSION_VERSION \
+        KWIN_DRM_DEVICES \
+        QML2_IMPORT_PATH \
+        QT_PLUGIN_PATH \
+        QT_QPA_PLATFORM \
+        QT_QPA_PLATFORM_PLUGIN_PATH \
+        WAYLAND_DISPLAY \
+        XDG_CURRENT_DESKTOP \
+        XDG_RUNTIME_DIR \
+        XDG_SESSION_DESKTOP \
+        XDG_SESSION_ID \
+        XDG_SESSION_TYPE \
+        XKB_CONFIG_ROOT \
+        XCURSOR_THEME
+fi
+
+wait_for_wayland_socket() {
+    local socket_path="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    local attempts=0
+
+    while [ "$attempts" -lt 40 ]; do
+        if [ -S "$socket_path" ] || [ -e "$socket_path" ]; then
+            return 0
+        fi
+        if [ -n "$kwin_pid" ] && ! kill -0 "$kwin_pid" 2>/dev/null; then
+            return 1
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+    done
+
+    return 1
+}
+
+mark_validation_success() {
+    if [ -e "$VALIDATION_REQUEST" ]; then
+        : > "$VALIDATION_SUCCESS" 2>/dev/null || true
+    fi
+}
+
+launch_optional_component() {
+    local program="$1"
+    local ready_marker="$2"
+
+    if ! command -v "$program" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    "$program" &
+    local pid=$!
+    optional_pids+=("$pid")
+
+    if [ -n "$ready_marker" ]; then
+        sleep 1
+        if kill -0 "$pid" 2>/dev/null; then
+            : > "$ready_marker"
+        fi
+    fi
+}
+
+kwin_args=()
+if [ "$kwin_mode" = "drm" ]; then
+    kwin_args+=(--drm)
+else
+    kwin_args+=(--virtual)
+fi
+
+kwin_wayland_wrapper "${kwin_args[@]}" &
+kwin_pid=$!
+
+if ! wait_for_wayland_socket; then
+    printf '%s\n' "redbear-kde-session: kwin_wayland_wrapper failed to expose $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" >&2
+    exit 1
+fi
+
+: > "$session_ready_file"
+mark_validation_success
+launch_optional_component kded6 ""
+launch_optional_component plasmashell "$panel_ready_file"
+
+wait "$kwin_pid"

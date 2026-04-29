@@ -127,6 +127,10 @@ path = "src/bin/redbear-phase4-kde-check.rs"
 name = "redbear-phase5-gpu-check"
 path = "src/bin/redbear-phase5-gpu-check.rs"
 
+[[bin]]
+name = "redbear-phase5-cs-check"
+path = "src/bin/redbear-phase5-cs-check.rs"
+
 [dependencies]
 redbear-login-protocol = { path = "../../redbear-login-protocol/source" }
 serde = { version = "1", features = ["derive"] }

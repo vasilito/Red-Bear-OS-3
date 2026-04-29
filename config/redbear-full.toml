@@ -51,7 +51,7 @@ qtsvg = {}
 qtwayland = {}
 qt6-wayland-smoke = {}
 
-# KF6 Frameworks — enabled non-cascading subset (suppressed: kio, kirigami, kdeclarative, knewstuff, kwallet)
+# KF6 Frameworks — enabled non-cascading subset (suppressed: kirigami, knewstuff, kwallet)
 kf6-extra-cmake-modules = {}
 kf6-kcoreaddons = {}
 kf6-kconfig = {}
@@ -63,22 +63,27 @@ kf6-knotifications = {}
 kf6-kconfigwidgets = {}
 kf6-kcrash = {}
 kf6-kdbusaddons = {}
+kf6-kdeclarative = {}
 kf6-kglobalaccel = {}
 kf6-kservice = {}
 kf6-kpackage = {}
 kf6-kiconthemes = {}
+kf6-kio = {}
 kf6-kcmutils = {}
 kf6-kwayland = {}
 kf6-kded6 = {}
 kglobalacceld = {}
 #kirigami = {}  # suppressed: QML stub, requires Qt6Quick
-#kf6-kio = {}  # suppressed: heavy shim with QtNetwork stubs
-#kf6-kdeclarative = {}  # suppressed: QML-dependent
-#kf6-knewstuff = {}  # suppressed: stub recipe
-#kf6-kwallet = {}  # suppressed: stub recipe
+#kf6-knewstuff = {}  # suppressed: stub-only recipe (dummy KF6NewStuff targets)
+#kf6-kwallet = {}  # suppressed: stub-only recipe (dummy KF6Wallet target)
 
 # KWin Wayland compositor (stub recipe provides cmake configs + kwin_wayland_wrapper delegating to redbear-compositor)
 kwin = {}
+
+# KDE Plasma session — real cmake builds, gated on Qt6Quick/QML + real KWin
+plasma-framework = {}
+plasma-workspace = {}
+plasma-desktop = {}
 
 # Greeter/login stack
 redbear-authd = {}
@@ -248,6 +253,26 @@ requires_weak = [
 
 [service]
 cmd = "/usr/bin/redbear-authd"
+envs = { QT_PLUGIN_PATH = "/usr/plugins", QT_QPA_PLATFORM_PLUGIN_PATH = "/usr/plugins/platforms", QML2_IMPORT_PATH = "/usr/qml", XCURSOR_THEME = "Pop", XKB_CONFIG_ROOT = "/usr/share/X11/xkb", KWIN_DRM_DEVICES = "/scheme/drm/card0" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_display.service"
+data = """
+[unit]
+description = "KDE session assembly helper"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+    "19_redbear-authd.service",
+]
+
+[service]
+cmd = "/usr/bin/redbear-session-launch"
+args = ["--username", "root", "--mode", "session", "--session", "kde-wayland", "--vt", "4", "--runtime-dir", "/tmp/run/redbear-display-session", "--wayland-display", "wayland-display"]
+envs = { QT_PLUGIN_PATH = "/usr/plugins", QT_QPA_PLATFORM_PLUGIN_PATH = "/usr/plugins/platforms", QML2_IMPORT_PATH = "/usr/qml", XCURSOR_THEME = "Pop", XKB_CONFIG_ROOT = "/usr/share/X11/xkb", REDBEAR_KDE_SESSION_BACKEND = "virtual", REDBEAR_KDE_SESSION_STATE_DIR = "/run/redbear-display-session" }
 type = "oneshot_async"
 """
 
@@ -358,43 +383,4 @@ class = 0x03
 vendor = 0x1af4
 subclass = 0x00
 command = ["redox-drm"]
-"""
-
-[[files]]
-path = "/usr/bin/redbear-kde-session"
-mode = 0o755
-data = """
-#!/usr/bin/env bash
-# Red Bear KDE Wayland session startup
-# Launched by redbear-session-launch after successful greeter login.
-
-export XDG_CURRENT_DESKTOP=KDE
-export KDE_FULL_SESSION=true
-export XDG_SESSION_ID="${XDG_SESSION_ID:-c1}"
-export QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/plugins}"
-export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_QPA_PLATFORM_PLUGIN_PATH:-/usr/plugins/platforms}"
-export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:-/usr/qml}"
-export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-seatd}"
-export SEATD_SOCK="${SEATD_SOCK:-/run/seatd.sock}"
-export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
-export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
-
-if [ -z "${KWIN_DRM_DEVICES:-}" ] && [ -e /scheme/drm/card0 ]; then
-    export KWIN_DRM_DEVICES=/scheme/drm/card0
-fi
-
-# Wait for Wayland compositor socket
-wayland_socket="${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY:-wayland-0}"
-for _ in $(seq 1 30); do
-    if [ -S "$wayland_socket" ]; then
-        break
-    fi
-    sleep 1
-done
-
-if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
-    exec kwin_wayland_wrapper --drm
-else
-    exec kwin_wayland_wrapper --virtual
-fi
 """

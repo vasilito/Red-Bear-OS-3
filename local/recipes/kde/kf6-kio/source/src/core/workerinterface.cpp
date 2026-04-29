@@ -9,103 +9,8 @@
 
 #include "commands_p.h"
 #include "connection_p.h"
+#include "hostinfo.h"
 #include "kiocoredebug.h"
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
-
-#include <QHostInfo>
 #include "usernotificationhandler_p.h"
 #include "workerbase.h"
 
@@ -113,6 +18,7 @@
 
 #include <QDataStream>
 #include <QDateTime>
+#include <QHostInfo>
 
 using namespace KIO;
 
@@ -364,9 +270,12 @@ bool WorkerInterface::dispatch(int _cmd, const QByteArray &rawdata)
     case MSG_HOST_INFO_REQ: {
         QString hostName;
         stream >> hostName;
+
+        const QHostInfo info = HostInfo::lookupHost(hostName, 1500);
+
         QByteArray replyData;
         QDataStream replyStream(&replyData, QIODevice::WriteOnly);
-        replyStream << hostName << QList<QHostAddress>() << int(QHostInfo::UnknownError) << QStringLiteral("Host lookup unavailable on Redox");
+        replyStream << info.hostName() << info.addresses() << int(info.error()) << info.errorString();
         m_connection->send(CMD_HOST_INFO, replyData);
         break;
     }
