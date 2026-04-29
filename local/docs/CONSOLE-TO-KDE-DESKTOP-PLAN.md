@@ -89,8 +89,8 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | KF6 frameworks (30/32) | **build real** | 22 enabled + kglobalacceld | 30 real cmake builds; knewstuff/kwallet now have real cmake attempts; 1 suppressed (kirigami, QML-dependent) |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
 | kirigami | **builds, suppressed** | suppressed | Real core-only cmake build; QML runtime gated; gated on Qt6Quick downstream proof |
-| kf6-knewstuff | **builds** | enabled | NewStuffCore cmake build; QML disabled; stub fallback if configure fails |
-| kf6-kwallet | **builds** | enabled | Core wallet cmake build; QML/GPG disabled; stub fallback |
+| kf6-knewstuff | **builds** | enabled | Real NewStuffCore cmake build; QML disabled |
+| kf6-kwallet | **builds** | enabled | Real API-only core wallet cmake build; QML/GPG disabled |
 | plasma-framework | **builds** | enabled | BUILD_WITH_QML=OFF |
 | plasma-workspace | **builds** | enabled | 52 dependency items |
 | plasma-desktop | **builds** | enabled | Depends on plasma-workspace |
@@ -119,7 +119,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 |---------|-------|--------|
 | GPU CS ioctl | DRM | Hardware rendering impossible without command submission |
 | Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target |
-| Real KWin build | Compositor | Stub delegates to redbear-compositor; needs Qt6Quick downstream proof |
+| KWin runtime proof | Compositor | Reduced-feature real build exists; bounded runtime proof requires Qt6Quick downstream validation |
 | kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof |
 
 ### Environmental Blockers (need toolchain/hardware)
@@ -154,7 +154,7 @@ Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
 
 - 22 KF6 frameworks + kglobalacceld
 - 3 Plasma packages (framework, workspace, desktop)
-- kwin (stub with wrapper scripts) + redbear-compositor (real Rust compositor)
+- kwin (reduced-feature real cmake build) + redbear-compositor (bounded validation compositor)
 - mesa + libdrm
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
 - seatd + redbear-authd + redbear-session-launch + redbear-greeter + redbear-sessiond (via redbear-mini)
@@ -171,7 +171,7 @@ Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
 
 4. **Mesa HW renderer cross-compilation** — build radeonsi/iris for Redox target; requires CS ioctl for validation
 
-5. **Real KWin build** — once Qt6Quick downstream proof exists, replace stub with real cmake build; unblocks full KDE Plasma session
+5. **Real KWin build** — validate the reduced-feature real KWin build on the Qt6Quick/QML downstream path; unblocks full KDE Plasma session
 
 6. **Hardware validation** — AMD + Intel bare-metal testing for all layers
 

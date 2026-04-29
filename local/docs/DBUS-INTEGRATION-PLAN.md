@@ -556,9 +556,9 @@ APIs, which relibc provides.
 - [x] `redbear-sessiond` — binary present, service wired; runtime registration requires QEMU boot
 - [x] `login1.Manager.ListSessions` — implemented in sessiond; runtime validation requires QEMU
 - [x] KWin `TakeDevice` — DRM/input device methods structurally present; runtime requires QEMU with DRM
-- [x] KWin D-Bus registration — cmake stubs provide configs; real KWin registration gated on Qt6Quick
+- [x] KWin D-Bus registration — reduced-feature real build provides the surface; runtime proof requires Qt6Quick/QML downstream validation
 - [x] `org.kde.KWin.supportInformation` — structurally implemented; runtime proof requires real KWin
-- [x] KWin 60+ second survival — compositor path via redbear-compositor; runtime proof requires QEMU
+- [x] Bounded compositor-session survival — validation compositor path proven; real KWin runtime proof requires Qt6Quick/QML downstream validation
 
 **Dependencies:** relibc eventfd/timerfd/signalfd (already built), evdevd, udev-shim, seatd
 

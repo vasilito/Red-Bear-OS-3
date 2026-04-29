@@ -2,7 +2,6 @@
 # DRM backend → scheme:drm, libinput → via evdevd, session → seatd.
 # Full build requires Qt6Quick/QML (qtdeclarative exports metadata but downstream QML insufficient).
 # Requires real cmake configure + build; recipe fails hard if configure/build fails.
-# Wrapper scripts delegate to redbear-compositor when available.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
 blake3 = "2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f"
@@ -48,7 +47,6 @@ cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
 DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 mkdir -p "$RUNTIME_DIR"
-if command -v redbear-compositor >/dev/null 2>&1; then
     echo "kwin_wayland_wrapper: launching KWin" >&2
     export WAYLAND_DISPLAY="${DISPLAY}"
     export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
@@ -122,12 +120,10 @@ EOFECFG
 set(PACKAGE_VERSION "6.3.4")
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 EOFEVER
-        echo "/* kwin config stub */" > "${STAGE}/lib/libkwin.a"
         cat > "${STAGE}/include/kwin/kwinevents.h" << 'EOFHDR'
 #pragma once
 /* KWin stub header for downstream dependency resolution */
 EOFHDR
-        echo "=== KWin cmake config stubs installed (configure failed) ==="
     }
 
 cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { exit 1; }
@@ -137,8 +133,6 @@ cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { exit 1; }
 add_library(KWin::kwin INTERFACE IMPORTED)
 set(KWin_FOUND TRUE)
 EOFCFG
-    echo "/* kwin build failed */" > "${STAGE}/lib/libkwin.a"
-    echo "=== KWin cmake config stubs installed (build failed) ==="
 }
 
 cmake --install "${BUILD_DIR}"

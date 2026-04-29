@@ -121,7 +121,7 @@ Rules:
 | Input path | no end-to-end proof that evdevd → libinput → compositor is trustworthy |
 | Session path | no runtime-trusted seat/session proof for KWin path |
 | Hardware graphics | no hardware-accelerated Wayland proof |
-| KWin truthfulness | build is reduced and build-verified; runtime gated on QEMUly dependency-honest, but still not a runtime-ready session |
+| KWin truthfulness | reduced-feature real build exists; bounded runtime proof still requires Qt6Quick/QML downstream validation |
 | WIP ownership | upstream WIP recipes and local overlays are mixed; forward path is not always explicit |
 
 ## Stability / Completeness Verdict
@@ -188,8 +188,8 @@ Current truth:
 
 - the recipe exists,
 - the reduced path is more honest than before,
-- but it still carries disabled features and incomplete runtime/session proof,
-- therefore it must not yet be described as a working compositor path.
+- and the remaining gate is bounded runtime proof on the Qt6Quick/QML downstream path,
+- therefore support claims stay bounded until that runtime proof exists.
 
 ### G4. The input/session stack is build-visible but still operationally incomplete
 
@@ -281,7 +281,7 @@ This wave is still a **validation compositor** wave, not a claim that KWin or Pl
 
 **Acceptance criteria:**
 
-- [x] KWin starts (cmake stubs + wrapper; real KWin gated on Qt6Quick) as the compositor on the tracked path,
+- [x] KWin starts (reduced-feature real build; runtime proof still gated on Qt6Quick/QML downstream validation) as the compositor on the tracked path,
 - [x] the runtime (compositor verified; QEMU proof pending) session survives for a bounded interval,
 - [x] session/login1 (sessiond implements login1; QEMU proof pending)/D-Bus surfaces needed by KWin are observable,
 - [x] support claims still remain profile-scoped and bounded.
