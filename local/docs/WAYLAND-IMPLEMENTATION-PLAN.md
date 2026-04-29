@@ -128,7 +128,7 @@ Rules:
 
 ### Stability
 
-Wayland is **not stable enough** for a broad support claim.
+Wayland is **build-verified; QEMU validation pending** for a broad support claim.
 
 Reason:
 

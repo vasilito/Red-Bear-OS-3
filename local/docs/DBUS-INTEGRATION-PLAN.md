@@ -1124,7 +1124,7 @@ Four fixes are required before KWin can use real hardware devices through login1
 | 3 | `kded6` binary build | KDE app recipe builds library, daemon binary is a separate recipe step | Add `kded6` binary to `local/recipes/kde/kf6-kded6/` or create separate recipe |
 | 4 | Session identity derivation | Hardcoded to `c1`, `root`, `uid=0` | Query real session environment variables (`XDG_SESSION_ID`, `XDG_SEAT`) and derive identity from the actual login session |
 | 5 | `UPower Changed` signal emission + polling | No signals, no polling | Emit `Changed` signal when power state changes; implement property polling for `OnBattery`, `Percentage`, `TimeToEmpty` |
-| 6 | `Notifications ActionInvoked` signal + capabilities | Not implemented | Emit `ActionInvoked(uint32, string)` when user clicks notification action; expand `GetCapabilities` to include `body`, `actions`, `icon-static` |
+| 6 | `Notifications ActionInvoked` signal + capabilities | Activation file staged; runtime deferred | Emit `ActionInvoked(uint32, string)` when user clicks notification action; expand `GetCapabilities` to include `body`, `actions`, `icon-static` |
 | 7 | Stoppable daemons | Services use `pending()` with no shutdown channel | Replace `pending()` in all services with proper shutdown signal channels; enable service restart and clean shutdown |
 
 ### KWin Method-by-Method Readiness Matrix
@@ -1163,7 +1163,7 @@ Four fixes are required before KWin can use real hardware devices through login1
 | `org.kde.kded6` | KDE daemon (status notifier, etc.) | Binary implemented; runtime registration requires QEMU | HIGH |
 | `org.freedesktop.StatusNotifierWatcher: activation file staged | MEDIUM |
 | `org.kde.ksmserver: activation file staged | MEDIUM |
-| `org.freedesktop.ScreenSaver` | Screen locking | Not implemented | MEDIUM |
+| `org.freedesktop.ScreenSaver` | Screen locking | Activation file staged; runtime deferred | MEDIUM |
 
 ### Implementation Priority Order
 
