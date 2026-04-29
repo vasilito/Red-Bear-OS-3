@@ -133,7 +133,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **Session tracker** | `org.freedesktop.login1` | Session/seat/device brokering scaffold | KWin (hard requirement for DRM/libinput) |
 | **Notification daemon** | `org.freedesktop.Notifications` | Notification service scaffold | kf6-knotifications |
 | **Polkit** | `org.freedesktop.PolicyKit1` | Authorization scaffold (always-permit) | KAuth |
-| **UPower** | `org.freedesktop.UPower` | Provisional ACPI-backed power service; current backing power surface is still incomplete | kf6-solid, PowerDevil |
+| **UPower** | `org.freedesktop.UPower` | Provisional ACPI-backed power service; current backing power surface is provisionally bounded; broader ACPI validation requires QEMU/hardware | kf6-solid, PowerDevil |
 | **UDisks2** | `org.freedesktop.UDisks2` | Bounded real `disk.*` / partition enumeration | kf6-solid |
 | **D-Bus service files** | `/usr/share/dbus-1/` | Activation is staged and shipped for the current scaffold services plus bounded KDE session daemons (`kded6`, `kglobalaccel`, ActivityManager, JobViewServer, ksmserver) | All D-Bus services |
 | **D-Bus policy files** | `/etc/dbus-1/` | Policy is staged and shipped for the current scaffold services | All D-Bus services |

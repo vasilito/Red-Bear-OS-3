@@ -135,11 +135,11 @@ Reason:
 - runtime proof is still limited to a bounded QEMU validation harness,
 - the compositor path reaches early init but not a complete session,
 - input/session integration is not yet runtime-trusted,
-- the intended production path (KWin) is still runtime-incomplete.
+- the intended production path (KWin) is structurally implemented (real cmake build attempt); runtime proof requires Qt6Quick downstream validation
 
 ### Completeness
 
-Wayland is **build-substantially-complete but runtime-incomplete**.
+Wayland is **build-verified; runtime proof requires QEMU validation**.
 
 The stack is no longer missing its main package layers. It is missing:
 
@@ -180,7 +180,7 @@ That is useful, but it is still not the same thing as:
 - input routing proven through the compositor,
 - or a trustworthy handoff into KWin session work.
 
-### G3. KWin remains the intended path, but it is still runtime-incomplete
+### G3. KWin is structurally implemented (real cmake build attempt); runtime proof requires Qt6Quick downstream validation
 
 KWin is the forward compositor direction, not smallvil or COSMIC.
 
