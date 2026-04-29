@@ -1,7 +1,4 @@
-#TODO: Kirigami — QtQuick lightweight UI framework. QML-heavy but required by KDE Plasma.
-# Real build requires Qt6Quick/QML runtime proof (qtdeclarative exports Qt6Quick metadata,
-# but downstream QML-dependent build and runtime paths are insufficient). Stub provides
-# cmake configs for dependency resolution only.
+#TODO: Kirigami — build the real non-QML C++ core on Redox. Qt Quick, templates, examples, and autotests stay disabled until the Qt6 QML/Quick runtime surface is stronger.
 [source]
 tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz"
 
@@ -9,12 +6,7 @@ tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.
 template = "custom"
 dependencies = [
     "qtbase",
-    "qtdeclarative",
     "kf6-extra-cmake-modules",
-    "kf6-kcoreaddons",
-    "kf6-ki18n",
-    "kf6-kconfig",
-    "kf6-kguiaddons",
 ]
 script = """
 DYNAMIC_INIT
@@ -27,44 +19,35 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-STAGE="${COOKBOOK_STAGE}/usr"
-mkdir -p "${STAGE}/lib/cmake/KF6Kirigami"
-mkdir -p "${STAGE}/lib/cmake/KF6Kirigami2"
+sed -i 's/COMPONENTS Core Gui Concurrent Qml Quick Qml Quick Qml Quick/COMPONENTS Core Gui Concurrent/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^    find_package(Qt6QuickTest .*/# find_package(Qt6QuickTest disabled for Redox core-only build)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^    add_subdirectory(templates)/# add_subdirectory(templates) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^    add_subdirectory(autotests)/# add_subdirectory(autotests) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 
-cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfig.cmake" << 'EOFCFG'
-add_library(KF6::Kirigami INTERFACE)
-EOFCFG
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
 
-cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSIONCompatible TRUE)
-EOFVER
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DBUILD_EXAMPLES=OFF \
+    -DUSE_DBUS=OFF \
+    -Wno-dev
 
-cat > "${STAGE}/lib/cmake/KF6Kirigami/KF6KirigamiTargets.cmake" << 'EOFTGT'
-add_library(KF6::Kirigami INTERFACE)
-EOFTGT
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
 
-cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2Config.cmake" << 'EOFCFG2'
-add_library(KF6::Kirigami2 INTERFACE)
-EOFCFG2
-
-cat > "${STAGE}/lib/cmake/KF6Kirigami2/KF6Kirigami2ConfigVersion.cmake" << 'EOFVER2'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSIONCompatible TRUE)
-EOFVER2
-
-mkdir -p "${STAGE}/lib"
-echo "/* dummy */" > "${STAGE}/lib/libKirigami.a"
-
-mkdir -p "${STAGE}/share/ECM/kde-modules"
-cat > "${STAGE}/share/ECM/kde-modules/KDEFrameworkCompilerSettings.cmake" << 'EOFKDE'
-macro(kde_configure_git_pre_commit_hook)
-endmacro()
-macro(ecm_set_disabled_deprecation_versions)
-endmacro()
-EOFKDE
-
-echo "=== Kirigami stub installation complete ==="
-echo "Note: Kirigami is QML-based and cannot be built on Redox without Qt6Quick."
-echo "Dummy cmake configs installed for dependency resolution."
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKirigami*.so.* "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
 """

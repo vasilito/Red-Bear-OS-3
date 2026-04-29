@@ -66,11 +66,16 @@ fn read_wayland_string(data: &[u8], cursor: &mut usize) -> Result<String, String
         return Ok(String::new());
     }
     if *cursor + length > data.len() {
-        return Err(String::from("unexpected end of message while reading string"));
+        return Err(String::from(
+            "unexpected end of message while reading string",
+        ));
     }
 
     let bytes = &data[*cursor..*cursor + length];
-    let string_len = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let string_len = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     *cursor += length;
     while *cursor % 4 != 0 {
         *cursor += 1;
@@ -139,11 +144,10 @@ impl WaylandProbe {
             iov_base: msg.as_mut_ptr().cast(),
             iov_len: msg.len(),
         };
-        let control_len = unsafe {
-            libc::CMSG_SPACE((fds.len() * mem::size_of::<i32>()) as u32) as usize
-        };
+        let control_len =
+            unsafe { libc::CMSG_SPACE((fds.len() * mem::size_of::<i32>()) as u32) as usize };
         let mut control = vec![0u8; control_len];
-        let mut header = libc::msghdr {
+        let header = libc::msghdr {
             msg_name: std::ptr::null_mut(),
             msg_namelen: 0,
             msg_iov: &mut iov,
@@ -170,10 +174,17 @@ impl WaylandProbe {
 
         let written = unsafe { libc::sendmsg(self.stream.as_raw_fd(), &header, 0) };
         if written < 0 {
-            return Err(format!("sendmsg failed: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "sendmsg failed: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         if written as usize != msg.len() {
-            return Err(format!("short sendmsg write: expected {}, got {}", msg.len(), written));
+            return Err(format!(
+                "short sendmsg write: expected {}, got {}",
+                msg.len(),
+                written
+            ));
         }
 
         Ok(())
@@ -209,7 +220,13 @@ impl WaylandProbe {
         Ok(registry_id)
     }
 
-    fn bind(&mut self, registry_id: u32, name: u32, interface: &str, version: u32) -> Result<u32, String> {
+    fn bind(
+        &mut self,
+        registry_id: u32,
+        name: u32,
+        interface: &str,
+        version: u32,
+    ) -> Result<u32, String> {
         let new_id = self.alloc_id();
         let mut payload = Vec::new();
         push_u32(&mut payload, name);
@@ -257,7 +274,9 @@ fn expect_shm_formats(probe: &mut WaylandProbe, shm_id: u32) -> Result<(), Strin
                 payload.len()
             ));
         }
-        formats.push(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+        formats.push(u32::from_le_bytes([
+            payload[0], payload[1], payload[2], payload[3],
+        ]));
     }
 
     if !formats.contains(&0) || !formats.contains(&1) {
@@ -267,7 +286,11 @@ fn expect_shm_formats(probe: &mut WaylandProbe, shm_id: u32) -> Result<(), Strin
     Ok(())
 }
 
-fn expect_xdg_configure(probe: &mut WaylandProbe, toplevel_id: u32, xdg_surface_id: u32) -> Result<u32, String> {
+fn expect_xdg_configure(
+    probe: &mut WaylandProbe,
+    toplevel_id: u32,
+    xdg_surface_id: u32,
+) -> Result<u32, String> {
     let (object_id, opcode, payload) = probe.read_message()?;
     if object_id != toplevel_id || opcode != XDG_TOPLEVEL_CONFIGURE {
         return Err(format!(
@@ -276,18 +299,26 @@ fn expect_xdg_configure(probe: &mut WaylandProbe, toplevel_id: u32, xdg_surface_
         ));
     }
     if payload.len() < 12 {
-        return Err(format!("short xdg_toplevel.configure payload: {} bytes", payload.len()));
+        return Err(format!(
+            "short xdg_toplevel.configure payload: {} bytes",
+            payload.len()
+        ));
     }
 
-    let states_len = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as usize;
+    let states_len =
+        u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as usize;
     if payload.len() != 12 + states_len {
         return Err(format!(
             "invalid xdg_toplevel.configure payload length: {} (states_len={})",
-            payload.len(), states_len
+            payload.len(),
+            states_len
         ));
     }
     if states_len % 4 != 0 {
-        return Err(format!("invalid xdg_toplevel.configure states array length: {}", states_len));
+        return Err(format!(
+            "invalid xdg_toplevel.configure states array length: {}",
+            states_len
+        ));
     }
 
     let (object_id, opcode, payload) = probe.read_message()?;
@@ -300,7 +331,9 @@ fn expect_xdg_configure(probe: &mut WaylandProbe, toplevel_id: u32, xdg_surface_
         ));
     }
 
-    Ok(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]))
+    Ok(u32::from_le_bytes([
+        payload[0], payload[1], payload[2], payload[3],
+    ]))
 }
 
 fn exercise_shm_pool(probe: &mut WaylandProbe, shm_id: u32, surface_id: u32) -> Result<(), String> {
@@ -320,8 +353,11 @@ fn exercise_shm_pool(probe: &mut WaylandProbe, shm_id: u32, surface_id: u32) -> 
         .map_err(|err| format!("failed to size temp SHM file: {err}"))?;
 
     let mut file = file;
-    file.write_all(&[0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF, 0xFF])
-        .map_err(|err| format!("failed to seed temp SHM file: {err}"))?;
+    file.write_all(&[
+        0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF, 0xFF, 0x40, 0x40, 0xFF,
+        0xFF,
+    ])
+    .map_err(|err| format!("failed to seed temp SHM file: {err}"))?;
 
     let pool_id = probe.alloc_id();
     let mut payload = Vec::new();
@@ -363,7 +399,8 @@ fn exercise_shm_pool(probe: &mut WaylandProbe, shm_id: u32, surface_id: u32) -> 
 }
 
 fn check_wayland_socket() -> Result<(), String> {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/run/redbear-greeter".into());
+    let runtime_dir =
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/run/redbear-greeter".into());
     let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
     let socket_path = format!("{}/{}", runtime_dir, display);
 
@@ -388,7 +425,11 @@ fn check_wayland_socket() -> Result<(), String> {
     expect_shm_formats(&mut probe, shm_id)?;
 
     let surface_id = probe.alloc_id();
-    probe.send_message(compositor_id, WL_COMPOSITOR_CREATE_SURFACE, &surface_id.to_le_bytes())?;
+    probe.send_message(
+        compositor_id,
+        WL_COMPOSITOR_CREATE_SURFACE,
+        &surface_id.to_le_bytes(),
+    )?;
 
     let xdg_surface_id = probe.alloc_id();
     let mut payload = Vec::new();
@@ -397,9 +438,17 @@ fn check_wayland_socket() -> Result<(), String> {
     probe.send_message(xdg_wm_base_id, XDG_WM_BASE_GET_XDG_SURFACE, &payload)?;
 
     let toplevel_id = probe.alloc_id();
-    probe.send_message(xdg_surface_id, XDG_SURFACE_GET_TOPLEVEL, &toplevel_id.to_le_bytes())?;
+    probe.send_message(
+        xdg_surface_id,
+        XDG_SURFACE_GET_TOPLEVEL,
+        &toplevel_id.to_le_bytes(),
+    )?;
     let serial = expect_xdg_configure(&mut probe, toplevel_id, xdg_surface_id)?;
-    probe.send_message(xdg_surface_id, XDG_SURFACE_ACK_CONFIGURE, &serial.to_le_bytes())?;
+    probe.send_message(
+        xdg_surface_id,
+        XDG_SURFACE_ACK_CONFIGURE,
+        &serial.to_le_bytes(),
+    )?;
 
     exercise_shm_pool(&mut probe, shm_id, surface_id)
 }
@@ -430,11 +479,17 @@ fn check_framebuffer() -> Result<(), String> {
     let addr = std::env::var("FRAMEBUFFER_ADDR").unwrap_or_default();
 
     if width.is_empty() || height.is_empty() || addr.is_empty() {
-        return Err("FRAMEBUFFER_* environment not set — bootloader didn't provide framebuffer".into());
+        return Err(
+            "FRAMEBUFFER_* environment not set — bootloader didn't provide framebuffer".into(),
+        );
     }
 
-    let w: u32 = width.parse().map_err(|_| format!("invalid FRAMEBUFFER_WIDTH: {}", width))?;
-    let h: u32 = height.parse().map_err(|_| format!("invalid FRAMEBUFFER_HEIGHT: {}", height))?;
+    let w: u32 = width
+        .parse()
+        .map_err(|_| format!("invalid FRAMEBUFFER_WIDTH: {}", width))?;
+    let h: u32 = height
+        .parse()
+        .map_err(|_| format!("invalid FRAMEBUFFER_HEIGHT: {}", height))?;
 
     if w == 0 || h == 0 {
         return Err("framebuffer dimensions are zero".into());

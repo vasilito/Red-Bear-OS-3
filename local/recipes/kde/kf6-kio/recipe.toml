@@ -1,7 +1,8 @@
 # KIO — reduced real KIOCore build for Red Bear OS.
 #
 # Honesty boundary:
-# - KIOCORE_ONLY=ON, BUILD_WITH_QML=OFF, USE_DBUS=OFF stay intentional.
+# - KIOCORE_ONLY=ON and BUILD_WITH_QML=OFF stay intentional.
+# - USE_DBUS=ON is now enabled to expose more real KIOCore functionality.
 # - QtNetwork is still unavailable on Redox, so KIOCore uses source-local
 #   Redox compatibility headers for the small QHostInfo/QHostAddress surface it needs.
 # - This recipe no longer forges QtNetwork headers into the shared sysroot.
@@ -17,6 +18,7 @@ dependencies = [
     "kf6-kcoreaddons",
     "kf6-kconfig",
     "kf6-ki18n",
+    "kf6-kdbusaddons",
     "kf6-kjobwidgets",
     "kf6-kservice",
     "kf6-kbookmarks",
@@ -62,7 +64,7 @@ cmake "${COOKBOOK_SOURCE}" \
     -DQT_SKIP_AUTO_PLUGIN_INCLUSION=ON \
     -DKIOCORE_ONLY=ON \
     -DBUILD_WITH_QML=OFF \
-    -DUSE_DBUS=OFF \
+    -DUSE_DBUS=ON \
     -DWITH_X11=OFF \
     -Wno-dev
 

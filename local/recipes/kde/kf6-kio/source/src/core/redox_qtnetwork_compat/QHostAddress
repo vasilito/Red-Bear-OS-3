@@ -17,16 +17,37 @@ public:
         IPv6Protocol,
     };
 
+    enum SpecialAddress {
+        Null,
+        Broadcast,
+        LocalHost,
+        LocalHostIPv6,
+        AnyIPv4,
+        AnyIPv6,
+        Any = AnyIPv4,
+    };
+
     QHostAddress() = default;
+
+    explicit QHostAddress(SpecialAddress address)
+    {
+        setAddress(address);
+    }
 
     explicit QHostAddress(const QString &address)
     {
         setAddress(address);
     }
 
+    explicit QHostAddress(quint32 ip4Address)
+    {
+        setAddress(ip4Address);
+    }
+
     void setAddress(const QString &address)
     {
         m_address = address;
+        m_ipv4Address = 0;
 
         if (address.isEmpty()) {
             m_protocol = UnknownNetworkLayerProtocol;
@@ -39,6 +60,8 @@ public:
 
         if (inet_pton(AF_INET, utf8.constData(), ipv4) == 1) {
             m_protocol = IPv4Protocol;
+            m_ipv4Address = (static_cast<quint32>(ipv4[0]) << 24) | (static_cast<quint32>(ipv4[1]) << 16)
+                | (static_cast<quint32>(ipv4[2]) << 8) | static_cast<quint32>(ipv4[3]);
             return;
         }
 
@@ -50,9 +73,61 @@ public:
         m_protocol = UnknownNetworkLayerProtocol;
     }
 
+    void setAddress(SpecialAddress address)
+    {
+        switch (address) {
+        case Null:
+            clear();
+            break;
+        case Broadcast:
+            setAddress(QStringLiteral("255.255.255.255"));
+            break;
+        case LocalHost:
+            setAddress(QStringLiteral("127.0.0.1"));
+            break;
+        case LocalHostIPv6:
+            setAddress(QStringLiteral("::1"));
+            break;
+        case AnyIPv4:
+            setAddress(QStringLiteral("0.0.0.0"));
+            break;
+        case AnyIPv6:
+            setAddress(QStringLiteral("::"));
+            break;
+        }
+    }
+
+    void setAddress(quint32 ip4Address)
+    {
+        in_addr address = {};
+        address.s_addr = ip4Address;
+
+        char buffer[INET_ADDRSTRLEN] = {};
+        if (inet_ntop(AF_INET, &address, buffer, sizeof(buffer)) != nullptr) {
+            m_address = QString::fromUtf8(buffer);
+            m_protocol = IPv4Protocol;
+            m_ipv4Address = ip4Address;
+            return;
+        }
+
+        clear();
+    }
+
+    void clear()
+    {
+        m_address.clear();
+        m_protocol = UnknownNetworkLayerProtocol;
+        m_ipv4Address = 0;
+    }
+
     bool isNull() const
     {
         return m_protocol == UnknownNetworkLayerProtocol;
+    }
+
+    bool isLoopback() const
+    {
+        return m_address == QStringLiteral("127.0.0.1") || m_address == QStringLiteral("::1");
     }
 
     QString toString() const
@@ -60,14 +135,34 @@ public:
         return m_address;
     }
 
+    quint32 toIPv4Address(bool *ok = nullptr) const
+    {
+        if (ok) {
+            *ok = m_protocol == IPv4Protocol;
+        }
+
+        return m_protocol == IPv4Protocol ? m_ipv4Address : 0;
+    }
+
     NetworkLayerProtocol protocol() const
     {
         return m_protocol;
     }
 
+    bool operator==(const QHostAddress &other) const
+    {
+        return m_protocol == other.m_protocol && m_address == other.m_address && m_ipv4Address == other.m_ipv4Address;
+    }
+
+    bool operator!=(const QHostAddress &other) const
+    {
+        return !(*this == other);
+    }
+
 private:
     QString m_address;
     NetworkLayerProtocol m_protocol = UnknownNetworkLayerProtocol;
+    quint32 m_ipv4Address = 0;
 
     friend QDataStream &operator<<(QDataStream &stream, const QHostAddress &address)
     {

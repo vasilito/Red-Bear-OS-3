@@ -116,6 +116,10 @@ public:
         return info;
     }
 
+    static void abortHostLookup(int)
+    {
+    }
+
     void setHostName(const QString &hostName)
     {
         m_hostName = hostName;
@@ -156,11 +160,22 @@ public:
         return m_errorString;
     }
 
+    void setLookupId(int lookupId)
+    {
+        m_lookupId = lookupId;
+    }
+
+    int lookupId() const
+    {
+        return m_lookupId;
+    }
+
 private:
     QString m_hostName;
     QList<QHostAddress> m_addresses;
     HostInfoError m_error = UnknownError;
     QString m_errorString;
+    int m_lookupId = -1;
 };
 
 Q_DECLARE_METATYPE(QHostInfo)
