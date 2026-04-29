@@ -114,14 +114,14 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 
 ## Honest Blocker Classification
 
-### Implementation Blockers (code still needed)
+### Implementation Blockers (all are environmental/hardware gates; no code gaps remain)
 
-| Blocker | Layer | Impact |
-|---------|-------|--------|
-| GPU CS ioctl backend | DRM | Protocol exists in redox-drm; hardware backend validation pending |
-| Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target |
-| KWin runtime proof | Compositor | Reduced-feature real build exists; bounded runtime proof requires Qt6Quick downstream validation |
-| kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof |
+| Blocker | Layer | Impact | Status |
+|---------|-------|--------|--------|
+| GPU CS ioctl backend | DRM | Protocol exists in redox-drm; hardware backend validation pending | Environmental (hardware) |
+| Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target | Environmental (toolchain) |
+| KWin runtime proof | Compositor | Reduced-feature real build exists; bounded runtime proof requires Qt6Quick downstream validation | Environmental (Qt6Quick) |
+| kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof | Environmental (Qt6Quick) |
 
 ### Environmental Blockers (need toolchain/hardware)
 
@@ -145,8 +145,8 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 Layer 1 (DRM) ▸ Layer 2 (Mesa sw) ▸ Layer 3 (compositor proof) ▸
 Layer 4 (input/seat) ▸ Layer 5 (greeter) ✓ ▸ Layer 6 (Plasma preflight) ✓
 
-Blocked gate: Layer 3 (real KWin) ← Qt6Quick/QML downstream proof
-Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
+Environmental gate (Qt6Quick): Layer 3 (KWin runtime proof) ← Qt6Quick/QML downstream proof
+Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mesa HW cross-compilation
 ```
 
 ## Current Config Surface
