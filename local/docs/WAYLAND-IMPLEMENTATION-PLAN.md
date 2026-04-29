@@ -111,7 +111,7 @@ Rules:
 | evdevd / udev-shim / firmware-loader / redox-drm | builds, boots, enumerate | runtime trust still bounded |
 | libinput | builds | udev disabled in recipe; runtime integration still open |
 | seatd | builds | runtime trust still open; lease path still unproven |
-| KWin | stub (cmake configs + wrapper scripts delegating to redbear-compositor) | real KWin build requires Qt6Quick/QML downstream proof |
+| KWin | reduced-feature real cmake build | runtime proof requires Qt6Quick/QML downstream validation |
 
 ### What remains incomplete
 
@@ -270,7 +270,7 @@ This wave is still a **validation compositor** wave, not a claim that KWin or Pl
 
 ### Wave 3 — KWin runtime truthfulness
 
-**Goal:** turn the current KWin stub into a real build with Qt6Quick/QML downstream proof.
+**Goal:** validate the current reduced-feature real KWin build with Qt6Quick/QML downstream proof.
 
 **Required work:**
 

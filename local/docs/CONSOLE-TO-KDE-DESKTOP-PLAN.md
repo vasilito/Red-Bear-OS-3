@@ -47,7 +47,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | libwayland 1.24.0 | **builds** | enabled | Wayland protocol library; durability patch applied |
 | wayland-protocols | **builds** | enabled | Protocol XML definitions |
 | redbear-compositor | **builds, 788 lines** | enabled | Real Rust Wayland compositor; zero warnings; 3/3 tests; known limitations: heap-memory framebuffer, payload-byte SHM, NUL-terminated wire encoding |
-| kwin | **stub** | enabled | cmake configs + kwin_wayland_wrapper delegating to redbear-compositor; real KWin requires Qt6Quick downstream proof |
+| kwin | **builds** | enabled | Reduced-feature real cmake build; runtime proof requires Qt6Quick/QML downstream validation |
 | redbear-compositor-check | **builds** | in redbear-compositor pkg | Verifies compositor socket, binaries, framebuffer |
 
 **Verdict**: Working bounded compositor proof. Real KWin gated on Qt6Quick/QML downstream proof.
@@ -88,9 +88,9 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtsvg | **builds** | enabled | SVG support |
 | KF6 frameworks (30/32) | **build real** | 22 enabled + kglobalacceld | 30 real cmake builds; knewstuff/kwallet now have real cmake attempts; 1 suppressed (kirigami, QML-dependent) |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
-| kirigami | **stub** | suppressed | QML-dependent; gated on Qt6Quick downstream proof |
-| kf6-knewstuff | **real build attempt** | enabled | NewStuffCore cmake build; QML disabled; stub fallback if configure fails |
-| kf6-kwallet | **real build attempt** | enabled | Core wallet cmake build; QML/GPG disabled; stub fallback |
+| kirigami | **builds, suppressed** | suppressed | Real core-only cmake build; QML runtime gated; gated on Qt6Quick downstream proof |
+| kf6-knewstuff | **builds** | enabled | NewStuffCore cmake build; QML disabled; stub fallback if configure fails |
+| kf6-kwallet | **builds** | enabled | Core wallet cmake build; QML/GPG disabled; stub fallback |
 | plasma-framework | **builds** | enabled | BUILD_WITH_QML=OFF |
 | plasma-workspace | **builds** | enabled | 52 dependency items |
 | plasma-desktop | **builds** | enabled | Depends on plasma-workspace |
@@ -134,7 +134,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 
 | Item | Reason |
 |------|--------|
-| kf6-knewstuff/kwallet | real cmake builds attempted; stub fallback if cmake fails; not on critical path for minimal session |
+| kf6-knewstuff/kwallet | real cmake builds attempted; QML disabled; not on critical path for minimal session |
 | libinput | evdevd handles input natively for bounded proof; libinput builds but suppressed in config |
 | libevdev | header build needed; not blocking |
 

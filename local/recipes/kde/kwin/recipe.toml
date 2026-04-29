@@ -1,7 +1,7 @@
 # KWin Wayland compositor — real cmake build attempt with reduced feature set.
 # DRM backend → scheme:drm, libinput → via evdevd, session → seatd.
 # Full build requires Qt6Quick/QML (qtdeclarative exports metadata but downstream QML insufficient).
-# Attempts real cmake configure + build; falls back to cmake config stubs + wrapper if configure fails.
+# Requires real cmake configure + build; recipe fails hard if configure/build fails.
 # Wrapper scripts delegate to redbear-compositor when available.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
@@ -31,16 +31,16 @@ done
 STAGE="${COOKBOOK_STAGE}/usr"
 mkdir -p "${STAGE}/bin"
 
-# kwin_wayland — thin wrapper around redbear-compositor when available
-cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
-#!/bin/sh
-if command -v redbear-compositor >/dev/null 2>&1; then
-    exec redbear-compositor "$@"
-fi
-echo "KWin: Wayland compositor not yet available on Redox"
-exit 0
-EOFBIN
-chmod +x "${STAGE}/bin/kwin_wayland"
+
+
+
+
+
+
+
+
+
+
 
 # kwin_wayland_wrapper — launches the real compositor when available
 cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
@@ -49,12 +49,12 @@ RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
 DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 mkdir -p "$RUNTIME_DIR"
 if command -v redbear-compositor >/dev/null 2>&1; then
-    echo "kwin_wayland_wrapper: launching redbear-compositor" >&2
+    echo "kwin_wayland_wrapper: launching KWin" >&2
     export WAYLAND_DISPLAY="${DISPLAY}"
     export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
-    exec redbear-compositor
+    exec /usr/bin/kwin_wayland
 fi
-echo "kwin_wayland_wrapper: redbear-compositor not found, using stub" >&2
+echo "kwin_wayland_wrapper: KWin not found" >&2
 if [ ! -e "$RUNTIME_DIR/$DISPLAY" ]; then
     touch "$RUNTIME_DIR/$DISPLAY"
 fi
@@ -88,7 +88,7 @@ cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
     -DUSE_DBUS=ON \
     -DQT_MAJOR_VERSION=6 \
     -DCMAKE_BUILD_TYPE=Release \
-    || {
+    || { exit 1; }
         echo "=== KWin cmake configure failed — installing cmake config stubs ==="
         mkdir -p "${STAGE}/lib/cmake/KWin" "${STAGE}/lib/cmake/KWinEffects"
         mkdir -p "${STAGE}/include/kwin" "${STAGE}/lib"
@@ -128,10 +128,9 @@ EOFEVER
 /* KWin stub header for downstream dependency resolution */
 EOFHDR
         echo "=== KWin cmake config stubs installed (configure failed) ==="
-        exit 0
     }
 
-cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || {
+cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || { exit 1; }
     echo "=== KWin build failed — installing cmake config stubs ==="
     mkdir -p "${STAGE}/lib/cmake/KWin" "${STAGE}/lib"
     cat > "${STAGE}/lib/cmake/KWin/KWinConfig.cmake" << 'EOFCFG'
@@ -140,7 +139,6 @@ set(KWin_FOUND TRUE)
 EOFCFG
     echo "/* kwin build failed */" > "${STAGE}/lib/libkwin.a"
     echo "=== KWin cmake config stubs installed (build failed) ==="
-    exit 0
 }
 
 cmake --install "${BUILD_DIR}"
