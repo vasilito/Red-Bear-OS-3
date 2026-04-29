@@ -1,7 +1,8 @@
 #TODO: KWin Wayland compositor — DRM backend → scheme:drm, libinput → via evdevd, session → seatd
-# Real build requires fully working Qt6Quick/QML cross-compilation + Wayland compositor runtime.
+# Real build requires Qt6Quick/QML runtime proof (qtdeclarative exports Qt6Quick metadata,
+# but downstream QML-dependent build and runtime paths are insufficient).
 # Stub provides cmake configs for downstream dependency resolution only.
-# When Qt6Quick/QML are fully cross-compiled for Redox, this recipe should be replaced
+# When Qt6Quick/QML downstream proof is sufficient, this recipe should be replaced
 # with a real build using the inspect/ overlay approach.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"

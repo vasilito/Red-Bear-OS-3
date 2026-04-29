@@ -1,5 +1,7 @@
 #TODO: Kirigami — QtQuick lightweight UI framework. QML-heavy but required by KDE Plasma.
-# Real build requires fully working Qt6Quick/QML cross-compilation. Stubs allow downstream cmake resolution.
+# Real build requires Qt6Quick/QML runtime proof (qtdeclarative exports Qt6Quick metadata,
+# but downstream QML-dependent build and runtime paths are insufficient). Stub provides
+# cmake configs for dependency resolution only.
 [source]
 tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz"
 
