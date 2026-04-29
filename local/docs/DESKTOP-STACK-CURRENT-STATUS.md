@@ -2,8 +2,15 @@
 
 **Last updated:** 2026-04-29
 **Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
-**Boot improvement plan:** `local/docs/BOOT-PROCESS-IMPROVEMENT-PLAN.md` (v1.0)
+**Boot improvement plan:** `local/docs/BOOT-PROCESS-IMPROVEMENT-PLAN.md` (v1.1)
 **Source archival policy:** `local/docs/SOURCE-ARCHIVAL-POLICY.md` (v1.0)
+
+## Recent Changes (2026-04-29, Wave C)
+
+- **Validation infrastructure consistency refresh**:
+  - `redbear-phase4-kde-check` now detects resolved KF6 shared-library version suffixes in addition to checking library presence, session entry points, and KDE runtime markers.
+  - `redbear-phase5-gpu-check` now detects GPU PCI vendor/device identity from `/scheme/pci` before reporting firmware / Mesa / DRM preflight state.
+  - `redbear-boot-check` now provides a bounded boot-surface checker for greeter-facing service ordering, DRM readiness, compositor socket creation, and greeter hello-protocol health.
 
 ## Recent Changes (2026-04-29, Wave 7)
 
@@ -160,8 +167,9 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | `kwin` | **stub** | cmake configs + wrapper scripts that delegate to redbear-compositor |
 | `test-phase4-runtime.sh` | **exists** | Phase 4 KDE Plasma preflight harness (guest + QEMU modes) |
 | `test-phase5-gpu-runtime.sh` | **exists** | Phase 5 hardware GPU preflight harness (guest + QEMU modes) |
-| `redbear-phase4-kde-check` | **builds** | Phase 4 KDE preflight: KF6 libraries, plasma binaries, session entry points, kirigami status |
-| `redbear-phase5-gpu-check` | **builds** | Phase 5 GPU preflight: DRM device, GPU firmware, Mesa DRI drivers, display modes |
+| `redbear-phase4-kde-check` | **builds** | Phase 4 KDE preflight: KF6 libraries plus resolved KF6 version suffixes, plasma binaries, session entry points, and kirigami status |
+| `redbear-phase5-gpu-check` | **builds** | Phase 5 GPU preflight: DRM device, GPU PCI vendor/device detection, GPU firmware, Mesa DRI drivers, and display modes |
+| `redbear-boot-check` | **builds** | Boot-surface preflight: `pcid-spawner`→greeter ordering contract, DRM device readiness, compositor socket creation, and greeter hello-protocol health |
 | | | |
 | **Phase 5 (Hardware GPU) — driver scaffold** | | |
 | `redox-drm` | **builds** | DRM scheme daemon with Intel Gen8-Gen12 + AMD device support and quirk tables; no hardware validation |

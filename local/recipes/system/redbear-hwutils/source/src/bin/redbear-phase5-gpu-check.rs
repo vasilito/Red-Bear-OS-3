@@ -4,6 +4,11 @@
 
 use std::process;
 
+#[cfg(target_os = "redox")]
+use redbear_hwutils::{PciLocation, lookup_pci_device_name, lookup_pci_vendor_name, parse_pci_location};
+#[cfg(target_os = "redox")]
+use redox_driver_sys::pci::parse_device_info_from_config_space;
+
 const PROGRAM: &str = "redbear-phase5-gpu-check";
 const USAGE: &str = "Usage: redbear-phase5-gpu-check [--json]\n\n\
      Phase 5 hardware GPU preflight check. Validates DRM device registration,\n\
@@ -120,6 +125,7 @@ impl Report {
         #[derive(serde::Serialize)]
         struct JsonReport {
             drm_device: bool,
+            gpu_pci_vendor: bool,
             gpu_firmware: bool,
             mesa_dri: bool,
             display_modes: bool,
@@ -137,6 +143,11 @@ impl Report {
             .checks
             .iter()
             .find(|c| c.name == "GPU_FIRMWARE")
+            .map_or(false, |c| c.result == CheckResult::Pass);
+        let pci_vendor = self
+            .checks
+            .iter()
+            .find(|c| c.name == "GPU_PCI_VENDOR")
             .map_or(false, |c| c.result == CheckResult::Pass);
         let mesa = self
             .checks
@@ -176,6 +187,7 @@ impl Report {
             std::io::stdout(),
             &JsonReport {
                 drm_device: drm,
+                gpu_pci_vendor: pci_vendor,
                 gpu_firmware: firmware,
                 mesa_dri: mesa,
                 display_modes: modes,
@@ -254,6 +266,101 @@ fn check_drm_device() -> Check {
         );
     }
     Check::fail("DRM_DEVICE", "no DRM device found at /scheme/drm/card0")
+}
+
+#[cfg(target_os = "redox")]
+#[derive(Clone, Debug)]
+struct GpuPciDevice {
+    location: PciLocation,
+    vendor_id: u16,
+    device_id: u16,
+}
+
+#[cfg(target_os = "redox")]
+fn collect_gpu_pci_devices() -> Result<Vec<GpuPciDevice>, String> {
+    let entries = std::fs::read_dir("/scheme/pci")
+        .map_err(|err| format!("failed to read /scheme/pci: {err}"))?;
+    let mut devices = Vec::new();
+
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let Some(location) = parse_pci_location(file_name) else {
+            continue;
+        };
+
+        let config_path = format!("{}/config", location.scheme_path());
+        let config = match std::fs::read(&config_path) {
+            Ok(config) => config,
+            Err(_) => continue,
+        };
+        if config.len() < 64 {
+            continue;
+        }
+
+        let Some(info) = parse_device_info_from_config_space(
+            redox_driver_sys::pci::PciLocation {
+                segment: location.segment,
+                bus: location.bus,
+                device: location.device,
+                function: location.function,
+            },
+            &config,
+        ) else {
+            continue;
+        };
+
+        if info.class_code != 0x03 {
+            continue;
+        }
+
+        devices.push(GpuPciDevice {
+            location,
+            vendor_id: info.vendor_id,
+            device_id: info.device_id,
+        });
+    }
+
+    devices.sort_by_key(|device| device.location);
+    Ok(devices)
+}
+
+#[cfg(target_os = "redox")]
+fn format_gpu_pci_device(device: &GpuPciDevice) -> String {
+    let vendor = lookup_pci_vendor_name(device.vendor_id)
+        .unwrap_or_else(|| format!("vendor {:04x}", device.vendor_id));
+    let device_name = lookup_pci_device_name(device.vendor_id, device.device_id)
+        .unwrap_or_else(|| format!("device {:04x}", device.device_id));
+
+    format!(
+        "{} {} ({})",
+        device.location, vendor, device_name
+    )
+}
+
+#[cfg(target_os = "redox")]
+fn check_gpu_pci_vendor() -> Check {
+    match collect_gpu_pci_devices() {
+        Ok(devices) if devices.is_empty() => Check::fail(
+            "GPU_PCI_VENDOR",
+            "no display-class PCI device found under /scheme/pci",
+        ),
+        Ok(devices) => {
+            let preview = devices
+                .iter()
+                .take(3)
+                .map(format_gpu_pci_device)
+                .collect::<Vec<_>>()
+                .join(", ");
+            Check::pass(
+                "GPU_PCI_VENDOR",
+                &format!("detected {} GPU PCI device(s): {preview}", devices.len()),
+            )
+        }
+        Err(err) => Check::fail("GPU_PCI_VENDOR", &err),
+    }
 }
 
 #[cfg(target_os = "redox")]
@@ -509,6 +616,7 @@ fn check_cs_ioctl_protocol() -> Check {
 fn check_hardware_rendering_ready(report: &Report) -> Check {
     let required = [
         "DRM_DEVICE",
+        "GPU_PCI_VENDOR",
         "GPU_FIRMWARE",
         "MESA_DRI",
         "DISPLAY_MODES",
@@ -557,6 +665,7 @@ fn run() -> Result<(), String> {
         let json_mode = parse_args()?;
         let mut report = Report::new(json_mode);
         report.add(check_drm_device());
+        report.add(check_gpu_pci_vendor());
         report.add(check_gpu_firmware());
         report.add(check_mesa_dri_hardware());
         report.add(check_display_modes());

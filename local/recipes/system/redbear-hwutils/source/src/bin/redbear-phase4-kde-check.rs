@@ -24,6 +24,16 @@ const REDBEAR_KDE_SESSION_ENV_FILE: &str = "redbear-kde-session.env";
 const REDBEAR_KDE_SESSION_READY_FILE: &str = "redbear-kde-session.ready";
 #[cfg(target_os = "redox")]
 const REDBEAR_KDE_SESSION_PANEL_READY_FILE: &str = "redbear-kde-session.panel-ready";
+#[cfg(target_os = "redox")]
+const KEY_KF6_LIBRARIES: &[&str] = &[
+    "/usr/lib/libKF6CoreAddons.so",
+    "/usr/lib/libKF6ConfigCore.so",
+    "/usr/lib/libKF6I18n.so",
+    "/usr/lib/libKF6WindowSystem.so",
+    "/usr/lib/libKF6Notifications.so",
+    "/usr/lib/libKF6Service.so",
+    "/usr/lib/libKF6WaylandClient.so",
+];
 
 #[cfg(target_os = "redox")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,6 +151,7 @@ impl Report {
         struct JsonReport {
             overall_success: bool,
             kf6_libs_present: bool,
+            kf6_library_versions: bool,
             plasma_binaries_present: bool,
             session_entry: bool,
             session_environment: bool,
@@ -164,6 +175,7 @@ impl Report {
         let report = JsonReport {
             overall_success: !self.any_failed(),
             kf6_libs_present: self.check_passed("KF6_LIBRARIES"),
+            kf6_library_versions: self.check_passed("KF6_LIBRARY_VERSIONS"),
             plasma_binaries_present: self.check_passed("PLASMA_BINARIES"),
             session_entry: self.check_passed("SESSION_ENTRY"),
             session_environment: self.check_passed("SESSION_ENVIRONMENT"),
@@ -207,19 +219,10 @@ fn parse_args() -> Result<bool, String> {
 
 #[cfg(target_os = "redox")]
 fn check_kf6_libraries() -> Check {
-    let key_libs = [
-        "/usr/lib/libKF6CoreAddons.so",
-        "/usr/lib/libKF6ConfigCore.so",
-        "/usr/lib/libKF6I18n.so",
-        "/usr/lib/libKF6WindowSystem.so",
-        "/usr/lib/libKF6Notifications.so",
-        "/usr/lib/libKF6Service.so",
-        "/usr/lib/libKF6WaylandClient.so",
-    ];
     let mut found = 0usize;
     let mut missing = Vec::new();
 
-    for lib in key_libs {
+    for lib in KEY_KF6_LIBRARIES {
         if Path::new(lib).exists() {
             found += 1;
         } else {
@@ -231,7 +234,7 @@ fn check_kf6_libraries() -> Check {
         if missing.is_empty() {
             Check::pass(
                 "KF6_LIBRARIES",
-                format!("{found}/{} key KF6 libraries found", key_libs.len()),
+                format!("{found}/{} key KF6 libraries found", KEY_KF6_LIBRARIES.len()),
             )
         } else {
             let preview = missing
@@ -242,14 +245,90 @@ fn check_kf6_libraries() -> Check {
                 .join(", ");
             Check::pass(
                 "KF6_LIBRARIES",
-                format!("{found}/{} found, missing: {preview}", key_libs.len()),
+                format!("{found}/{} found, missing: {preview}", KEY_KF6_LIBRARIES.len()),
             )
         }
     } else {
         Check::fail(
             "KF6_LIBRARIES",
-            format!("only {found}/{} key KF6 libraries found", key_libs.len()),
+            format!(
+                "only {found}/{} key KF6 libraries found",
+                KEY_KF6_LIBRARIES.len()
+            ),
         )
+    }
+}
+
+#[cfg(target_os = "redox")]
+fn library_display_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+#[cfg(target_os = "redox")]
+fn detect_shared_library_version(path: &Path) -> Result<String, String> {
+    let resolved = fs::canonicalize(path)
+        .map_err(|err| format!("failed to resolve {}: {err}", path.display()))?;
+    let file_name = resolved
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("failed to read resolved file name for {}", path.display()))?;
+
+    file_name
+        .rsplit_once(".so.")
+        .map(|(_, version)| version.to_string())
+        .ok_or_else(|| {
+            format!(
+                "resolved library {} does not contain a version suffix",
+                resolved.display()
+            )
+        })
+}
+
+#[cfg(target_os = "redox")]
+fn check_kf6_library_versions() -> Check {
+    let mut versions = BTreeMap::<String, Vec<String>>::new();
+    let mut unresolved = Vec::new();
+
+    for lib in KEY_KF6_LIBRARIES {
+        let lib_path = Path::new(lib);
+        if !lib_path.exists() {
+            continue;
+        }
+
+        match detect_shared_library_version(lib_path) {
+            Ok(version) => versions
+                .entry(version)
+                .or_default()
+                .push(library_display_name(lib).to_string()),
+            Err(err) => unresolved.push(err),
+        }
+    }
+
+    let detected = versions.values().map(Vec::len).sum::<usize>();
+    if detected >= 6 {
+        let mut detail_parts = versions
+            .iter()
+            .map(|(version, libs)| format!("{version} [{}]", libs.join(", ")))
+            .collect::<Vec<_>>();
+        if !unresolved.is_empty() {
+            detail_parts.push(format!("unresolved: {}", unresolved.join("; ")));
+        }
+
+        Check::pass(
+            "KF6_LIBRARY_VERSIONS",
+            format!(
+                "detected version suffixes for {detected}/{} key KF6 libraries: {}",
+                KEY_KF6_LIBRARIES.len(),
+                detail_parts.join(" | ")
+            ),
+        )
+    } else {
+        let detail = if unresolved.is_empty() {
+            String::from("no versioned KF6 libraries could be resolved")
+        } else {
+            unresolved.join("; ")
+        };
+        Check::fail("KF6_LIBRARY_VERSIONS", detail)
     }
 }
 
@@ -631,6 +710,7 @@ fn run() -> Result<(), String> {
         let mut report = Report::new(json_mode);
 
         report.add(check_kf6_libraries());
+        report.add(check_kf6_library_versions());
         report.add(check_plasma_binaries());
         report.add(check_session_entry());
         report.add(check_session_environment());
