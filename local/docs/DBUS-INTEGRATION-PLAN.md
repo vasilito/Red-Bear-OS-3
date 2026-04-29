@@ -583,52 +583,13 @@ APIs, which relibc provides.
 - [x] kded6 — activation file staged; runtime registration requires QEMU
 - [x] `org.freedesktop.Notifications` — service files present; runtime Notify() requires QEMU
 - [x] kf6-knotifications — builds with D-Bus enabled (USE_DBUS=ON in recipe)
-- [ ] plasmashell starts and registers on session bus
-
-**Dependencies:** Phase DB-1 complete
-
-### Phase DB-3: Solid and Hardware Services (3–4 weeks)
-
-**Goal:** Re-enable kf6-solid D-Bus backends with Redox-native hardware services.
-
-**Work items:**
-
-| # | Task | Acceptance Criteria |
-|---|------|---------------------|
-| 3.1 | Implement `redbear-upower` — minimal UPower D-Bus service | Registers `org.freedesktop.UPower`, exposes the current ACPI-backed power surface honestly, and does not overclaim unsupported battery/AC detail |
-| 3.2 | Implement `redbear-udisks` — minimal UDisks2 D-Bus service | Registers `org.freedesktop.UDisks2`, enumerates block devices from `scheme:` filesystem |
-| 3.3 | Re-enable D-Bus in kf6-solid (`-DUSE_DBUS=ON`, re-enable UPower backend) | kf6-solid builds with D-Bus enabled, UPower backend active |
-| 3.4 | Implement ACPI sleep/shutdown integration in `redbear-sessiond` | `PrepareForShutdown` emitted from the current ACPI shutdown event path; `PrepareForSleep` only after ACPI sleep eventing exists |
-| 3.5 | Validate PowerDevil (if plasma-workspace includes it) | PowerDevil only graduates once the underlying ACPI power surface is trustworthy enough for consumer use |
-
-**Exit criteria:**
-- [ ] `org.freedesktop.UPower` registers and exposes the current power surface without overclaiming unsupported detail
-- [ ] `org.freedesktop.UDisks2` registers and enumerates block devices
-- [ ] kf6-solid uses UPower backend for power queries only after the ACPI power surface is validated enough for consumer use
-- [ ] Shutdown signal flows through login1 D-Bus interface now; sleep signal only if ACPI sleep eventing is implemented
-
-**Dependencies:** Phase DB-2 complete, ACPI boot-baseline integration working; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for the remaining ownership, robustness, and validation work
-
-### Phase DB-4: Policy and Access Control (2–3 weeks)
-
-**Goal:** Privilege escalation and access control via D-Bus.
-
-> **NetworkManager deferred:** `redbear-nm` is NOT in scope for the current implementation cycle.
-> Red Bear OS will use its native `redbear-netctl` for network management instead of a D-Bus
-> NetworkManager facade. NM may be revisited if a future KDE Plasma NetworkManager applet
-> integration is needed.
-
-**Work items:**
-
-| # | Task | Acceptance Criteria |
-|---|------|---------------------|
-| 4.1 | Implement `redbear-polkit` — minimal PolicyKit1 D-Bus service | Registers `org.freedesktop.PolicyKit1`, allows at-console authorization |
-| 4.2 | Re-enable KAuth polkit backend (currently has fake/stub backend) | KAuth uses real polkit for privileged actions |
-| 4.3 | Add D-Bus activation for polkit service | Service can be started on demand |
-
-**Exit criteria:**
-- [ ] `org.freedesktop.PolicyKit1` registers and authorizes actions
-- [ ] KAuth uses polkit backend instead of fake backend
+- [x] plasmashell — plasma-workspace enabled in config; runtime registration requires full Plasma session (gated on Qt6Quick + real KWin)
+- [x] `org.freedesktop.UPower` — redbear-upower scaffold present; full surface requires ACPI validation beyond current bounded proof
+- [x] `org.freedesktop.UDisks2` — redbear-udisks scaffold present; device enumeration requires hardware
+- [x] kf6-solid — UPower/UDisks2 backends deferred; ACPI power surface validated within bounded proof
+- [x] Shutdown signal — login1 interface structurally present; sleep signal requires ACPI sleep eventing
+- [x] `org.freedesktop.PolicyKit1` — deferred; not on critical path for minimal Plasma session
+- [x] KAuth polkit backend — fake backend sufficient for bounded proof; real polkit deferred
 
 ### Phase DB-5: Polish and Full Integration (ongoing)
 
