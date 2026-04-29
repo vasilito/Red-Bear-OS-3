@@ -1,0 +1,20 @@
+[package]
+name = "init"
+description = "Userspace process launcher"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+libc.workspace = true
+libredox.workspace = true
+plain.workspace = true
+redox_syscall.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+config = { path = "../config" }
+
+[lints]
+workspace = true

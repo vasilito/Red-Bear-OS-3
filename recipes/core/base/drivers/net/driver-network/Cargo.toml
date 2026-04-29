@@ -1,0 +1,15 @@
+[package]
+name = "driver-network"
+description = "Shared networking code library"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libredox.workspace = true
+daemon = { path = "../../../daemon" }
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+redox_syscall = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

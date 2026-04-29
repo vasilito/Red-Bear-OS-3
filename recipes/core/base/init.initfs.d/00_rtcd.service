@@ -1,0 +1,7 @@
+[unit]
+description = "Set time from realtime clock"
+default_dependencies = false
+
+[service]
+cmd = "rtcd"
+type = "oneshot"

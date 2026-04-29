@@ -1,0 +1,8 @@
+[unit]
+description = "/dev/zero"
+default_dependencies = false
+
+[service]
+cmd = "zerod"
+args = ["zero"]
+type = { scheme = "zero" }

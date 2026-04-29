@@ -1,0 +1,20 @@
+[package]
+name = "lived"
+description = "Live disk daemon"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow.workspace = true
+libredox.workspace = true
+daemon = { path = "../../../daemon" }
+redox_syscall = { workspace = true, features = ["std"] }
+redox_event.workspace = true
+driver-block = { path = "../driver-block" }
+
+[lints]
+workspace = true

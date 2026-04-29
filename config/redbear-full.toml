@@ -30,66 +30,68 @@ firmware-loader = {}
 
 # GPU/graphics stack
 redox-drm = {}
-# mesa = {}  # suppressed
-# libdrm = {}  # suppressed
+mesa = {}
+libdrm = {}
 
 # Wayland protocol
-# libwayland = {}  # suppressed
-# wayland-protocols = {}  # suppressed
+libwayland = {}
+wayland-protocols = {}
 redbear-compositor = {}
 
 # Keyboard/input
-# libxkbcommon = {}  # suppressed
-# xkeyboard-config = {}  # suppressed
-# libevdev = {}  # suppressed
-#libinput = {}  # suppressed: cascade rebuild
-
-# Seat management
-seatd = {}
+# libxkbcommon = {}  # build needed
+# xkeyboard-config = {}  # build needed
+# libevdev = {}  # build needed
+libinput = "ignore"
 
 # Qt6 stack
-# qtbase = {}  # suppressed
-# qtdeclarative = {}  # suppressed
-# qtsvg = {}  # suppressed
-# qtwayland = {}  # suppressed
-# qt6-wayland-smoke = {}  # suppressed
+qtbase = {}
+qtdeclarative = {}
+qtsvg = {}
+qtwayland = {}
+qt6-wayland-smoke = {}
 
-# KF6 Frameworks
-#kf6-extra-cmake-modules = {}  # suppressed: cascade rebuild
-#kf6-kcoreaddons = {}  # suppressed: cascade rebuild
-#kf6-kconfig = {}  # suppressed: cascade rebuild
-#kf6-ki18n = {}  # suppressed: cascade rebuild
-#kf6-kcolorscheme = {}  # suppressed: cascade rebuild
-#kf6-kauth = {}  # suppressed: cascade rebuild
-#kf6-kwindowsystem = {}  # suppressed: cascade rebuild
-#kf6-knotifications = {}  # suppressed: cascade rebuild
-#kf6-kconfigwidgets = {}  # suppressed: cascade rebuild
-#kf6-kcrash = {}  # suppressed: cascade rebuild
-#kf6-kdbusaddons = {}  # suppressed: cascade rebuild
-#kf6-kglobalaccel = {}  # suppressed: cascade rebuild
-#kf6-kservice = {}  # suppressed: cascade rebuild
-#kf6-kpackage = {}  # suppressed: cascade rebuild
-#kf6-kiconthemes = {}  # suppressed: cascade rebuild
-#kirigami = {}  # suppressed: cascade rebuild
-#kf6-kio = {}  # suppressed: cascade rebuild
-#kf6-kdeclarative = {}  # suppressed: cascade rebuild
-#kf6-kcmutils = {}  # suppressed: cascade rebuild
-#kf6-kwayland = {}  # suppressed: cascade rebuild
+# KF6 Frameworks — enabled non-cascading subset (suppressed: kio, kirigami, kdeclarative, knewstuff, kwallet)
+kf6-extra-cmake-modules = {}
+kf6-kcoreaddons = {}
+kf6-kconfig = {}
+kf6-ki18n = {}
+kf6-kcolorscheme = {}
+kf6-kauth = {}
+kf6-kwindowsystem = {}
+kf6-knotifications = {}
+kf6-kconfigwidgets = {}
+kf6-kcrash = {}
+kf6-kdbusaddons = {}
+kf6-kglobalaccel = {}
+kf6-kservice = {}
+kf6-kpackage = {}
+kf6-kiconthemes = {}
+kf6-kcmutils = {}
+kf6-kwayland = {}
+kf6-kded6 = {}
+kglobalacceld = {}
+#kirigami = {}  # suppressed: QML stub, requires Qt6Quick
+#kf6-kio = {}  # suppressed: heavy shim with QtNetwork stubs
+#kf6-kdeclarative = {}  # suppressed: QML-dependent
+#kf6-knewstuff = {}  # suppressed: stub recipe
+#kf6-kwallet = {}  # suppressed: stub recipe
 
-#kf6-kded6 = {}  # suppressed: cascade rebuild
-#kglobalacceld = {}  # suppressed: cascade rebuild
-
-# KWin Wayland compositor
-#kwin = {}  # suppressed: cascade rebuild
+# KWin Wayland compositor (stub recipe provides cmake configs + kwin_wayland_wrapper delegating to redbear-compositor)
+kwin = {}
 
 # Greeter/login stack
 redbear-authd = {}
 redbear-session-launch = {}
-redbear-greeter = "ignore"
+seatd = {}
+redbear-greeter = {}
 amdgpu = "ignore"
 
 # Core Red Bear umbrella package
 redbear-meta = {}
+
+# Phase 1 runtime validation tests (POSIX: signalfd, timerfd, eventfd, shm_open, sem_open, waitid)
+relibc-phase1-tests = {}
 
 # Desktop fonts and icons
 dejavu = {}
@@ -108,7 +110,6 @@ cosmic-icons = "ignore"
 cosmic-term = "ignore"
 curl = "ignore"
 git = "ignore"
-libinput = "ignore"
 mc = "ignore"
 #curl = "ignore"  # suppressed: cascade rebuild
 #git = "ignore"  # suppressed: cascade rebuild
@@ -297,7 +298,6 @@ requires_weak = [
 cmd = "getty"
 args = ["2"]
 type = "oneshot_async"
-respawn = true
 """
 
 [[files]]
@@ -313,7 +313,6 @@ requires_weak = [
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
 type = "oneshot_async"
-respawn = true
 """
 
 [users.greeter]
@@ -327,6 +326,10 @@ shell = "/usr/bin/ion"
 [groups.greeter]
 gid = 101
 members = ["greeter"]
+
+[groups.messagebus]
+gid = 100
+members = ["messagebus"]
 
 [[files]]
 path = "/etc/pcid.d/ihdgd.toml"

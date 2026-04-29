@@ -1,6 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{MaybeUninit, size_of};
 use std::path::Path;
 use std::process::{self};
 
@@ -162,9 +162,16 @@ fn parse_args() -> Result<(String, String, Option<String>), String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--vendor" => vendor = args.next(),
-            "--card" => card = args.next().ok_or_else(|| "missing value for --card".to_string())?,
+            "--card" => {
+                card = args
+                    .next()
+                    .ok_or_else(|| "missing value for --card".to_string())?
+            }
             "--modeset" => {
-                modeset = Some(args.next().ok_or_else(|| "missing value for --modeset".to_string())?)
+                modeset = Some(
+                    args.next()
+                        .ok_or_else(|| "missing value for --modeset".to_string())?,
+                )
             }
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -192,7 +199,11 @@ fn decode_wire<T: Copy>(bytes: &[u8]) -> Result<T, String> {
     }
     let mut out = MaybeUninit::<T>::uninit();
     unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.as_mut_ptr().cast::<u8>(), size_of::<T>());
+        std::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            out.as_mut_ptr().cast::<u8>(),
+            size_of::<T>(),
+        );
         Ok(out.assume_init())
     }
 }
@@ -228,7 +239,9 @@ fn query_empty(file: &mut File, request: usize, payload: &[u8]) -> Result<(), St
     if response == [0] || response.is_empty() {
         Ok(())
     } else {
-        Err(format!("unexpected non-empty response for ioctl {request:#x}"))
+        Err(format!(
+            "unexpected non-empty response for ioctl {request:#x}"
+        ))
     }
 }
 
@@ -241,7 +254,9 @@ fn query_resources(file: &mut File) -> Result<ResourcesSummary, String> {
         if response.len() < offset + size_of::<u32>() {
             return Err("resources response missing connector id payload".to_string());
         }
-        connector_ids.push(decode_wire::<u32>(&response[offset..offset + size_of::<u32>()])?);
+        connector_ids.push(decode_wire::<u32>(
+            &response[offset..offset + size_of::<u32>()],
+        )?);
         offset += size_of::<u32>();
     }
 
@@ -252,7 +267,11 @@ fn query_resources(file: &mut File) -> Result<ResourcesSummary, String> {
 }
 
 fn query_connector(file: &mut File, connector_id: u32) -> Result<DrmConnectorWire, String> {
-    let response = drm_query(file, DRM_IOCTL_MODE_GETCONNECTOR, &connector_id.to_le_bytes())?;
+    let response = drm_query(
+        file,
+        DRM_IOCTL_MODE_GETCONNECTOR,
+        &connector_id.to_le_bytes(),
+    )?;
     decode_wire(&response)
 }
 
@@ -321,7 +340,10 @@ fn query_addfb(file: &mut File, request: &DrmAddFbWire) -> Result<DrmAddFbWire, 
     decode_wire(&response)
 }
 
-fn query_create_dumb(file: &mut File, request: &DrmCreateDumbWire) -> Result<DrmCreateDumbWire, String> {
+fn query_create_dumb(
+    file: &mut File,
+    request: &DrmCreateDumbWire,
+) -> Result<DrmCreateDumbWire, String> {
     let response = drm_query(file, DRM_IOCTL_MODE_CREATE_DUMB, bytes_of(request))?;
     decode_wire(&response)
 }
@@ -355,7 +377,12 @@ fn disable_crtc_request(crtc_id: u32) -> DrmSetCrtcWire {
     }
 }
 
-fn setcrtc_request(crtc_id: u32, connector_id: u32, fb_id: u32, mode: DrmModeWire) -> DrmSetCrtcWire {
+fn setcrtc_request(
+    crtc_id: u32,
+    connector_id: u32,
+    fb_id: u32,
+    mode: DrmModeWire,
+) -> DrmSetCrtcWire {
     let mut request = DrmSetCrtcWire {
         crtc_id,
         fb_handle: fb_id,
@@ -398,7 +425,9 @@ fn bounded_modeset_proof(
     let encoder = query_encoder(file, connector.encoder_id)?;
     let crtc_id = encoder.crtc_id;
     if crtc_id == 0 {
-        return Err(format!("connector {connector_id} encoder did not report a usable CRTC"));
+        return Err(format!(
+            "connector {connector_id} encoder did not report a usable CRTC"
+        ));
     }
 
     let create = query_create_dumb(
@@ -516,7 +545,11 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{bytes_of, decode_wire, disable_crtc_request, find_mode, has_connector_section, has_mode_lines, parse_modeset_spec, proof_teardown_requests, setcrtc_request, DrmModeWire, DrmResourcesWire, ModeSummary};
+    use super::{
+        DrmModeWire, DrmResourcesWire, ModeSummary, bytes_of, decode_wire, disable_crtc_request,
+        find_mode, has_connector_section, has_mode_lines, parse_modeset_spec,
+        proof_teardown_requests, setcrtc_request,
+    };
 
     fn owned_bytes_of<T>(value: &T) -> Vec<u8> {
         unsafe {
@@ -537,7 +570,11 @@ mod tests {
 
     #[test]
     fn query_modes_accepts_empty_sentinel() {
-        let parsed = if vec![0] == [0] { Vec::<DrmModeWire>::new() } else { unreachable!() };
+        let parsed = if vec![0] == [0] {
+            Vec::<DrmModeWire>::new()
+        } else {
+            unreachable!()
+        };
         assert!(parsed.is_empty());
     }
 

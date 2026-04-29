@@ -114,8 +114,12 @@ fn run() -> Result<(), String> {
     require_contains("redbear_info", &info, "wifi_disconnect_result")?;
 
     println!("PASS: bounded Intel Wi-Fi runtime path exercised inside target runtime");
-    println!("NOTE: the packaged runtime checker currently validates the bounded open-profile path by default; WPA2-PSK is implemented and host/unit-verified elsewhere in-repo but is not yet the default packaged runtime proof");
-    println!("NOTE: this still does not prove real AP scan/auth/association, packet flow, DHCP success over Wi-Fi, or validated end-to-end connectivity");
+    println!(
+        "NOTE: the packaged runtime checker currently validates the bounded open-profile path by default; WPA2-PSK is implemented and host/unit-verified elsewhere in-repo but is not yet the default packaged runtime proof"
+    );
+    println!(
+        "NOTE: this still does not prove real AP scan/auth/association, packet flow, DHCP success over Wi-Fi, or validated end-to-end connectivity"
+    );
     Ok(())
 }
 

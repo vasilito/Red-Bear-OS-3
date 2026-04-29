@@ -1,0 +1,18 @@
+[package]
+name = "common"
+description = "Shared driver code library"
+version = "0.1.0"
+edition = "2021"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libredox.workspace = true
+log.workspace = true
+redox_syscall = { workspace = true, features = ["std"] }
+redox-log.workspace = true
+
+[lints]
+workspace = true

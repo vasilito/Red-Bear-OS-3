@@ -1,0 +1,17 @@
+[package]
+name = "ptyd"
+description = "Pseudo-terminal daemon"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libredox.workspace = true
+daemon = { path = "../daemon" }
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+redox_event.workspace = true
+redox_syscall.workspace = true
+redox_termios.workspace = true
+
+[lints]
+workspace = true

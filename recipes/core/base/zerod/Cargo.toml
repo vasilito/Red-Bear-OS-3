@@ -1,0 +1,16 @@
+[package]
+name = "zerod"
+description = "Zeroing buffers daemon"
+version = "0.1.0"
+authors = ["Alex Lyon <arcterus@mail.com>"]
+edition = "2021"
+
+[dependencies]
+redox_syscall.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+daemon = { path = "../daemon" }
+libredox.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "rtl8168d"
+description = "Realtek 8168 ethernet driver"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+bitflags.workspace = true
+libredox.workspace = true
+log.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-network = { path = "../driver-network" }
+pcid = { path = "../../pcid" }
+
+[lints]
+workspace = true

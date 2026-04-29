@@ -1,0 +1,23 @@
+[package]
+name = "driver-block"
+description = "Shared storage driver code"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+daemon = { path = "../../../daemon" }
+executor = { path = "../../executor" }
+partitionlib = { path = "../partitionlib" }
+
+libredox.workspace = true
+log.workspace = true
+
+# TODO: migrate virtio to our executor
+futures = { version = "0.3.28", features = ["executor"] }
+
+redox_syscall = { workspace = true, features = ["std"] }
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+
+[lints]
+workspace = true

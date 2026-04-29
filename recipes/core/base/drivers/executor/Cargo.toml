@@ -1,0 +1,15 @@
+[package]
+name = "executor"
+description = "Asynchronous framework for queue-based hardware interfaces"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+log.workspace = true
+redox_event.workspace = true
+slab.workspace = true
+
+[lints]
+workspace = true

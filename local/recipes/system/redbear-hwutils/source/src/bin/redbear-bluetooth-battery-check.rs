@@ -161,7 +161,9 @@ fn run() -> Result<(), String> {
 
     println!("BLUETOOTH_BATTERY_CHECK=pass");
     println!("PASS: bounded Bluetooth Battery Level slice exercised inside target runtime");
-    println!("NOTE: this proves explicit-startup btusb/btctl startup, repeated packaged helper runs in one boot, daemon restart cleanup, stale-state cleanup after disconnect, and one experimental battery-sensor Battery Level read-only workload; it does not prove controller bring-up, general device traffic, generic GATT, real pairing, write support, notify support, or broad BLE maturity");
+    println!(
+        "NOTE: this proves explicit-startup btusb/btctl startup, repeated packaged helper runs in one boot, daemon restart cleanup, stale-state cleanup after disconnect, and one experimental battery-sensor Battery Level read-only workload; it does not prove controller bring-up, general device traffic, generic GATT, real pairing, write support, notify support, or broad BLE maturity"
+    );
     Ok(())
 }
 
@@ -278,7 +280,10 @@ fn run_cycle(label: &str, verify_info: bool) -> Result<(), String> {
         )?;
         require_contains(&info, &format!("workload={EXPERIMENTAL_WORKLOAD}"))?;
         require_contains(&info, &format!("peripheral_class={PERIPHERAL_CLASS}"))?;
-        require_contains(&info, "does not prove controller bring-up, general device traffic, generic GATT, real pairing, validated reconnect semantics, write support, or notify support beyond the experimental battery-sensor read-only workload")?;
+        require_contains(
+            &info,
+            "does not prove controller bring-up, general device traffic, generic GATT, real pairing, validated reconnect semantics, write support, or notify support beyond the experimental battery-sensor read-only workload",
+        )?;
     }
 
     let disconnect_output = print_checked_command(

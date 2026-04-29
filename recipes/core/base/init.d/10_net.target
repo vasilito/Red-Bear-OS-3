@@ -1,0 +1,7 @@
+[unit]
+description = "Networking"
+requires_weak = [
+    "00_base.target",
+    "10_smolnetd.service",
+    "10_dhcpd.service",
+]

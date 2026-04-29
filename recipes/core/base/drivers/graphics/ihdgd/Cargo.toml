@@ -1,0 +1,30 @@
+[package]
+name = "ihdgd"
+description = "Intel graphics driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitbang-hal = "0.3"
+drm-sys.workspace = true
+edid.workspace = true #TODO: edid is abandoned, fork it and maintain?
+#TODO: waiting for bitbang-hal to update to embedded-hal 1.0
+embedded-hal = { version = "0.2.7", features = ["unproven"] }
+log.workspace = true
+nb = "1.0"
+# Patched to allow for exact range allocation
+range-alloc = { git = "https://github.com/jackpot51/range-alloc.git" }
+void = "1.0"
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-graphics = { path = "../driver-graphics" }
+pcid = { path = "../../pcid" }
+
+libredox.workspace = true
+redox-scheme.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+
+[lints]
+workspace = true

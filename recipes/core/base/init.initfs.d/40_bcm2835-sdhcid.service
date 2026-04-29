@@ -1,0 +1,9 @@
+[unit]
+description = "BCM2835 SD card driver"
+requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target"]
+condition_architecture = ["aarch64"]
+condition_board = ["raspi3bp"]
+
+[service]
+cmd = "bcm2835-sdhcid"
+type = "notify"

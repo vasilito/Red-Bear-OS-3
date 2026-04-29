@@ -1,0 +1,10 @@
+[unit]
+description = "Initfs drivers"
+requires_weak = [
+    "10_lived.service",
+    "20_graphics.target",
+    "40_ps2d.service",
+    "40_bcm2835-sdhcid.service",
+    "40_hwd.service",
+    "40_pcid-spawner-initfs.service",
+]

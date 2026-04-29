@@ -1,0 +1,40 @@
+#TODO: Runtime proof requires executing these binaries inside a Red Bear OS Phase 1 validation target.
+
+[source]
+path = "source"
+
+[build]
+template = "custom"
+dependencies = ["relibc"]
+script = """
+DYNAMIC_INIT
+
+RELIBC_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage"
+if [ ! -d "${RELIBC_STAGE}/usr" ]; then
+    RELIBC_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp"
+fi
+
+mkdir -p "${COOKBOOK_SYSROOT}"
+if [ -d "${RELIBC_STAGE}/usr" ]; then
+    rsync -av "${RELIBC_STAGE}/usr/" "${COOKBOOK_SYSROOT}/"
+fi
+
+TARGET_CC="${TARGET}-gcc"
+if ! command -v "${TARGET_CC}" >/dev/null 2>&1; then
+    TARGET_CC="cc"
+fi
+
+rsync -av "${COOKBOOK_SOURCE}/" ./
+make -j "${COOKBOOK_MAKE_JOBS}" \
+    CC="${CC_WRAPPER} ${TARGET_CC}" \
+    CPPFLAGS="-I${COOKBOOK_SYSROOT}/include" \
+    CFLAGS="-O2 -Wall -Wextra -Werror" \
+    LDFLAGS="--sysroot=${COOKBOOK_SYSROOT} -L${COOKBOOK_SYSROOT}/lib"
+
+mkdir -p "${COOKBOOK_STAGE}/home/user/relibc-phase1-tests"
+cp -v test_signalfd_wayland test_timerfd_qt6 test_eventfd_qt6 test_shm_open_qt6 \
+    test_sem_open_qt6 test_waitid_qt6 "${COOKBOOK_STAGE}/home/user/relibc-phase1-tests/"
+"""
+
+[package]
+dependencies = ["gcc13"]

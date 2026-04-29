@@ -1,0 +1,7 @@
+[unit]
+description = "Sudo background handler"
+
+[service]
+cmd = "sudo"
+args = ["--daemon"]
+type = "oneshot_async"

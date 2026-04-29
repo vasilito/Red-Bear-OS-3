@@ -1,0 +1,11 @@
+[package]
+name = "graphics-ipc"
+description = "Shared graphics IPC code library"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drm.workspace = true
+
+[lints]
+workspace = true

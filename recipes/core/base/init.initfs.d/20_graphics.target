@@ -1,0 +1,8 @@
+[unit]
+description = "Graphics subsystem"
+requires_weak = [
+    "10_inputd.service",
+    "20_vesad.service",
+    "20_fbbootlogd.service",
+    "20_fbcond.service",
+]

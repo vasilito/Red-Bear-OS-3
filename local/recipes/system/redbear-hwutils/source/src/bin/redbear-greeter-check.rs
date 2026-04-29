@@ -3,8 +3,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     os::unix::net::UnixStream,
     path::Path,
-    process,
-    thread,
+    process, thread,
     time::{Duration, Instant},
 };
 
@@ -35,7 +34,10 @@ enum Mode {
     Valid { username: String, password: String },
 }
 
-fn parse_credentials(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<(String, String), String> {
+fn parse_credentials(
+    args: &mut impl Iterator<Item = String>,
+    flag: &str,
+) -> Result<(String, String), String> {
     let username = args
         .next()
         .ok_or_else(|| format!("missing username after {flag}"))?;
@@ -89,7 +91,8 @@ fn send_request(request: &Request) -> Result<GreeterResponse, String> {
     reader
         .read_line(&mut line)
         .map_err(|err| format!("failed to read greeter response: {err}"))?;
-    serde_json::from_str(line.trim()).map_err(|err| format!("failed to parse greeter response: {err}"))
+    serde_json::from_str(line.trim())
+        .map_err(|err| format!("failed to parse greeter response: {err}"))
 }
 
 fn require_path(path: &str) -> Result<(), String> {
@@ -127,7 +130,9 @@ fn wait_for_greeter_ready(timeout: Duration) -> Result<(), String> {
         thread::sleep(Duration::from_millis(250));
     }
 
-    Err(String::from("timed out waiting for greeter to return to greeter_ready"))
+    Err(String::from(
+        "timed out waiting for greeter to return to greeter_ready",
+    ))
 }
 
 fn run_status() -> Result<(), String> {
@@ -163,8 +168,12 @@ fn run_status() -> Result<(), String> {
             Ok(())
         }
         GreeterResponse::Error { message } => Err(format!("greeter hello failed: {message}")),
-        GreeterResponse::ActionResult { .. } => Err(String::from("unexpected power response when greeting greeter")),
-        GreeterResponse::LoginResult { .. } => Err(String::from("unexpected login result when greeting greeter")),
+        GreeterResponse::ActionResult { .. } => Err(String::from(
+            "unexpected power response when greeting greeter",
+        )),
+        GreeterResponse::LoginResult { .. } => Err(String::from(
+            "unexpected login result when greeting greeter",
+        )),
     }
 }
 
@@ -183,9 +192,15 @@ fn run_invalid(username: &str, password: &str) -> Result<(), String> {
                 Ok(())
             }
         }
-        GreeterResponse::Error { message } => Err(format!("invalid-login request failed: {message}")),
-        GreeterResponse::ActionResult { .. } => Err(String::from("unexpected power response for invalid login")),
-        GreeterResponse::HelloOk { .. } => Err(String::from("unexpected hello response for invalid login")),
+        GreeterResponse::Error { message } => {
+            Err(format!("invalid-login request failed: {message}"))
+        }
+        GreeterResponse::ActionResult { .. } => {
+            Err(String::from("unexpected power response for invalid login"))
+        }
+        GreeterResponse::HelloOk { .. } => {
+            Err(String::from("unexpected hello response for invalid login"))
+        }
     }
 }
 
@@ -263,7 +278,10 @@ mod tests {
 
     #[test]
     fn parse_mode_defaults_to_status() {
-        assert_eq!(parse_mode_from_args(Vec::<String>::new()).expect("status mode should parse"), Mode::Status);
+        assert_eq!(
+            parse_mode_from_args(Vec::<String>::new()).expect("status mode should parse"),
+            Mode::Status
+        );
     }
 
     #[test]
@@ -307,7 +325,9 @@ mod tests {
                 String::from("password"),
                 String::from("extra"),
             ]),
-            Err(String::from("unexpected extra arguments after --valid USER PASSWORD"))
+            Err(String::from(
+                "unexpected extra arguments after --valid USER PASSWORD"
+            ))
         );
     }
 
@@ -320,7 +340,9 @@ mod tests {
                 String::from("wrong"),
                 String::from("extra"),
             ]),
-            Err(String::from("unexpected extra arguments after --invalid USER PASSWORD"))
+            Err(String::from(
+                "unexpected extra arguments after --invalid USER PASSWORD"
+            ))
         );
     }
 

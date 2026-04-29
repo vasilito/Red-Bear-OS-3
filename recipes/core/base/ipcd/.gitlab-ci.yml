@@ -1,0 +1,26 @@
+image: "redoxos/redoxer"
+
+stages:
+    - build
+    - test
+
+cache:
+    paths:
+        - target/
+
+build:redox:
+    stage: build
+    script: redoxer build --verbose
+
+test:redox:
+    stage: test
+    dependencies:
+        - build:redox
+    script:
+        - redoxer build --verbose --examples
+        - redoxer exec --folder . -- sh -- ./redoxer.sh
+          event
+          main
+          unnamed
+          shm_demo
+        # FIXME: shm is currently broken

@@ -4,7 +4,7 @@ use std::process;
 use std::str::FromStr;
 
 use redbear_hwutils::{describe_usb_device, parse_args};
-use redox_driver_sys::quirks::{lookup_usb_quirks, UsbQuirkFlags};
+use redox_driver_sys::quirks::{UsbQuirkFlags, lookup_usb_quirks};
 use serde::Deserialize;
 
 const USAGE: &str = "Usage: lsusb\nList USB devices exposed by native usb.* schemes.";

@@ -3,7 +3,7 @@ use std::process;
 use std::thread;
 use std::time::Duration;
 
-use libredox::{flag, Fd};
+use libredox::{Fd, flag};
 use redbear_hwutils::parse_args;
 use syscall::data::TimeSpec;
 

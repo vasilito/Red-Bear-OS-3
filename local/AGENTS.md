@@ -253,9 +253,18 @@ scripts/build-iso.sh redbear-grub                 # Text-only + GRUB
 # Then run inside the guest:
 #   ./local/scripts/test-vm-network-runtime.sh
 
-# Phase 1 desktop-substrate validation (v2.0 plan: relibc headers, evdevd, udev-shim,
-# firmware-loader, DRM/KMS, health-check — covers 6 acceptance areas)
+# Phase 1 runtime-substrate validation (v2.0 plan: relibc headers, evdevd, udev-shim,
+# firmware-loader, DRM/KMS, time — covers acceptance areas + POSIX compat)
+./local/scripts/test-phase1-runtime.sh --qemu redbear-full
+
+# Legacy Phase 1 desktop-substrate validation (still works)
 ./local/scripts/test-phase1-desktop-substrate.sh --qemu redbear-full
+
+# Phase 1 POSIX compatibility tests (inside guest)
+# Run inside the guest after boot:
+#   cd /home/user/relibc-phase1-tests && ./test_signalfd_wayland && ./test_timerfd_qt6 && ...
+# Or use the test harness:
+./local/scripts/test-phase1-runtime.sh --guest
 
 # Legacy Phase 3 runtime-substrate validation (historical P0-P6 numbering; script still works)
 ./local/scripts/test-phase3-runtime-substrate.sh --qemu redbear-full

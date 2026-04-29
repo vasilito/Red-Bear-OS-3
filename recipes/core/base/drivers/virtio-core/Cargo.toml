@@ -1,0 +1,24 @@
+[package]
+name = "virtio-core"
+description = "VirtIO driver library"
+version = "0.1.0"
+edition = "2021"
+authors = ["Anhad Singh <andypython@protonmail.com>"]
+
+[dependencies]
+static_assertions.workspace = true
+bitflags.workspace = true
+redox_syscall.workspace = true
+libredox.workspace = true
+log.workspace = true
+thiserror.workspace = true
+futures = { version = "0.3.28", features = ["executor"] }
+crossbeam-queue = "0.3.8"
+
+redox_event.workspace = true
+
+common = { path = "../common" }
+pcid = { path = "../pcid" }
+
+[lints]
+workspace = true

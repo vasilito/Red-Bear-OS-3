@@ -103,7 +103,11 @@ fn collect_irq_reports(root: &Path) -> Vec<IrqReport> {
         }
     }
 
-    reports.sort_by(|left, right| left.driver.cmp(&right.driver).then(left.device.cmp(&right.device)));
+    reports.sort_by(|left, right| {
+        left.driver
+            .cmp(&right.driver)
+            .then(left.device.cmp(&right.device))
+    });
     reports
 }
 

@@ -82,3 +82,4 @@ local/cache/pkgar/
 !local/cache/pkgar/
 !local/cache/pkgar/**
 Packages/redbear-firmware.pkgar
+packages/

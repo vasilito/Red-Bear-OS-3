@@ -1,0 +1,20 @@
+[package]
+name = "ahcid"
+description = "AHCI (SATA standard) driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.2"
+log.workspace = true
+redox_syscall = { workspace = true, features = ["std"] }
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-block = { path = "../driver-block" }
+pcid = { path = "../../pcid" }
+libredox.workspace = true
+redox_event.workspace = true
+
+[lints]
+workspace = true

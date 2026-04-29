@@ -1,0 +1,18 @@
+[package]
+name = "usbhubd"
+description = "USB Hub driver"
+version = "0.1.0"
+edition = "2018"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log.workspace = true
+redox_syscall.workspace = true
+xhcid = { path = "../xhcid" }
+
+common = { path = "../../common" }
+
+[lints]
+workspace = true

@@ -115,7 +115,9 @@ fn parse_pci_id_database(text: &str) -> PciIdDatabase {
             let Some(vendor_id) = current_vendor else {
                 continue;
             };
-            let mut parts = rest.splitn(2, char::is_whitespace).filter(|part| !part.is_empty());
+            let mut parts = rest
+                .splitn(2, char::is_whitespace)
+                .filter(|part| !part.is_empty());
             let Some(device_hex) = parts.next() else {
                 continue;
             };
@@ -131,7 +133,9 @@ fn parse_pci_id_database(text: &str) -> PciIdDatabase {
             continue;
         }
 
-        let mut parts = line.splitn(2, char::is_whitespace).filter(|part| !part.is_empty());
+        let mut parts = line
+            .splitn(2, char::is_whitespace)
+            .filter(|part| !part.is_empty());
         let Some(vendor_hex) = parts.next() else {
             continue;
         };
@@ -142,7 +146,9 @@ fn parse_pci_id_database(text: &str) -> PciIdDatabase {
             continue;
         };
         current_vendor = Some(vendor_id);
-        database.vendor_names.insert(vendor_id, name.trim().to_string());
+        database
+            .vendor_names
+            .insert(vendor_id, name.trim().to_string());
     }
 
     database
@@ -237,7 +243,10 @@ mod tests {
 
     #[test]
     fn describe_usb_device_empty_manufacturer_filtered() {
-        assert_eq!(describe_usb_device(Some(""), Some("USB Mouse")), "USB Mouse");
+        assert_eq!(
+            describe_usb_device(Some(""), Some("USB Mouse")),
+            "USB Mouse"
+        );
     }
 
     #[test]
@@ -254,14 +263,22 @@ mod tests {
 
     #[test]
     fn parse_args_help_flag_returns_err_empty() {
-        let result = parse_args("prog", "usage text", vec!["prog".to_string(), "--help".to_string()]);
+        let result = parse_args(
+            "prog",
+            "usage text",
+            vec!["prog".to_string(), "--help".to_string()],
+        );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "");
     }
 
     #[test]
     fn parse_args_h_flag_returns_err_empty() {
-        let result = parse_args("prog", "usage text", vec!["prog".to_string(), "-h".to_string()]);
+        let result = parse_args(
+            "prog",
+            "usage text",
+            vec!["prog".to_string(), "-h".to_string()],
+        );
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "");
     }
@@ -275,7 +292,10 @@ mod tests {
         );
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.contains("unsupported arguments"), "expected 'unsupported arguments' in: {msg}");
+        assert!(
+            msg.contains("unsupported arguments"),
+            "expected 'unsupported arguments' in: {msg}"
+        );
     }
 
     // --- original pci_id_database tests ---

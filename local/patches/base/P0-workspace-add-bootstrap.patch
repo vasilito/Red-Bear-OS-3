@@ -1,0 +1,12 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 9e776232..acdb1c97 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -2,6 +2,7 @@
+ resolver = "2"
+ members = [
+     "audiod",
++    "bootstrap",
+     "config",
+     "daemon",
+     "dhcpd",

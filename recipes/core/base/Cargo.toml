@@ -1,0 +1,118 @@
+[workspace]
+resolver = "2"
+members = [
+    "audiod",
+    "config",
+    "daemon",
+    "dhcpd",
+    "init",
+    "initfs",
+    "initfs/tools",
+    "ipcd",
+    "logd",
+    "netstack",
+    "ptyd",
+    "ramfs",
+    "randd",
+    "scheme-utils",
+    "zerod",
+
+    "drivers/common",
+    "drivers/executor",
+
+    "drivers/acpid",
+    "drivers/hwd",
+    "drivers/pcid",
+    "drivers/pcid-spawner",
+    "drivers/rtcd",
+    "drivers/vboxd",
+    "drivers/inputd",
+    "drivers/virtio-core",
+
+    "drivers/audio/ac97d",
+    "drivers/audio/ihdad",
+    "drivers/audio/sb16d",
+
+    "drivers/graphics/console-draw",
+    "drivers/graphics/fbbootlogd",
+    "drivers/graphics/driver-graphics",
+    "drivers/graphics/fbcond",
+    "drivers/graphics/graphics-ipc",
+    "drivers/graphics/ihdgd",
+    "drivers/graphics/vesad",
+    "drivers/graphics/virtio-gpud",
+
+    "drivers/input/ps2d",
+    "drivers/input/usbhidd",
+
+    "drivers/net/driver-network",
+    "drivers/net/e1000d",
+    "drivers/net/ixgbed",
+    "drivers/net/rtl8139d",
+    "drivers/net/rtl8168d",
+    "drivers/net/virtio-netd",
+
+    "drivers/redoxerd",
+
+    "drivers/storage/ahcid",
+    "drivers/storage/bcm2835-sdhcid",
+    "drivers/storage/driver-block",
+    "drivers/storage/ided",
+    "drivers/storage/lived",          # TODO: not really a driver...
+    "drivers/storage/nvmed",
+    "drivers/storage/usbscsid",
+    "drivers/storage/virtio-blkd",
+
+    "drivers/usb/xhcid",
+    "drivers/usb/usbctl",
+    "drivers/usb/usbhubd",
+]
+
+# Bootstrap needs it's own profile configuration
+exclude = ["bootstrap"]
+
+# Low-level Redox OS crates should be kept in sync using workspace dependencies
+# Remember to also update bootstrap dependencies, those are not in the workspace
+[workspace.dependencies]
+acpi =  { git = "https://gitlab.redox-os.org/redox-os/acpi.git", branch = "redox-6.x" }
+anyhow = "1"
+bitflags = "2"
+clap = "4"
+drm = "0.15.0"
+drm-sys = "0.8.1"
+edid = "0.3.0" #TODO: edid is abandoned, fork it and maintain?
+fdt = "0.1.5"
+libc = "0.2.181"
+log = "0.4"
+libredox = "0.1.16"
+orbclient = "0.3.51"
+parking_lot = "0.12"
+pico-args = "0.5"
+plain = "0.2.3"
+ransid = "0.4"
+redox_event = "0.4.6"
+redox-ioctl = { git = "https://gitlab.redox-os.org/redox-os/relibc.git" }
+redox-log = { git = "https://gitlab.redox-os.org/redox-os/redox-log.git" }
+redox-rt = { git = "https://gitlab.redox-os.org/redox-os/relibc.git", default-features = false }
+redox-scheme = "0.11.0"
+redox_syscall = { version = "0.7.4", features = ["std"] }
+redox_termios = "0.1.3"
+ron = "0.8.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slab = "0.4.9"
+smallvec = "1"
+spin = "0.10"
+static_assertions = "1.1.0"
+thiserror = "2"
+toml = "1"
+
+[workspace.lints.rust]
+missing_docs = "allow" #TODO: set to deny when all public functions are documented
+
+[workspace.lints.clippy]
+missing_safety_doc = "warn" #TODO: set to deny when all safety documentation is completed
+precedence = "deny"
+
+[patch."https://gitlab.redox-os.org/redox-os/relibc.git"]
+#redox-ioctl = { path = "../../relibc/source/redox-ioctl" }

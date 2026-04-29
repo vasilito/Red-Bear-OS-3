@@ -1,0 +1,40 @@
+[package]
+name = "netstack"
+description = "Network stack daemons"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "netstack"
+path = "src/main.rs"
+
+[dependencies]
+redox_event.workspace = true
+daemon = { path = "../daemon" }
+redox_syscall = { workspace = true, features = ["std"] }
+redox-log.workspace = true
+libredox = { workspace = true, features = ["mkns"] }
+anyhow.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+
+[dependencies.log]
+workspace = true
+default-features = false
+features = ["release_max_level_warn"]
+
+[dependencies.smoltcp]
+version = "0.12.0"
+default-features = false
+features = [
+    "std",
+    "medium-ethernet", "medium-ip",
+    "proto-ipv4",
+    "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-tcp-cubic",
+    "iface-max-addr-count-8",
+    "log"
+]
+#For debugging: "log", "verbose"
+
+[lints]
+workspace = true

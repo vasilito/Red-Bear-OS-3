@@ -1,0 +1,27 @@
+[package]
+name = "virtio-blkd"
+description = "VirtIO block (storage) driver"
+version = "0.1.0"
+edition = "2021"
+authors = ["Anhad Singh <andypython@protonmail.com>"]
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+thiserror.workspace = true
+static_assertions.workspace = true
+futures = { version = "0.3.28", features = ["executor"] }
+spin.workspace = true
+
+redox_event.workspace = true
+redox_syscall = { workspace = true, features = ["std"] }
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-block = { path = "../driver-block" }
+pcid = { path = "../../pcid" }
+virtio-core = { path = "../../virtio-core" }
+libredox.workspace = true
+
+[lints]
+workspace = true

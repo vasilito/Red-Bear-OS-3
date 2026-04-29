@@ -1,0 +1,21 @@
+[package]
+name = "randd"
+description = "Random number generation daemon"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand_chacha = "0.2"
+rand_core = "0.5"
+daemon = { path = "../daemon" }
+redox_syscall.workspace = true
+libredox.workspace = true
+sha2 = "0.8"
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+raw-cpuid = "11.0.1"
+
+[lints]
+workspace = true

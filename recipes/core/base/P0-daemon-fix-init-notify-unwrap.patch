@@ -1,0 +1,43 @@
+diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
+index 9f507221..c57d91dc 100644
+--- a/daemon/src/lib.rs
++++ b/daemon/src/lib.rs
+@@ -11,12 +11,23 @@ use redox_scheme::Socket;
+ use redox_scheme::scheme::{SchemeAsync, SchemeSync};
+ 
+ unsafe fn get_fd(var: &str) -> RawFd {
+-    let fd: RawFd = std::env::var(var).unwrap().parse().unwrap();
++    let fd: RawFd = match std::env::var(var)
++        .map_err(|e| eprintln!("daemon: env var {var} not set: {e}"))
++        .ok()
++        .and_then(|val| {
++            val.parse()
++                .map_err(|e| eprintln!("daemon: failed to parse {var} as fd: {e}"))
++                .ok()
++        }) {
++        Some(fd) => fd,
++        None => return -1,
++    };
+     if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } == -1 {
+-        panic!(
++        eprintln!(
+             "daemon: failed to set CLOEXEC flag for {var} fd: {}",
+             io::Error::last_os_error()
+         );
++        return -1;
+     }
+     fd
+ }
+@@ -51,7 +62,11 @@ impl Daemon {
+ 
+     /// Notify the process that the daemon is ready to accept requests.
+     pub fn ready(mut self) {
+-        self.write_pipe.write_all(&[0]).unwrap();
++        if let Err(err) = self.write_pipe.write_all(&[0]) {
++            if err.kind() != io::ErrorKind::BrokenPipe {
++                eprintln!("daemon::ready write failed: {err}");
++            }
++        }
+     }
+ 
+     /// Executes `Command` as a child process.

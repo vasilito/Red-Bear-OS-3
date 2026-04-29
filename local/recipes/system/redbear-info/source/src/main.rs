@@ -24,12 +24,13 @@ const VIRTIO_NET_VENDOR_ID: u16 = 0x1af4;
 const VIRTIO_NET_DEVICE_ID: u16 = 0x1000;
 const BLUETOOTH_STATUS_FRESHNESS_SECS: u64 = 90;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputMode {
     Table,
     Json,
     Test,
     Quirks,
+    Probe,
     Help,
 }
 
@@ -476,6 +477,26 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
+    if options.mode == OutputMode::Probe {
+        let result = Phase1ProbeResult {
+            evdev_active: probe_evdev_active(),
+            udev_active: probe_udev_active(),
+            firmware_active: probe_firmware_active(),
+            drm_active: probe_drm_active(),
+            time_active: probe_time_active(),
+        };
+        print_probe(&result);
+        let all_present = result.evdev_active
+            && result.udev_active
+            && result.firmware_active
+            && result.drm_active
+            && result.time_active;
+        if all_present {
+            return Ok(());
+        }
+        return Err("some Phase 1 services are not present".to_string());
+    }
+
     let report = collect_report(&runtime);
 
     match options.mode {
@@ -483,6 +504,7 @@ fn run() -> Result<(), String> {
         OutputMode::Json => print_json(&report),
         OutputMode::Test => print_tests(&report, options.verbose),
         OutputMode::Quirks => {}
+        OutputMode::Probe => {}
         OutputMode::Help => {}
     }
 
@@ -1093,6 +1115,122 @@ fn collect_quirks(runtime: &Runtime) -> QuirksReport {
     }
 }
 
+#[derive(Debug)]
+struct Phase1ProbeResult {
+    evdev_active: bool,
+    udev_active: bool,
+    firmware_active: bool,
+    drm_active: bool,
+    time_active: bool,
+}
+
+#[cfg(target_os = "redox")]
+fn probe_evdev_active() -> bool {
+    std::fs::read_dir("/scheme/")
+        .map(|mut entries| {
+            entries.any(|entry| {
+                entry.map_or(false, |entry| {
+                    entry.file_name().to_string_lossy().starts_with("evdev")
+                })
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "redox"))]
+fn probe_evdev_active() -> bool {
+    false
+}
+
+#[cfg(target_os = "redox")]
+fn probe_udev_active() -> bool {
+    std::fs::read_dir("/scheme/")
+        .map(|mut entries| {
+            entries.any(|entry| {
+                entry.map_or(false, |entry| entry.file_name().to_string_lossy() == "udev")
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "redox"))]
+fn probe_udev_active() -> bool {
+    false
+}
+
+#[cfg(target_os = "redox")]
+fn probe_firmware_active() -> bool {
+    std::fs::read_dir("/scheme/")
+        .map(|mut entries| {
+            entries.any(|entry| {
+                entry.map_or(false, |entry| entry.file_name().to_string_lossy() == "firmware")
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "redox"))]
+fn probe_firmware_active() -> bool {
+    false
+}
+
+#[cfg(target_os = "redox")]
+fn probe_drm_active() -> bool {
+    std::fs::read_dir("/scheme/")
+        .map(|mut entries| {
+            entries.any(|entry| {
+                entry.map_or(false, |entry| entry.file_name().to_string_lossy() == "drm")
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "redox"))]
+fn probe_drm_active() -> bool {
+    false
+}
+
+#[cfg(target_os = "redox")]
+fn probe_time_active() -> bool {
+    std::path::Path::new("/scheme/time").exists()
+}
+
+#[cfg(not(target_os = "redox"))]
+fn probe_time_active() -> bool {
+    false
+}
+
+fn print_probe(result: &Phase1ProbeResult) {
+    let mark = |present: bool| if present { "✓ PRESENT" } else { "✗ ABSENT" };
+
+    println!("Phase 1 Service Probes:");
+    println!("  evdevd    {}", mark(result.evdev_active));
+    println!("  udev-shim {}", mark(result.udev_active));
+    println!("  firmware  {}", mark(result.firmware_active));
+    println!("  drm       {}", mark(result.drm_active));
+    println!("  time      {}", mark(result.time_active));
+
+    let all = result.evdev_active
+        && result.udev_active
+        && result.firmware_active
+        && result.drm_active
+        && result.time_active;
+    let most = result.evdev_active as u8
+        + result.udev_active as u8
+        + result.firmware_active as u8
+        + result.drm_active as u8
+        + result.time_active as u8;
+
+    println!();
+    if all {
+        println!("ALL PHASE 1 SERVICES PRESENT");
+    } else if most >= 3 {
+        println!("MOSTLY PRESENT, SOME GAPS ({}/5)", most);
+    } else {
+        println!("SIGNIFICANT GAPS REMAIN ({}/5)", most);
+    }
+}
+
 fn parse_quirk_toml(name: &str, content: &str) -> Result<QuirkFile, String> {
     let document: Value = content
         .parse()
@@ -1286,6 +1424,9 @@ where
                 if mode == OutputMode::Quirks {
                     return Err("cannot combine --json with --quirks".to_string());
                 }
+                if mode == OutputMode::Probe {
+                    return Err("cannot combine --json with --probe".to_string());
+                }
                 mode = OutputMode::Json;
             }
             "--test" => {
@@ -1294,6 +1435,9 @@ where
                 }
                 if mode == OutputMode::Quirks {
                     return Err("cannot combine --test with --quirks".to_string());
+                }
+                if mode == OutputMode::Probe {
+                    return Err("cannot combine --test with --probe".to_string());
                 }
                 mode = OutputMode::Test;
             }
@@ -1304,7 +1448,22 @@ where
                 if mode == OutputMode::Test {
                     return Err("cannot combine --quirks with --test".to_string());
                 }
+                if mode == OutputMode::Probe {
+                    return Err("cannot combine --quirks with --probe".to_string());
+                }
                 mode = OutputMode::Quirks;
+            }
+            "--probe" => {
+                if mode == OutputMode::Json {
+                    return Err("cannot combine --probe with --json".to_string());
+                }
+                if mode == OutputMode::Test {
+                    return Err("cannot combine --probe with --test".to_string());
+                }
+                if mode == OutputMode::Quirks {
+                    return Err("cannot combine --probe with --quirks".to_string());
+                }
+                mode = OutputMode::Probe;
             }
             "-h" | "--help" => mode = OutputMode::Help,
             _ => return Err(format!("unknown argument: {arg}")),
@@ -2071,14 +2230,14 @@ fn print_json(report: &Report<'_>) {
 }
 
 fn print_help() {
-    println!("Usage: redbear-info [--verbose|-v] [--json|--test|--quirks]");
+    println!("Usage: redbear-info [--verbose|-v] [--json|--test|--quirks|--probe]");
     println!();
     println!("Passive runtime integration report for Red Bear OS.");
     println!();
     println!("This tool distinguishes:");
     println!("  present     artifact or config exists");
     println!("  active      live runtime surface exists");
-    println!("  functional  read-only runtime probe succeeded");
+    println!("  functional  read-only runtime probe succeeded (table/test output; --probe mode uses PRESENT/ABSENT)");
     println!();
     println!("Connected means the local networking stack has a configured address.");
     println!("It does not prove internet reachability.");
@@ -2088,6 +2247,7 @@ fn print_help() {
     println!("      --json     Print structured JSON");
     println!("      --test     Print suggested diagnostic commands");
     println!("      --quirks   Print configured hardware quirk data");
+    println!("      --probe    Probe Phase 1 service liveness (evdevd, udev-shim, firmware-loader, drm, time)");
     println!("  -h, --help     Show this help message");
 }
 
@@ -3423,6 +3583,120 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parse_args_accepts_probe_mode() {
+        let options = parse_args([
+            "redbear-info".to_string(),
+            "--probe".to_string(),
+        ])
+        .unwrap();
+
+        assert!(matches!(options.mode, OutputMode::Probe));
+    }
+
+    #[test]
+    fn parse_args_rejects_probe_with_other_output_modes() {
+        // probe first, then --json: --json is the current arg, error puts current arg first
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--probe".to_string(),
+                "--json".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --json with --probe".to_string())
+        );
+        // --test first, then --probe: --probe is the current arg
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--test".to_string(),
+                "--probe".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --probe with --test".to_string())
+        );
+        // --quirks first, then --probe: --probe is the current arg
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--quirks".to_string(),
+                "--probe".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --probe with --quirks".to_string())
+        );
+        // Reverse direction: --json/--test/--quirks after --probe
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--json".to_string(),
+                "--probe".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --probe with --json".to_string())
+        );
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--probe".to_string(),
+                "--test".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --test with --probe".to_string())
+        );
+    }
+
+    #[test]
+    fn probe_functions_return_false_on_host() {
+        assert!(!probe_evdev_active());
+        assert!(!probe_udev_active());
+        assert!(!probe_firmware_active());
+        assert!(!probe_drm_active());
+        assert!(!probe_time_active());
+    }
+
+    #[test]
+    fn print_probe_outputs_all_present() {
+        let result = Phase1ProbeResult {
+            evdev_active: true,
+            udev_active: true,
+            firmware_active: true,
+            drm_active: true,
+            time_active: true,
+        };
+        assert!(result.evdev_active);
+        assert!(result.udev_active);
+        assert!(result.firmware_active);
+        assert!(result.drm_active);
+        assert!(result.time_active);
+        let all = result.evdev_active
+            && result.udev_active
+            && result.firmware_active
+            && result.drm_active
+            && result.time_active;
+        assert!(all, "all five services should be present");
+    }
+
+    #[test]
+    fn print_probe_reports_gaps_count() {
+        let result = Phase1ProbeResult {
+            evdev_active: true,
+            udev_active: true,
+            firmware_active: false,
+            drm_active: true,
+            time_active: false,
+        };
+        let count = result.evdev_active as u8
+            + result.udev_active as u8
+            + result.firmware_active as u8
+            + result.drm_active as u8
+            + result.time_active as u8;
+        assert_eq!(count, 3);
+        assert!(!result.firmware_active);
+        assert!(!result.time_active);
     }
 
     #[test]

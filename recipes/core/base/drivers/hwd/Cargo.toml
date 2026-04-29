@@ -1,0 +1,18 @@
+[package]
+name = "hwd"
+description = "ACPI and DeviceTree handling daemon"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+fdt.workspace = true
+log.workspace = true
+ron.workspace = true
+libredox = { workspace = true, default-features = false, features = ["std", "call"] }
+
+amlserde = { path = "../amlserde" }
+common = { path = "../common" }
+daemon = { path = "../../daemon" }
+
+[lints]
+workspace = true

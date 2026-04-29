@@ -1,0 +1,9 @@
+[unit]
+description = "Configure network using DHCP"
+requires_weak = [
+    "10_smolnetd.service",
+]
+
+[service]
+cmd = "dhcpd"
+type = "oneshot_async"

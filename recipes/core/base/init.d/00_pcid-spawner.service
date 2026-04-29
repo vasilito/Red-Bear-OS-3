@@ -1,0 +1,6 @@
+[unit]
+description = "PCI driver spawner"
+
+[service]
+cmd = "pcid-spawner"
+type = "oneshot"

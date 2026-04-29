@@ -331,10 +331,85 @@ redox-master/
 │   └── x86_64-unknown-redox/
 │       └── clang-install/         # Cross-compilation toolchain
 ├── repo/
-│   └── *.pkgar                    # Built packages
+│   └── *.pkgar                    # Built packages (in-target location)
+├── packages/                      # Collected build artifacts (post-build step)
+│   └── x86_64-unknown-redox/
+│       └── *.pkgar                # All built .pkgar packages — portable artifact export
+│                                  # Populated by copying from repo/x86_64-unknown-redox/ after build
+├── sources/                       # Archived recipe sources (post-build step)
+│   └── x86_64-unknown-redox/
+│       └── *.tar.gz               # Source tarballs for build reproducibility
 ├── source/
 │   └── <recipe-name>/             # Extracted recipe sources
 └── target/
     └── release/
         └── repo                   # Build system binary
 ```
+
+## Post-Build: Collect Packages and Sources
+
+After a successful build, copy all built `.pkgar` packages into the `packages/` directory
+for portable artifact export and archive:
+
+```bash
+mkdir -p packages/x86_64-unknown-redox
+cp repo/x86_64-unknown-redox/*.pkgar packages/x86_64-unknown-redox/
+```
+
+Archive all recipe source trees into the `sources/` directory for build reproducibility:
+
+```bash
+mkdir -p sources/x86_64-unknown-redox
+for d in recipes/*/* local/recipes/*/*; do
+    [ -d "$d/source" ] || continue
+    name=$(echo "$d" | tr '/' '-')
+    if [ -d "$d/source/.git" ]; then
+        (cd "$d/source" && git archive --format=tar HEAD | gzip > "../../../sources/x86_64-unknown-redox/$name.tar.gz")
+    else
+        tar czf "sources/x86_64-unknown-redox/$name.tar.gz" -C "$d" source/
+    fi
+done
+```
+
+Both `packages/` and `sources/` are git-ignored (generated artifacts).
+- `repo/x86_64-unknown-redox/` remains the canonical in-repo package location
+- `recipes/*/source/` remains the canonical in-repo source location
+- `packages/` and `sources/` are export copies for portability and archival
+
+## Known Package Conflicts
+
+The installer resolves file collisions between packages by replacing with the later
+package's files. These known overlaps are pre-existing and do not block the build:
+
+| Conflict | Packages | Files |
+|----------|----------|-------|
+| info/dir | bash ↔ diffutils | `/usr/share/info/dir` |
+| clear/reset | coreutils ↔ ncursesw | `/usr/bin/clear`, `/usr/bin/reset` |
+| linux-kpi headers | redbear-iwlwifi ↔ redox-drm | 39 header files under `/usr/include/linux-kpi/` |
+| motd | redbear-release ↔ userutils | `/etc/motd` (both Red Bear branded; userutils motd already patched) |
+
+## Known Build Warnings (Pre-Existing)
+
+The build produces compiler warnings in several packages. These are pre-existing in the
+codebase and not introduced by the build process:
+
+| Package | Warnings | Examples |
+|---------|----------|----------|
+| linux-kpi | 4 | dead_code (size, GFP_*), FFI-unsafe type |
+| redox-drm | 2 | unreachable patterns |
+| relibc | 2+ C warnings | unused macro, maybe-uninitialized (e_lgamma) |
+| redbear-iwlwifi | 3 | unreachable statements, deprecated usleep |
+
+These are tracked for eventual cleanup but do not block the build.
+
+## Known Outdated Packages
+
+Some packages are marked outdated because optional dependencies are not built for
+`redbear-full`:
+
+| Package | Reason |
+|---------|--------|
+| git | Missing dependency `nghttp2` (present but marked outdated in redbear-full) |
+| nghttp2 | Built but marked outdated (source ident mismatch or dependency chain issue) |
+
+These do not affect the base system or desktop image.

@@ -1,0 +1,9 @@
+[unit]
+description = "Rootfs"
+requires_weak = ["40_drivers.target"]
+
+[service]
+cmd = "redoxfs"
+args = ["--uuid" ,"$REDOXFS_UUID", "file", "$REDOXFS_BLOCK"]
+inherit_envs = ["REDOXFS_PASSWORD_ADDR", "REDOXFS_PASSWORD_SIZE"]
+type = "oneshot"

@@ -1,0 +1,21 @@
+[package]
+name = "ps2d"
+description = "PS/2 driver"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+bitflags.workspace = true
+log.workspace = true
+orbclient.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+redox-scheme.workspace = true
+libredox.workspace = true
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+inputd = { path = "../../inputd" }
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "ided"
+description = "PATA (IDE) driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../../common" }
+driver-block = { path = "../driver-block" }
+libredox.workspace = true
+log.workspace = true
+pcid = { path = "../../pcid" }
+daemon = { path = "../../../daemon" }
+redox_syscall = { workspace = true, features = ["std"] }
+redox_event.workspace = true
+
+[lints]
+workspace = true

@@ -1,15 +1,55 @@
 # Red Bear OS Desktop Stack — Current Status
 
-**Last updated:** 2026-04-28
-**Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
+**Last updated:** 2026-04-29
+**Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.1)
 **Boot improvement plan:** `local/docs/BOOT-PROCESS-IMPROVEMENT-PLAN.md` (v1.0)
+**Source archival policy:** `local/docs/SOURCE-ARCHIVAL-POLICY.md` (v1.0)
+
+## Recent Changes (2026-04-29, Wave 6)
+
+- **Phase 2/3 validation infrastructure**: Added bounded runtime checkers and harnesses for the next two desktop plan gates.
+  - `redbear-phase2-wayland-check`: Validates Wayland socket visibility, compositor process presence, bounded `wl_display.get_registry` connectivity, `/usr/lib/libEGL.so`, `/usr/lib/libGBM.so`, software-renderer evidence, and the optional `qt6-wayland-smoke` binary.
+  - `test-phase2-runtime.sh`: Automated `--guest` and `--qemu` Phase 2 harness using explicit binary checks plus exit-code-based expect markers.
+  - `redbear-phase3-kwin-check`: Validates `kwin_wayland`/`redbear-compositor` presence, `DBUS_SESSION_BUS_ADDRESS`, `dbus-send --session`, `/run/seatd.sock`, active `WAYLAND_DISPLAY`, and a bounded `wl_display.sync` roundtrip.
+  - `test-phase3-runtime.sh`: Automated `--guest` and `--qemu` Phase 3 harness using explicit binary checks plus exit-code-based expect markers.
+  - Both binaries are wired into `redbear-hwutils` Cargo packaging and the recipe staged-file list.
+
+## Recent Changes (2026-04-29, Wave 5)
+
+- **Phase 1 runtime validation infrastructure**: Added service presence probes and check binaries for the Phase 1 desktop substrate.
+  - `redbear-info --probe`: New output mode that probes Phase 1 service presence (evdevd, udev-shim, firmware-loader, redox-drm, time) via scheme enumeration. Reports per-service presence + summary line ("ALL PHASE 1 SERVICES PRESENT", "MOSTLY PRESENT, SOME GAPS", "SIGNIFICANT GAPS REMAIN").
+  - `redbear-phase1-evdev-check`: Validates evdev scheme enumeration, event device readability, EV_KEY/EV_REL event semantics.
+  - `redbear-phase1-udev-check`: Validates udev-shim device enumeration, keyboard/pointer/DRM device counts.
+  - `redbear-phase1-firmware-check`: Validates firmware scheme registration, blob listing, blob reading with fallback key attempts.
+  - `redbear-phase1-drm-check`: Validates DRM scheme registration, card enumeration, connector/mode queries.
+  - `relibc-phase1-tests`: Six C POSIX test programs (signalfd, timerfd, eventfd, shm_open, sem_open, waitid) exercising relibc compatibility layers as real consumers would.
+  - `test-phase1-runtime.sh`: Automated QEMU validation script with --guest and --qemu modes.
+  - All changes in local/ (durable, survives upstream refresh).
+  - `relibc-phase1-tests` wired into `config/redbear-full.toml`.
+- **relibc-phase1-tests recipe**: Cross-compiles with Redox toolchain, installs to `/home/user/relibc-phase1-tests/` in guest filesystem.
+
+## Recent Changes (2026-04-29, Wave 4)
+
+- **Daemon INIT_NOTIFY panic fixed**: `P0-daemon-fix-init-notify-unwrap.patch` — replaced two `unwrap()` calls in base `daemon/src/lib.rs` (`get_fd` and `ready`) with graceful error handling. Fix survives clean source re-fetch via recipe `patches = [...]`.
+- **Bootstrap workspace fix**: `P0-workspace-add-bootstrap.patch` — added `bootstrap` to workspace members in base `Cargo.toml` so initfs builds succeed.
+- **Broken P2 base patches removed**: 23 broken upstream P2 patches removed from `recipes/core/base/recipe.toml` — they could not apply to current source revision and blocked fresh fetches.
+- **Compositor protocol fix**: Fixed swapped size/opcode field parsing in `redbear-compositor` `dispatch()` — Wayland wire format `[size:u16][opcode:u16]` was reversed. Compositor now correctly identifies message types.
+- **Compositor binary finding fix**: Wrapper script now uses `/usr/bin/redbear-compositor` (full path) to avoid PATH issues when running as `greeter` user.
+- **messagebus group**: Added `[groups.messagebus]` to `config/redbear-full.toml` (gid=100, members=["messagebus"]) — D-Bus was failing to find the messagebus group.
+- **Live ISO built**: `build/x86_64/redbear-full.iso` (4.0G) and `build/x86_64/redbear-full.img` built successfully with full D-Bus + Qt6 + greeter stack.
+- **Source archival policy**: `local/docs/SOURCE-ARCHIVAL-POLICY.md` — new canonical policy requiring versioned filenames and fully-patched sources in archives.
+- **Sources export**: 152 patches (29 recipe + 123 local) plus 40 source tarballs exported to `sources/x86_64-unknown-redox/`.
+
+### Known Remaining Issues (Wave 4)
+
+- **Qt Wayland shell integration**: Compositor correctly parses protocol now, but Qt6's Wayland plugin reports "Loading shell integration failed" and falls back to redox platform plugin. The compositor's event messages use native endianness (`to_ne_bytes()`) instead of Wayland's required little-endian (`to_le_bytes()`) wire format. Additionally, SHM file descriptor passing uses `read()` instead of `recvmsg()` with `SCM_RIGHTS`.
+- **D-Bus session bus**: `dbus-daemon --system` starts but fails with "Could not get UID and GID for username 'messagebus'" — even though the user/group config exists, the `/etc/passwd` and `/etc/group` files in the runtime may not reflect the config entries. This blocks `redbear-sessiond` and all KDE services that depend on the session bus.
+- **KF6 enablement**: 18 KF6 packages + kglobalacceld now enabled in redbear-full.toml (non-cascading subset). kirigami, kf6-kio, kf6-kdeclarative, kf6-knewstuff, kf6-kwallet remain suppressed (QML stubs, QtNetwork shims).
 
 ## Recent Changes (2026-04-28, Wave 3)
 
-## Recent Changes (2026-04-28, Wave 3)
-
-- **Real Wayland compositor** (`redbear-compositor`): 690-line Rust display server replaces KWin stubs. Full XDG shell protocol support (15/15 protocols). Integration tested. Cross-compiles for Redox target.
-- **DRM backend active**: `KWIN_DRM_DEVICES=/scheme/drm/card0` wired end-to-end through greeter chain. Verified in QEMU boot — compositor reports "using DRM KWin backend".
+- **Bounded Wayland compositor proof** (`redbear-compositor`): 788-line Rust compositor replaces KWin stubs. Self-consistent protocol dispatch (wl_display, wl_compositor, wl_shm, wl_shell, xdg_wm_base, wl_seat). Zero warnings. 3/3 tests pass. Known limitations: SHM fd passing uses payload bytes (not Unix SCM_RIGHTS), framebuffer compositing uses private memory (not real vesad), wire encoding uses NUL-terminated strings (not padded Wayland format). Cross-compiles for Redox target. Not yet a real compositor runtime proof — bounded scaffold only.
+- **DRM backend wired**: `KWIN_DRM_DEVICES=/scheme/drm/card0` wired through greeter chain in config. Runtime verification pending.
 - **Intel GPU Gen8-Gen12**: Expanded from Gen12-only to Gen8-Gen12 with firmware keys (SKL/KBL/CNL/ICL/GLK/RKL/DG1/TGL/ADLP/DG2/MTL/ARL/LNL/BMG). 200+ device IDs from Linux 7.0 i915.
 - **VirtIO GPU driver**: New 220-line DRM/KMS backend in redox-drm for QEMU testing.
 - **Kernel 4GB RAM fix**: MEMORY_MAP overflow at 512 entries → 1024. Verified with canary chain.
@@ -36,7 +76,7 @@ For subsystem planning detail, see `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md`; 
 
 The canonical desktop plan uses a three-track model:
 
-- **Track A (Phase 1–2):** Runtime Substrate → Software Compositor — **Phase 1 test coverage is substantially complete (300+ unit tests across all Phase 1 daemons); runtime validation in a live environment remains the exit gate**
+- **Track A (Phase 1–2):** Runtime Substrate → Software Compositor — **Phase 1 active probe and check binaries are now implemented; runtime validation in a live environment remains the exit gate**
 - **Track B (Phase 3–4):** KWin Session → KDE Plasma — **blocked on Track A**
 - **Track C (Phase 5):** Hardware GPU — **can start after Phase 1**
 
@@ -60,7 +100,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 |---|---|---|
 | `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially stronger; 33 patches verified (was 25): signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, select-not-epoll-timeout, exec-root-bypass, tcp-nodelay, netdb-lookup-retry-fix, eventfd-mod, fd-event-tests, ifaddrs-net_if, signalfd-header, elf64-types, socket-cred, strtold-cpp-linkage, semaphore-fixes |
 | Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
-| KF6 frameworks | **builds** | All 32/32; some higher-level pieces use bounded/reduced recipes (kf6-kio heavy shim, kirigami stub-only) |
+| KF6 frameworks | **builds** | 32/32 recipes exist; 30 real cmake builds + 2 stubs (knewstuff, kwallet); kirigami stub-only; kf6-kio heavy shim; 18 KF6 + kglobalacceld enabled in redbear-full; 5 suppressed |
 | KWin | **experimental** | Recipe exists; current reduced path now links honest `libudev.so` and `libdisplay-info.so` provider paths alongside real `libepoxy` and `lcms2`; 11 feature switches remain disabled and runtime/session proof is still missing |
 | plasma-workspace | **experimental** | Recipe exists; stub deps (kf6-knewstuff, kf6-kwallet) unresolved |
 | plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
@@ -86,12 +126,40 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | redbear-dbus-services | ✅ Created | D-Bus activation files + policies staged |
 | DRM/KMS | **builds** | redox-drm scheme daemon; 68 unit tests (KMS, GEM, PRIME, wire structs, scheme pure logic); no hardware runtime validation |
 | GPU acceleration | **blocked** | PRIME/DMA-BUF ioctls and bounded private CS surface implemented; real vendor render CS/fence path still missing |
-| validation compositor runtime | **experimental** | Reaches early init in QEMU; no complete session |
+| validation compositor runtime | **experimental bounded scaffold** | Self-consistent protocol dispatch; 3/3 tests pass; known gaps: SHM fd passing, wire encoding, framebuffer compositing; not a real client-compatible compositor runtime proof |
 | validation profile | **builds, boots** | Bounded Wayland runtime profile |
 | `redbear-full` profile | **builds, boots** | Active desktop/graphics compile surface; now owns the experimental greeter/auth/session-launch integration path |
 | `redbear-grub` profile | **builds** | Text-only with GRUB chainload for bare-metal multi-boot |
 | `redbear-mini` profile | **builds** | Minimal non-desktop compile target |
-| `redbear-hwutils` | **builds** | lspci/lsusb tools; 19 unit tests (PCI location parsing, USB device description, argument handling) |
+| `redbear-hwutils` | **builds** | lspci/lsusb + Phase 1 check tools; 79 unit tests (12 cfg-gated Redox-only); zero warnings; 4 Phase 1 check binaries (evdev, udev, firmware, DRM) |
+| `redbear-info --probe` | **builds** | Phase 1 service presence probes (evdevd, udev-shim, firmware-loader, redox-drm, time); reports PRESENT/ABSENT with summary; exits non-zero on gaps; 5 unit tests; bidirectional `--probe`/`--json`/`--test`/`--quirks` mutual exclusivity |
+| `relibc-phase1-tests` | **builds** | Six C POSIX tests (signalfd, timerfd, eventfd, shm_open, sem_open, waitid); cross-compiled for Redox |
+| `test-phase1-runtime.sh` | **builds** | Automated QEMU validation (--guest/--qemu modes) for Phase 1 substrate |
+| `redbear-phase2-wayland-check` | **builds** | Phase 2 compositor proof checker: socket/process visibility, bounded `wl_display.get_registry`, EGL/GBM presence, software-renderer evidence, and optional `qt6-wayland-smoke` presence |
+| `test-phase2-runtime.sh` | **builds** | Automated guest/QEMU Phase 2 harness using explicit binary checks and exit-code-only pass/fail markers |
+| `redbear-phase3-kwin-check` | **builds** | Phase 3 desktop session preflight: compositor binary presence, session-bus address + `dbus-send`, seatd socket, active `WAYLAND_DISPLAY`, and bounded `wl_display.sync` roundtrip (does not validate real KWin behavior) |
+| `test-phase3-runtime.sh` | **builds** | Automated guest/QEMU Phase 3 harness using explicit binary checks and exit-code-only pass/fail markers |
+| | | |
+| **Phase 4 (KDE Plasma) — 42 real builds + 5 stubs in 47-recipe tree** | | |
+| KF6 frameworks | **32 recipes** | 30 real cmake builds, 2 stubs (knewstuff, kwallet); 18 KF6 + kglobalacceld enabled; 5 suppressed |
+| `plasma-workspace` | **real cmake build** | Full cmake build with 52 dependency items; suppressed in config |
+| `plasma-desktop` | **real cmake build** | Full cmake build, depends on plasma-workspace; suppressed |
+| `plasma-framework` | **real cmake build** | Plasma applets/containments/shell (BUILD_WITH_QML=OFF) |
+| `kdecoration` | **real cmake build** | Window decoration library required by KWin |
+| `kf6-kwayland` | **real cmake build** | Qt/C++ Wayland protocol wrapper |
+| `plasma-wayland-protocols` | **real cmake build** | XML protocol definitions for kwayland/KWin |
+| `kirigami` | **stub** | #TODO: QML-based, cannot build without Qt6Quick |
+| `kwin` | **stub** | cmake configs + wrapper scripts that delegate to redbear-compositor |
+| `test-phase4-runtime.sh` | **exists** | Phase 4 KDE Plasma preflight harness (guest + QEMU modes) |
+| `test-phase5-gpu-runtime.sh` | **exists** | Phase 5 hardware GPU preflight harness (guest + QEMU modes) |
+| `redbear-phase4-kde-check` | **builds** | Phase 4 KDE preflight: KF6 libraries, plasma binaries, session entry points, kirigami status |
+| `redbear-phase5-gpu-check` | **builds** | Phase 5 GPU preflight: DRM device, GPU firmware, Mesa DRI drivers, display modes |
+| | | |
+| **Phase 5 (Hardware GPU) — driver scaffold** | | |
+| `redox-drm` | **builds** | DRM scheme daemon with Intel Gen8-Gen12 + AMD device support and quirk tables; no hardware validation |
+| `mesa` | **builds** | Software llvmpipe renderer; hardware renderers (radeonsi/iris) not cross-compiled |
+| `amdgpu` | **compile triage** | Imported Linux AMD DC/TTM/core C port; bounded path compiles |
+| `test-phase5-network-qemu.sh` | **exists** | Legacy Phase 5 network/session QEMU launcher (pre-v2.0 plan) |
 
 ## Profile View
 
@@ -120,13 +188,13 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 The repo has real build-visible desktop progress, but build success exceeds runtime confidence.
 Phase 1 exists specifically to close this gap.
-Phase 1 test coverage is now comprehensive (300+ unit tests across evdevd, udev-shim, firmware-loader, redox-drm, redbear-hwutils). The remaining gap is live-environment runtime validation of these tested surfaces.
+Phase 1 code implementation is build-verified complete (zero warnings, zero test failures, zero LSP errors). Active service probes and check binaries are in place (`redbear-info --probe`, `redbear-phase1-{evdev,udev,firmware,drm}-check`). Six C POSIX test programs for relibc compatibility layers are wired in the `relibc-phase1-tests` recipe. The automated QEMU test harness (`test-phase1-runtime.sh`) is complete and syntax-verified. Live-environment runtime validation remains pending (requires QEMU/bare metal, not available in current environment).
 
 ### 2. No complete compositor session (Phase 2 gate)
 
 A bounded compositor initialization reaches early startup but does not complete a usable Wayland compositor session.
 This blocks all desktop session work.
-KWin is the sole intended compositor. No alternative (weston, wlroots) is in a working state. The KWin reduced path builds with 11 feature groups disabled but has zero runtime session evidence.
+KWin is the sole intended compositor direction. No alternative (weston, wlroots) is in a working state. KWin recipe currently provides cmake config stubs and wrapper scripts that delegate to redbear-compositor; real KWin build requires Qt6Quick/QML cross-compilation (not yet available).
 
 ### 3. Greeter/login path now exists, but runtime proof is still missing (desktop-login gate)
 
@@ -152,10 +220,9 @@ Current truth for that slice:
 This means Red Bear now has a credible **bounded runtime-visible login boundary**, but not yet a
 runtime-trusted general-purpose graphical login surface.
 
-### 4. KWin reduced build is now dependency-honest, but runtime proof is still missing (desktop-session gate)
+### 4. KWin recipe is a cmake stub; real KWin desktop-session proof requires Qt6Quick/QML
 
-The reduced KWin path now builds with honest provider linkage for `libepoxy`, `lcms2`, `libudev`,
-and `libdisplay-info`.
+KWin recipe provides cmake config stubs and wrapper scripts (kwin_wayland, kwin_wayland_wrapper) that delegate to redbear-compositor. Real KWin build requires Qt6Quick/QML cross-compilation which is not yet available.
 
 Current truth for that slice:
 
@@ -225,11 +292,11 @@ Init service configuration has been streamlined:
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
 - All Qt6 core modules, all 32 KF6 frameworks, Mesa EGL/GBM/GLES2, and D-Bus build
-- Four supported compile targets exist, with desktop/graphics on `redbear-full`
+- Three supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`)
 - relibc compatibility is materially stronger than before
-- Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 19, bluetooth/wifi 209)
-- KWin reduced path builds with honest dependency linkage (libepoxy, lcms2, libudev, libdisplay-info) but has no compositor session proof
+- Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
+- KWin recipe provides cmake config stubs and wrapper scripts delegating to redbear-compositor; real KWin build requires Qt6Quick/QML (not yet available); no compositor session proof exists
 - Critical blockers for Phase 4: kirigami stub (needs Qt6Quick), kf6-kio shim (needs QtNetwork), kf6-knewstuff/kwallet stubs
 
 The remaining work is **broader runtime validation, compositor/session stability, and the remaining KDE session/runtime proof work**.

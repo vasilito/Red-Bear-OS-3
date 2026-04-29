@@ -1,0 +1,22 @@
+[package]
+name = "driver-graphics"
+description = "Shared video and graphics code library"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drm-fourcc = "2.2.0"
+drm-sys.workspace = true
+edid.workspace = true #TODO: edid is abandoned, fork it and maintain?
+log.workspace = true
+redox-ioctl.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+redox_syscall.workspace = true
+libredox.workspace = true
+
+common = { path = "../../common" }
+inputd = { path = "../../inputd" }
+
+[lints]
+workspace = true

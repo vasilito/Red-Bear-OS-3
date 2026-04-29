@@ -1,0 +1,33 @@
+[package]
+name = "pcid"
+description = "PCI and PCI Express driver"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pcid"
+path = "src/main.rs"
+
+[lib]
+name = "pcid_interface"
+path = "src/lib.rs"
+
+[dependencies]
+bincode = "1.2"
+fdt.workspace = true
+libc.workspace = true
+log.workspace = true
+pci_types = "0.10.1"
+pico-args = { workspace = true, features = ["combined-flags"] }
+plain.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../../scheme-utils" }
+redox_syscall.workspace = true
+serde.workspace = true
+
+common = { path = "../common" }
+daemon = { path = "../../daemon" }
+libredox.workspace = true
+
+[lints]
+workspace = true

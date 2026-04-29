@@ -84,7 +84,11 @@ fn run() -> Result<(), String> {
 
     println!(
         "ACPI_ROOT={}",
-        if surface.acpi_root_present { "present" } else { "missing" }
+        if surface.acpi_root_present {
+            "present"
+        } else {
+            "missing"
+        }
     );
     println!(
         "KERNEL_KSTOP={}",
@@ -94,7 +98,14 @@ fn run() -> Result<(), String> {
             "missing"
         }
     );
-    println!("ACPI_DMI={}", if surface.dmi_present { "present" } else { "missing" });
+    println!(
+        "ACPI_DMI={}",
+        if surface.dmi_present {
+            "present"
+        } else {
+            "missing"
+        }
+    );
     println!(
         "ACPI_REBOOT={}",
         if surface.reboot_present {

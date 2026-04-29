@@ -92,8 +92,40 @@ name = "redbear-phase-pci-irq-check"
 path = "src/bin/redbear-phase-pci-irq-check.rs"
 
 [[bin]]
+name = "redbear-phase1-evdev-check"
+path = "src/bin/redbear-phase1-evdev-check.rs"
+
+[[bin]]
+name = "redbear-phase1-udev-check"
+path = "src/bin/redbear-phase1-udev-check.rs"
+
+[[bin]]
 name = "redbear-usb-check"
 path = "src/bin/redbear-usb-check.rs"
+
+[[bin]]
+name = "redbear-phase1-firmware-check"
+path = "src/bin/redbear-phase1-firmware-check.rs"
+
+[[bin]]
+name = "redbear-phase1-drm-check"
+path = "src/bin/redbear-phase1-drm-check.rs"
+
+[[bin]]
+name = "redbear-phase2-wayland-check"
+path = "src/bin/redbear-phase2-wayland-check.rs"
+
+[[bin]]
+name = "redbear-phase3-kwin-check"
+path = "src/bin/redbear-phase3-kwin-check.rs"
+
+[[bin]]
+name = "redbear-phase4-kde-check"
+path = "src/bin/redbear-phase4-kde-check.rs"
+
+[[bin]]
+name = "redbear-phase5-gpu-check"
+path = "src/bin/redbear-phase5-gpu-check.rs"
 
 [dependencies]
 redbear-login-protocol = { path = "../../redbear-login-protocol/source" }

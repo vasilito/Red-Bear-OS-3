@@ -1,0 +1,37 @@
+## Drivers for InitFS ##
+
+# ahcid
+[[drivers]]
+name = "AHCI storage"
+class = 1
+subclass = 6
+command = ["/scheme/initfs/lib/drivers/ahcid"]
+
+# ided
+[[drivers]]
+name = "IDE storage"
+class = 1
+subclass = 1
+command = ["/scheme/initfs/lib/drivers/ided"]
+
+# nvmed
+[[drivers]]
+name = "NVME storage"
+class = 1
+subclass = 8
+command = ["/scheme/initfs/lib/drivers/nvmed"]
+
+[[drivers]]
+name = "virtio-blk"
+class = 1
+subclass = 0
+vendor = 0x1AF4
+device = 0x1001
+command = ["/scheme/initfs/lib/drivers/virtio-blkd"]
+
+[[drivers]]
+name = "virtio-gpu"
+class = 3
+vendor = 0x1AF4
+device = 0x1050
+command = ["/scheme/initfs/lib/drivers/virtio-gpud"]

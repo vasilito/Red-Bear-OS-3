@@ -1,0 +1,6 @@
+[unit]
+description = "VT input and graphics multiplexer"
+
+[service]
+cmd = "inputd"
+type = { scheme = "input" }

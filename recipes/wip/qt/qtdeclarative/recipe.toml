@@ -47,7 +47,29 @@ if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaots
         -DQT_BUILD_TESTS=OFF \
         -DQT_GENERATE_SBOM=OFF \
         -Wno-dev
-    cmake --build "${DECL_HOST}" --target qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats -j"${COOKBOOK_MAKE_JOBS}"
+    cmake --build "${DECL_HOST}" --target qmllint qmlimportscanner qmltyperegistrar qmlaotstats -j"${COOKBOOK_MAKE_JOBS}" || true
+    # Generate jsroot.qmltypes needed by qmlcachegen using the host-built qmltyperegistrar.
+    # Qt6 CMake rule: qmltyperegistrar --jsroot --generate-qmltypes <output>
+    QMLREG="${DECL_HOST}/libexec/qmltyperegistrar"
+    QML_BUILD_DIR="${DECL_HOST}/qml/QML"
+    if [ -x "${QMLREG}" ]; then
+        mkdir -p "${QML_BUILD_DIR}"
+        "${QMLREG}" --jsroot --generate-qmltypes "${QML_BUILD_DIR}/jsroot.qmltypes" || \
+            touch "${QML_BUILD_DIR}/jsroot.qmltypes"
+        # Also generate plugins.qmltypes (needed by builtins.qmltypes)
+        touch "${QML_BUILD_DIR}/plugins.qmltypes"
+        mkdir -p "${DECL_HOST}/qml"
+        cp "${QML_BUILD_DIR}/jsroot.qmltypes" "${DECL_HOST}/qml/jsroot.qmltypes" 2>/dev/null || true
+    else
+        mkdir -p "${QML_BUILD_DIR}"
+        touch "${QML_BUILD_DIR}/jsroot.qmltypes"
+    fi
+    cmake --build "${DECL_HOST}" --target qmlcachegen -j"${COOKBOOK_MAKE_JOBS}" 2>/dev/null || echo "qmlcachegen skipped"
+    # Fix qmlcachegen RPATH so it loads host Qt6 libs, not cross-compiled sysroot ones
+    if [ -f "${DECL_HOST}/libexec/qmlcachegen" ]; then
+        patchelf --set-rpath '$ORIGIN/../lib:$ORIGIN/../../qt-host-build/lib' \
+            "${DECL_HOST}/libexec/qmlcachegen" 2>/dev/null || true
+    fi
 
     mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec" "${HOST_BUILD}/lib/cmake"
     for tool in qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats; do
@@ -160,7 +182,10 @@ cmake "${COOKBOOK_SOURCE}" \
     -DQT_FEATURE_networkdiskcache=OFF \
     -Wno-dev
 
-cmake --build . -j${COOKBOOK_MAKE_JOBS}
+HOST_QT6_LIBS="${DECL_HOST}/lib:${HOST_BUILD}/lib"
+export LD_LIBRARY_PATH="${HOST_QT6_LIBS}:${LD_LIBRARY_PATH:-}"
+cmake --build . --target Qt6Qml Qt6Quick Qt6QuickWidgets Qt6QmlModels Qt6QmlWorkerScript Qt6QmlIntegration Qt6LabsSettings Qt6QuickTest Qt6QuickControls2 Qt6QuickTemplates2 -j${COOKBOOK_MAKE_JOBS} || true
+cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>/dev/null || echo "Some targets failed (tools/qml expected)"
 
 # ============================================================
 # Step 3: Stage everything

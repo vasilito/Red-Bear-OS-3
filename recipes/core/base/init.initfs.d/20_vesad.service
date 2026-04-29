@@ -1,0 +1,13 @@
+[unit]
+description = "Bootloader framebuffer handler"
+requires_weak = ["10_inputd.service"]
+
+[service]
+cmd = "vesad"
+inherit_envs = [
+    "FRAMEBUFFER_ADDR",
+    "FRAMEBUFFER_WIDTH",
+    "FRAMEBUFFER_HEIGHT",
+    "FRAMEBUFFER_STRIDE",
+]
+type = "notify"

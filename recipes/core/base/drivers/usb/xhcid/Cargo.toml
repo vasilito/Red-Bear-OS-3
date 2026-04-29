@@ -1,0 +1,41 @@
+[package]
+name = "xhcid"
+description = "xHCI controller driver"
+version = "0.1.0"
+edition = "2018"
+
+[[bin]]
+name = "xhcid"
+path = "src/main.rs"
+
+[lib]
+name = "xhcid_interface"
+path = "src/lib.rs"
+
+[dependencies]
+bitflags.workspace = true
+chashmap = "2.2.2"
+crossbeam-channel = "0.4"
+futures = "0.3"
+plain.workspace = true
+lazy_static = "1.4"
+log.workspace = true
+redox_event.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+redox_syscall.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smallvec = { workspace = true, features = ["serde"] }
+thiserror.workspace = true
+toml.workspace = true
+
+config = { path = "../../../config" }
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+pcid = { path = "../../pcid" }
+libredox.workspace = true
+regex = "1.10.6"
+
+[lints]
+workspace = true

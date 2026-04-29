@@ -109,13 +109,13 @@ fn test_compositor_globals() {
     let mut client = WaylandClient::connect(socket).expect("failed to connect");
     
     // Get registry
-    let registry = client.get_registry().expect("get_registry failed");
+    let _registry = client.get_registry().expect("get_registry failed");
     
     // Read global events
     let mut globals = Vec::new();
     for _ in 0..6 {
         match client.read_message() {
-            Ok((obj_id, opcode, payload)) => {
+            Ok((_obj_id, opcode, payload)) => {
                 assert_eq!(opcode, 0); // wl_registry.global
                 let name = u32::from_ne_bytes([payload[0], payload[1], payload[2], payload[3]]);
                 let iface_end = payload[4..].iter().position(|&b| b == 0).unwrap_or(0);

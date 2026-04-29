@@ -1,0 +1,35 @@
+[package]
+name = "bootstrap"
+description = "Userspace bootstrapper"
+version = "0.0.0"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+hashbrown = { version = "0.15", default-features = false, features = [
+    "inline-more",
+    "default-hasher",
+] }
+linked_list_allocator = "0.10"
+libredox = { version = "0.1.16", default-features = false, features = ["protocol"] }
+log = { version = "0.4", default-features = false }
+plain = "0.2"
+redox-initfs = { path = "../initfs", default-features = false }
+redox_syscall = "0.7.4"
+redox-scheme = { version = "0.11.0", default-features = false }
+redox-path = "0.3.1"
+slab = { version = "0.4.9", default-features = false }
+arrayvec = { version = "0.7.6", default-features = false }
+
+[target.'cfg(target_os = "redox")'.dependencies]
+redox-rt = { git = "https://gitlab.redox-os.org/redox-os/relibc.git", default-features = false }
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+opt-level = "s"
+
+[profile.dev]
+panic = "abort"
+opt-level = "s"

@@ -1,0 +1,8 @@
+[unit]
+description = "/dev/null"
+default_dependencies = false
+
+[service]
+cmd = "zerod"
+args = ["null"]
+type = { scheme = "null" }

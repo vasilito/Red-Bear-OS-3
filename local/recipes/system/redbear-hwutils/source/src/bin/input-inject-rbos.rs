@@ -3,12 +3,11 @@ use std::io::{Read, Write};
 use std::process;
 use std::time::{Duration, Instant};
 
-use orbclient::{KeyEvent, K_A};
+use orbclient::{K_A, KeyEvent};
 use redbear_hwutils::parse_args;
 
 const PROGRAM: &str = "redbear-input-inject";
-const USAGE: &str =
-    "Usage: redbear-input-inject\n\nInject a synthetic 'A' key press/release through /scheme/input/producer and verify the first evdev consumer event.";
+const USAGE: &str = "Usage: redbear-input-inject\n\nInject a synthetic 'A' key press/release through /scheme/input/producer and verify the first evdev consumer event.";
 const EVENT_SIZE: usize = 24;
 const EV_KEY: u16 = 0x01;
 

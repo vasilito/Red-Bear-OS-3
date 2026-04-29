@@ -216,19 +216,21 @@ shell = "/usr/bin/ion"
 | W9 | **Power action fallbacks missing** | Low | authd calls `/usr/bin/shutdown`, `/usr/bin/reboot` | May not exist on Redox; failure is silent |
 | W10 | **greeterd socket path hardcoded** | Low | `/run/redbear-greeterd.sock` vs XDG_RUNTIME_DIR | Works for single-seat; breaks in multi-seat |
 | W11 | **greeter init service is `true` stub** | **Critical** | `redbear-greeter-services.toml` → `20_greeter.service cmd = "true"` | Real greeter only in `redbear-full.toml`; mini/grub don't have it |
-| W12 | **redbear-greeter-compositor missing from image** | **Critical** | recipe.toml installs to `/usr/bin/` but path referenced as `COMPOSITOR_BIN_PATH` | greeterd fails to start compositor |
-| W13 | **`dbus-run-session` may not exist in image** | **Critical** | session-launch fallback is direct `redbear-kde-session` | D-Bus session bus may not start without explicit dbus-daemon |
+| W12 | ~~redbear-greeter-compositor missing from image~~(resolved) | Low | Recipe installs to both `/usr/bin/` and `/usr/share/redbear/greeter/`; main.rs checks both | compositor binary available via both paths |
+| W13 | ~~dbus-run-session may not exist in image~~(resolved) | Low | dbus in redbear-mini config (inherit by redbear-full); session-launch prefers `/usr/bin/dbus-run-session`; dbus recipe installs it | D-Bus session bus available |
 
-### 7.3 Critical Blockers for Greeter Reaching Login Screen
+### 7.3 Greeter Login-Screen Prerequisites (most resolved; bounded QEMU proof now passes)
+
+*Note: As of 2026-04-29, the bounded `redbear-full` QEMU greeter proof passes (`GREETER_HELLO=ok`, `GREETER_VALID=ok`). Most items below are satisfied by the active config; remaining items are "verify via build."*
 
 | Blocker | Source | Fix |
 |---------|--------|-----|
 | greeter init service stub in greeter-services.toml | `20_greeter.service cmd = "true"` | Use `redbear-full.toml` service definition (already correct there) |
-| compositor binary path mismatch | `COMPOSITOR_BIN_PATH = /usr/bin/redbear-greeter-compositor` but recipe installs to `/usr/share/` first then `/usr/bin/` | Verify binary at `/usr/bin/redbear-greeter-compositor` in image |
-| seatd not in image | seatd recipe may not have been cooked | Ensure `seatd` package is in config and cooked |
-| redbear-authd not in image | authd recipe may not have been cooked | Ensure `redbear-authd` package is in config and cooked |
-| redbear-sessiond not in image | sessiond recipe may not have been cooked | Ensure `redbear-sessiond` package is in config and cooked |
-| greeter user account missing | TOML `[users.greeter]` may not be applied | Verify greeter user uid=101 exists in /etc/passwd in image |
+| ~~compositor binary path mismatch~~ (resolved) | Recipe installs to both `/usr/bin/` and `/usr/share/redbear/greeter/`; greeterd checks both | No action needed |
+| seatd package in config | seatd = {} now present in redbear-full.toml packages section | Rebuild to include seatd in image |
+| redbear-authd now in config | authd recipe in redbear-full config | Verify authd binary reaches image via build |
+| redbear-sessiond now in config | sessiond inherited from redbear-mini config | Verify sessiond binary reaches image via build |
+| greeter user account present in config | `[users.greeter]` in redbear-full config | Verify greeter user uid=101 in /etc/passwd in image after build |
 | compositor requires DRM but QEMU has none | `kwin_wayland_wrapper --drm` fails in VM | Use `--virtual` in VM; compositor script already handles this |
 
 ---

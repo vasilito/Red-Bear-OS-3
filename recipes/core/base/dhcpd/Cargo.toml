@@ -1,0 +1,10 @@
+[package]
+name = "dhcpd"
+version = "0.0.0"
+edition = "2024"
+authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+
+[dependencies]
+
+[lints]
+workspace = true

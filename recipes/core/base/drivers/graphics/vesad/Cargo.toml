@@ -1,0 +1,23 @@
+[package]
+name = "vesad"
+description = "VESA driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drm-sys.workspace = true
+orbclient.workspace = true
+ransid.workspace = true
+redox_syscall.workspace = true
+redox_event.workspace = true
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-graphics = { path = "../driver-graphics" }
+libredox.workspace = true
+
+[features]
+default = []
+
+[lints]
+workspace = true

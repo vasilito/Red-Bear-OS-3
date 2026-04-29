@@ -1,0 +1,8 @@
+[unit]
+description = "PS/2 driver"
+requires_weak = ["10_inputd.service", "20_graphics.target"]
+condition_architecture = ["x86", "x86_64"]
+
+[service]
+cmd = "ps2d"
+type = "notify"

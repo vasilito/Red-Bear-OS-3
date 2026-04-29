@@ -1,0 +1,20 @@
+[package]
+name = "sb16d"
+description = "Sound Blaster sound card driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitflags.workspace = true
+common = { path = "../../common" }
+libredox.workspace = true
+log.workspace = true
+daemon = { path = "../../../daemon" }
+redox_event.workspace = true
+redox_syscall.workspace = true
+spin.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+
+[lints]
+workspace = true

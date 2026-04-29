@@ -1,0 +1,28 @@
+[package]
+name = "virtio-gpud"
+description = "VirtIO-GPU driver"
+version = "0.1.0"
+edition = "2021"
+authors = ["Anhad Singh <andypython@protonmail.com>"]
+
+[dependencies]
+drm-sys.workspace = true
+log.workspace = true
+static_assertions.workspace = true
+futures = { version = "0.3.28", features = ["executor"] }
+anyhow.workspace = true
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-graphics = { path = "../driver-graphics" }
+virtio-core = { path = "../../virtio-core" }
+pcid = { path = "../../pcid" }
+
+redox_event.workspace = true
+redox_syscall.workspace = true
+orbclient.workspace = true
+spin.workspace = true
+libredox.workspace = true
+
+[lints]
+workspace = true

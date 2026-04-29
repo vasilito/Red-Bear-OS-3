@@ -1,0 +1,4 @@
+# FIXME change this to a service unit
+# clear and recreate tmpdir with 0o1777 permission
+rm -rf /tmp
+mkdir -m a=rwxt /tmp

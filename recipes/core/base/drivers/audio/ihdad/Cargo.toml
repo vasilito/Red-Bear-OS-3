@@ -1,0 +1,22 @@
+[package]
+name = "ihdad"
+description = "Intel HD Audio chipset driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitflags.workspace = true
+libredox.workspace = true
+log.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+spin.workspace = true
+
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+pcid = { path = "../../pcid" }
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+
+[lints]
+workspace = true

@@ -4,8 +4,7 @@ use std::process;
 use redbear_hwutils::parse_args;
 
 const PROGRAM: &str = "redbear-usb-check";
-const USAGE: &str =
-    "Usage: redbear-usb-check\n\nCheck the USB stack inside a Red Bear guest.\n\nWalks the usb scheme tree and reports controller and device status.";
+const USAGE: &str = "Usage: redbear-usb-check\n\nCheck the USB stack inside a Red Bear guest.\n\nWalks the usb scheme tree and reports controller and device status.";
 
 fn list_scheme_dir(path: &str) -> Vec<String> {
     match fs::read_dir(path) {

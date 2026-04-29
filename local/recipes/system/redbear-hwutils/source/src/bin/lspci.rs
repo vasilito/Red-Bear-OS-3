@@ -3,10 +3,10 @@ use std::fs;
 use std::process;
 
 use redbear_hwutils::{
-    lookup_pci_device_name, lookup_pci_vendor_name, parse_args, parse_pci_location, PciLocation,
+    PciLocation, lookup_pci_device_name, lookup_pci_vendor_name, parse_args, parse_pci_location,
 };
-use redox_driver_sys::pci::{parse_device_info_from_config_space, InterruptSupport, PciDeviceInfo};
-use redox_driver_sys::quirks::{lookup_pci_quirks, PciQuirkFlags};
+use redox_driver_sys::pci::{InterruptSupport, PciDeviceInfo, parse_device_info_from_config_space};
+use redox_driver_sys::quirks::{PciQuirkFlags, lookup_pci_quirks};
 
 const USAGE: &str = "Usage: lspci\nList PCI devices exposed by /scheme/pci.";
 

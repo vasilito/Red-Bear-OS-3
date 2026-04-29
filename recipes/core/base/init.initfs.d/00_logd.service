@@ -1,0 +1,7 @@
+[unit]
+description = "Logger"
+default_dependencies = false
+
+[service]
+cmd = "logd"
+type = { scheme = "log" }

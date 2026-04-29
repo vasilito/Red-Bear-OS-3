@@ -1,0 +1,21 @@
+[package]
+name = "ac97d"
+description = "AC'97 driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../../common" }
+libredox.workspace = true
+log.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+spin.workspace = true
+
+daemon = { path = "../../../daemon" }
+pcid = { path = "../../pcid" }
+redox-scheme.workspace = true
+scheme-utils = { path = "../../../scheme-utils" }
+
+[lints]
+workspace = true

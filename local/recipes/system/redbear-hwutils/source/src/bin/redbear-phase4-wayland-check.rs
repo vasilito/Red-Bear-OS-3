@@ -1,5 +1,8 @@
-use std::{env, path::{Path, PathBuf}};
 use std::process::{self, Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use redbear_hwutils::parse_args;
 

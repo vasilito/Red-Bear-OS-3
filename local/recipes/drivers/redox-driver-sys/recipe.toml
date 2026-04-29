@@ -8,10 +8,11 @@ DYNAMIC_INIT
 
 mkdir -p "${COOKBOOK_STAGE}/usr/lib"
 
-cargo build --lib --target "${TARGET}"
+unset CARGO_TARGET_DIR
+cargo build --manifest-path "${COOKBOOK_SOURCE}/Cargo.toml" --lib --target "${TARGET}" --release
 
-cp "${COOKBOOK_SOURCE}/target/${TARGET}/debug/libredox_driver_sys.a" \
+cp "${COOKBOOK_SOURCE}/target/${TARGET}/release/libredox_driver_sys.a" \
    "${COOKBOOK_STAGE}/usr/lib/libredox_driver_sys.a"
-cp "${COOKBOOK_SOURCE}/target/${TARGET}/debug/libredox_driver_sys.rlib" \
+cp "${COOKBOOK_SOURCE}/target/${TARGET}/release/libredox_driver_sys.rlib" \
    "${COOKBOOK_STAGE}/usr/lib/libredox_driver_sys.rlib"
 """

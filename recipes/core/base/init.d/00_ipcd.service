@@ -1,0 +1,6 @@
+[unit]
+description = "IPC daemon"
+
+[service]
+cmd = "ipcd"
+type = "notify"

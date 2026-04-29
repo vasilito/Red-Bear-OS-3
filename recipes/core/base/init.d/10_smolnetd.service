@@ -1,0 +1,11 @@
+# FIXME rename to 10_netstack.service
+
+[unit]
+description = "Network stack"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "netstack"
+type = "notify"

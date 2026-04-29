@@ -1,0 +1,42 @@
+image: "redoxos/redoxer:latest"
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PROJECT_NAMESPACE == "redox-os"'
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+
+stages:
+  - build
+  - cross-build
+  - test
+
+fmt:
+    stage: build
+    script:
+        - rustup component add rustfmt
+        - CHECK_ONLY=1 ./fmt.sh
+
+x86_64:
+    stage: build
+    script:
+        - rustup component add rustfmt
+        - ./check.sh
+
+i586:
+    stage: cross-build
+    script:
+        - ./check.sh --arch=i586
+
+aarch64:
+    stage: cross-build
+    script:
+        - ./check.sh --arch=aarch64
+
+riscv64gc:
+    stage: cross-build
+    script:
+        - ./check.sh --arch=riscv64gc
+
+boot:
+    stage: test
+    script:
+        - timeout -s KILL 9m ./check.sh --test

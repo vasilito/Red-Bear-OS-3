@@ -1,0 +1,18 @@
+[package]
+name = "redoxerd"
+description = "Redoxer QEMU daemon"
+version = "0.1.0"
+authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow.workspace = true
+libredox.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+redox_termios.workspace = true
+common = { path = "../common" }
+qemu-exit = "3.0.2"
+
+[lints]
+workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "audiod"
+description = "Sound daemon"
+version = "0.1.0"
+authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+daemon = { path = "../daemon" }
+redox_syscall = { workspace = true, features = ["std"] }
+libc.workspace = true
+libredox = { workspace =  true, features = ["mkns"] }
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+anyhow.workspace = true
+ioslice = "0.6.0"
+
+[lints]
+workspace = true

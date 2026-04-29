@@ -1,0 +1,16 @@
+[package]
+name = "logd"
+description = "Logging daemon"
+version = "0.1.0"
+authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+redox_syscall.workspace = true
+daemon = { path = "../daemon" }
+libredox.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+
+[lints]
+workspace = true

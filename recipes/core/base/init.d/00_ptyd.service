@@ -1,0 +1,6 @@
+[unit]
+description = "PTY daemon"
+
+[service]
+cmd = "ptyd"
+type = "notify"

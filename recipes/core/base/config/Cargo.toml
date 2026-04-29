@@ -1,0 +1,10 @@
+[package]
+name = "config"
+description = "Configuration override library"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+
+[lints]
+workspace = true

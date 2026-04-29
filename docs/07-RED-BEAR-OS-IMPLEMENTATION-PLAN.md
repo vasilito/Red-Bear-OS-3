@@ -353,13 +353,13 @@ Goal:
 
 - turn the current build-visible desktop stack into runtime-trusted session surfaces.
 
-Current state:
+Current state (2026-04-29):
 
-- relibc compatibility work is materially improved,
-- `libwayland` and `qtbase` build,
-- Qt6 base stack builds,
-- KDE recipe/session work exists,
-- runtime trust is still behind build success.
+- **Phase 1 (Runtime Substrate):** build-verified complete. Zero warnings, zero test failures, zero LSP errors. Four Phase 1 check binaries (evdev, udev, firmware, DRM) + `redbear-info --probe` + automated QEMU test harness exist. Runtime validation pending (requires QEMU/bare metal).
+- **Phase 2 (Wayland Compositor):** bounded proof scaffold exists. `redbear-compositor` (788-line Rust compositor) builds with zero warnings and self-consistent protocol dispatch (3/3 tests pass). Known limitations: SHM fd passing uses payload bytes (not Unix SCM_RIGHTS), framebuffer compositing uses private heap memory, wire encoding uses NUL-terminated strings. Phase 2 check binary + test harness exist. Not yet a real client-compatible compositor runtime proof.
+- **Phase 3 (KWin Session):** KWin recipe is a cmake config stub (real build requires Qt6Quick/QML, not yet cross-compiled). Wrapper scripts (`kwin_wayland_wrapper`) delegate to `redbear-compositor`. Phase 3 preflight check binary + test harness exist. Does NOT validate real KWin behavior.
+- **Phase 4 (KDE Plasma):** All Phase 4 KDE recipes (plasma-workspace, plasma-desktop, plasma-framework, kdecoration, kf6-kwayland, plasma-wayland-protocols) are cmake config stubs marked `#TODO`. Real builds gated on Qt6Quick/QML + real KWin. Legacy test scripts exist (test-phase4-wayland-qemu.sh, test-phase6-kde-qemu.sh).
+- **Phase 5 (Hardware GPU):** redox-drm exists with Intel Gen8-Gen12 + AMD device support and quirk tables. Mesa builds with llvmpipe software renderer (hardware renderers not yet cross-compiled). GPU command submission (CS ioctl) missing. DRM display check binary exists. No hardware validation yet.
 
 Canonical references:
 

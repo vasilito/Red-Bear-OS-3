@@ -1,0 +1,18 @@
+[package]
+name = "console-draw"
+description = "Shared terminal drawing code library"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+drm.workspace = true
+orbclient.workspace = true
+ransid.workspace = true
+
+graphics-ipc = { path = "../graphics-ipc" }
+
+[features]
+default = []
+
+[lints]
+workspace = true

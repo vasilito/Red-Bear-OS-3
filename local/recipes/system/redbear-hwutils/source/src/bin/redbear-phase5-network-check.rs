@@ -298,7 +298,11 @@ fn validate_upower(list_names_output: &str) -> Result<(), String> {
     println!("UPOWER_RUNTIME_BATTERIES={}", runtime.battery_ids.len());
     println!(
         "UPOWER_POWER_SURFACE={}",
-        if power_surface_available { "available" } else { "unavailable" }
+        if power_surface_available {
+            "available"
+        } else {
+            "unavailable"
+        }
     );
 
     let enumerate_output = run_command_with_retry(

@@ -1,0 +1,21 @@
+[package]
+name = "ramfs"
+version = "0.1.0"
+authors = ["4lDO2 <4lDO2@protonmail.com>"]
+edition = "2018"
+license = "MIT"
+description = "RAM filesystem, which is useful for early logging"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+daemon = { path = "../daemon" }
+redox_syscall.workspace = true
+redox-scheme.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+libredox = { workspace = true, features = ["call"] }
+indexmap = "2.5.0"
+slab.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,28 @@
+[package]
+name = "nvmed"
+description = "NVM Express (NVMe) driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitflags.workspace = true
+futures = "0.3"
+libredox.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+redox_event.workspace = true
+redox_syscall = { workspace = true, features = ["std"] }
+smallvec.workspace = true
+
+executor = { path = "../../executor" }
+common = { path = "../../common" }
+daemon = { path = "../../../daemon" }
+driver-block = { path = "../driver-block" }
+partitionlib = { path = "../partitionlib" }
+pcid = { path = "../../pcid" }
+
+[features]
+default = []
+
+[lints]
+workspace = true

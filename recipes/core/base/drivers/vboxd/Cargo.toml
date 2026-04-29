@@ -1,0 +1,18 @@
+[package]
+name = "vboxd"
+description = "VirtualBox driver"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+libredox.workspace = true
+orbclient.workspace = true
+redox_event.workspace = true
+redox_syscall.workspace = true
+
+common = { path = "../common" }
+daemon = { path = "../../daemon" }
+pcid = { path = "../pcid" }
+
+[lints]
+workspace = true

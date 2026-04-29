@@ -5,8 +5,7 @@ use redbear_hwutils::parse_args;
 use serde_json::Value;
 
 const PROGRAM: &str = "redbear-phase5-wifi-analyze";
-const USAGE: &str =
-    "Usage: redbear-phase5-wifi-analyze <capture.json>\n\nSummarize a Wi-Fi capture bundle into likely blocker categories.";
+const USAGE: &str = "Usage: redbear-phase5-wifi-analyze <capture.json>\n\nSummarize a Wi-Fi capture bundle into likely blocker categories.";
 
 fn read_text<'a>(value: &'a Value, path: &[&str]) -> &'a str {
     let mut current = value;

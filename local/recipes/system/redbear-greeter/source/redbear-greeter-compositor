@@ -8,6 +8,7 @@ export SEATD_SOCK=/run/seatd.sock
 export QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/plugins}"
 export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_QPA_PLATFORM_PLUGIN_PATH:-/usr/plugins/platforms}"
 export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:-/usr/qml}"
+export QT_WAYLAND_SHELL_INTEGRATION="${QT_WAYLAND_SHELL_INTEGRATION:-xdg-shell}"
 export XCURSOR_THEME="${XCURSOR_THEME:-Pop}"
 export XKB_CONFIG_ROOT="${XKB_CONFIG_ROOT:-/usr/share/X11/xkb}"
 
@@ -22,7 +23,12 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2
 fi
 
 if ! command -v kwin_wayland_wrapper >/dev/null 2>&1; then
-    echo "redbear-greeter-compositor: kwin_wayland_wrapper not found in PATH" >&2
+    # Fall back to redbear-compositor (simpler Rust compositor)
+    if command -v /usr/bin/redbear-compositor >/dev/null 2>&1 || command -v redbear-compositor >/dev/null 2>&1; then
+        echo "redbear-greeter-compositor: kwin_wayland_wrapper not found, using redbear-compositor" >&2
+        exec /usr/bin/redbear-compositor
+    fi
+    echo "redbear-greeter-compositor: kwin_wayland_wrapper not found, and redbear-compositor not found either" >&2
     exit 1
 fi
 
@@ -39,9 +45,9 @@ if [ -z "${KWIN_DRM_DEVICES:-}" ]; then
 fi
 
 if [ -n "${KWIN_DRM_DEVICES:-}" ]; then
-    echo "redbear-greeter-compositor: using DRM KWin backend (KWIN_DRM_DEVICES=${KWIN_DRM_DEVICES})" >&2
+    echo "redbear-greeter-compositor: using DRM compositor backend (KWIN_DRM_DEVICES=${KWIN_DRM_DEVICES})" >&2
     exec kwin_wayland_wrapper --drm
 else
-    echo "redbear-greeter-compositor: using virtual KWin backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
+    echo "redbear-greeter-compositor: using virtual compositor backend (set KWIN_DRM_DEVICES to enable DRM)" >&2
     exec kwin_wayland_wrapper --virtual
 fi

@@ -1,0 +1,6 @@
+[[drivers]]
+name = "virtio-net"
+class = 0x02
+vendor = 0x1AF4
+device = 0x1000
+command = ["virtio-netd"]

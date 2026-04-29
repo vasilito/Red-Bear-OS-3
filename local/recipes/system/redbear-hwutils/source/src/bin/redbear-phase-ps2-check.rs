@@ -8,8 +8,7 @@ use syscall::O_NONBLOCK;
 use redbear_hwutils::parse_args;
 
 const PROGRAM: &str = "redbear-phase-ps2-check";
-const USAGE: &str =
-    "Usage: redbear-phase-ps2-check\n\nRun the bounded PS/2 and serio proof check inside the guest.";
+const USAGE: &str = "Usage: redbear-phase-ps2-check\n\nRun the bounded PS/2 and serio proof check inside the guest.";
 
 fn require_path(path: &str) -> Result<(), String> {
     if Path::new(path).exists()
@@ -36,7 +35,9 @@ fn run_phase3_input_check() -> Result<(), String> {
         println!("phase3_input_check=ok");
         Ok(())
     } else {
-        Err(format!("redbear-phase3-input-check exited with status {status}"))
+        Err(format!(
+            "redbear-phase3-input-check exited with status {status}"
+        ))
     }
 }
 
