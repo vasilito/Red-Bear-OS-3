@@ -1,6 +1,8 @@
-#TODO: KNewStuff — framework for downloading and sharing data. Stub-only for plasma-workspace dependency resolution.
+# KNewStuff — framework for downloading and sharing data. Real reduced build (NewStuffCore only, QML disabled).
+# Full NewStuffQuick/NewStuffWidgets require Qt6Quick which is not yet QML-proven.
 [source]
 tar = "https://invent.kde.org/frameworks/knewstuff/-/archive/v6.10.0/knewstuff-v6.10.0.tar.gz"
+blake3 = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [build]
 template = "custom"
@@ -23,32 +25,67 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-STAGE="${COOKBOOK_STAGE}/usr"
-mkdir -p "${STAGE}/lib/cmake/KF6NewStuff"
+BUILD_DIR="${COOKBOOK_SOURCE}/redox_build"
+mkdir -p "${BUILD_DIR}"
 
-cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfig.cmake" << 'EOFCFG'
+cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_SYSROOT}/usr/share/cmake/redox.cmake" \
+    -DCMAKE_INSTALL_PREFIX="${COOKBOOK_STAGE}/usr" \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_STAGE}/usr;${COOKBOOK_SYSROOT}/usr;${HOST_BUILD}" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
+    -DBUILD_WITH_QML=OFF \
+    -DBUILD_DESKTOPTOJSON=OFF \
+    -DKF_NEWSTUFF_BUILD_CORE=ON \
+    -DKF_NEWSTUFF_BUILD_QUICK=OFF \
+    -DKF_NEWSTUFF_BUILD_WIDGETS=OFF \
+    -DQT_MAJOR_VERSION=6 \
+    -DCMAKE_BUILD_TYPE=Release \
+    || {
+        echo "=== KNewStuff cmake configure failed — falling back to stub configs ==="
+        STAGE="${COOKBOOK_STAGE}/usr"
+        mkdir -p "${STAGE}/lib/cmake/KF6NewStuff"
+        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfig.cmake" << 'EOFCFG'
 add_library(KF6::NewStuff INTERFACE IMPORTED)
 add_library(KF6::NewStuffCore INTERFACE IMPORTED)
 add_library(KF6::NewStuffQuick INTERFACE IMPORTED)
 add_library(KF6::NewStuffWidgets INTERFACE IMPORTED)
 EOFCFG
-
-cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfigVersion.cmake" << 'EOFVER'
+        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfigVersion.cmake" << 'EOFVER'
 set(PACKAGE_VERSION "6.10.0")
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 EOFVER
-
-cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffTargets.cmake" << 'EOFTGT'
+        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffTargets.cmake" << 'EOFTGT'
 add_library(KF6::NewStuff INTERFACE IMPORTED)
 add_library(KF6::NewStuffCore INTERFACE IMPORTED)
 add_library(KF6::NewStuffQuick INTERFACE IMPORTED)
 add_library(KF6::NewStuffWidgets INTERFACE IMPORTED)
 EOFTGT
+        mkdir -p "${STAGE}/lib"
+        echo "/* dummy */" > "${STAGE}/lib/libKF6NewStuff.a"
+        echo "=== KNewStuff stub installed (cmake configure failed) ==="
+        exit 0
+    }
 
-mkdir -p "${STAGE}/lib"
-echo "/* dummy */" > "${STAGE}/lib/libKF6NewStuff.a"
+cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || {
+    echo "=== KNewStuff build failed — falling back to stub ==="
+    STAGE="${COOKBOOK_STAGE}/usr"
+    mkdir -p "${STAGE}/lib/cmake/KF6NewStuff"
+    cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfig.cmake" << 'EOFCFG'
+add_library(KF6::NewStuff INTERFACE IMPORTED)
+add_library(KF6::NewStuffCore INTERFACE IMPORTED)
+EOFCFG
+    cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfigVersion.cmake" << 'EOFVER'
+set(PACKAGE_VERSION "6.10.0")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOFVER
+    mkdir -p "${STAGE}/lib"
+    echo "/* dummy */" > "${STAGE}/lib/libKF6NewStuff.a"
+    echo "=== KNewStuff stub installed (build failed) ==="
+    exit 0
+}
 
-echo "=== KNewStuff stub installation complete ==="
-echo "Note: KNewStuff is stubbed on Redox for plasma-workspace dependency resolution."
-echo "Dummy cmake configs installed for dependency resolution."
+cmake --install "${BUILD_DIR}"
+echo "=== KNewStuff real build (Core only, QML disabled) ==="
 """

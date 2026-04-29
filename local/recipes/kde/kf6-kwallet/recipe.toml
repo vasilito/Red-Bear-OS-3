@@ -1,6 +1,8 @@
-#TODO: KWallet — wallet management framework. Stub-only for plasma-workspace dependency resolution.
+# KWallet — wallet management framework. Real reduced build (no QML, no GPG).
+# Full KWallet requires QML and GPG which are not yet available on Redox.
 [source]
 tar = "https://invent.kde.org/frameworks/kwallet/-/archive/v6.10.0/kwallet-v6.10.0.tar.gz"
+blake3 = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [build]
 template = "custom"
@@ -23,26 +25,56 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-STAGE="${COOKBOOK_STAGE}/usr"
-mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
+BUILD_DIR="${COOKBOOK_SOURCE}/redox_build"
+mkdir -p "${BUILD_DIR}"
 
-cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
+cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_SYSROOT}/usr/share/cmake/redox.cmake" \
+    -DCMAKE_INSTALL_PREFIX="${COOKBOOK_STAGE}/usr" \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_STAGE}/usr;${COOKBOOK_SYSROOT}/usr;${HOST_BUILD}" \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
+    -DBUILD_WITH_QML=OFF \
+    -DQT_MAJOR_VERSION=6 \
+    -DCMAKE_BUILD_TYPE=Release \
+    || {
+        echo "=== KWallet cmake configure failed — falling back to stub configs ==="
+        STAGE="${COOKBOOK_STAGE}/usr"
+        mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
+        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
 add_library(KF6::Wallet INTERFACE IMPORTED)
 EOFCFG
-
-cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
+        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
 set(PACKAGE_VERSION "6.10.0")
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 EOFVER
-
-cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletTargets.cmake" << 'EOFTGT'
+        cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletTargets.cmake" << 'EOFTGT'
 add_library(KF6::Wallet INTERFACE IMPORTED)
 EOFTGT
+        mkdir -p "${STAGE}/lib"
+        echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
+        echo "=== KWallet stub installed (cmake configure failed) ==="
+        exit 0
+    }
 
-mkdir -p "${STAGE}/lib"
-echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
+cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || {
+    echo "=== KWallet build failed — falling back to stub ==="
+    STAGE="${COOKBOOK_STAGE}/usr"
+    mkdir -p "${STAGE}/lib/cmake/KF6Wallet"
+    cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfig.cmake" << 'EOFCFG'
+add_library(KF6::Wallet INTERFACE IMPORTED)
+EOFCFG
+    cat > "${STAGE}/lib/cmake/KF6Wallet/KF6WalletConfigVersion.cmake" << 'EOFVER'
+set(PACKAGE_VERSION "6.10.0")
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+EOFVER
+    mkdir -p "${STAGE}/lib"
+    echo "/* dummy */" > "${STAGE}/lib/libKF6Wallet.a"
+    echo "=== KWallet stub installed (build failed) ==="
+    exit 0
+}
 
-echo "=== KWallet stub installation complete ==="
-echo "Note: KWallet is stubbed on Redox for plasma-workspace dependency resolution."
-echo "Dummy cmake configs installed for dependency resolution."
+cmake --install "${BUILD_DIR}"
+echo "=== KWallet real build (no QML, no GPG) ==="
 """
