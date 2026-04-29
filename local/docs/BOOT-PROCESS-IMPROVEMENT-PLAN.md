@@ -2,7 +2,7 @@
 
 **Version:** 1.0 — 2026-04-27
 **Status:** Active — supersedes ad-hoc boot fixes and replaces historical P0–P6 boot notes
-**Canonical plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0), `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md`
+**Canonical plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0), `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md`
 **Diagnosis:** `local/docs/BOOT-PROCESS-ASSESSMENT.md` (Phase 7 kernel RAM hang + ISO organization)
 
 ---
@@ -156,7 +156,7 @@
 - [ ] `kwin_wayland_wrapper --drm` starts as the user session compositor
 - [ ] `plasmashell` starts (or at minimum, a KWin desktop surface appears)
 
-**Critical gap:** `redbear-kde-session` — the script that `redbear-session-launch` invokes for the KDE session — was not found in the source tree. This script or binary must be created/staged at `/usr/bin/redbear-kde-session`. It should set KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launch `kwin_wayland_wrapper` + `plasmashell`. The upstream KWin Wayland service entry (`plasma-kwin_wayland.service.in`) provides a reference template.
+**Critical gap:** `redbear-full-session` — the script that `redbear-session-launch` invokes for the KDE session — was not found in the source tree. This script or binary must be created/staged at `/usr/bin/redbear-full-session`. It should set KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launch `kwin_wayland_wrapper` + `plasmashell`. The upstream KWin Wayland service entry (`plasma-kwin_wayland.service.in`) provides a reference template.
 
 **Estimated effort:** 4–7 days (session handoff + KDE session bring-up + missing script creation)
 

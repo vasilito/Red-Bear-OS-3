@@ -3,7 +3,7 @@
 **Version:** 1.0 — 2026-04-17
 **Status:** Active plan
 **Scope:** Full D-Bus infrastructure for KDE Plasma 6 on Wayland, tightly integrated with Redox scheme IPC
-**Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0)
+**Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
 
 ---
 
@@ -13,7 +13,7 @@ D-Bus is **mandatory infrastructure** for KDE Plasma 6 — not optional, not def
 services, KWin, plasmashell, and virtually every KF6 framework communicate over D-Bus at runtime.
 
 Red Bear OS already has D-Bus 1.16.2 building with a 24-line redox.patch, the system bus wired
-in `redbear-full` and `redbear-kde` profiles, and QtDBus enabled in qtbase. This is a solid
+in `redbear-full` profile (historical `redbear-kde` name retired), and QtDBus enabled in qtbase. This is a solid
 foundation, but it is only the transport layer. What's missing is the **service layer** — the
 D-Bus services that KDE actually expects to talk to.
 
