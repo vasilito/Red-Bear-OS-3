@@ -85,7 +85,7 @@ After ANY change to the patches list or patch files:
 | Patch | Status | Notes |
 |-------|--------|-------|
 | P2-acpid-core-refactor.patch | Needs rebasing | 13/15 hunks fail on acpid/scheme.rs; removed from recipe.toml with TODO |
-| P2-acpi-i2c-resources.patch | Stripped | Removed stale acpid hunks that duplicated P2-boot-runtime-fixes; driver source hunks intact |
+| P2-acpi-i2c-resources.patch | Recovered & rebased → P2-i2c-gpio-ucsi-drivers.patch | Original couldn't apply to current source revision; extracted driver sources, fixed PCI API calls (try_mem→map_bar, try_map_bar→map_bar), regenerated as P2-i2c-gpio-ucsi-drivers.patch (5938 lines, 32 files) |
 | P2-boot-runtime-fixes.patch | Needs rebasing | Context lines from monolith split are stale; hwd/acpi.rs hunk fails on clean upstream |
 | P2-init-acpid-wiring.patch | Deduplicated | Removed acpi.rs hunk that duplicated P2-boot-runtime-fixes |
 
@@ -93,6 +93,11 @@ After ANY change to the patches list or patch files:
 
 | Date | Change | Why |
 |------|--------|-----|
+| 2026-04-30 | Recovered I2C/GPIO/UCSI drivers | P2-acpi-i2c-resources.patch couldn't apply; regenerated as P2-i2c-gpio-ucsi-drivers.patch (5938 lines, 12 drivers: gpiod, i2cd, amd-mp2-i2cd, dw-acpi-i2cd, intel-lpss-i2cd, i2c-interface, intel-gpiod, i2c-gpio-expanderd, i2c-hidd, intel-thc-hidd, ucsid, acpi-resource) |
+| 2026-04-30 | Fixed amd-mp2-i2cd PCI API | .try_mem() removed from PciBar; replaced with PciFunctionHandle::map_bar(0) |
+| 2026-04-30 | Fixed intel-thc-hidd PCI API | .try_map_bar() removed from PciFunctionHandle; replaced with .map_bar(0) |
+| 2026-04-30 | Added P0-bootstrap-workspace-fix.patch | [workspace] in bootstrap Cargo.toml prevents parent workspace auto-detection; fixes base-initfs from-scratch build |
+| 2026-04-30 | Added symlinks to integrate-redbear.sh | P0-bootstrap-workspace-fix.patch and P2-i2c-gpio-ucsi-drivers.patch symlinks now auto-created |
 | 2026-04-26 | Restored 8 removed patches | Agent deleted them to bypass conflicts; restored all from git HEAD |
 | 2026-04-26 | Restored 9 BINS entries | Agent deleted i2cd, gpiod, ucsid, etc. to bypass missing sources |
 | 2026-04-26 | Added EXISTING_BINS grep loop | Gracefully handles missing driver source instead of build failure |

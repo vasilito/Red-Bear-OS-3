@@ -216,6 +216,8 @@ section "Ensuring recipe patch symlinks..."
 symlink "../../../local/patches/kernel/redox.patch" "recipes/core/kernel/redox.patch"
 symlink "../../../local/patches/base/redox.patch" "recipes/core/base/redox.patch"
 symlink "../../../local/patches/base/P2-boot-runtime-fixes.patch" "recipes/core/base/P2-boot-runtime-fixes.patch"
+symlink "../../../local/patches/base/P0-bootstrap-workspace-fix.patch" "recipes/core/base/P0-bootstrap-workspace-fix.patch"
+symlink "../../../local/patches/base/P2-i2c-gpio-ucsi-drivers.patch" "recipes/core/base/P2-i2c-gpio-ucsi-drivers.patch"
 if [ -d "recipes/core/installer" ]; then
     symlink "../../../local/patches/installer/redox.patch" "recipes/core/installer/redox.patch"
 else
