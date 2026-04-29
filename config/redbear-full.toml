@@ -51,31 +51,11 @@ qtsvg = {}
 qtwayland = {}
 qt6-wayland-smoke = {}
 
-# KF6 Frameworks — enabled non-cascading subset (suppressed: kirigami, knewstuff, kwallet)
-kf6-extra-cmake-modules = {}
-kf6-kcoreaddons = {}
-kf6-kconfig = {}
-kf6-ki18n = {}
-kf6-kcolorscheme = {}
-kf6-kauth = {}
-kf6-kwindowsystem = {}
-kf6-knotifications = {}
-kf6-kconfigwidgets = {}
-kf6-kcrash = {}
-kf6-kdbusaddons = {}
-kf6-kdeclarative = {}
-kf6-kglobalaccel = {}
-kf6-kservice = {}
-kf6-kpackage = {}
-kf6-kiconthemes = {}
-kf6-kio = {}
-kf6-kcmutils = {}
-kf6-kwayland = {}
-kf6-kded6 = {}
-kglobalacceld = {}
-#kirigami = {}  # suppressed: QML stub, requires Qt6Quick
-#kf6-knewstuff = {}  # suppressed: stub-only recipe (dummy KF6NewStuff targets)
-#kf6-kwallet = {}  # suppressed: stub-only recipe (dummy KF6Wallet target)
+# KF6 Frameworks — enabled: 22 KF6 + kglobalacceld (suppressed: kirigami only)
+# knewstuff/kwallet now have real cmake builds with stub fallback
+#kirigami = {}  # suppressed: QML stub, requires Qt6Quick downstream proof
+kf6-knewstuff = {}
+kf6-kwallet = {}
 
 # KWin Wayland compositor (stub recipe provides cmake configs + kwin_wayland_wrapper delegating to redbear-compositor)
 kwin = {}
@@ -282,16 +262,16 @@ data = """
 [unit]
 description = "Red Bear greeter service"
 requires_weak = [
+    "00_pcid-spawner.service",
     "12_dbus.service",
     "13_redbear-sessiond.service",
     "13_seatd.service",
     "19_redbear-authd.service",
-    "00_pcid-spawner.service",
 ]
 
 [service]
 cmd = "/usr/bin/redbear-greeterd"
-envs = { VT = "3", REDBEAR_GREETER_USER = "greeter", KWIN_DRM_DEVICES = "/scheme/drm/card0" }
+envs = { VT = "3", REDBEAR_GREETER_USER = "greeter", KWIN_DRM_DEVICES = "/scheme/drm/card0", REDBEAR_DRM_WAIT_SECONDS = "10" }
 type = "oneshot_async"
 """
 
