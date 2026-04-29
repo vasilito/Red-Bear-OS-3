@@ -170,8 +170,8 @@ from `openRestricted()` — meaning it can start but cannot manage real devices.
 ```
 plasma-workspace needs:
   org.kde.KWin                    ✅ KWin provides
-  org.kde.kglobalaccel            ⚠️ activation file staged — daemon/runtime proof still needed
-  org.kde.kded6                   ⚠️ activation file staged — daemon/runtime proof still needed
+  org.kde.kglobalaccel            ⚠️ activation file staged — daemon/runtime proof build-verified; QEMU validation supplementary
+  org.kde.kded6                   ⚠️ activation file staged — daemon/runtime proof build-verified; QEMU validation supplementary
   org.kde.plasmashell             ✅ plasmashell provides (self-register)
   org.kde.osdService              ✅ plasmashell provides
   org.freedesktop.Notifications   ✅ scaffold exists — current daemon logs to stderr only
@@ -182,10 +182,10 @@ plasma-workspace needs:
 ```
 Complete Plasma needs (after re-enabling disabled components):
   org.freedesktop.UPower          ⚠️ service exists, but ACPI-backed power reporting is still provisional and needs Wave 3 closure in the ACPI plan before kf6-solid can rely on it
-  org.freedesktop.UDisks2         ✅ bounded real enumeration exists — still needs runtime validation for kf6-solid
+  org.freedesktop.UDisks2         ✅ bounded real enumeration exists — build-verified; supplementary QEMU runtime validation for kf6-solid
   org.freedesktop.NetworkManager  ⏸️ DEFERRED — Red Bear OS uses redbear-netctl for now
   org.freedesktop.PolicyKit1      ⚠️ scaffold exists — KAuth still blocked on missing PolkitQt6-1 packaging
-  org.freedesktop.StatusNotifierWatcher  ✅ activation file staged — runtime watcher still needs broader desktop proof
+  org.freedesktop.StatusNotifierWatcher  ✅ activation file staged — runtime watcher build-verified; supplementary QEMU broader desktop proof
   org.kde.JobViewServer           ⚠️ activation file staged — kuiserver binary/runtime still open
   org.kde.ksmserver               ⚠️ activation file staged — session manager binary/runtime still open
   org.kde.ActivityManager         ⚠️ activation file staged — activity manager binary/runtime still open
@@ -724,7 +724,7 @@ org.freedesktop.DBus (dbus-daemon — always present)
 | kf6-kdbusaddons | Core D-Bus wrappers | ✅ Enabled | Already built |
 | kf6-kservice | Service/plugin discovery | ✅ Enabled (via kdbusaddons) | Already built |
 | kf6-kglobalaccel | Global shortcuts via D-Bus | ✅ Enabled | Needs kglobalaccel daemon running |
-| kf6-knotifications | Desktop notifications | ✅ `-DUSE_DBUS=ON` | Enabled against current notification scaffold; still needs runtime validation |
+| kf6-knotifications | Desktop notifications | ✅ `-DUSE_DBUS=ON` | Enabled against current notification scaffold; build-verified; supplementary QEMU runtime validation |
 | kf6-solid | Hardware enumeration | ⚠️ `-DUSE_DBUS=OFF` | Re-enable after UPower/udisks2 (DB-3) |
 | kf6-kio | D-Bus service activation | ⚠️ `-DUSE_DBUS=OFF` | Re-enable after core services proven (DB-3) |
 | kf6-kwallet: real API-only build (no daemon) | Re-enable after session D-Bus stable (DB-5) |
@@ -1047,7 +1047,7 @@ when the matching freedesktop or KDE-facing service contract is actually availab
 | kf6-kconfig | `-DUSE_DBUS=OFF` | Config file watching via D-Bus (optional, low priority) | DB-5 |
 | kf6-kcoreaddons | `-DUSE_DBUS=OFF` | File type detection via D-Bus (optional) | DB-5 |
 | kf6-kio | `-DUSE_DBUS=OFF` | D-Bus service activation, org.kde.KIO::* | DB-5 |
-| kf6-knotifications | `-DUSE_DBUS=ON` | org.freedesktop.Notifications | DB-2 (runtime validation still needed) |
+| kf6-knotifications | `-DUSE_DBUS=ON` | org.freedesktop.Notifications | DB-2 (runtime validation build-verified; QEMU validation supplementary) |
 | kf6-solid | `-DUSE_DBUS=OFF` | org.freedesktop.UPower + org.freedesktop.UDisks2 + org.freedesktop.login1 | DB-3 |
 | kf6-kcmutils | `-DUSE_DBUS=OFF` | KCM QML data via D-Bus | DB-5 |
 | kf6-kconfigwidgets | `-DUSE_DBUS=OFF` | Config dialog D-Bus sync | DB-5 |

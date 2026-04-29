@@ -26,7 +26,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | firmware-loader | **builds** | enabled | scheme:firmware; blob loading verified |
 | GPU firmware | **fetched** | partial | amdgpu/i915 blobs available via fetch-firmware.sh |
 | virtio-gpu | **builds** | in redox-drm | 220-line DRM/KMS backend for QEMU testing |
-| CS ioctl | **protocol exists** | redox-drm scheme | Private CS submit/wait ioctls defined; hardware backend returns unavailable pending GPU driver | |
+| CS ioctl | **protocol exists** | redox-drm scheme | Private CS submit/wait ioctls defined; hardware backend returns unavailable (GPU driver gate) | |
 
 **Verdict**: Display infrastructure exists. Hardware rendering blocked on GPU driver backend + hardware validation (CS ioctl protocol exists).
 
@@ -39,7 +39,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | iris (Intel HW) | **not built** | — | Not cross-compiled for Redox target |
 | OSMesa | **builds** | enabled | Off-screen software rendering |
 
-**Verdict**: Software rendering works (llvmpipe). Hardware renderers need cross-compilation; CS ioctl protocol exists, backend validation pending.
+**Verdict**: Software rendering works (llvmpipe). Hardware renderers need cross-compilation; CS ioctl protocol exists, backend validation deferred (hardware gate).
 
 ### LAYER 3 — Wayland/Compositor
 
@@ -118,7 +118,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 
 | Blocker | Layer | Impact | Status |
 |---------|-------|--------|--------|
-| GPU CS ioctl backend | DRM | Protocol exists in redox-drm; hardware backend validation pending | Environmental (hardware) |
+| GPU CS ioctl backend | DRM | Protocol exists in redox-drm; hardware backend validation deferred (hardware gate) | Environmental (hardware) |
 | Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target | Environmental (toolchain) |
 | KWin runtime proof | Compositor | Reduced-feature real build exists; bounded runtime proof requires Qt6Quick downstream validation | Environmental (Qt6Quick) |
 | kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof | Environmental (Qt6Quick) |

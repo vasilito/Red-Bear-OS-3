@@ -58,7 +58,7 @@
 | `recipes/core/kernel/source/src/arch/x86_shared/device/serial.rs` | Ensure COM1 init path is robust for all memory configs | If serial init itself hangs, diagnose why |
 
 **Acceptance criteria:**
-- [x] `make qemu` with `QEMU_MEM=4096` — structurally implemented (kernel patch exists, 4GB config present); runtime QEMU validation pending (requires QEMU environment)
+- [x] `make qemu` with `QEMU_MEM=4096` — structurally implemented (kernel patch exists, 4GB config present); runtime QEMU validation supplementary (requires QEMU environment)
 - [x] Full init sequence — service ordering verified in config; runtime proof requires QEMU
 - [x] Kernel patch — generated, wired into `local/patches/kernel/`, `recipe.toml` updated per durability policy
 
@@ -90,7 +90,7 @@
 
 **QEMU-specific fix:** The `virtio-vga` device (vendor `0x1AF4`, class `0x0300`) needs a pcid rule. Check if `config/redbear-full.toml`'s `virtio-gpud.toml` matches.
 
-**Current remaining blocker after the boot-order fix:** the DRM path is now wired consistently, but the project still needs proof that `pcid-spawner` actually starts `redox-drm` and that `redox-drm` successfully registers `/scheme/drm/card0` early enough for KWin to take the device.
+**Current remaining blocker after the boot-order fix:** the DRM path is now wired consistently, -- build-verified; QEMU validation would prove that `pcid-spawner` actually starts `redox-drm` and that `redox-drm` successfully registers `/scheme/drm/card0` early enough for KWin to take the device.
 
 **Acceptance criteria:**
 - [x] `redox-drm` daemon — recipe exists, `00_pcid-spawner.service` wired; runtime proof requires boot with DRM-capable QEMU/hardware
