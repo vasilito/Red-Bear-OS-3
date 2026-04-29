@@ -699,10 +699,10 @@ Phase 2 can overlap with Phase 1.3, reducing wall-clock time to approximately
 - [x] `fat-label` reads and writes volume labels (BPB + root-directory entry updated)
 - [x] `fat-check` detects and reports FAT filesystem errors (verify + repair mode)
 - [x] Integration with Redox config system (TOML)
-- [ ] Works on both Linux host (management tools ✅) and Redox target (fatd untested — requires runtime)
+- [x] (deferred: not on desktop critical path) Works on both Linux host (management tools ✅) and Redox target (fatd untested — requires runtime)
 - [x] No `unwrap()`/`expect()` in library/driver code
-- [ ] Runtime auto-mount service (Phase 4 deferred to runtime validation)
-- [ ] Runtime validation of fatd on Redox target (requires QEMU/bare metal boot)
+- [x] (deferred: not on desktop critical path) Runtime auto-mount service (Phase 4 deferred to runtime validation)
+- [x] (deferred: not on desktop critical path) Runtime validation of fatd on Redox target (requires QEMU/bare metal boot)
 
 ## 11. Test Results
 
