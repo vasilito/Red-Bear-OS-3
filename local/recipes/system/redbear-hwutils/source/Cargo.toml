@@ -128,8 +128,8 @@ name = "redbear-phase5-gpu-check"
 path = "src/bin/redbear-phase5-gpu-check.rs"
 
 [[bin]]
-name = "redbear-phase5-cs-check"
-path = "src/bin/redbear-phase5-cs-check.rs"
+name = "redbear-boot-check"
+path = "src/bin/redbear-boot-check.rs"
 
 [dependencies]
 redbear-login-protocol = { path = "../../redbear-login-protocol/source" }
