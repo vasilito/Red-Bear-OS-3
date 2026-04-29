@@ -7,7 +7,7 @@
 > **Phase numbering note:** The phases below (Phase 1–6) are this document's internal Qt porting
 > phases, not the canonical desktop plan phases. For the project-wide desktop execution plan
 > (Phase 1: Runtime Substrate → Phase 5: Hardware GPU), see
-> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0).
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0).
 
 **Qt Phase 1 status:** ✅ COMPLETE — Qt6 core stack + OpenGL/EGL + D-Bus + Wayland
 **Qt Phase 2 status:** ✅ COMPLETE — All 32 KF6 frameworks built
@@ -350,7 +350,7 @@ Current truth for Phase 4:
 
 - the graphics stack now builds end to end: Mesa EGL+GBM+GLES2, libdrm amdgpu, Qt6 OpenGL/EGL,
   and qtwayland all stage successfully
-- the current `redbear-wayland` validation profile is still a bounded runtime-validation path,
+- the historical `redbear-wayland` validation profile and the current bounded `redbear-full` QEMU validation surface are still runtime-validation paths,
   not proof of a hardware-accelerated desktop session
 - the current QEMU validation harness is still software-rendered (`llvmpipe`) and should be treated
   as a bounded regression/test path, not as the final acceleration proof target
@@ -445,7 +445,7 @@ The Qt6/KF6 build stack is substantially further along than the earlier "~50%" e
 - a successful build stack is not yet the same thing as a working KDE Plasma session
 
 For the canonical execution plan from this state to a working KDE Plasma desktop, see
-`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0). The Qt work described here maps to
+`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0). The Qt work described here maps to
 pre-Phase work (builds complete) and Phase 3 (KWin desktop session) in the canonical plan.
 
-(Updated 2026-04-16 — aligned with CONSOLE-TO-KDE-DESKTOP-PLAN.md v2.0)
+(Updated 2026-04-29 — aligned with CONSOLE-TO-KDE-DESKTOP-PLAN.md v3.0)

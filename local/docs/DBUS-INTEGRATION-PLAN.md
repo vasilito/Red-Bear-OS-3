@@ -1,7 +1,7 @@
 # Red Bear OS D-Bus Integration Plan
 
 **Version:** 3.0 — 2026-04-29
-**Status:** Active plan
+**Status:** Active plan aligned with the desktop path v3.0
 **Scope:** Full D-Bus infrastructure for KDE Plasma 6 on Wayland, tightly integrated with Redox scheme IPC
 **Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
 
@@ -547,7 +547,7 @@ APIs, which relibc provides.
 | 1.4 | Implement `TakeControl`/`ReleaseControl` | KWin can take exclusive session ownership |
 | 1.5 | Create D-Bus policy files for login1 | Policy allows session compositor to call login1 methods |
 | 1.6 | Create D-Bus activation `.service` file for login1 | `redbear-sessiond` can be activated or init-started |
-| 1.7 | Add `redbear-sessiond` to `redbear-kde.toml` init services | Service starts before KWin in boot sequence |
+| 1.7 | Add `redbear-sessiond` to `redbear-full.toml` init services | Service starts before KWin in boot sequence |
 | 1.8 | Wire `XDG_SESSION_ID`, `XDG_SEAT`, `XDG_RUNTIME_DIR` in the KDE session launcher | KWin sees a valid session environment |
 | 1.9 | Validate: `dbus-send --system --dest=org.freedesktop.login1 --print-reply /org/freedesktop/login1 org.freedesktop.login1.Manager.ListSessions` | Returns non-empty session list |
 | 1.10 | Validate: `dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.supportInformation` | Returns non-empty KWin info string |
@@ -652,7 +652,7 @@ APIs, which relibc provides.
 
 ## 8. Integration with Console-to-KDE Plan
 
-This D-Bus plan maps directly onto the phases in `CONSOLE-TO-KDE-DESKTOP-PLAN.md` v2.0:
+This D-Bus plan maps directly onto the phases in `CONSOLE-TO-KDE-DESKTOP-PLAN.md` v3.0:
 
 | Desktop Plan Phase | D-Bus Plan Phase | What D-Bus delivers |
 |---|---|---|
@@ -867,7 +867,7 @@ The session bus must only be accessible to the owning user:
 
 ### 11.3 Config Changes
 
-**`redbear-kde.toml` additions:**
+**`redbear-full.toml` additions:**
 
 ```toml
 [packages]

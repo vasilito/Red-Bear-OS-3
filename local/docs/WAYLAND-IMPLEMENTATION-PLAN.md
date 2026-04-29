@@ -30,7 +30,7 @@ What is true today:
 - the base package stack is substantially build-visible: `libwayland`, `wayland-protocols`, Mesa
   EGL/GBM/GLES2, Qt Wayland, libinput, seatd, and KWin-related package surfaces all build in some
   form,
-- the tracked Wayland validation profile, `redbear-wayland`, builds and boots in QEMU,
+- the historical `redbear-wayland` validation profile built and booted in QEMU, and the current bounded validation work now lives on `redbear-full` plus local harnesses,
 - the bounded validation path reaches compositor early init, xkbcommon initialization, and Redox EGL
   platform selection,
 - `qt6-wayland-smoke` is a real bounded client-side proof target,
@@ -48,7 +48,7 @@ working compositor session, and then its handoff into the KWin desktop path.
 In scope:
 
 - `libwayland`, `wayland-protocols`, protocol generation, and residual patch reduction,
-- the `redbear-wayland` validation profile,
+- the historical `redbear-wayland` validation profile and its successor bounded validation harnesses on `redbear-full`,
 - compositor runtime validation,
 - evdevd / udev-shim / libinput / seatd integration as they affect Wayland,
 - Mesa/GBM/EGL software-path proof and the Wayland-facing graphics runtime,
@@ -103,7 +103,7 @@ Rules:
 
 | Area | Current state | Notes |
 |---|---|---|
-| `redbear-wayland` profile | builds, boots | bounded validation profile only |
+| historical `redbear-wayland` profile | builds, boots | historical bounded validation profile; not a forward compile target |
 | `libwayland` | builds | still carries Redox-specific recipe/source rewriting and residual patching |
 | `wayland-protocols` | builds | protocol packaging is not the blocker |
 | Qt6 Wayland client path | builds, partial runtime | `qt6-wayland-smoke` is installed, runs in the bounded harness, and leaves runtime markers; visible in-compositor window proof is still open |
@@ -216,14 +216,15 @@ Current truth:
 
 The forward path is now:
 
-- `redbear-wayland` for bounded compositor/runtime validation,
-- `redbear-kde` for the intended KWin Wayland desktop direction,
+- bounded compositor/runtime validation harnesses on `redbear-full`,
+- `redbear-full` as the intended KWin Wayland desktop direction,
 - local overlay ownership for validation harnesses and any shipping-critical Wayland recipe deltas.
 
 ### Historical or non-forward references
 
 These should not be treated as the forward path:
 
+- `redbear-wayland` and `redbear-kde` — historical profile names, not supported forward-path compile targets,
 - `smallvil` — historical bounded validation compositor reference only,
 - the generic upstream WIP compositor set (`wlroots`, `sway`, `hyprland`, etc.) — useful inputs, not
   trusted Red Bear shipping surfaces,

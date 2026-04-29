@@ -3,7 +3,7 @@
 **Version:** 1.0 — 2026-04-19
 **Status:** Active plan with bounded greeter/login proof now passing on `redbear-full`; broader desktop-runtime trust still remains experimental
 **Scope:** Red Bear-native graphical greeter, authentication boundary, and session handoff for the KDE-on-Wayland desktop path
-**Parent plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0), `local/docs/DBUS-INTEGRATION-PLAN.md`
+**Parent plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0), `local/docs/DBUS-INTEGRATION-PLAN.md`
 
 ---
 
