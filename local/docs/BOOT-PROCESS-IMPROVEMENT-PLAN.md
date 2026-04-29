@@ -11,7 +11,7 @@
 
 | Profile | Required boot outcome | Current state | Gap |
 |---------|----------------------|---------------|-----|
-| `redbear-full` | **Graphical Wayland greeter → KDE desktop session** | Text login only; KWin uses virtual backend | Three blockers |
+| `redbear-full` | **Graphical Wayland greeter → KDE desktop session** | Text login only; KWin stub wrapper delegates to redbear-compositor | Three blockers |
 | `redbear-mini` | **Text login** | ✅ Working | None |
 | `redbear-grub` | **Text login** | ✅ Working | None |
 

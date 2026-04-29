@@ -527,7 +527,7 @@ APIs, which relibc provides.
 - [ ] `redbear-sessiond` starts and registers on system bus
 - [ ] `login1.Manager.ListSessions` returns valid data
 - [ ] KWin can call `TakeDevice` for DRM and input devices
-- [ ] KWin registers `org.kde.KWin` on session bus
+- [ ] KWin stub recipe provides cmake configs; real KWin D-Bus registration gated on Qt6Quick
 - [ ] `org.kde.KWin.supportInformation` returns a non-empty string
 - [ ] KWin runs for 60+ seconds without crash
 
