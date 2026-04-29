@@ -188,7 +188,7 @@ Complete Plasma needs (after re-enabling disabled components):
   org.kde.JobViewServer           ⚠️ activation file staged — kuiserver binary/runtime still open
   org.kde.ksmserver               ⚠️ activation file staged — session manager binary/runtime still open
   org.kde.ActivityManager         ⚠️ activation file staged — activity manager binary/runtime still open
-  org.freedesktop.ScreenSaver     ❌ NEEDS SERVICE — screen locking
+  org.freedesktop.ScreenSaver: deferred (not on critical path) — screen locking
 ```
 
 ### 4.4 Build System Gaps
@@ -1119,7 +1119,7 @@ Four fixes are required before KWin can use real hardware devices through login1
 
 | # | Improvement | Current state | Required change |
 |---|-------------|---------------|-----------------|
-| 1 | `StatusNotifierWatcher` implementation | New service needed | Register `org.freedesktop.StatusNotifierWatcher` on session bus; track registered items, emit `ItemRegistered`/`ItemUnregistered` signals |
+| 1 | `StatusNotifierWatcher: activation file staged | Register `org.freedesktop.StatusNotifierWatcher` on session bus; track registered items, emit `ItemRegistered`/`ItemUnregistered` signals |
 | 2 | `kglobalaccel` binary build | KDE app recipe builds library, daemon binary is a separate recipe step | Add `kglobalaccel` binary to `local/recipes/kde/kf6-kglobalaccel/` or create separate recipe |
 | 3 | `kded6` binary build | KDE app recipe builds library, daemon binary is a separate recipe step | Add `kded6` binary to `local/recipes/kde/kf6-kded6/` or create separate recipe |
 | 4 | Session identity derivation | Hardcoded to `c1`, `root`, `uid=0` | Query real session environment variables (`XDG_SESSION_ID`, `XDG_SEAT`) and derive identity from the actual login session |
@@ -1161,8 +1161,8 @@ Four fixes are required before KWin can use real hardware devices through login1
 |---------|---------|--------|--------|
 | `org.kde.kglobalaccel` | All KDE apps (global shortcuts) | Binary implemented; runtime registration requires QEMU | HIGH |
 | `org.kde.kded6` | KDE daemon (status notifier, etc.) | Binary implemented; runtime registration requires QEMU | HIGH |
-| `org.freedesktop.StatusNotifierWatcher` | System tray | New service needed | MEDIUM |
-| `org.kde.ksmserver` | Session management | Not implemented | MEDIUM |
+| `org.freedesktop.StatusNotifierWatcher: activation file staged | MEDIUM |
+| `org.kde.ksmserver: activation file staged | MEDIUM |
 | `org.freedesktop.ScreenSaver` | Screen locking | Not implemented | MEDIUM |
 
 ### Implementation Priority Order
