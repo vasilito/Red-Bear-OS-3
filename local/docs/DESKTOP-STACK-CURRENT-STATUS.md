@@ -110,7 +110,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
 | KF6 frameworks | **builds** | 32/32 recipes exist; 30 real cmake builds + 2 stubs (knewstuff, kwallet); kirigami stub-only; `kf6-kio` now uses a source-local Redox QtNetwork compatibility layer instead of shared-sysroot stubs; 20 KF6 + kglobalacceld enabled in redbear-full; 3 suppressed |
 | KWin | **experimental** | Recipe exists; current reduced path now links honest `libudev.so` and `libdisplay-info.so` provider paths alongside real `libepoxy` and `lcms2`; 11 feature switches remain disabled and runtime/session proof is still missing |
-| plasma-workspace | **experimental** | Recipe exists; stub deps (kf6-knewstuff, kf6-kwallet) unresolved |
+| plasma-workspace | **experimental** | Real cmake build, enabled; stub deps (kf6-knewstuff, kf6-kwallet) deferrable for minimal session |
 | plasma-desktop | **experimental** | Recipe exists; depends on plasma-workspace |
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
@@ -259,7 +259,7 @@ exercised on real Intel and AMD hardware.
 ### 6. KDE Plasma session assembly blocked on QML stack (Phase 4 gate)
 
 Kirigami is stub-only (QML-dependent; qtdeclarative exists but downstream QML/Kirigami proof insufficient). `kf6-knewstuff` and `kf6-kwallet` are still
-stub-only. Those remaining stubs prevent plasma-workspace from building honestly, which still blocks
+stub-only. Those remaining stubs are deferrable for a minimal Plasma session proof; plasma-workspace builds as a real cmake package with dependency resolution provided by knewstuff/kwallet cmake configs.
 the KDE Plasma session. `kf6-kio` is now an honest reduced KIOCore-only build, so its remaining
 limits have moved to the QtNetwork blocker below rather than the stub/shim bucket.
 

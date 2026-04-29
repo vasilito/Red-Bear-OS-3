@@ -163,7 +163,7 @@ Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
 
 ## Next Steps (ordered by impact)
 
-1. **`make all CONFIG_NAME=redbear-full`** — rebuild full OS image with current desktop package set; existing ISO/img already present at build/x86_64/
+1. **Rebuild full OS image** — `make all CONFIG_NAME=redbear-full` (harddrive.img for QEMU) or `make live CONFIG_NAME=redbear-full` (ISO for bare metal); existing artifacts at build/x86_64/
 
 2. **Qt6Quick/QML runtime proof** — validate Qt6Quick downstream consumers with QML JIT disabled for Redox; unblocks kirigami → real KWin → full Plasma session
 
