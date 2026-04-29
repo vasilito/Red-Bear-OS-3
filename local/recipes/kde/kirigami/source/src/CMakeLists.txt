@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Build only C++ core, no QML modules
-add_library(Kirigami STATIC)
+# Build only the non-QML C++ core for now.
+add_library(Kirigami)
 add_library(KF6::Kirigami ALIAS Kirigami)
 
 # Core C++ sources that don't require QML/QtQuick

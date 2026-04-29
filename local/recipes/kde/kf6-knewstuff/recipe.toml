@@ -1,5 +1,4 @@
-# KNewStuff — framework for downloading and sharing data. Real reduced build (NewStuffCore only, QML disabled).
-# Full NewStuffQuick/NewStuffWidgets require Qt6Quick which is not yet QML-proven.
+#TODO: KNewStuff — attempt an honest core-only build on Redox. Qt Quick, widgets, tools, and Kirigami-facing surfaces stay disabled; the remaining hard blockers are the missing KF6Attica package in-tree and the still-disabled QtNetwork surface in qtbase.
 [source]
 tar = "https://invent.kde.org/frameworks/knewstuff/-/archive/v6.10.0/knewstuff-v6.10.0.tar.gz"
 
@@ -7,11 +6,12 @@ tar = "https://invent.kde.org/frameworks/knewstuff/-/archive/v6.10.0/knewstuff-v
 template = "custom"
 dependencies = [
     "qtbase",
-    "qtdeclarative",
     "kf6-extra-cmake-modules",
     "kf6-kcoreaddons",
     "kf6-ki18n",
     "kf6-kconfig",
+    "kf6-karchive",
+    "kf6-kpackage",
 ]
 script = """
 DYNAMIC_INIT
@@ -24,67 +24,40 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-BUILD_DIR="${COOKBOOK_SOURCE}/redox_build"
-mkdir -p "${BUILD_DIR}"
+sed -i 's/^include(ECMQmlModule)/# include(ECMQmlModule) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/COMPONENTS Gui Widgets Xml Qml Quick QuickWidgets/COMPONENTS Gui Xml/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^find_package(KF6Kirigami2.*/# find_package(KF6Kirigami2 disabled for Redox core-only build)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(qtquick)/# add_subdirectory(qtquick) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(tools)/# add_subdirectory(tools) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(widgets)/# add_subdirectory(widgets) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
 
-cmake -B "${BUILD_DIR}" -S "${COOKBOOK_SOURCE}" \
-    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_SYSROOT}/usr/share/cmake/redox.cmake" \
-    -DCMAKE_INSTALL_PREFIX="${COOKBOOK_STAGE}/usr" \
-    -DCMAKE_PREFIX_PATH="${COOKBOOK_STAGE}/usr;${COOKBOOK_SYSROOT}/usr;${HOST_BUILD}" \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DKF6_HOST_TOOLING="${HOST_BUILD}/lib/cmake" \
-    -DBUILD_WITH_QML=OFF \
-    -DBUILD_DESKTOPTOJSON=OFF \
-    -DKF_NEWSTUFF_BUILD_CORE=ON \
-    -DKF_NEWSTUFF_BUILD_QUICK=OFF \
-    -DKF_NEWSTUFF_BUILD_WIDGETS=OFF \
-    -DQT_MAJOR_VERSION=6 \
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
-    || {
-        echo "=== KNewStuff cmake configure failed — falling back to stub configs ==="
-        STAGE="${COOKBOOK_STAGE}/usr"
-        mkdir -p "${STAGE}/lib/cmake/KF6NewStuff"
-        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfig.cmake" << 'EOFCFG'
-add_library(KF6::NewStuff INTERFACE IMPORTED)
-add_library(KF6::NewStuffCore INTERFACE IMPORTED)
-add_library(KF6::NewStuffQuick INTERFACE IMPORTED)
-add_library(KF6::NewStuffWidgets INTERFACE IMPORTED)
-EOFCFG
-        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFVER
-        cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffTargets.cmake" << 'EOFTGT'
-add_library(KF6::NewStuff INTERFACE IMPORTED)
-add_library(KF6::NewStuffCore INTERFACE IMPORTED)
-add_library(KF6::NewStuffQuick INTERFACE IMPORTED)
-add_library(KF6::NewStuffWidgets INTERFACE IMPORTED)
-EOFTGT
-        mkdir -p "${STAGE}/lib"
-        echo "/* dummy */" > "${STAGE}/lib/libKF6NewStuff.a"
-        echo "=== KNewStuff stub installed (cmake configure failed) ==="
-        exit 0
-    }
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DBUILD_DESIGNERPLUGIN=OFF \
+    -Wno-dev
 
-cmake --build "${BUILD_DIR}" -j "${COOKBOOK_MAKE_JOBS}" || {
-    echo "=== KNewStuff build failed — falling back to stub ==="
-    STAGE="${COOKBOOK_STAGE}/usr"
-    mkdir -p "${STAGE}/lib/cmake/KF6NewStuff"
-    cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfig.cmake" << 'EOFCFG'
-add_library(KF6::NewStuff INTERFACE IMPORTED)
-add_library(KF6::NewStuffCore INTERFACE IMPORTED)
-EOFCFG
-    cat > "${STAGE}/lib/cmake/KF6NewStuff/KF6NewStuffConfigVersion.cmake" << 'EOFVER'
-set(PACKAGE_VERSION "6.10.0")
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-EOFVER
-    mkdir -p "${STAGE}/lib"
-    echo "/* dummy */" > "${STAGE}/lib/libKF6NewStuff.a"
-    echo "=== KNewStuff stub installed (build failed) ==="
-    exit 0
-}
+cmake --build . -j${COOKBOOK_MAKE_JOBS}
+cmake --install . --prefix "${COOKBOOK_STAGE}/usr"
 
-cmake --install "${BUILD_DIR}"
-echo "=== KNewStuff real build (Core only, QML disabled) ==="
+for lib in "${COOKBOOK_STAGE}/usr/lib/"libKF6*.so.*; do
+    [ -f "${lib}" ] || continue
+    patchelf --remove-rpath "${lib}" 2>/dev/null || true
+done
 """

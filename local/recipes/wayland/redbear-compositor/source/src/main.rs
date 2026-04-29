@@ -20,7 +20,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::{atomic::{AtomicU32, Ordering}, Mutex};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Mutex,
+};
 
 fn map_framebuffer(_phys: usize, size: usize) -> Vec<u8> {
     vec![0u8; size]
@@ -75,11 +78,16 @@ fn read_wayland_string(data: &[u8], cursor: &mut usize) -> Result<String, String
         return Ok(String::new());
     }
     if *cursor + length > data.len() {
-        return Err(String::from("unexpected end of message while reading string"));
+        return Err(String::from(
+            "unexpected end of message while reading string",
+        ));
     }
 
     let bytes = &data[*cursor..*cursor + length];
-    let string_len = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let string_len = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     *cursor += length;
     while *cursor % 4 != 0 {
         *cursor += 1;
@@ -90,7 +98,10 @@ fn read_wayland_string(data: &[u8], cursor: &mut usize) -> Result<String, String
         .map_err(|err| format!("invalid UTF-8 in Wayland string: {err}"))
 }
 
-fn recv_with_rights(stream: &mut UnixStream, data: &mut [u8]) -> std::io::Result<(usize, VecDeque<RawFd>)> {
+fn recv_with_rights(
+    stream: &mut UnixStream,
+    data: &mut [u8],
+) -> std::io::Result<(usize, VecDeque<RawFd>)> {
     let mut iov = libc::iovec {
         iov_base: data.as_mut_ptr().cast(),
         iov_len: data.len(),
@@ -118,7 +129,8 @@ fn recv_with_rights(stream: &mut UnixStream, data: &mut [u8]) -> std::io::Result
             (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS
         };
         if is_rights {
-            let data_len = unsafe { (*cmsg).cmsg_len as usize }.saturating_sub(mem::size_of::<libc::cmsghdr>());
+            let data_len = unsafe { (*cmsg).cmsg_len as usize }
+                .saturating_sub(mem::size_of::<libc::cmsghdr>());
             let fd_count = data_len / mem::size_of::<RawFd>();
             let data_ptr = unsafe { libc::CMSG_DATA(cmsg).cast::<RawFd>() };
             for index in 0..fd_count {
@@ -292,23 +304,49 @@ impl Compositor {
         let _ = std::fs::remove_file(socket_path);
         let listener = UnixListener::bind(socket_path)?;
 
-        let runtime_dir = std::path::Path::new(socket_path).parent()
+        let runtime_dir = std::path::Path::new(socket_path)
+            .parent()
             .unwrap_or(std::path::Path::new("/tmp"));
         std::fs::write(
             runtime_dir.join("compositor.pid"),
             format!("{}\n", std::process::id()),
-        ).ok();
+        )
+        .ok();
 
         let fb_size = (fb_height as usize) * (fb_stride as usize);
         let fb_data = map_framebuffer(fb_phys, fb_size);
 
         let globals = vec![
-            Global { name: 1, interface: "wl_compositor".into(), version: 4 },
-            Global { name: 2, interface: "wl_shm".into(), version: 1 },
-            Global { name: 3, interface: "wl_shell".into(), version: 1 },
-            Global { name: 4, interface: "wl_seat".into(), version: 5 },
-            Global { name: 5, interface: "wl_output".into(), version: 3 },
-            Global { name: 6, interface: "xdg_wm_base".into(), version: 1 },
+            Global {
+                name: 1,
+                interface: "wl_compositor".into(),
+                version: 4,
+            },
+            Global {
+                name: 2,
+                interface: "wl_shm".into(),
+                version: 1,
+            },
+            Global {
+                name: 3,
+                interface: "wl_shell".into(),
+                version: 1,
+            },
+            Global {
+                name: 4,
+                interface: "wl_seat".into(),
+                version: 5,
+            },
+            Global {
+                name: 5,
+                interface: "wl_output".into(),
+                version: 3,
+            },
+            Global {
+                name: 6,
+                interface: "xdg_wm_base".into(),
+                version: 1,
+            },
         ];
 
         Ok(Self {
@@ -335,7 +373,8 @@ impl Compositor {
     pub fn run(&mut self) -> std::io::Result<()> {
         eprintln!("redbear-compositor: listening on Wayland socket");
         let _ = std::fs::write(
-            std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()) + "/compositor.status",
+            std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into())
+                + "/compositor.status",
             "ready\n",
         );
         for stream in self.listener.incoming() {
@@ -343,13 +382,16 @@ impl Compositor {
                 Ok(stream) => {
                     let client_id = self.alloc_id();
                     eprintln!("redbear-compositor: client {} connected", client_id);
-                    self.clients.lock().unwrap().insert(client_id, ClientState {
-                        objects: HashMap::new(),
-                        surfaces: HashMap::new(),
-                        buffers: HashMap::new(),
-                        shm_pools: HashMap::new(),
-                        _next_id: 1,
-                    });
+                    self.clients.lock().unwrap().insert(
+                        client_id,
+                        ClientState {
+                            objects: HashMap::new(),
+                            surfaces: HashMap::new(),
+                            buffers: HashMap::new(),
+                            shm_pools: HashMap::new(),
+                            _next_id: 1,
+                        },
+                    );
                     self.handle_client(client_id, stream);
                 }
                 Err(e) => eprintln!("redbear-compositor: accept error: {}", e),
@@ -415,17 +457,30 @@ impl Compositor {
     ) -> Result<(), String> {
         let mut offset = 0;
         while offset + 8 <= data.len() {
-            let object_id = u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            let object_id = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
             // Wayland wire format: [object_id:u32][size:u16][opcode:u16]
-            let size_opcode = u32::from_le_bytes([data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7]]);
+            let size_opcode = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
             let msg_size = ((size_opcode >> 16) & 0xFFFF) as usize;
             let opcode = (size_opcode & 0xFFFF) as u16;
-            
+
             if msg_size < 8 || offset + msg_size > data.len() {
-                return Err(format!("malformed message: object={} opcode={} size={}", object_id, opcode, msg_size));
+                return Err(format!(
+                    "malformed message: object={} opcode={} size={}",
+                    object_id, opcode, msg_size
+                ));
             }
 
-            let payload = &data[offset+8..offset+msg_size];
+            let payload = &data[offset + 8..offset + msg_size];
             let object_type = if object_id == 1 {
                 OBJECT_TYPE_WL_DISPLAY
             } else {
@@ -436,18 +491,22 @@ impl Compositor {
                     .and_then(|client| client.objects.get(&object_id).copied())
                     .unwrap_or(0)
             };
-            
+
             match object_type {
                 OBJECT_TYPE_WL_DISPLAY => match opcode {
                     WL_DISPLAY_SYNC => {
                         let callback_id = if payload.len() >= 4 {
                             u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]])
-                        } else { self.alloc_id() };
+                        } else {
+                            self.alloc_id()
+                        };
                         self.send_callback_done(stream, callback_id, 0);
                     }
                     WL_DISPLAY_DELETE_ID => {
                         if payload.len() >= 4 {
-                            let obj_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let obj_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.remove(&obj_id);
@@ -459,7 +518,9 @@ impl Compositor {
                     }
                     WL_DISPLAY_GET_REGISTRY => {
                         if payload.len() >= 4 {
-                            let registry_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let registry_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             let mut send_globals = false;
                             if let Some(client) = clients.get_mut(&client_id) {
@@ -473,7 +534,10 @@ impl Compositor {
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_REGISTRY => match opcode {
@@ -484,69 +548,91 @@ impl Compositor {
                         let _version = read_u32(payload, &mut cursor)?;
                         let new_id = read_u32(payload, &mut cursor)?;
 
-                            let mut clients = self.clients.lock().unwrap();
-                            if let Some(client) = clients.get_mut(&client_id) {
-                                let type_id = match iface.as_str() {
-                                    "wl_compositor" => OBJECT_TYPE_WL_COMPOSITOR,
-                                    "wl_shm" => OBJECT_TYPE_WL_SHM,
-                                    "wl_shell" => OBJECT_TYPE_WL_SHELL,
-                                    "wl_seat" => OBJECT_TYPE_WL_SEAT,
-                                    "wl_output" => OBJECT_TYPE_WL_OUTPUT,
-                                    "xdg_wm_base" => OBJECT_TYPE_XDG_WM_BASE,
-                                    _ => 0,
-                                };
-                                client.objects.insert(new_id, type_id);
-                                if iface == "wl_shm" {
-                                    self.send_shm_format(stream, new_id, WL_SHM_FORMAT_ARGB8888);
-                                    self.send_shm_format(stream, new_id, WL_SHM_FORMAT_XRGB8888);
-                                }
-                                if iface == "wl_output" {
-                                    self.send_output_info(stream, new_id);
-                                }
-                                if iface == "wl_seat" {
-                                    self.send_seat_capabilities(stream, new_id);
-                                }
+                        let mut clients = self.clients.lock().unwrap();
+                        if let Some(client) = clients.get_mut(&client_id) {
+                            let type_id = match iface.as_str() {
+                                "wl_compositor" => OBJECT_TYPE_WL_COMPOSITOR,
+                                "wl_shm" => OBJECT_TYPE_WL_SHM,
+                                "wl_shell" => OBJECT_TYPE_WL_SHELL,
+                                "wl_seat" => OBJECT_TYPE_WL_SEAT,
+                                "wl_output" => OBJECT_TYPE_WL_OUTPUT,
+                                "xdg_wm_base" => OBJECT_TYPE_XDG_WM_BASE,
+                                _ => 0,
+                            };
+                            client.objects.insert(new_id, type_id);
+                            if iface == "wl_shm" {
+                                self.send_shm_format(stream, new_id, WL_SHM_FORMAT_ARGB8888);
+                                self.send_shm_format(stream, new_id, WL_SHM_FORMAT_XRGB8888);
                             }
+                            if iface == "wl_output" {
+                                self.send_output_info(stream, new_id);
+                            }
+                            if iface == "wl_seat" {
+                                self.send_seat_capabilities(stream, new_id);
+                            }
+                        }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_COMPOSITOR => match opcode {
                     WL_COMPOSITOR_CREATE_SURFACE => {
                         if payload.len() >= 4 {
-                            let surface_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let surface_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.insert(surface_id, OBJECT_TYPE_WL_SURFACE);
-                                client.surfaces.insert(surface_id, Surface {
-                                    buffer: None,
-                                    committed_buffer_id: None,
-                                    x: 0, y: 0,
-                                    _width: self.fb_width,
-                                    _height: self.fb_height,
-                                });
+                                client.surfaces.insert(
+                                    surface_id,
+                                    Surface {
+                                        buffer: None,
+                                        committed_buffer_id: None,
+                                        x: 0,
+                                        y: 0,
+                                        _width: self.fb_width,
+                                        _height: self.fb_height,
+                                    },
+                                );
                             }
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SHM => match opcode {
                     WL_SHM_CREATE_POOL => {
                         if payload.len() >= 8 {
-                            let pool_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-                            let size = i32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
-                            let fd_val = fds
-                                .pop_front()
-                                .ok_or_else(|| String::from("wl_shm.create_pool missing SCM_RIGHTS fd"))?;
+                            let pool_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
+                            let size = i32::from_le_bytes([
+                                payload[4], payload[5], payload[6], payload[7],
+                            ]);
+                            let fd_val = fds.pop_front().ok_or_else(|| {
+                                String::from("wl_shm.create_pool missing SCM_RIGHTS fd")
+                            })?;
                             if size > 0 {
                                 let file = unsafe { std::fs::File::from_raw_fd(fd_val) };
                                 let mut clients = self.clients.lock().unwrap();
                                 if let Some(client) = clients.get_mut(&client_id) {
                                     client.objects.insert(pool_id, OBJECT_TYPE_WL_SHM_POOL);
-                                    client.shm_pools.insert(pool_id, ShmPool { file, size: size as usize });
+                                    client.shm_pools.insert(
+                                        pool_id,
+                                        ShmPool {
+                                            file,
+                                            size: size as usize,
+                                        },
+                                    );
                                 }
                             } else {
                                 let _ = unsafe { libc::close(fd_val) };
@@ -554,54 +640,100 @@ impl Compositor {
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SHM_POOL => match opcode {
                     WL_SHM_POOL_CREATE_BUFFER => {
                         if payload.len() >= 20 {
-                            let buffer_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-                            let offset = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
-                            let width = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
-                            let height = u32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]]);
-                            let stride = u32::from_le_bytes([payload[16], payload[17], payload[18], payload[19]]);
+                            let buffer_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
+                            let offset = u32::from_le_bytes([
+                                payload[4], payload[5], payload[6], payload[7],
+                            ]);
+                            let width = u32::from_le_bytes([
+                                payload[8],
+                                payload[9],
+                                payload[10],
+                                payload[11],
+                            ]);
+                            let height = u32::from_le_bytes([
+                                payload[12],
+                                payload[13],
+                                payload[14],
+                                payload[15],
+                            ]);
+                            let stride = u32::from_le_bytes([
+                                payload[16],
+                                payload[17],
+                                payload[18],
+                                payload[19],
+                            ]);
                             let format = if payload.len() >= 24 {
-                                u32::from_le_bytes([payload[20], payload[21], payload[22], payload[23]])
-                            } else { WL_SHM_FORMAT_ARGB8888 };
+                                u32::from_le_bytes([
+                                    payload[20],
+                                    payload[21],
+                                    payload[22],
+                                    payload[23],
+                                ])
+                            } else {
+                                WL_SHM_FORMAT_ARGB8888
+                            };
 
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.insert(buffer_id, OBJECT_TYPE_WL_BUFFER);
-                                client.buffers.insert(buffer_id, (object_id, Buffer {
-                                    pool_id: object_id,
-                                    offset,
-                                    width,
-                                    height,
-                                    stride,
-                                    _format: format,
-                                }));
+                                client.buffers.insert(
+                                    buffer_id,
+                                    (
+                                        object_id,
+                                        Buffer {
+                                            pool_id: object_id,
+                                            offset,
+                                            width,
+                                            height,
+                                            stride,
+                                            _format: format,
+                                        },
+                                    ),
+                                );
                             }
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SURFACE => match opcode {
                     WL_SURFACE_ATTACH => {
                         if payload.len() >= 12 {
-                            let buffer_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-                            let _x = i32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
-                            let _y = i32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+                            let buffer_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
+                            let _x = i32::from_le_bytes([
+                                payload[4], payload[5], payload[6], payload[7],
+                            ]);
+                            let _y = i32::from_le_bytes([
+                                payload[8],
+                                payload[9],
+                                payload[10],
+                                payload[11],
+                            ]);
 
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
-                                if let Some((pool_id, buffer)) = client.buffers.get(&buffer_id).cloned() {
+                                if let Some((pool_id, buffer)) =
+                                    client.buffers.get(&buffer_id).cloned()
+                                {
                                     if let Some(surface) = client.surfaces.get_mut(&object_id) {
-                                        surface.buffer = Some(Buffer {
-                                            pool_id,
-                                            ..buffer
-                                        });
+                                        surface.buffer = Some(Buffer { pool_id, ..buffer });
                                     }
                                 }
                             }
@@ -613,22 +745,33 @@ impl Compositor {
                             if let Some(client) = clients.get_mut(&client_id) {
                                 if let Some(surface) = client.surfaces.get_mut(&object_id) {
                                     let old_buffer = surface.committed_buffer_id.take();
-                                    surface.committed_buffer_id = surface.buffer.as_ref().map(|b| {
-                                        client.buffers.iter()
-                                            .find(|(_, (_, buf))| buf.offset == b.offset && buf.width == b.width)
-                                            .map(|(id, _)| *id)
-                                            .unwrap_or(0)
-                                    });
+                                    surface.committed_buffer_id =
+                                        surface.buffer.as_ref().map(|b| {
+                                            client
+                                                .buffers
+                                                .iter()
+                                                .find(|(_, (_, buf))| {
+                                                    buf.offset == b.offset && buf.width == b.width
+                                                })
+                                                .map(|(id, _)| *id)
+                                                .unwrap_or(0)
+                                        });
                                     let surface_snapshot = surface.clone();
 
                                     if let Some(ref buffer) = surface_snapshot.buffer {
-                                        if let Some(pool) = client.shm_pools.get_mut(&buffer.pool_id) {
+                                        if let Some(pool) =
+                                            client.shm_pools.get_mut(&buffer.pool_id)
+                                        {
                                             self.composite_buffer(pool, buffer, &surface_snapshot);
                                         }
                                     }
                                     old_buffer
-                                } else { None }
-                            } else { None }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         };
 
                         if let Some(buf_id) = release_id {
@@ -641,13 +784,18 @@ impl Compositor {
                         // No-op — we don't need damage tracking for a single-client greeter.
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SHELL => match opcode {
                     WL_SHELL_GET_SHELL_SURFACE => {
                         if payload.len() >= 4 {
-                            let new_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let new_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.insert(new_id, OBJECT_TYPE_WL_SHELL_SURFACE);
@@ -655,7 +803,10 @@ impl Compositor {
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SHELL_SURFACE => match opcode {
@@ -663,13 +814,18 @@ impl Compositor {
                         // No-op — we don't need window management for a single-client greeter.
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_SEAT => match opcode {
                     WL_SEAT_GET_POINTER | WL_SEAT_GET_KEYBOARD => {
                         if payload.len() >= 4 {
-                            let new_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let new_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let object_type = match opcode {
                                 WL_SEAT_GET_POINTER => OBJECT_TYPE_WL_POINTER,
                                 WL_SEAT_GET_KEYBOARD => OBJECT_TYPE_WL_KEYBOARD,
@@ -682,13 +838,18 @@ impl Compositor {
                         }
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_XDG_WM_BASE => match opcode {
                     XDG_WM_BASE_GET_XDG_SURFACE => {
                         if payload.len() >= 4 {
-                            let new_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let new_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.insert(new_id, OBJECT_TYPE_XDG_SURFACE);
@@ -699,7 +860,10 @@ impl Compositor {
                         // No-op — the greeter keeps the shell global alive for the client lifetime.
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_XDG_SURFACE => match opcode {
@@ -711,7 +875,9 @@ impl Compositor {
                     }
                     XDG_SURFACE_GET_TOPLEVEL => {
                         if payload.len() >= 4 {
-                            let toplevel_id = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                            let toplevel_id = u32::from_le_bytes([
+                                payload[0], payload[1], payload[2], payload[3],
+                            ]);
                             let mut clients = self.clients.lock().unwrap();
                             if let Some(client) = clients.get_mut(&client_id) {
                                 client.objects.insert(toplevel_id, OBJECT_TYPE_XDG_TOPLEVEL);
@@ -726,7 +892,10 @@ impl Compositor {
                         // Client acknowledged — ready for first commit.
                     }
                     _ => {
-                        eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                        eprintln!(
+                            "redbear-compositor: unhandled opcode {} on object {}",
+                            opcode, object_id
+                        );
                     }
                 },
                 OBJECT_TYPE_WL_OUTPUT
@@ -734,10 +903,16 @@ impl Compositor {
                 | OBJECT_TYPE_XDG_TOPLEVEL
                 | OBJECT_TYPE_WL_POINTER
                 | OBJECT_TYPE_WL_KEYBOARD => {
-                    eprintln!("redbear-compositor: unhandled opcode {} on object {}", opcode, object_id);
+                    eprintln!(
+                        "redbear-compositor: unhandled opcode {} on object {}",
+                        opcode, object_id
+                    );
                 }
                 _ => {
-                    eprintln!("redbear-compositor: unhandled object {} opcode {}", object_id, opcode);
+                    eprintln!(
+                        "redbear-compositor: unhandled object {} opcode {}",
+                        object_id, opcode
+                    );
                 }
             }
 
@@ -756,7 +931,10 @@ impl Compositor {
         }
 
         let mut src = vec![0u8; byte_count];
-        if pool.file.seek(SeekFrom::Start(buffer.offset as u64)).is_err()
+        if pool
+            .file
+            .seek(SeekFrom::Start(buffer.offset as u64))
+            .is_err()
             || pool.file.read_exact(&mut src).is_err()
         {
             return;
@@ -856,7 +1034,8 @@ impl Compositor {
 
 fn main() {
     let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/run/redbear-greeter".into());
+    let runtime_dir =
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp/run/redbear-greeter".into());
     let socket_path = format!("{}/{}", runtime_dir, wayland_display);
 
     // Read framebuffer parameters from environment (set by bootloader → vesad)
@@ -872,10 +1051,9 @@ fn main() {
         .unwrap_or_else(|_| (fb_width * 4).to_string())
         .parse()
         .unwrap_or(fb_width * 4);
-    let fb_phys_str = std::env::var("FRAMEBUFFER_ADDR")
-        .unwrap_or_else(|_| "0x80000000".into());
-    let fb_phys = usize::from_str_radix(fb_phys_str.trim_start_matches("0x"), 16)
-        .unwrap_or(0x80000000);
+    let fb_phys_str = std::env::var("FRAMEBUFFER_ADDR").unwrap_or_else(|_| "0x80000000".into());
+    let fb_phys =
+        usize::from_str_radix(fb_phys_str.trim_start_matches("0x"), 16).unwrap_or(0x80000000);
 
     eprintln!(
         "redbear-compositor: fb {}x{} stride {} phys 0x{:X}",
@@ -893,9 +1071,9 @@ fn main() {
             eprintln!("redbear-compositor: failed to start: {}", e);
         }
     }
-    
+
     let _ = std::fs::remove_file(&socket_path_clone);
     let _ = std::fs::remove_file(
-        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()) + "/compositor.status"
+        std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into()) + "/compositor.status",
     );
 }
