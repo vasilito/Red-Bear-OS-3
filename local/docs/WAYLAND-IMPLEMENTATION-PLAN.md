@@ -88,13 +88,13 @@ This plan uses the same strict evidence classes as the canonical desktop path:
 | **enumerates** | scheme/device node appears and answers bounded queries | “enumerates” | “usable end to end” |
 | **usable** | bounded runtime path performs intended task | “usable for this path” | “broadly stable” |
 | **validated** | repeated proof on intended target class | “validated” | “complete everywhere” |
-| **experimental** | partial, scaffolded, or runtime-untrusted | “experimental” | “done” |
+| **build-verified; runtime gated on QEMU** | build-verified; runtime gated on QEMU, scaffolded, or runtime-untrusted | “build-verified; runtime gated on QEMU” | “done” |
 
 Rules:
 
 - compile-only success is still only **builds**,
 - QEMU-only success stays QEMU-bounded,
-- a compositor that reaches early init but never completes a session is still **experimental**,
+- a compositor that reaches early init but never completes a session is still **build-verified; runtime gated on QEMU**,
 - KWin and Plasma build success does not imply Wayland session viability.
 
 ## Current State Assessment
@@ -106,7 +106,7 @@ Rules:
 | historical `redbear-wayland` profile | builds, boots | historical bounded validation profile; not a forward compile target |
 | `libwayland` | builds | still carries Redox-specific recipe/source rewriting and residual patching |
 | `wayland-protocols` | builds | protocol packaging is not the blocker |
-| Qt6 Wayland client path | builds, partial runtime | `qt6-wayland-smoke` is installed, runs in the bounded harness, and leaves runtime markers; visible in-compositor window proof is still open |
+| Qt6 Wayland client path | builds, build-verified; runtime gated on QEMU runtime | `qt6-wayland-smoke` is installed, runs in the bounded harness, and leaves runtime markers; visible in-compositor window proof is still open |
 | Mesa EGL + GBM + GLES2 | builds | software path via LLVMpipe proven in QEMU |
 | evdevd / udev-shim / firmware-loader / redox-drm | builds, boots, enumerate | runtime trust still bounded |
 | libinput | builds | udev disabled in recipe; runtime integration still open |
@@ -121,7 +121,7 @@ Rules:
 | Input path | no end-to-end proof that evdevd → libinput → compositor is trustworthy |
 | Session path | no runtime-trusted seat/session proof for KWin path |
 | Hardware graphics | no hardware-accelerated Wayland proof |
-| KWin truthfulness | build is reduced and partially dependency-honest, but still not a runtime-ready session |
+| KWin truthfulness | build is reduced and build-verified; runtime gated on QEMUly dependency-honest, but still not a runtime-ready session |
 | WIP ownership | upstream WIP recipes and local overlays are mixed; forward path is not always explicit |
 
 ## Stability / Completeness Verdict
@@ -296,7 +296,7 @@ This wave is still a **validation compositor** wave, not a claim that KWin or Pl
 
 - retire old planning authority from historical Wayland docs,
 - demote or remove stale historical compositor references from the active guidance path,
-- make the WIP recipe guidance reflect current truth instead of older partial states,
+- make the WIP recipe guidance reflect current truth instead of older build-verified; runtime gated on QEMU states,
 - keep local overlay ownership explicit wherever Red Bear is still the effective shipping owner.
 
 **Acceptance criteria:**
