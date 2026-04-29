@@ -52,7 +52,7 @@ qtwayland = {}
 qt6-wayland-smoke = {}
 
 # KF6 Frameworks — enabled: 22 KF6 + kglobalacceld (suppressed: kirigami only)
-# knewstuff/kwallet now have real cmake builds with stub fallback
+# knewstuff/kwallet now have real cmake builds
 #kirigami = {}  # suppressed: QML stub, requires Qt6Quick downstream proof
 kf6-knewstuff = {}
 kf6-kwallet = {}
