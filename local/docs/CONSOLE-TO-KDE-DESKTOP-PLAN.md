@@ -89,8 +89,8 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | KF6 frameworks (30/32) | **build real** | 22 enabled + kglobalacceld | 30 real cmake builds; knewstuff/kwallet now have real cmake attempts; 1 suppressed (kirigami, QML-dependent) |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
 | kirigami | **stub** | suppressed | QML-dependent; gated on Qt6Quick downstream proof |
-| kf6-knewstuff | **stub** | suppressed | cmake configs only; deferrable |
-| kf6-kwallet | **stub** | suppressed | cmake configs only; deferrable |
+| kf6-knewstuff | **real build attempt** | enabled | NewStuffCore cmake build; QML disabled; stub fallback if configure fails |
+| kf6-kwallet | **real build attempt** | enabled | Core wallet cmake build; QML/GPG disabled; stub fallback |
 | plasma-framework | **builds** | enabled | BUILD_WITH_QML=OFF |
 | plasma-workspace | **builds** | enabled | 52 dependency items |
 | plasma-desktop | **builds** | enabled | Depends on plasma-workspace |
@@ -134,7 +134,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 
 | Item | Reason |
 |------|--------|
-| kf6-knewstuff/kwallet | cmake config stubs sufficient for dependency resolution; not needed for minimal Plasma session |
+| kf6-knewstuff/kwallet | real cmake builds attempted; stub fallback if cmake fails; not on critical path for minimal session |
 | libinput | evdevd handles input natively for bounded proof; libinput builds but suppressed in config |
 | libevdev | header build needed; not blocking |
 
