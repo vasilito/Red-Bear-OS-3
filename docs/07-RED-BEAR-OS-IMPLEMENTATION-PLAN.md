@@ -277,12 +277,13 @@ Goal:
 - mature the existing USB host/controller path into a more reliable subsystem,
 - improve topology, hotplug, HID, storage, and observability confidence.
 
-Current state:
+Current state (2026-04-29):
 
-- USB exists in-tree,
-- support is still partial and variable,
-- controller/runtime maturity still needs work,
-- broader USB class support is not yet a safe claim.
+- Enhanced USB checker (redbear-usb-check): xHCI controller detection, device enumeration, HID/storage class detection, JSON output, proper cfg-gating, zero warnings
+- Unified test harness (test-usb-runtime.sh): guest + QEMU modes, exit-code-based
+- Legacy scripts preserved: test-usb-qemu.sh, test-usb-storage-qemu.sh, test-usb-maturity-qemu.sh
+- xhcid driver exists, usbscsid for storage, USB HID support via usbhidd
+- Controller/runtime maturity still needs hardware validation
 
 Canonical plan:
 
@@ -310,6 +311,8 @@ Current state:
 - packaged in-target Wi-Fi validation/capture commands now exist for the current bounded Intel path
   (`redbear-phase5-wifi-check`, `redbear-phase5-wifi-link-check`, `redbear-phase5-wifi-capture`,
   `redbear-phase5-wifi-run`, `redbear-phase5-wifi-analyze`),
+- unified Wi-Fi runtime harness (test-wifi-runtime.sh): guest + QEMU modes, exit-code-based,
+  runs wifi-check and wifi-link-check in sequence
 - the separate `redbear-phase5-network-check` / `test-phase5-network-qemu.sh` path on `redbear-full`
   now proves bounded desktop/network plumbing in QEMU and should not be confused with the Wi-Fi
   plan's later real-hardware Phase W5 completion criteria,
@@ -338,8 +341,8 @@ Current state:
 
 - one bounded in-tree BLE-first experimental slice now exists,
 - architecture direction is documented,
-- the currently credible implementation target is one bounded BLE-first host-side slice rather than
-  broad desktop Bluetooth parity,
+- redbear-bluetooth-battery-check (666 lines, comprehensive BLE battery level checker),
+- unified BT runtime harness (test-bt-runtime.sh): guest + QEMU modes, exit-code-based,
 - transport dependency on USB maturity remains explicit.
 
 Canonical plan:
