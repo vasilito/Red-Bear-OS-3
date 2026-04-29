@@ -251,11 +251,15 @@ Goal:
 - improve runtime trust in IRQ delivery, MSI/MSI-X, and IOMMU-adjacent infrastructure,
 - turn compile-oriented infrastructure into runtime-proven substrate.
 
-Current state:
+Current state (2026-04-29):
 
-- source and build evidence are good,
-- runtime validation is thinner than desired,
-- this remains a blocker for USB, Wi-Fi, Bluetooth, and reliable device/runtime claims.
+- 5 IRQ/low-level check binaries exist: PCI IRQ, IOMMU, DMA, PS/2, timer validation
+- 6 test scripts: test-msix-qemu.sh, test-iommu-qemu.sh, test-xhci-irq-qemu.sh, test-ps2-qemu.sh, test-timer-qemu.sh, test-lowlevel-controllers-qemu.sh (aggregate)
+- redox-driver-sys: typed PCI/IRQ userspace substrate with host-runnable unit tests, quirk-aware interrupt-support reporting, MSI-X table helpers, affinity helpers
+- redox-drm: shared interrupt abstraction with MSI-X-first and legacy-IRQ fallback
+- iommu daemon: specification-rich IOMMU/interrupt-remapping direction
+- Kernel: PIC, IOAPIC, LAPIC/x2APIC, IDT reservation, masking, EOI, spurious IRQ accounting
+- Weakness: runtime validation thinner than desired, controller-specific characterization uneven, this remains a blocker for USB/Wi-Fi/Bluetooth reliability claims
 
 Canonical plan:
 
