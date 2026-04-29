@@ -1,7 +1,7 @@
 # Red Bear OS Desktop Stack — Current Status
 
 **Last updated:** 2026-04-29
-**Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.2)
+**Canonical plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
 **Boot improvement plan:** `local/docs/BOOT-PROCESS-IMPROVEMENT-PLAN.md` (v1.0)
 **Source archival policy:** `local/docs/SOURCE-ARCHIVAL-POLICY.md` (v1.0)
 
@@ -292,7 +292,7 @@ Init service configuration has been streamlined:
 
 | Document | Role |
 |---|---|
-| `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Canonical desktop path plan (v2.2, Phase 1–5) |
+| `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Canonical desktop path plan (v3.0, full chain reassessment) |
 | This document | Current build/runtime truth summary |
 | `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | Canonical GPU/DRM execution plan beneath the desktop path |
 | `local/docs/QT6-PORT-STATUS.md` | Qt/KF6/KWin package-level build status |

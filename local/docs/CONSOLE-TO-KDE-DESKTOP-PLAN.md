@@ -57,7 +57,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | Component | Status | Config | Notes |
 |-----------|--------|--------|-------|
 | evdevd | **builds** | enabled | scheme:evdev; 65 unit tests; event device semantics verified |
-| libinput | **ignored** | suppressed | Not built; evdevd handles input natively |
+| libinput | **builds, suppressed** | config: `libinput = "ignore"` | Builds but suppressed in redbear-full; evdevd handles input natively for bounded proof |
 | udev-shim | **builds** | enabled | scheme:udev; device enumeration; 15 unit tests |
 | seatd/seatd-redox | **builds** | enabled | meson build; 13_seatd.service wired; DRM lease via redox-drm |
 | libevdev | **suppressed** | commented | build needed header |
@@ -83,10 +83,10 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | Component | Status | Config | Notes |
 |-----------|--------|--------|-------|
 | qtbase 6.11.0 | **builds** | enabled | Core+Gui+Widgets+DBus+Wayland; 7 libs + 12 plugins |
-| qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT not runtime-proven |
+| qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KF6 frameworks (30/32) | **build real** | 18 enabled + kglobalacceld | 30 real cmake builds; 2 stubs (knewstuff, kwallet) |
+| KF6 frameworks (30/32) | **build real** | 20 enabled + kglobalacceld | 30 real cmake builds; 2 stubs (knewstuff, kwallet); 3 suppressed (kirigami, knewstuff, kwallet) |
 | kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
 | kirigami | **stub** | suppressed | QML-dependent; gated on Qt6Quick downstream proof |
 | kf6-knewstuff | **stub** | suppressed | cmake configs only; deferrable |
@@ -94,11 +94,11 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | plasma-framework | **builds** | enabled | BUILD_WITH_QML=OFF |
 | plasma-workspace | **builds** | enabled | 52 dependency items |
 | plasma-desktop | **builds** | enabled | Depends on plasma-workspace |
-| kdecoration | **builds** | enabled | Window decoration library |
+| kdecoration | **builds** | transitively via plasma-workspace | Window decoration library |
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
-| plasma-wayland-protocols | **builds** | enabled | XML protocol definitions |
+| plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
 
-**Verdict**: 26 KDE/Plasma packages enabled. Real Plasma session requires Qt6Quick downstream proof + real KWin.
+**Verdict**: KDE/Plasma surface enabled (20 KF6 + plasma packages). Real Plasma session requires Qt6Quick downstream proof + real KWin.
 
 ### LAYER 7 — Validation Infrastructure
 
@@ -109,7 +109,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | Oracle verification rounds | 20+ | Phases 1-5 all verified |
 | Host cargo check | 3 crates | Zero warnings |
 | Redox-target build | 3 crates | Successful (make r.*) |
-| Full OS build | pending | make all CONFIG_NAME=redbear-full |
+| Full OS build | exists | build/x86_64/redbear-full.iso + .img available; rebuild via make all CONFIG_NAME=redbear-full |
 
 ## Honest Blocker Classification
 
@@ -121,24 +121,22 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | Mesa HW renderers cross-compilation | Mesa | radeonsi/iris not built for Redox target |
 | Real KWin build | Compositor | Stub delegates to redbear-compositor; needs Qt6Quick downstream proof |
 | kirigami real build | KDE | QML-dependent; needs Qt6Quick downstream proof |
-| kf6-knewstuff/kwallet real builds | KDE | Deferrable; cmake config stubs sufficient for minimal session |
 
 ### Environmental Blockers (need toolchain/hardware)
 
 | Blocker | What's needed |
 |---------|---------------|
-| Qt6Quick/QML downstream proof | QML JIT runtime validation; blocks kirigami + real KWin + Plasma |
+| Qt6Quick/QML downstream proof | Qt6Quick/QML runtime proof (QML JIT disabled for Redox); blocks kirigami + real KWin + Plasma |
 | Hardware GPU validation | Real AMD/Intel GPU; blocks CS ioctl vendor semantics + Mesa HW renderers |
-| Full OS build + QEMU | make all CONFIG_NAME=redbear-full; blocks integration testing |
 | Bare-metal validation | Real hardware; blocks all hardware claims |
 
-### Deferred (not on critical path)
+### Deferred (not on critical path for minimal session proof)
 
 | Item | Reason |
 |------|--------|
 | kf6-knewstuff/kwallet | cmake config stubs sufficient for dependency resolution; not needed for minimal Plasma session |
-| libinput | evdevd handles input natively for bounded proof |
-| libevdev/xkeyboard-config | header build needed; not blocking |
+| libinput | evdevd handles input natively for bounded proof; libinput builds but suppressed in config |
+| libevdev | header build needed; not blocking |
 
 ## Critical Path (updated)
 
@@ -148,28 +146,26 @@ Layer 4 (input/seat) ▸ Layer 5 (greeter) ✓ ▸ Layer 6 (Plasma preflight) �
 
 Blocked gate: Layer 3 (real KWin) ← Qt6Quick/QML downstream proof
 Blocked gate: Layer 1 (GPU CS ioctl) ← hardware + Mesa HW cross-compilation
-Blocked gate: Full integration ← make all CONFIG_NAME=redbear-full
 ```
 
 ## Current Config Surface
 
-`config/redbear-full.toml` now enables **26 desktop packages**:
+`config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 18 KF6 frameworks + kglobalacceld
+- 20 KF6 frameworks + kglobalacceld
 - 3 Plasma packages (framework, workspace, desktop)
-- kwin (stub with wrapper scripts)
-- redbear-compositor (real Rust compositor)
+- kwin (stub with wrapper scripts) + redbear-compositor (real Rust compositor)
 - mesa + libdrm
-- qtbase + qtdeclarative + qtwayland + qtsvg
-- qt6-wayland-smoke
-- seatd + redbear-authd + redbear-session-launch + redbear-greeter + redbear-sessiond
+- qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
+- seatd + redbear-authd + redbear-session-launch + redbear-greeter + redbear-sessiond (via redbear-mini)
 - dbus + firmware-loader + redox-drm + evdevd + udev-shim
+- plus inherited packages from redbear-mini profile
 
 ## Next Steps (ordered by impact)
 
-1. **`make all CONFIG_NAME=redbear-full`** — build full OS image with 26 desktop packages; resolves cascade-rebuild unknowns and produces bootable integration test surface
+1. **`make all CONFIG_NAME=redbear-full`** — rebuild full OS image with current desktop package set; existing ISO/img already present at build/x86_64/
 
-2. **Qt6Quick/QML downstream proof** — validate QML JIT runtime on Redox target; unblocks kirigami → real KWin → full Plasma session
+2. **Qt6Quick/QML runtime proof** — validate Qt6Quick downstream consumers with QML JIT disabled for Redox; unblocks kirigami → real KWin → full Plasma session
 
 3. **GPU CS ioctl implementation** — implement command submission in redox-drm; unblocks hardware rendering path
 
@@ -189,4 +185,4 @@ Blocked gate: Full integration ← make all CONFIG_NAME=redbear-full
 | **Runtime-validated** | Exercised in QEMU or bare metal |
 | **Hardware-validated** | Exercised on real AMD/Intel hardware |
 
-Current state: Layers 1-7 are **Redox build-verified** (all 3 crates cook). Layer 5 (greeter) is **runtime-validated** in QEMU. Layers 3 (real KWin), 6 (full Plasma) and hardware paths remain at build-verified preflight level.
+Current state: Layers 1-4 are **Redox build-verified** (all 3 Red Bear crates cook on x86_64-unknown-redox). Layer 5 (greeter) is **runtime-validated** in QEMU. Layer 6 (Plasma) and hardware paths remain at build-verified preflight level.
