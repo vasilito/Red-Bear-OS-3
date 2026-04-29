@@ -194,6 +194,7 @@ fn overall_success(report: &Report, config: &Config) -> bool {
     checks.iter().all(|c| matches!(c, CheckStatus::Pass(_)))
 }
 
+#[cfg(target_os = "redox")]
 fn count_status(count: usize, label: &str) -> CheckStatus {
     if count > 0 {
         CheckStatus::Pass(format!("{} {} device(s) found", count, label))
@@ -202,6 +203,7 @@ fn count_status(count: usize, label: &str) -> CheckStatus {
     }
 }
 
+#[cfg(target_os = "redox")]
 fn list_dir_names(path: &str) -> Result<Vec<String>, String> {
     let entries = fs::read_dir(path).map_err(|err| format!("failed to read {path}: {err}"))?;
     let mut names = entries
