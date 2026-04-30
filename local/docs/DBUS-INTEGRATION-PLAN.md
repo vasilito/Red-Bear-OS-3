@@ -124,7 +124,7 @@ specific schemes it needs. This keeps the architecture honest and avoids a leaky
 | **kf6-knotifications** | `local/recipes/kde/kf6-knotifications/` | ⚠️ D-Bus ON (scaffold-backed) | Built with `-DUSE_DBUS=ON`, but current notification daemon is still a minimal scaffold |
 | **kf6-kio** | `local/recipes/kde/kf6-kio/` | ⚠️ D-Bus OFF | Built with `-DUSE_DBUS=OFF` — D-Bus IPC disabled, has systemd1 XML interfaces in source |
 | **kf6-solid** | `local/recipes/kde/kf6-solid/` | ⚠️ D-Bus OFF | Built with `-DUSE_DBUS=OFF` — UDev/UPower/udisks2 backends all disabled |
-| **kf6-kwallet: real API-only build (no daemon) | Dummy cmake configs only, no real implementation |
+| **kf6-kwallet** | `local/recipes/kde/kf6-kwallet/` | ⚠️ Not in enabled subset | Real API-only cmake build (no daemon); exists in-tree, not part of current redbear-full |
 | **plasma-workspace** | `local/recipes/kde/plasma-workspace/` | ⚠️ Partial | Explicit dbus dep; sub-services activation files staged; runtime proof requires QEMU |
 
 ### 3.3 What Ships Today (Scaffolds and Deferred Items)
@@ -727,7 +727,7 @@ org.freedesktop.DBus (dbus-daemon — always present)
 | kf6-knotifications | Desktop notifications | ✅ `-DUSE_DBUS=ON` | Enabled against current notification scaffold; build-verified; supplementary QEMU runtime validation |
 | kf6-solid | Hardware enumeration | ⚠️ `-DUSE_DBUS=OFF` | Re-enable after UPower/udisks2 (DB-3) |
 | kf6-kio | D-Bus service activation | ⚠️ `-DUSE_DBUS=OFF` | Re-enable after core services proven (DB-3) |
-| kf6-kwallet: real API-only build (no daemon) | Re-enable after session D-Bus stable (DB-5) |
+| kf6-kwallet | Session D-Bus stable | ⚠️ Not in enabled subset | Real API-only build exists in-tree (DB-5) |
 | kf6-kauth | Privileged actions | ⚠️ Fake backend | Blocked until `PolkitQt6-1` is packaged and recipe switched off FAKE |
 | kf6-kidletime | Idle detection | ✅ Builds | Needs ScreenSaver D-Bus for full function |
 | kf6-kjobwidgets | Job progress | ✅ Builds | Needs JobViewServer (DB-5) |
