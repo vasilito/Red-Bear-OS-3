@@ -277,7 +277,7 @@ git reset --hard upstream-redox/master
 
 ## AMD-FIRST INTEGRATION PATH
 
-See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path plan and `local/docs/AMD-FIRST-INTEGRATION.md` for deeper AMD-specific technical detail.
+See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path plan.
 
 **Target**: AMD64 bare metal, with AMD and Intel machines treated as equal-priority hardware targets.
 
@@ -350,7 +350,7 @@ All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
 - QEMU used for testing (make qemu). VirtualBox also supported
 - The `repo` binary (cookbook CLI) may crash with TUI in non-interactive environments — use `CI=1`
 - No git submodules — external repos managed via recipe source URLs and repo manifests
-- Historical integration report removed (2026-04-16); see `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for current state
+- Historical integration report removed (2026-04-16); see `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for current state
 
 ## WARNING POLICY
 

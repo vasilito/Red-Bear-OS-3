@@ -12,10 +12,8 @@ For current Red Bear OS status, also read:
 
 - `docs/README.md` — canonical docs index + status matrix
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` — canonical public implementation plan
-- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — current desktop stack build/runtime truth
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — **canonical comprehensive implementation plan** — all current state
 - `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path
-- `local/docs/QT6-PORT-STATUS.md` — current Qt/KF6 package-level status
-- `local/docs/AMD-FIRST-INTEGRATION.md` — deeper AMD/graphics technical roadmap, useful detail but not the canonical desktop plan
 - `local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — current script guarantees and non-guarantees
 
 ## STRUCTURE
@@ -40,11 +38,9 @@ docs/
 | Which docs are current vs historical? | README | Document Status Matrix |
 | What is the current WIP ownership policy? | `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` | Phase R1 |
 | What do the main sync/fetch/apply/build scripts actually guarantee? | local/docs/SCRIPT-BEHAVIOR-MATRIX.md | Entire document |
+| What is the current desktop-stack truth? | `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Entire document |
 | What is the current Wi-Fi architecture and validation path? | local/docs/WIFI-IMPLEMENTATION-PLAN.md | Entire document |
-| What is the current desktop-stack truth? | local/docs/DESKTOP-STACK-CURRENT-STATUS.md | Entire document |
-| What is the current Qt/KF6 status? | local/docs/QT6-PORT-STATUS.md | Entire document |
 | What's missing for Wayland? | local/docs/WAYLAND-IMPLEMENTATION-PLAN.md | Entire document |
-| How to fix POSIX gaps? | local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md | Current relibc completeness work |
 | What is the current Wayland plan? | local/docs/WAYLAND-IMPLEMENTATION-PLAN.md | Entire document |
 | How to run Linux GPU drivers? | 04 | Architecture diagram, i915 porting example |
 | What is redox-driver-sys? | 04 | Crate 1: memory, IRQ, PCI, DMA wrappers |

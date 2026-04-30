@@ -14,13 +14,13 @@ current/canonical versus historical/reference split obvious.
 > **Status note (2026-04-14):** several documents below are historical implementation plans whose
 > original "missing / not started" language is now stale. The repo already contains substantial
 > Red Bear OS work under `local/`; use each document's top-level status notes together with
-> `local/docs/AMD-FIRST-INTEGRATION.md` and `local/docs/QT6-PORT-STATUS.md` for current state.
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0) for current state.
 
 > **Red Bear note:** newer subsystem plans can also live under `local/docs/` when they are Red Bear-
 > specific rather than general Redox architecture material. In particular, see
 > `local/docs/WIFI-IMPLEMENTATION-PLAN.md` for the current Wi-Fi direction,
 > `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path,
-> and `local/docs/AMD-FIRST-INTEGRATION.md` for AMD-specific technical detail only.
+> and `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path.
 
 > **Repository model:** RedBearOS relates to Redox in the same way Ubuntu relates to Debian.
 > Upstream Redox remains the base platform; Red Bear carries packaging, patch, validation, and
@@ -97,8 +97,8 @@ Do not flatten those into one “supported” claim in public summaries.
 This summary is only a quick orientation layer. For canonical current-state detail, prefer:
 
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` for repository-wide execution order,
-- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path from console to KDE Plasma on Wayland,
-- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` for desktop build/runtime truth,
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical comprehensive plan,
+- `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - `local/docs/PROFILE-MATRIX.md` for support-language by tracked profile,
 - and the active subsystem plans under `local/docs/` for detailed current workstreams.
 
