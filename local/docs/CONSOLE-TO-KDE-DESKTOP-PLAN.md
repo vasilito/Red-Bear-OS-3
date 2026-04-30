@@ -87,7 +87,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KF6 frameworks (32/32 recipes exist) | **36 build / 11 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 15 in repo, 21 stage-only. |
+| KF6 frameworks (32/32 recipes exist) | **36 build / 12 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 15 in repo, 21 stage-only. |
 | kf6-kio | **blocked** | commented out in config | Compilation error — upstream source incompatibility |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
@@ -146,9 +146,7 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 - 36 KDE packages (33 KF6 + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
 - kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
-- 3 Plasma packages (commented out as BLOCKED): framework, workspace, desktop
-- 23 additional KF6 recipes exist in local/recipes/kde/ with real cmake builds but are not enabled in config
-- kirigami, kf6-knewstuff, kf6-kwallet (commented out as suppressed/blocked)
+- 12 KDE packages blocked/ignored with documented reasons (see config comments)
 - mesa + libdrm (GPU software stack)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
 - seatd + redbear-authd + redbear-session-launch + redbear-greeter (via redbear-mini)

@@ -15,10 +15,10 @@
 ## Recent Changes (2026-04-29, Wave 7)
 
 - **KF6 surface made more honest for Phase 3/4**:
-  - `kf6-kdeclarative` is now enabled in `config/redbear-full.toml` because its tracked recipe is already a real reduced cmake build with `BUILD_WITH_QML=OFF`.
-  - `kf6-kio` is now enabled in `config/redbear-full.toml` as an honest reduced KIOCore-only build. The recipe no longer injects fake QtNetwork headers into the shared sysroot; instead it uses source-local Redox compatibility headers for the bounded `QHostAddress` / `QHostInfo` surface KIOCore still needs.
-- `kf6-knewstuff` and `kf6-kwallet` now have real cmake build attempts with stub fallback; enabled in config.
-- Enabled count is now **9 KF6 frameworks + ECM + kwin** in the built image (pulled as kwin transitive deps). **22 additional KF6 recipes exist and build** in local/recipes/kde/ but are not enabled in config. See TASK "Enable buildable KF6 packages in redbear-full.toml".
+  - `kf6-kdeclarative` is enabled in `config/redbear-full.toml` (real reduced cmake build with `BUILD_WITH_QML=OFF`).
+  - `kf6-kio` is blocked (commented out — source-incompatible).
+- `kf6-knewstuff` and `kf6-kwallet` have real cmake builds; `kf6-kwallet` enabled, `kf6-knewstuff` blocked (empty package).
+- Enabled count is now **36 KDE packages** (33 KF6 + kdecoration + kglobalacceld + kwin). See Current KDE Package Status table for full breakdown.
 
 ## Recent Changes (2026-04-29, Wave 6)
 
@@ -127,9 +127,9 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: compilation** | 2 | breeze, kf6-kio — upstream source incompatibilities with Redox toolchain |
 | **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
-| **Blocked: dependencies** | 1 | kde-cli-tools (depends on kf6-kio) |
+| **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
 
-**Total: 48 recipes. 36 build (15 in repo + 21 stage-only). 12 blocked.. 12 blocked (documented).**
+**Total: 48 recipes. 36 build (15 in repo + 21 stage-only). 12 blocked (documented).**
 
 Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
