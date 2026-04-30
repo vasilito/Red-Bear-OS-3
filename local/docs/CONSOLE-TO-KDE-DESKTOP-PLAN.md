@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (15 in repo, 21 stage-only). 12 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
+**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (13 in repo, 23 stage-only). 12 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
 
 ## Purpose
 
@@ -87,7 +87,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 15 in repo, 21 stage-only. |
+| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 13 in repo, 23 stage-only. |
 | kf6-kio | **blocked** | commented out in config | Compilation error — upstream source incompatibility |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |

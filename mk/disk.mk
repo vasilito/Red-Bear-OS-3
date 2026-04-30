@@ -17,7 +17,7 @@ else
 	mv $@.partial $@
 endif
 
-$(LIVE_IMG): $(FSTOOLS) $(REPO_TAG)
+$(LIVE_IMG): $(FSTOOLS) $(REPO_TAG) sources
 ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else

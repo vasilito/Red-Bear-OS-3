@@ -119,7 +119,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| **Building + in repo** | 15 | attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kdecoration, kwin (stub), kf6-kwallet |
+| **Building + in repo** | 13 | attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kdecoration, kwin (stub), kf6-kwallet |
 | **Building (stage only)** | 21 | All other KF6 frameworks — compiled during cook but not yet in repo (need full make all with clean repo.tag) |
 | **kf6-knewstuff** | 1 | Publishes to repo as empty package (cmake succeeds, core src produces no libs with QtQuick/widgets off) |
 | **kf6-attica** | 1 | Minimal core library build, KF6::Attica cmake target |
@@ -129,7 +129,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
 | **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
 
-**Total: 48 recipes. 36 build (15 in repo + 21 stage-only). 12 blocked (documented).**
+**Total: 48 recipes. 36 build (13 in repo + 23 stage-only). 12 blocked (documented).**
 
 Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
@@ -330,7 +330,7 @@ Init service configuration has been streamlined:
 ## Bottom Line
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, all 32 KF6 recipes, Mesa EGL/GBM/GLES2, and D-Bus build — **but only 9 KF6 frameworks reach the built image** (config gap: 22 additional recipes exist with real builds but are not enabled)
+- All Qt6 core modules, all 32 KF6 recipes, Mesa EGL/GBM/GLES2, and D-Bus build — 36 KDE packages enabled in config (13 in repo with .pkgar, 23 stage-only)
 - Three supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
 - relibc compatibility is materially stronger than before
@@ -339,4 +339,4 @@ The Red Bear desktop stack has crossed major build-side gates and one important 
 - Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 12 packages blocked total (see canonical status table above)
 
 The remaining work is **platform prerequisite resolution** (QML JIT, Qt6::Sensors, libinput ports) before full KDE Plasma session can be assembled. Phase 1-2 runtime validation continues via QEMU.
-Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: KWin must become real (currently stub) + 22 KF6 recipes must be enabled in config + plasma packages need unblocking.
+Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: platform prerequisites (QML JIT, Qt6::Sensors, libinput) must be resolved before KWin real build and full Plasma session.
