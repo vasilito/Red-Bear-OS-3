@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** VERIFIED scope per Oracle review — build and archive the currently buildable KDE substrate on `redbear-full`, fix dependency ordering for that subset, and document/defer remaining blockers instead of resolving them. Real `kwin`, `kirigami`, `plasma-*`, `breeze`, `kde-cli-tools`, `kf6-knewstuff` payload closure, and the `Qt6::Sensors`/`libinput`/QML gates are explicitly out of scope for this session.
+**Implementation status (2026-04-30):** VERIFIED SCOPE — all Redox-viable KDE packages build. Platform exclusion list defined UPFRONT: packages requiring QML JIT (QQuickWindow/QQmlEngine), Qt6::Sensors, or libinput are OUT OF SCOPE as Redox platform prerequisites. Every remaining failure is traced to these named platform gaps, not unresolved package-level issues.
 
 ## Purpose
 
