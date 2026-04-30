@@ -1,0 +1,25 @@
+diff --git a/src/gallium/drivers/virgl/virgl_screen.c b/src/gallium/drivers/virgl/virgl_screen.c
+index d86ca5d1e..f79b8c678 100644
+--- a/src/gallium/drivers/virgl/virgl_screen.c
++++ b/src/gallium/drivers/virgl/virgl_screen.c
+@@ -1054,6 +1054,12 @@ static struct disk_cache *virgl_get_disk_shader_cache (struct pipe_screen *pscre
+ 
+ static void virgl_disk_cache_create(struct virgl_screen *screen)
+ {
++#ifdef __redox__
++   (void)screen;
++   /* build_id_find_nhdr_for_addr uses dl_iterate_phdr — not available on Redox.
++    * Disk cache is disabled; shader compilation works without it. */
++   screen->disk_cache = NULL;
++#else
+    const struct build_id_note *note =
+       build_id_find_nhdr_for_addr(virgl_disk_cache_create);
+    assert(note);
+@@ -1078,6 +1084,7 @@ static void virgl_disk_cache_create(struct virgl_screen *screen)
+    _mesa_sha1_format(timestamp, sha1);
+ 
+    screen->disk_cache = disk_cache_create("virgl", timestamp, 0);
++#endif
+ }
+ 
+ static bool
