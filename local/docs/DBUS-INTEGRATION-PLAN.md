@@ -604,7 +604,7 @@ APIs, which relibc provides.
 | 5.2 | Implement `org.kde.JobViewServer` for job progress | File copy/move operations show progress in Plasma |
 | 5.3 | Implement `org.kde.ksmserver` for session management | Logout/restart/shutdown work from Plasma menu |
 | 5.4 | Implement `org.freedesktop.ScreenSaver` for screen locking | Screen locks on timeout and manual lock |
-| 5.5 | Re-enable kf6-kwallet (replace stub with real build) | KWallet stores and retrieves passwords |
+| 5.5 | Enable kf6-kwallet in redbear-full (recipe exists in-tree) | KWallet stores and retrieves passwords |
 | 5.6 | Re-enable D-Bus in kf6-kio | KIO uses D-Bus for service activation |
 | 5.7 | Promote dbus recipe from WIP to production | Remove #TODO, add BLAKE3, move from `recipes/wip/services/` to `recipes/services/` |
 
@@ -824,7 +824,7 @@ The session bus must only be accessible to the owning user:
 | `kf6-knotifications` | Change `-DUSE_DBUS=OFF` → `-DUSE_DBUS=ON` | DB-2 ✅ done |
 | `kf6-solid` | Change `-DUSE_DBUS=OFF` → `-DUSE_DBUS=ON`, re-enable UPower backend | DB-3 |
 | `kf6-kio` | Change `-DUSE_DBUS=OFF` → `-DUSE_DBUS=ON` | DB-5 |
-| `kf6-kwallet` | Replace stub with real build | DB-5 |
+| `kf6-kwallet` | Enable in config (recipe exists in-tree) | DB-5 |
 | `qtbase` (host) | Consider enabling FEATURE_dbus=ON for host tools (qdbuscpp2xml/qdbusxml2cpp) | DB-2 |
 
 ### 11.3 Config Changes

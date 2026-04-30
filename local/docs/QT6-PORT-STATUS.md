@@ -377,7 +377,7 @@ KDE Plasma packages built:
 
 plasma-workspace stub dependencies partially resolved:
 - kf6-knewstuff ✅ STUB ONLY (KF6NewStuff cmake INTERFACE IMPORTED targets for plasma-workspace dep resolution)
-- kf6-kwallet ✅ STUB ONLY (KF6Wallet cmake INTERFACE IMPORTED targets for plasma-workspace dep resolution)
+- kf6-kwallet ⚠️ EXISTS IN-TREE (real API-only cmake build; not in current redbear-full enabled subset)
 - kf6-prison ✅ REAL RECIPE (real cmake build against libqrencode; dmtx/ZXing disabled; not yet compiled)
 
 qt6-wayland-smoke improved to create a visible QWindow:
