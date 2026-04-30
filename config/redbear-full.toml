@@ -94,18 +94,15 @@ kf6-solid = {}
 kf6-sonnet = {}
 kglobalacceld = {}
 
-# KWin Wayland compositor (stub — delegates to redbear-compositor)
+# KWin Wayland compositor (stub — delegates to redbear-compositor; real build needs Qt6::Sensors + libinput)
 kwin = {}
 
-# Plasma + app packages — attempted, blocked by cookbook dependency resolver bug
-# (kdecoration not scheduled before breeze; kf6-extra-cmake-modules not before kde-cli-tools)
-# kf6-knewstuff = {}  # core-only build, blocked by missing KF6Attica
-# kf6-kwallet = {}    # API-only build, blocked by missing KF6Attica
-# plasma-framework = {}  # depends on kirigami + kf6-kio (now enabled)
-# plasma-workspace = {}  # depends on kwin + all KF6
-# plasma-desktop = {}    # depends on plasma-workspace
-# breeze = {}            # depends on kdecoration
-# kde-cli-tools = {}     # depends on kf6-extra-cmake-modules
+# Plasma + app packages
+# plasma-framework: blocked (depends on kirigami — QML gate)
+# plasma-workspace: blocked (depends on kf6-knewstuff empty package + kwin stub)
+# plasma-desktop: blocked (depends on plasma-workspace)
+breeze = {}
+kde-cli-tools = {}
 
 # Greeter/login stack
 redbear-authd = {}
