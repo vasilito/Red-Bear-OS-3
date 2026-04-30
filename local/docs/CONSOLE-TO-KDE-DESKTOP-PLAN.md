@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** VERIFIED scope is the currently buildable KDE surface on `redbear-full`; packages still blocked by Qt6Quick/QML downstream proof, Qt6::Sensors/libinput, empty-package output, or direct recipe failure stay commented out in config and are not part of this verification claim.
+**Implementation status (2026-04-30):** VERIFIED scope per Oracle review — build and archive the currently buildable KDE substrate on `redbear-full`, fix dependency ordering for that subset, and document/defer remaining blockers instead of resolving them. Real `kwin`, `kirigami`, `plasma-*`, `breeze`, `kde-cli-tools`, `kf6-knewstuff` payload closure, and the `Qt6::Sensors`/`libinput`/QML gates are explicitly out of scope for this session.
 
 ## Purpose
 
