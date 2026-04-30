@@ -399,3 +399,4 @@ vendor = 0x1af4
 subclass = 0x00
 command = ["redox-drm"]
 """
+konsole = {}
