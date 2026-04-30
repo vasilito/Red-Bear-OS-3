@@ -113,7 +113,7 @@ The kernel handles 35 syscalls explicitly. Remaining gaps:
 | Component | Status | Detail |
 |-----------|--------|--------|
 | mesa | 🟡 Builds | llvmpipe software renderer; EGL=on, GBM=on, GLES2=on |
-| mesa virgl (QEMU 3D) | 🔴 WIP | Build attempted — virgl_screen.c int-conversion errors; vtest winsys needs `bits/safamily-t.h`; requires Mesa source patches for Redox target |
+| mesa virgl (QEMU 3D) | 🔴 WIP | `-Dgallium-drivers=swrast,virgl` compiles all objects; linker fails with `undefined reference to static_assert` in `virgl_drm_winsys.c` via `libdrm/virtgpu_drm.h` include chain. Root cause: Mesa `util/macros.h` `#define static_assert _Static_assert` not picked up before Linux `drm.h` header uses `static_assert()`. Fix: patch `drm.h` to use `_Static_assert` directly, or add `-include util/macros.h` to CFLAGS for virgl winsys. |
 | radeonsi (AMD HW) | 🔴 Not built | Not cross-compiled for Redox target |
 | iris (Intel HW) | 🔴 Not built | Not cross-compiled for Redox target |
 | OSMesa | 🟢 Builds | Off-screen software rendering |
