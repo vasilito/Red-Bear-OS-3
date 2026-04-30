@@ -1,0 +1,162 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[8;042;160t0[2J[01;01H[2J[01;01H[8;056;240t0[2J[01;01HBdsDxe: loading Boot0002 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x3,0x0)
+BdsDxe: starting Boot0002 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x3,0x0)
+[2J[01;01HWARN - Failed to get EFI EDID from handle Handle(2126159512): Status(0x8000000000000003) "unsupported"
+Redox OS Bootloader 1.0.0 on x86_64/UEFI
+Hardware descriptor: Acpi(7f984000, 24)
+Looking for RedoxFS:
+RedoxFS e6c8a80c-215e-412c-8d95-70bf4f25323b: 1533 MiB
+
+Output 0, best resolution: 1280x800
+Arrow keys and enter select mode
+Press l to  enable live mode
+Press e to edit boot environment
+
+ [12;02H2048x2048   1:1  [13;02H2560x1600   8:5  [14;02H2000x2000   1:1  [15;02H2560x1440  16:9  [16;02H2048x1536   4:3  [17;02H1920x1440   4:3  [18;02H1920x1200   8:5  [19;02H1920x1080  16:9  [20;02H1600x1200   4:3  [21;02H1680x1050   8:5  [22;02H1400x1050   4:3  [23;02H1600x900   16:9  [12;22H1280x1024   5:4  [13;22H1440x900    8:5  [14;22H1280x960    4:3  [15;22H1366x768  683:384[16;22H1360x768   85:48 [17;22H[0m[30m[47m1280x800    8:5  [18;22H[0m[37m[40m1152x870  192:145[19;22H1152x864    4:3  [20;22H1280x768    5:3  [21;22H1280x760   32:19 [22;22H1280x720   16:9  [23;22H1024x768    4:3  [12;42H 960x640    3:2  [13;42H1024x600  128:75 [14;42H 832x624    4:3  [15;42H 800x600    4:3  [16;42H 800x480    5:3  [17;42H 640x480    4:3  [24;01H
+usr/lib/boot/kernel: 0/1 MiBusr/lib/boot/kernel: 0/1 MiBusr/lib/boot/kernel: 1/1 MiBusr/lib/boot/kernel: 1/1 MiB
+usr/lib/boot/initfs: 0/32 MiBusr/lib/boot/initfs: 0/32 MiBusr/lib/boot/initfs: 1/32 MiBusr/lib/boot/initfs: 2/32 MiBusr/lib/boot/initfs: 3/32 MiBusr/lib/boot/initfs: 4/32 MiBusr/lib/boot/initfs: 5/32 MiBusr/lib/boot/initfs: 6/32 MiBusr/lib/boot/initfs: 7/32 MiBusr/lib/boot/initfs: 8/32 MiBusr/lib/boot/initfs: 9/32 MiBusr/lib/boot/initfs: 10/32 MiBusr/lib/boot/initfs: 11/32 MiBusr/lib/boot/initfs: 12/32 MiBusr/lib/boot/initfs: 13/32 MiBusr/lib/boot/initfs: 14/32 MiBusr/lib/boot/initfs: 15/32 MiBusr/lib/boot/initfs: 16/32 MiBusr/lib/boot/initfs: 17/32 MiBusr/lib/boot/initfs: 18/32 MiBusr/lib/boot/initfs: 19/32 MiBusr/lib/boot/initfs: 20/32 MiBusr/lib/boot/initfs: 21/32 MiBusr/lib/boot/initfs: 22/32 MiBusr/lib/boot/initfs: 23/32 MiBusr/lib/boot/initfs: 24/32 MiBusr/lib/boot/initfs: 25/32 MiBusr/lib/boot/initfs: 26/32 MiBusr/lib/boot/initfs: 27/32 MiBusr/lib/boot/initfs: 28/32 MiBusr/lib/boot/initfs: 29/32 MiBusr/lib/boot/initfs: 30/32 MiBusr/lib/boot/initfs: 31/32 MiBusr/lib/boot/initfs: 32/32 MiBusr/lib/boot/initfs: 32/32 MiB
+Starting graphical debug
+Framebuffer 1280x800 stride 1280 at 80000000 mapped to FFFF800080000000
+kernel::arch::x86_shared::start:INFO -- Redox OS starting...
+kernel::startup::memory:INFO -- Memory: 1974 MB
+kernel::startup::memory:INFO -- Permanently used: 5088 KB
+init: switchroot to /scheme/initfs /scheme/initfs/etc
+randd: Seeding failed, no entropy source.  Random numbers on this platform are NOT SECURE
+vesad: 1280x800 stride 1280 at 0x80000000
+fbbootlogd: mapped display
+[3m[38;5;15m2026-04-30T19-58-33.536[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@acpid[39m:29 [1m[38;5;12mINFO[m[39m] [1m[38;5;15macpid start[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.552[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@hwd[39m:25 [1m[38;5;12mINFO[m[39m] [1m[38;5;15musing ACPI backend[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.601[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:251 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI SG-BS:DV.F VEND:DEVI CL.SC.IN.RV[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.610[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:00.0 8086:29C0 06.00.00.00 6[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.615[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:01.0 1234:1111 03.00.00.02 3[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.622[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:02.0 8086:10D3 02.00.00.00 2[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.629[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:03.0 1AF4:1001 01.00.00.00 1[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.637[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:1f.0 8086:2918 06.01.00.02 6[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.641[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:1f.2 8086:2922 01.06.01.02 1 SATA AHCI[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.646[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid[39m:347 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mPCI 0000:00:1f.3 8086:2930 0C.05.00.02 12[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.656[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@acpi::aml[39m:106 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mInitializing AML interpreter v6.1.1[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.755[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:88 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpcid-spawner: spawn "/scheme/initfs/lib/drivers/virtio-blkd"[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.800[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@virtio_blkd[39m:125 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mvirtio-blk: initiating startup sequence :^)[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.821[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@virtio_blkd[39m:139 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mvirtio-blk: disk size: 3145728 sectors and block size of 512 bytes[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.921[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:88 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpcid-spawner: spawn "/scheme/initfs/lib/drivers/ahcid"[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.960[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid[39m:39 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mAHCI pci-0000-00-1f.2 on: 4=P60C0 5=81084000 IRQ: 10[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.967[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-0: None[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.972[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-1: None[m[39m
+[3m[38;5;15m2026-04-30T19-58-33.977[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-2: SATAPI[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.007[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci::hba[39m:255 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mSerial: QM00005 Firmware: 2.5+ Model: QEMU DVD-ROM 28-bit LBA Size: 0 MB[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.012[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci::hba[39m:451 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mIS 40000000 IE 17 CMD 3000006 TFD 2041[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.015[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci::hba[39m:452 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mSSTS 113 SCTL 700 SERR 0 SACT 0[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.020[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci::hba[39m:456 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mCI 0 SNTF 0 FBS 0[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.033[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:67 [1m[38;5;9mERROR[m[39m] [1m[38;5;15m2: I/O error[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.038[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-3: None[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.042[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-4: None[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.046[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ahcid::ahci[39m:54 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mpci-0000-00-1f.2_ahci-5: None[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.057[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/uevent: No such file or directory (os error 2)[m[39m
+[3m[38;5;15m2026-04-30T19-58-34.061[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/access: No such file or directory (os error 2)[m[39m
+init: switchroot to /usr /etc
+[3m[38;5;15m2026-04-30T19-58-35.740[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/uevent: No such file or directory (os error 2)[m[39m
+[3m[38;5;15m2026-04-30T19-58-35.749[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/access: No such file or directory (os error 2)[m[39m
+[3m[38;5;15m2026-04-30T19-58-36.865[m[39m[3m[38;5;7mZ[m[39m [[38;5;7msmolnetd@netstack[39m:194 [1m[38;5;9mERROR[m[39m] [1m[38;5;15msmoltcpd: no network adapter found[m[39m
+[3m[38;5;15m2026-04-30T19-58-36.934[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/uevent: No such file or directory (os error 2)[m[39m
+[3m[38;5;15m2026-04-30T19-58-36.941[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@pcid_spawner[39m:49 [1m[38;5;9mERROR[m[39m] [1m[38;5;15mpcid-spawner: failed to open channel for /scheme/pci/access: No such file or directory (os error 2)[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.002[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@gpiod[39m:468 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mRB_GPIOD_SCHEMA version=1[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.055[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2cd[39m:349 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mRB_I2CD_SCHEMA[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.129[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ucsid[39m:314 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mRB_UCSID_SCHEMA version=1[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.144[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ucsid[39m:334 [1m[38;5;11mWARN[m[39m] [1m[38;5;15mucsid: failed to query i2cd adapters: failed to decode I2C control response: 1:1: Unexpected end of RON[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.153[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@intel_gpiod[39m:103 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mintel-gpiod: no supported Intel GPIO ACPI controllers found[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.155[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2c_gpio_expanderd[39m:89 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mi2c-gpio-expanderd: no probable ACPI I2C GPIO expanders found[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.162[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@intel_gpiod[39m:117 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mintel-gpiod: registered 0 controller(s)[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.164[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2c_gpio_expanderd[39m:93 [1m[38;5;11mWARN[m[39m] [1m[38;5;15mi2c-gpio-expanderd: unable to query i2cd adapters: failed to decode I2C control response: 1:1: Unexpected end of RON[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.172[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2c_gpio_expanderd[39m:108 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mi2c-gpio-expanderd: registered 0 expander(s)[m[39m
+[3m[38;5;15m2026-04-30T19-58-37.182[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@ucsid[39m:376 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mRB_UCSID_SUMMARY devices=0 connectors=0 input_critical_ports=0 healthy=true[m[39m
+RB_SERIAL_PROBE_OK
+dhcpd: Can't open /scheme/netcfg/ifaces/eth0/mac
+[INFO] udev-shim: enumerated 1 PCI device(s)
+[INFO] udev-shim: wrote default rules to /etc/udev/rules.d/50-default.rules
+[INFO] udev-shim: registered scheme:udev
+[WARN] driver-params: failed to read /scheme/driver-manager/bound: No such device (os error 19)
+[INFO] driver-params: registered scheme:driver-params
+dhcpd: Can't open /scheme/netcfg/ifaces/eth0/mac
+[INFO] iommu: no AMD-Vi units found (source=none, kernel_acpi_status=empty, ivrs_path=none)
+[INFO] iommu: registered scheme:iommu
+[INFO] iommu: scheme fd closed, exiting
+redbear-sessiond: registered org.freedesktop.login1 on the system bus
+[INFO] cpufreqd: cpufreqd: CPU frequency scaling daemon starting (governor=ondemand)
+[INFO] cpufreqd: cpufreqd: supported governors: performance, powersave, ondemand
+[INFO] cpufreqd: cpufreqd: MSR access via /dev/cpu/*/msr (needs kernel support)
+[INFO] cpufreqd: cpufreqd: ready
+redbear-upower: /scheme/acpi/power unavailable; serving empty provisional UPower surface
+[INFO] hwrngd: hardware RNG daemon starting
+[INFO] hwrngd: RDRAND unavailable
+[INFO] hwrngd: RDSEED unavailable
+redbear-polkit: registered org.freedesktop.PolicyKit1 on the system bus
+redbear-netctl: timed out waiting for DHCP address on eth0
+[INFO] hwrngd: TPM 2.0 source unavailable
+[WARN] hwrngd: no hardware RNG sources available — exiting
+[INFO] thermald: thermal management daemon starting
+[INFO] thermald: 0 thermal zone(s) found
+[WARN] thermald: /scheme/acpi/thermal is unavailable; thermald will keep polling and serve an empty thermal surface
+[INFO] thermald: /scheme/thermal ready
+redbear-upower: registered org.freedesktop.UPower on the system bus
+redbear-udisks: registered org.freedesktop.UDisks2 on the system bus (1 drives, 4 blocks)
+[INFO] redbear-acmd: redbear-acmd: USB CDC ACM serial daemon
+[INFO] redbear-ecmd: redbear-ecmd: USB CDC ECM/NCM ethernet daemon
+[INFO] redbear-usbaudiod: redbear-usbaudiod: USB Audio Class daemon
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+audiod: No such device
+Finished graphical debug
+[s[999;999H[6n[3m[38;5;15m2026-04-30T19-58-40.825[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2c_hidd[39m:42 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mRB_I2C_HIDD_SCHEMA version=1[m[39m
+[u[3m[38;5;15m2026-04-30T19-58-41.190[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@dw_acpi_i2cd[39m:88 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mdw-acpi-i2cd: no supported ACPI controllers found[m[39m
+[3m[38;5;15m2026-04-30T19-58-41.206[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@dw_acpi_i2cd[39m:102 [1m[38;5;12mINFO[m[39m] [1m[38;5;15mdw-acpi-i2cd: registered 0 controller(s)[m[39m
+[3m[38;5;15m2026-04-30T19-58-41.267[m[39m[3m[38;5;7mZ[m[39m [[38;5;7m@i2c_hidd[39m:46 [1m[38;5;11mWARN[m[39m] [1m[38;5;15mRB_I2C_HIDD_BLOCKER stage=scan error=no PNP0C50/ACPI0C50 devices found[m[39m
+[INFO] evdevd: registered scheme:evdev
+[INFO] evdevd: consuming orbclient::Event from /scheme/input/consumer
+########## Red Bear OS #########
+# Login with the following:    #
+# `user`                       #
+# `root`:`password`            #
+################################
+ 
+⏎                                                                                [1mRed Bear login:[0m [?1000l[?1l[J[1mRed Bear login:[0m [WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+[WARN] udev-shim: failed to read /scheme/pci: No such device (os error 19)
+qemu-system-x86_64: terminating on signal 15 from pid 3140339 (timeout)

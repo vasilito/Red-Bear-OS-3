@@ -1,180 +1,382 @@
-# Red Bear OS: Console to Hardware-Accelerated KDE Desktop on Wayland
+# Red Bear OS: Console → Hardware-Accelerated KDE Plasma Desktop
 
-**Version:** 3.0 (2026-04-29)
-**Replaces:** v2.2 and all prior desktop-path documents
-**Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** VERIFIED SCOPE — all Redox-viable KDE packages build. Platform exclusion list defined UPFRONT: packages requiring QML JIT (QQuickWindow/QQmlEngine), Qt6::Sensors, or libinput are OUT OF SCOPE as Redox platform prerequisites. Every remaining failure is traced to these named platform gaps, not unresolved package-level issues.
+**Version:** 4.0 (2026-04-30)
+**Replaces:** v3.0 and all prior desktop-path documents
+**Status:** Canonical comprehensive implementation plan — supersedes `COMPREHENSIVE-OS-ASSESSMENT.md`, `DESKTOP-STACK-CURRENT-STATUS.md`, and all layer-specific plans.
 
 ## Purpose
 
-This is the single authoritative plan for the Red Bear OS path from console boot to a
-hardware-accelerated KDE Plasma desktop running on Wayland. It is rewritten in v3.0 based on
-a full end-to-end reassessment of every component in the chain: DRM/KMS → Mesa → Wayland
-Compositor → Input/Seat → Greeter/Login → KDE Plasma.
+This is the **single authoritative plan** for Red Bear OS from console boot to a hardware-accelerated
+KDE Plasma desktop on Wayland. It consolidates all layer assessments, honest blocker analysis, and
+the complete implementation roadmap into one document.
 
-This plan answers: **what is the current state of every layer, what are the honest blockers,
-and what must happen, in what order, to reach a usable KDE Plasma desktop.**
+It answers: **what is done, what is the current state of every layer, what are the honest blockers,
+and what must happen, in what order, to reach a usable KDE Plasma desktop with hardware acceleration.**
 
-## Full Chain Assessment (2026-04-29)
+## Executive Summary
 
-### LAYER 1 — DRM/KMS
+| Subsystem | Status | Evidence Class | Blockers |
+|-----------|--------|---------------|----------|
+| **Kernel / Credentials** | 🟢 Complete | Source + build | — |
+| **ACPI boot** | 🟢 Complete | QEMU + bare-metal proof | Shutdown robustness |
+| **IRQ / PCI / MSI-X** | 🟡 QEMU-proven | Source + build + QEMU | Hardware validation |
+| **relibc POSIX** | 🟢 ~85% coverage | Source + Redox-target tests | Message queues, AF_UNIX |
+| **DRM / KMS** | 🟡 Builds, no HW | Source + build | GPU CS ioctl backend |
+| **Mesa** | 🟡 swrast only | Build (llvmpipe) | HW renderer cross-compilation |
+| **Wayland compositor** | 🟡 Bounded proof | Build + QEMU | Full compositor runtime |
+| **Input / Seat** | 🟢 Working | Build + QEMU | libinput deferred |
+| **Greeter / Login** | 🟢 QEMU proof | Build + QEMU proof | — |
+| **D-Bus** | 🟡 System bus only | Build + partial runtime | Session bus, user lookup |
+| **Qt6** | 🟢 Builds | Build (Core+Gui+DBus+Wayland) | QML JIT disabled |
+| **KF6 Frameworks** | 🟡 36/48 build | Build | 12 blocked (QML gate) |
+| **KDE Plasma** | 🔴 Blocked | Stub + partial builds | QML JIT, KWin real build |
+| **Hardware GPU** | 🔴 Not validated | Source (CS ioctl exists) | Hardware + Mesa HW cross-compile |
+| **Wi-Fi / Bluetooth** | 🔴 Host-tested | Source + host tests | Hardware + native stack |
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| redox-drm | **builds** | enabled | Intel Gen8-Gen12 + AMD device support + quirk tables; MSI-X/legacy IRQ fallback; no hardware validation |
-| libdrm | **builds** | enabled | Provides libdrm_amdgpu; amdgpu device support |
-| firmware-loader | **builds** | enabled | scheme:firmware; blob loading verified |
-| GPU firmware | **fetched** | partial | amdgpu/i915 blobs available via fetch-firmware.sh |
-| virtio-gpu | **builds** | in redox-drm | 220-line DRM/KMS backend for QEMU testing |
-| CS ioctl | **protocol exists** | redox-drm scheme | Private CS submit/wait ioctls defined; hardware backend returns unavailable (GPU driver gate) | |
+### Bottom Line
 
-**Verdict**: Display infrastructure exists. Hardware rendering blocked on GPU driver backend + hardware validation (CS ioctl protocol exists).
+**The OS boots to a greeter/login screen in QEMU. Software rendering works. A hardware-accelerated
+KDE Plasma desktop is gated on three things: (1) Qt6Quick/QML downstream proof, (2) real KWin build,
+(3) hardware GPU validation.**
 
-### LAYER 2 — Mesa/Graphics
+---
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| mesa | **builds** | enabled | llvmpipe software renderer; EGL=on, GBM=on, GLES2=on, platform=redox |
-| radeonsi (AMD HW) | **not built** | — | Not cross-compiled for Redox target |
-| iris (Intel HW) | **not built** | — | Not cross-compiled for Redox target |
-| OSMesa | **builds** | enabled | Off-screen software rendering |
+## 1. Kernel & Core Infrastructure
 
-**Verdict**: Software rendering works (llvmpipe). Hardware renderers need cross-compilation; CS ioctl protocol exists, backend validation deferred (hardware gate).
+### 1.1 Syscall Coverage — 35 handled, credential gaps RESOLVED
 
-### LAYER 3 — Wayland/Compositor
+The kernel handles 35 syscalls explicitly. Remaining gaps:
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| libwayland 1.24.0 | **builds** | enabled | Wayland protocol library; durability patch applied |
-| wayland-protocols | **builds** | enabled | Protocol XML definitions |
-| redbear-compositor | **builds, 788 lines** | enabled | Real Rust Wayland compositor; zero warnings; 3/3 tests; known limitations: heap-memory framebuffer, payload-byte SHM, NUL-terminated wire encoding |
-| kwin | **stub** | enabled (but stub) | Stub — recipe downloads real KWin v6.3.4 source but build script only creates wrapper scripts + cmake config stubs; delegates to redbear-compositor; real cmake build requires Qt6Quick/QML downstream proof |
-| redbear-compositor-check | **builds** | in redbear-compositor pkg | Verifies compositor socket, binaries, framebuffer |
+| Syscall | Status |
+|---------|--------|
+| `setgroups`, `getgroups`, `setresuid`, `setresgid` | ✅ RESOLVED — proc scheme `auth-{fd}-groups` path |
+| `getrlimit`, `setrlimit` | ✅ RESOLVED — userspace stubs with defaults |
+| `clock_settime` | ❌ ENOSYS — needed for NTP |
+| `ptrace` | 🟡 Handled via proc scheme paths |
 
-**Verdict**: Working bounded compositor proof. Real KWin gated on Qt6Quick/QML downstream proof.
+### 1.2 Kernel Credential Model (2026-04-30)
 
-### LAYER 4 — Input/Seat
+- `Context.groups: Vec<u32>` — supplementary groups per-thread with process-scope propagation
+- `CallerCtx.groups` — exposed to scheme handlers for access control
+- Groups proc scheme handle — `auth-{fd}-groups` read/write path
+- NGROUPS_MAX=65536 enforced in kernel, non-u32-aligned writes rejected
+- Fork inheritance: parent groups copied to child
+- Process-scope: `setgroups()` fans out to all threads sharing `owner_proc_id`
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| evdevd | **builds** | enabled | scheme:evdev; 65 unit tests; event device semantics verified |
-| libinput | **builds, suppressed** | config: `libinput = "ignore"` | Builds but suppressed in redbear-full; evdevd handles input natively for bounded proof |
-| udev-shim | **builds** | enabled | scheme:udev; device enumeration; 15 unit tests |
-| seatd/seatd-redox | **builds** | enabled | meson build; 13_seatd.service wired; DRM lease via redox-drm |
-| libevdev | **suppressed** | commented | build needed header |
+### 1.3 ACPI — Boot-complete, not release-grade
 
-**Verdict**: Input path works through evdevd + udev-shim. seatd wired for compositor seat access. libinput deferred (not needed for bounded proof).
+| Working | Gaps |
+|---------|------|
+| RSDP/SDT, MADT, APIC/x2APIC | `acpid` startup has panic-grade `expect` paths |
+| FADT shutdown via `kstop` | `_S5` derivation gated on PCI timing |
+| EC byte-transaction access | DMAR orphaned in `acpid` source |
+| AML mutex + widened accesses | Sleep-state beyond S5 incomplete |
 
-### LAYER 5 — Greeter/Login
+### 1.4 IRQ / PCI / MSI-X — QEMU-proven
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| redbear-authd | **builds** | enabled | SHA-crypt/Argon2 auth; /etc/passwd + /etc/shadow |
-| redbear-session-launch | **builds** | enabled | Session bootstrap (uid/gid/env/runtime-dir) |
-| redbear-greeter | **builds** | enabled | greeterd orchestrator + Qt6/QML UI + compositor wrapper |
-| redbear-sessiond | **builds** | enabled | org.freedesktop.login1 D-Bus broker (zbus) |
-| dbus | **builds** | enabled | 1.16.2; system bus wired; session bus partially |
-| Greeter QEMU proof | **passes** | — | GREETER_HELLO=ok, GREETER_VALID=ok, GREETER_INVALID=ok |
-| redbear-kde-session | **builds** | enabled | KDE session launcher (DRM/virtual backend, plasmashell/kded6) |
+- Architecturally sound: LAPIC/x2APIC, IOAPIC, MSI-X table mapping
+- `redox-driver-sys`: fast PCI enumeration with capability-chain data, quirk-aware interrupt summary
+- Bounded QEMU proof: MSI-X, IOMMU, xHCI IRQ
+- **Blocker**: real hardware validation for all controllers
 
-**Verdict**: Greeter/login path works end-to-end in QEMU with bounded proof. KDE session launcher ready.
+### 1.5 relibc POSIX — ~85% coverage, ~38 active patches
 
-### LAYER 6 — KDE/Plasma
+| Done | Deferred |
+|------|----------|
+| eventfd, signalfd, timerfd (recipe-applied) | POSIX message queues |
+| SysV shm, sem (activated 2026-04-29) | SysV message queues |
+| waitid, named semaphores | AF_UNIX sockets |
+| ifaddrs (synthetic 2-entry) | Live interface enumeration |
+| fcntl F_DUPFD_CLOEXEC, MSG_CMSG_CLOEXEC | |
+| getentropy, secure_getenv | |
 
-| Component | Status | Config | Notes |
-|-----------|--------|--------|-------|
-| qtbase 6.11.0 | **builds** | enabled | Core+Gui+Widgets+DBus+Wayland; 7 libs + 12 plugins |
-| qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
-| qtwayland | **builds** | enabled | Wayland QPA plugin |
-| qtsvg | **builds** | enabled | SVG support |
-| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
-| kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain) — pkgar in repo |
-| kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
-| kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
-| kf6-kwallet | **exists in-tree** | not in enabled subset | Real API-only core wallet cmake build; QML/GPG disabled; not part of current redbear-full enabled surface |
-| kf6-attica | **builds** | enabled (NEW) | Minimal core library (v6.10.0, 2.4MB pkgar in repo) |
-| plasma-framework | **blocked (QML gate)** | commented out | Depends on kirigami |
-| plasma-workspace | **blocked** | commented out | Depends on kf6-knewstuff payload + kwin real build |
-| plasma-desktop | **blocked (transitive)** | commented out | Depends on plasma-workspace |
-| kdecoration | **builds** | transitively via plasma-workspace | Window decoration library |
-| kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
-| plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
+---
 
-**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 12 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
+## 2. Hardware Enablement Stack
 
-### LAYER 7 — Validation Infrastructure
+### 2.1 DRM / KMS
 
-| Artifact | Count | Status |
-|----------|-------|--------|
-| Phase 1-5 check binaries | 15+ | Zero warnings, Redox-target verified |
-| Test harness scripts | 12 | Syntax-clean, guest+QEMU modes |
-| Oracle verification rounds | 20+ | Phases 1-5 all verified |
-| Host cargo check | 3 crates | Zero warnings |
-| Redox-target build | 3 crates | Successful (make r.*) |
-| Full OS build | exists | build/x86_64/redbear-full.iso + .img available; rebuild via make all CONFIG_NAME=redbear-full |
+| Component | Status | Detail |
+|-----------|--------|--------|
+| redox-drm | 🟡 Builds | Intel Gen8-Gen12 + AMD device support; MSI-X/legacy IRQ fallback; 68 unit tests |
+| libdrm | 🟡 Builds | `libdrm_amdgpu`; AMD device support |
+| firmware-loader | 🟡 Builds | `scheme:firmware`; blob loading verified |
+| GPU firmware | 🟡 Partial | amdgpu/i915 blobs via `fetch-firmware.sh` |
+| virtio-gpu | 🟢 Builds | 220-line DRM/KMS backend for QEMU |
+| CS ioctl | 🟡 Protocol exists | Private submit/wait ioctls; hardware backend returns unavailable |
+| amdgpu | 🟡 Builds | Linux AMD DC/TTM/core imported; in `redbear-full` |
 
-## Honest Blocker Classification
+**Blocker**: GPU command submission backend implementation + hardware validation.
 
+### 2.2 Mesa / Graphics
 
-| Blocker | What's needed |
-|---------|---------------|
-| Qt6Quick/QML downstream proof | Qt6Quick/QML runtime proof (QML JIT disabled for Redox); blocks kirigami + real KWin + Plasma |
-| Hardware GPU validation | Real AMD/Intel GPU; blocks hardware backend validation; CS ioctl protocol exists |
-| Bare-metal validation | Real hardware; blocks all hardware claims |
+| Component | Status | Detail |
+|-----------|--------|--------|
+| mesa | 🟡 Builds | llvmpipe software renderer; EGL=on, GBM=on, GLES2=on |
+| radeonsi (AMD HW) | 🔴 Not built | Not cross-compiled for Redox target |
+| iris (Intel HW) | 🔴 Not built | Not cross-compiled for Redox target |
+| OSMesa | 🟢 Builds | Off-screen software rendering |
 
-### Deferred (not on critical path for minimal session proof)
+**Blocker**: Mesa hardware renderer cross-compilation requires CS ioctl backend + validation hardware.
 
-| Item | Reason |
-|------|--------|
-| kf6-knewstuff/kwallet | real cmake builds attempted; QML disabled; not on critical path for minimal session |
-| libinput | evdevd handles input natively for bounded proof; libinput builds but suppressed in config |
-| libevdev | header build needed; not blocking |
+### 2.3 Hardware GPU — The Big Gap
 
-## Critical Path (updated)
+| What exists | What's missing |
+|-------------|---------------|
+| CS ioctl protocol in redox-drm | Backend implementation (submit to GPU rings) |
+| amdgpu kernel module imported | Fence/completion signaling |
+| firmware blobs fetched | Mesa radeonsi/iris cross-compilation |
+| MSI-X/IRQ wired | Real AMD/Intel GPU hardware for validation |
+
+**Hardware GPU is the longest-lead item.** Estimated 12-20 weeks with hardware access.
+
+---
+
+## 3. Desktop Stack
+
+### 3.1 Wayland / Compositor
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| libwayland 1.24.0 | 🟢 Builds | Wayland protocol library |
+| wayland-protocols | 🟢 Builds | Protocol XML definitions |
+| redbear-compositor | 🟡 Bounded proof | 788-line Rust compositor; 3/3 tests; zero warnings |
+| kwin | 🔴 Stub | Recipe downloads real source but only creates wrappers |
+
+**Known compositor limitations**: SHM fd passing uses payload bytes (not SCM_RIGHTS), framebuffer uses private memory (not real vesad), wire encoding uses NUL-terminated strings (not padded Wayland format).
+
+**Blocker**: Qt6Quick/QML downstream proof → real KWin build → full compositor runtime.
+
+### 3.2 Input / Seat
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| evdevd | 🟢 Builds | `scheme:evdev`; 65 unit tests; event semantics verified |
+| udev-shim | 🟢 Builds | `scheme:udev`; device enumeration; 15 unit tests |
+| seatd/seatd-redox | 🟢 Builds | DRM lease via redox-drm; service wired |
+| libinput | 🟡 Deferred | Builds but suppressed; evdevd handles input natively |
+| libevdev | 🟡 Deferred | Header build needed |
+
+### 3.3 Greeter / Login — QEMU PROOF PASSES
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| redbear-authd | 🟢 Builds | SHA-crypt/Argon2 auth; `/etc/passwd` + `/etc/shadow` |
+| redbear-session-launch | 🟢 Builds | Session bootstrap (uid/gid/env/runtime-dir) |
+| redbear-greeter | 🟢 Builds | greeterd + Qt6/QML UI + compositor wrapper |
+| redbear-sessiond | 🟢 Builds | `org.freedesktop.login1` D-Bus broker (zbus) |
+| Greeter QEMU proof | 🟢 Passes | GREETER_HELLO=ok, GREETER_VALID=ok |
+| redbear-kde-session | 🟢 Builds | KDE session launcher |
+
+### 3.4 D-Bus
+
+| Component | Status | Detail |
+|-----------|--------|--------|
+| dbus 1.16.2 | 🟢 Builds | System bus wired; session bus partially |
+| redbear-sessiond | 🟢 Builds | login1-compatible session broker |
+| redbear-dbus-services | 🟢 Builds | `.service` files + XML policies |
+
+**Known issue**: `dbus-daemon --system` fails user lookup for `messagebus` user in some runtime configurations.
+
+### 3.5 Qt6 / KF6 / KDE Plasma
+
+#### Qt6
+
+| Component | Status |
+|-----------|--------|
+| qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland) | 🟢 Builds — 7 libs + 12 plugins |
+| qtdeclarative | 🟡 Builds — QML JIT disabled for Redox |
+| qtwayland | 🟢 Builds — Wayland QPA plugin |
+| qtsvg | 🟢 Builds |
+| Qt6::Sensors | 🟡 Builds (dummy backend, 520KB pkgar) |
+| QtNetwork | 🟢 Re-enabled — DNS resolver hardened |
+
+#### KF6 Frameworks — 36 build, 12 blocked
+
+**Building (36 packages):**
+`karchive`, `kauth`, `kbookmarks`, `kcodecs`, `kcolorscheme`, `kcompletion`, `kconfig`,
+`kconfigwidgets`, `kcoreaddons`, `kcrash`, `kdbusaddons`, `kdeclarative`, `kded6`,
+`kglobalaccel`, `kguiaddons`, `ki18n`, `kiconthemes`, `kidletime`, `kio`, `kitemmodels`,
+`kitemviews`, `kjobwidgets`, `knotifications`, `kpackage`, `kservice`, `ktextwidgets`,
+`kwayland`, `kwidgetsaddons`, `kwindowsystem`, `kxmlgui`, `solid`, `sonnet`,
+`kcmutils`, `attica`, `kdecoration`, `kglobalacceld`
+
+**Blocked (12 packages):**
+| Package | Reason |
+|---------|--------|
+| kirigami | QML JIT gate — `QQuickWindow`/`QQmlEngine` headers unavailable |
+| plasma-framework | Depends on kirigami |
+| plasma-workspace | Depends on kf6-knewstuff payload + real kwin |
+| plasma-desktop | Transitive — depends on plasma-workspace |
+| kf6-knewstuff | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
+| breeze | Build issues |
+| kde-cli-tools | Build issues |
+| kf6-prison | Source issues |
+| kf6-kwallet | QML/GPG disabled; not in current enabled subset |
+| kf6-purpose | Not attempted |
+| kf6-frameworkintegration | Not attempted |
+| kf6-krunner | Not attempted |
+
+#### KWin / Plasma Session
+
+| Component | Status |
+|-----------|--------|
+| kwin | 🔴 Stub — real KWin v6.3.4 source downloaded, only wrapper scripts created |
+| kwin real build | 🔄 Attempted — gated on Qt6Quick/QML downstream proof |
+| plasma-workspace | 🔴 Blocked |
+| plasma-desktop | 🔴 Blocked (transitive) |
+| Full Plasma session | 🔴 Not functional |
+
+**The QML JIT gate**: Qt6Quick's QML engine requires a JIT compiler (`QQuickWindow`, `QQmlEngine`),
+which is disabled for the Redox target. Without it, kirigami (the KDE UI framework) cannot build.
+kirigami blocks plasma-framework, which blocks plasma-workspace, which blocks the full Plasma desktop.
+**This is the single biggest desktop blocker.**
+
+---
+
+## 4. Network & Wireless
+
+### 4.1 Wired Networking — Working
+
+- Native Redox net stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`)
+- `redbear-netctl` native command shipped
+- RTL8125 autoload wired through Realtek path
+- VirtIO networking in QEMU: `DBUS_SYSTEM_BUS=present`
+
+### 4.2 Wi-Fi — Host-tested, no hardware
+
+- Intel PCIe transport builds, 119 tests
+- LinuxKPI compat with 17 modules, 93 tests
+- `redbear-wifictl` daemon + scheme interface
+- Bounded host-tested scan/connect/disconnect/profile flows
+- **Blocker**: No Intel hardware available; MediaTek MT7921K on current host
+
+### 4.3 Bluetooth — Experimental BLE-first
+
+- Controller probe via USB, HCI init, `scheme:hciN`
+- GATT client workflow (discover→read), 209 tests
+- QEMU validation in progress
+
+---
+
+## 5. Honest Blocker Map
+
+### Critical Path (ordered)
 
 ```
-Layer 1 (DRM) ▸ Layer 2 (Mesa sw) ▸ Layer 3 (compositor proof) ▸
-Layer 4 (input/seat) ▸ Layer 5 (greeter) ✓ ▸ Layer 6 (Plasma preflight) ✓
-
-Environmental gate (Qt6Quick): Layer 3 (KWin runtime proof) ← Qt6Quick/QML downstream proof
-Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mesa HW cross-compilation
+[1] Qt6Quick/QML downstream proof     → unblocks kirigami → plasma-framework
+[2] Real KWin build                     → unblocks plasma-workspace → plasma-desktop
+[3] Hardware GPU validation             → unblocks Mesa HW renderers
+[4] ACPI shutdown robustness            → release-grade ACPI
+[5] Bare-metal validation               → unblocks all hardware claims
 ```
 
-## Current Config Surface
+### Blocker Detail
 
-`config/redbear-full.toml` enables the full desktop-capable surface including:
+| # | Blocker | What's needed | Estimated effort | Hardware required |
+|---|---------|---------------|-----------------|-------------------|
+| 1 | QML JIT gate | Qt6Quick/QML runtime proof with JIT disabled; unblocks kirigami → 12 KDE packages | 4-6 weeks | No |
+| 2 | KWin real build | Real cmake build of KWin v6.3.4; requires Qt6Quick + libinput | 2-4 weeks | No |
+| 3 | Plasma session | plasma-workspace + plasma-desktop cmake builds; requires kirigami + kwin | 2-4 weeks | No |
+| 4 | HW GPU backend | CS ioctl implementation → Mesa HW renderer cross-compile | 12-20 weeks | Yes — AMD/Intel GPU |
+| 5 | ACPI shutdown | Remove panic paths, deterministic `_S5` | 2-4 weeks | No |
+| 6 | Bare-metal proof | Real AMD/Intel hardware validation for all layers | 4-8 weeks | Yes — AMD + Intel machines |
 
-- 36 KDE packages (33 kf6-* + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
-- kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
-- mesa + libdrm (GPU software stack)
+### Path to Software-Rendered KDE Plasma (Blocks 1-3)
+
+```
+Qt6Quick proof (4-6w) → KWin real build (2-4w) → Plasma session (2-4w)
+                                                          ↓
+                                              Software-rendered KDE Plasma on Wayland
+                                              Total: 8-14 weeks
+```
+
+### Path to Hardware-Accelerated KDE Plasma (Blocks 1-6)
+
+```
+Software-rendered path (8-14w)
+    + GPU CS ioctl backend + Mesa HW cross-compile (12-20w, parallel)
+    + Hardware validation (4-8w, parallel)
+                                                          ↓
+                                              Hardware-accelerated KDE Plasma on Wayland
+                                              Total: 20-34 weeks
+```
+
+---
+
+## 6. What Changed Since v3.0 (2026-04-29 → 2026-04-30)
+
+| Change | Impact |
+|--------|--------|
+| Credential syscalls implemented | `setgroups`/`getgroups`/`initgroups`/RLIMIT functional. Unblocks polkit, dbus, logind, sudo. |
+| Kernel groups process-scoped | `setgroups()` propagates to all process threads. NGROUPS_MAX enforced. |
+| `CallerCtx.groups` added | Schemes can now check supplementary group membership for access control. |
+| Kernel readback for `getgroups` | Cache is repopulated from kernel after exec/crash. |
+| `setrlimit` returns proper errors | EINVAL for unknown resources, EPERM for process limits. |
+
+---
+
+## 7. Configuration Surface
+
+`config/redbear-full.toml` enables the desktop-capable target:
+- 36 KDE packages (33 kf6-* + kdecoration + kglobalacceld + kwin); 12 blocked/ignored
+- mesa + libdrm (software GPU stack, swrast only)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
-- seatd + redbear-authd + redbear-session-launch + redbear-greeter (via redbear-mini)
+- seatd + redbear-authd + redbear-session-launch + redbear-greeter
 - dbus + firmware-loader + redox-drm + evdevd + udev-shim
-- redbear-compositor (real Rust Wayland compositor, kwin delegates to it)
+- redbear-compositor (real Rust Wayland compositor)
 - plus inherited packages from redbear-mini profile
 
-## Verification Steps (build-verified; supplementary QEMU validation) (ordered by impact)
+---
 
-1. **Rebuild full OS image** — `make all CONFIG_NAME=redbear-full` (harddrive.img for QEMU) or `make live CONFIG_NAME=redbear-full` (ISO for bare metal); existing artifacts at build/x86_64/
+## 8. Evidence Model
 
-2. **Qt6Quick/QML runtime proof** — validate Qt6Quick downstream consumers with QML JIT disabled for Redox; unblocks kirigami → real KWin → full Plasma session
-
-3. **GPU CS ioctl implementation** — implement command submission in redox-drm; unblocks hardware rendering path
-
-4. **Mesa HW renderer cross-compilation** — build radeonsi/iris for Redox target; requires CS ioctl for validation
-
-5. **Real KWin build** — validate the current real KWin build with Qt6Quick/QML downstream proof; unblocks full KDE Plasma session
-
-6. **Hardware validation** — AMD + Intel bare-metal testing for all layers
-
-## Evidence Model
-
-| Evidence class | What it means |
+| Evidence Class | What It Means |
 |----------------|---------------|
 | **Source** | Code exists in tree |
-| **Host build-verified** | cargo check zero warnings on Linux |
-| **Redox build-verified** | make r.* successful on x86_64-unknown-redox |
-| **Runtime-validated** | Exercised in QEMU or bare metal |
+| **Host build-verified** | `cargo check` zero warnings on Linux |
+| **Redox build-verified** | `make r.*` successful on `x86_64-unknown-redox` |
+| **Runtime-validated** | Exercised in QEMU |
 | **Hardware-validated** | Exercised on real AMD/Intel hardware |
 
-Current state: Layers 1-4 are **Redox build-verified** (all 3 Red Bear crates cook on x86_64-unknown-redox). Layer 5 (greeter) is **runtime-validated** in QEMU. Layer 6 (Plasma) and hardware paths remain at build-verified preflight level.
+**Current highest evidence bar reached**: QEMU runtime proof for greeter/login, bounded compositor,
+D-Bus system bus, evdevd/udev-shim, DRM scheme enumeration.
+
+**No component has hardware validation.** All hardware claims remain evidence-qualified.
+
+---
+
+## 9. Subsystem Plans (Reference)
+
+This document is the authority. Subsystem plans remain for deep-dive detail:
+
+| Plan | Covers |
+|------|--------|
+| `KERNEL-IPC-CREDENTIAL-PLAN.md` | Kernel credential syscalls, IPC, RLIMIT — Phases K1-K2,K4 complete |
+| `IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` | PCI/IRQ/MSI-X/IOMMU quality |
+| `ACPI-IMPROVEMENT-PLAN.md` | ACPI shutdown, power, sleep states |
+| `RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` | relibc IPC surface |
+| `DRM-MODERNIZATION-EXECUTION-PLAN.md` | DRM/KMS modernization |
+| `WAYLAND-IMPLEMENTATION-PLAN.md` | Wayland compositor stability |
+| `DBUS-INTEGRATION-PLAN.md` | D-Bus architecture |
+| `GREETER-LOGIN-IMPLEMENTATION-PLAN.md` | Greeter/login design |
+
+---
+
+## 10. Stale Docs Deleted (This Pass)
+
+| File | Reason |
+|------|--------|
+| `COMPREHENSIVE-OS-ASSESSMENT.md` | Consolidated into this document |
+| `DESKTOP-STACK-CURRENT-STATUS.md` | Consolidated into this document |
+| `AMD-FIRST-INTEGRATION.md` | Historical — AMD and Intel are equal-priority targets |
+| `HARDWARE-3D-ASSESSMENT.md` | Historical — consolidated into §2 |
+| `DMA-BUF-IMPROVEMENT-PLAN.md` | Historical — consolidated into §2 |
+| `INPUT-SCHEME-ENHANCEMENT.md` | Historical — consolidated into §3.2 |
+| `BOOT-PROCESS-ASSESSMENT.md` | Historical — consolidated into §1 |
+| `LINUX-BORROWING-RUST-IMPLEMENTATION-PLAN.md` | Historical — consolidated into §2 |
+| `QT6-PORT-STATUS.md` | Historical — consolidated into §3.5 |
+| `REDBEAR-INFO-RUNTIME-REPORT.md` | Historical — validation infrastructure now standard |
+| `RELIBC-COMPREHENSIVE-ASSESSMENT.md` | Historical — consolidated into §1.5 |
+| `RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` | Historical — consolidated into §1.5 |
+| `RELIBC-IMPLEMENTATION-PLAN.md` | Historical — consolidated into §1.5 |

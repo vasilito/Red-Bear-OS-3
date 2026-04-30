@@ -3,6 +3,3 @@ path = "source"
 
 [build]
 template = "cargo"
-
-[package.files]
-"/usr/bin/hwrngd" = "hwrngd"

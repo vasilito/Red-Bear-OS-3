@@ -38,12 +38,13 @@ current/canonical versus historical/reference split obvious.
 | Document set | Role |
 |---|---|
 | `README.md`, `AGENTS.md`, `docs/README.md`, `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` | canonical repository-level policy and current execution model |
-| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/*STATUS*.md`, `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | canonical current Red Bear subsystem plans and status |
+| `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` | **canonical comprehensive implementation plan** — supersedes all individual subsystem docs |
+| `local/docs/*IMPLEMENTATION-PLAN*.md`, `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` | subsystem plans for deep-dive detail only; authority chain → console-to-KDE plan |
 | `docs/01-REDOX-ARCHITECTURE.md` | architecture reference |
 | `docs/04-LINUX-DRIVER-COMPAT.md`, `docs/05-KDE-PLASMA-ON-REDOX.md` | valuable but partly historical roadmap/design material |
 
 When a current-state local document conflicts with an older historical public roadmap, prefer the
-current local subsystem plan.
+console-to-KDE plan.
 
 ## Documents
 
@@ -57,23 +58,23 @@ current local subsystem plan.
 
 ## Related Red Bear-local current-state plans
 
-- `../local/docs/USB-IMPLEMENTATION-PLAN.md` — current USB completeness and rollout plan
-- `../local/docs/WIFI-IMPLEMENTATION-PLAN.md` — current Wi-Fi architecture and rollout plan
-- `../local/recipes/system/redbear-netctl-console/source/` — Redox-native ncurses terminal client for the bounded Wi-Fi profile flow
-- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — guarantees and non-guarantees for the main Wi-Fi and Bluetooth validation helpers plus core repo scripts
-- `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
-- `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
-- `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
-- `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — canonical current plan for PCI/IRQ quality, low-level controller robustness, MSI/MSI-X follow-up, and controller runtime-proof sequencing
-- `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
-- `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
-- `../local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` — canonical relibc quality/completeness/robustness assessment and improvement plan
-- `../local/docs/RELIBC-IMPLEMENTATION-PLAN.md` — implementation roadmap for closing relibc POSIX gaps
-- `../local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — IPC-focused companion plan for the active relibc compatibility surface
-- `../local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan for the Red Bear-native login boundary on `redbear-full`
-- PCI vendor/device names in Red Bear runtime tools now come from the shipped `pciids` database; PCI quirk policy still lives in `../local/docs/QUIRKS-SYSTEM.md`
-- `../local/docs/AMD-FIRST-INTEGRATION.md` — AMD-focused technical roadmap and hardware detail only, not the canonical desktop plan
-- `../local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — canonical current build/runtime truth summary for the desktop stack
+**Consolidation (2026-04-30)**: 13 standalone assessment docs deleted. All current state is now in
+`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0). Individual subsystem plans remain for detail:
+
+- `../local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — **CANONICAL** comprehensive plan: kernel→DRM→Mesa→Wayland→KDE path
+- `../local/docs/KERNEL-IPC-CREDENTIAL-PLAN.md` — kernel credential syscalls + IPC (implemented)
+- `../local/docs/USB-IMPLEMENTATION-PLAN.md` — USB completeness and rollout
+- `../local/docs/WIFI-IMPLEMENTATION-PLAN.md` — Wi-Fi architecture and rollout
+- `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — Bluetooth architecture and rollout
+- `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — ACPI ownership, robustness, validation
+- `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — PCI/IRQ quality, MSI/MSI-X
+- `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — DRM-focused execution (subsystem detail)
+- `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — Wayland compositor (subsystem detail)
+- `../local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — relibc IPC surface
+- `../local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — greeter/login design
+- `../local/docs/DBUS-INTEGRATION-PLAN.md` — D-Bus architecture
+- `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — script guarantees and non-guarantees
+- `../local/docs/QUIRKS-SYSTEM.md` — hardware quirks infrastructure
 
 These local Red Bear plans should be treated as first-class subsystem references for desktop/session,
 USB, Wi-Fi, Bluetooth, and low-level controller work. They carry blocker detail that the public docs
