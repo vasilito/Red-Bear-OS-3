@@ -119,9 +119,9 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| **Building + in repo** | 13 | PKGAR artifacts: attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kwin |
-| **Building (stage only) | 7 | 7 KF6 packages compiled but not yet pushed to repo
-| **Attica (new)** | — | Minimal core library build, KF6::Attica cmake target (counted in Building+repo above) |
+| **Building + in repo** | 26 | PKGAR artifacts for 26 enabled KDE packages (attica, ECM, karchive, kauth, kbookmarks, kcodecs, kcolorscheme, kcompletion, kconfig, kconfigwidgets, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, kguiaddons, ki18n, kiconthemes, kio, kitemviews, kjobwidgets, knotifications, kservice, ktextwidgets, kwidgetsaddons, kwindowsystem, kxmlgui, kwin, solid, sonnet) |
+| **Building (stage only)** | 10 | 10 KF6 packages compiled but not yet pushed to repo |
+| **Attica (new)** | — | Counted in Building+repo above |
 | **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
 | **Blocked: compilation** | 1 | breeze — upstream source incompatibility with Redox toolchain |
 | **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |
@@ -329,13 +329,13 @@ Init service configuration has been streamlined:
 ## Bottom Line
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, 37 KDE recipes (29 KF6 + kdecoration + kwin + kglobalacceld), Mesa EGL/GBM/GLES2, and D-Bus build — 36 KDE packages enabled in config (26 in repo with .pkgar, 10 stage-only)
+- All Qt6 core modules, 36 KDE packages enabled in config (26 in repo with .pkgar, 10 stage-only)
 - Three supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
 - KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
-- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 11 packages blocked total (see canonical status table above)
+- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 12 packages blocked total (see canonical status table above)
 
 The remaining work is **platform prerequisite resolution** (QML JIT, Qt6::Sensors, libinput ports) before full KDE Plasma session can be assembled. Phase 1-2 runtime validation continues via QEMU.
 Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: platform prerequisites (QML JIT, Qt6::Sensors, libinput) must be resolved before KWin real build and full Plasma session.
