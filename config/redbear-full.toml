@@ -50,6 +50,7 @@ qtdeclarative = {}
 qtsvg = {}
 qtwayland = {}
 qt6-wayland-smoke = {}
+qt6-sensors = {}
 
 # KF6 Frameworks — explicit real-build surface in alphabetical order
 # kirigami: blocked (QML gate — QQuickWindow/QQmlEngine headers don't exist on Redox)
@@ -104,7 +105,7 @@ redbear-authd = {}
 redbear-session-launch = {}
 seatd = {}
 redbear-greeter = {}
-amdgpu = "ignore"
+amdgpu = {}
 
 # Core Red Bear umbrella package
 redbear-meta = {}
