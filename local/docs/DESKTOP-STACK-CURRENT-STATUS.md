@@ -151,7 +151,7 @@ Recipe versions tracked in this tree: KF6 frameworks v6.10.0, Plasma v6.3.4, Att
 | redbear-upower | ⚠️ scaffold / experimental | org.freedesktop.UPower — service exists, and the backing `/scheme/acpi/power` surface now performs real AML-backed enumeration, but its bootstrap preconditions and runtime proof are still too weak to call release-grade or consumer-validated; treat current enumeration as provisional until Wave 3 in `local/docs/ACPI-IMPROVEMENT-PLAN.md` closes |
 | redbear-udisks | ✅ bounded real | org.freedesktop.UDisks2 — enumerates real `disk.*` schemes and partitions into read-only D-Bus objects; no fabricated mount/serial metadata |
 | Phase 5 D-Bus runtime proof | ✅ implemented (bounded QEMU proof) | `redbear-phase5-network-check` + `test-phase5-network-qemu.sh` assert bounded QEMU service registration and current runtime plumbing on `redbear-full`; treat UPower as provisional until the ACPI power surface is made honest in `local/docs/ACPI-IMPROVEMENT-PLAN.md` Wave 3 |
-| Phase 6 Solid readiness proof | ✅ implemented, blocked | `redbear-phase6-kde-check` + `test-phase6-kde-qemu.sh` now distinguish real Solid validation from blocked states; `kf6-solid` remains disabled until runtime proof + tooling are present |
+| Phase 6 Solid readiness proof | ✅ implemented (bounded preflight) | `redbear-phase6-kde-check` + `test-phase6-kde-qemu.sh` provide bounded tooling/preflight evidence for the current `kf6-solid` surface; do not describe `kf6-solid` as disabled in `redbear-full`, because it is enabled there. |
 | redbear-polkit | ✅ Scaffold | org.freedesktop.PolicyKit1 — always-permit authorization; KAuth still uses FAKE backend because PolkitQt6-1 is not packaged yet |
 | redbear-dbus-services | ✅ Created | D-Bus activation files + policies staged |
 | DRM/KMS | **builds** | redox-drm scheme daemon; 68 unit tests (KMS, GEM, PRIME, wire structs, scheme pure logic); no hardware runtime validation |
@@ -170,16 +170,16 @@ Recipe versions tracked in this tree: KF6 frameworks v6.10.0, Plasma v6.3.4, Att
 | `redbear-phase3-kwin-check` | **builds** | Phase 3 desktop session preflight: compositor binary presence, session-bus address + `dbus-send`, seatd socket, active `WAYLAND_DISPLAY`, and bounded `wl_display.sync` roundtrip (does not validate real KWin behavior) |
 | `test-phase3-runtime.sh` | **builds** | Automated guest/QEMU Phase 3 harness using explicit binary checks and exit-code-only pass/fail markers |
 | | | |
-| **Phase 4 (KDE Plasma) — see canonical status table above** | | |
-| KF6 frameworks | **36 build / 12 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
-| `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by kf6-knewstuff empty package + kwin stub |
-| `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by plasma-workspace |
-| `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by kirigami |
-| `kdecoration` | **builds** | Window decoration library — in repo |
-| `kf6-kwayland` | **builds (stage)** | Qt/C++ Wayland protocol wrapper |
-| `plasma-wayland-protocols` | **builds (stage)** | XML protocol definitions for kwayland/KWin |
-| `kirigami` | **blocked: QML gate** | QQuickWindow/QQmlEngine headers don't exist on Redox |
-| `kwin` | **stub (by design)** | cmake configs + kwin_wayland shim → redbear-compositor; real build needs Qt6::Sensors |
+| **Phase 4 (KDE Plasma) — see current KDE status section above** | | |
+| KDE/Plasma surface | **direct config surface: 36 enabled** | See the Current KDE Package Status section above for the direct config count, archived `.pkgar` evidence, and blocked/deferred items; do not collapse them into a single claim. |
+| `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by `kf6-knewstuff` payload + real `kwin` |
+| `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by `plasma-workspace` |
+| `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by `kirigami` |
+| `kdecoration` | **enabled in config; archive state not claimed here** | Window decoration library |
+| `kf6-kwayland` | **enabled in config; archive state not claimed here** | Qt/C++ Wayland protocol wrapper |
+| `plasma-wayland-protocols` | **recipe exists** | XML protocol definitions for kwayland/KWin |
+| `kirigami` | **blocked: QML gate** | `QQuickWindow`/`QQmlEngine` headers do not exist on Redox |
+| `kwin` | **stub (by design)** | cmake configs + `kwin_wayland` shim → `redbear-compositor`; real build needs Qt6Quick/QML downstream proof plus `Qt6::Sensors` / `libinput` surface |
 | `kf6-attica` | **builds (in repo)** | Minimal core library (2.4MB pkgar) — NEW |
 | `test-phase4-runtime.sh` | **exists** | Phase 4 KDE Plasma preflight harness (guest + QEMU modes) |
 | `test-phase5-gpu-runtime.sh` | **exists** | Phase 5 hardware GPU preflight harness (guest + QEMU modes) |
@@ -328,14 +328,14 @@ Init service configuration has been streamlined:
 
 ## Bottom Line
 
-The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, 36 KDE packages enabled in config (26 in repo with .pkgar, 10 stage-only)
-- Three supported compile targets exist, with desktop/graphics on `redbear-full`
-- the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
-- relibc compatibility is materially stronger than before
-- Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
-- KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
-- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 12 packages blocked total (see canonical status table above)
+The Red Bear desktop stack has crossed major build-side gates and one bounded runtime gate, but the KDE documentation needs stricter separation between enabled config surface, archived artifact surface, and blocked/deferred recipes:
+- The tracked Qt6 desktop stack (`qtbase`, `qtdeclarative`, `qtwayland`, `qtsvg`) builds.
+- `config/redbear-full.toml` directly enables 36 KDE-related packages, while `repo/x86_64-unknown-redox/` currently shows 29 KDE-related `.pkgar` artifacts; do not collapse those into one claim.
+- Three supported compile targets exist, with desktop/graphics on `redbear-full`.
+- The Red Bear-native greeter/login path has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`), and `20_greeter.service` is currently wired to `/usr/bin/redbear-greeterd` in `config/redbear-full.toml`.
+- relibc compatibility is materially stronger than before.
+- Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers.
+- `kwin` remains a stub delegating to `redbear-compositor`; a real build remains gated on Qt6Quick/QML downstream proof plus the `Qt6::Sensors` / `libinput` surface.
 
 The remaining work is **platform prerequisite resolution** (QML JIT, Qt6::Sensors, libinput ports) before full KDE Plasma session can be assembled. Phase 1-2 runtime validation continues via QEMU.
 Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: platform prerequisites (QML JIT, Qt6::Sensors, libinput) must be resolved before KWin real build and full Plasma session.
