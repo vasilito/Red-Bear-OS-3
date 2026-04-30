@@ -130,6 +130,8 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: dependencies** | 1 | kde-cli-tools (depends on kf6-kio) |
 
 **Total: 47 recipes. 36 build (15 in repo + 21 stage-only). 11 blocked (documented).**
+
+Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
 | plasma-workspace | **blocked (builds real)** | Real cmake build, but commented out in config; depends on kf6-knewstuff + kwin |
 | plasma-desktop | **blocked (builds real)** | Recipe exists; depends on plasma-workspace; commented out in config |
@@ -169,16 +171,17 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | `redbear-phase3-kwin-check` | **builds** | Phase 3 desktop session preflight: compositor binary presence, session-bus address + `dbus-send`, seatd socket, active `WAYLAND_DISPLAY`, and bounded `wl_display.sync` roundtrip (does not validate real KWin behavior) |
 | `test-phase3-runtime.sh` | **builds** | Automated guest/QEMU Phase 3 harness using explicit binary checks and exit-code-only pass/fail markers |
 | | | |
-| **Phase 4 (KDE Plasma) — 42 real builds + 5 stubs in 47-recipe tree** | | |
-| KF6 frameworks | **32 recipes** | 30 real cmake builds, 2 real build attempts (knewstuff, kwallet); 22 KF6 + kglobalacceld enabled; 1 suppressed (kirigami) |
-| `plasma-workspace` | **real cmake build, enabled** | Full cmake build with 52 dependency items; enabled in config; stub deps (kf6-knewstuff, kf6-kwallet) deferrable |
-| `plasma-desktop` | **real cmake build, enabled** | Full cmake build, depends on plasma-workspace; enabled in config |
-| `plasma-framework` | **real cmake build, enabled** | Plasma applets/containments/shell (BUILD_WITH_QML=OFF); enabled in config |
-| `kdecoration` | **real cmake build** | Window decoration library required by KWin |
-| `kf6-kwayland` | **real cmake build** | Qt/C++ Wayland protocol wrapper |
-| `plasma-wayland-protocols` | **real cmake build** | XML protocol definitions for kwayland/KWin |
-| `kirigami` | **stub** | #TODO: QML-based, cannot build without Qt6Quick |
-| `kwin` | **stub** | cmake configs + wrapper scripts that delegate to redbear-compositor |
+| **Phase 4 (KDE Plasma) — see canonical status table above** | | |
+| KF6 frameworks | **36 build / 11 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
+| `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by kf6-knewstuff empty package + kwin stub |
+| `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by plasma-workspace |
+| `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by kirigami |
+| `kdecoration` | **builds** | Window decoration library — in repo |
+| `kf6-kwayland` | **builds (stage)** | Qt/C++ Wayland protocol wrapper |
+| `plasma-wayland-protocols` | **builds (stage)** | XML protocol definitions for kwayland/KWin |
+| `kirigami` | **blocked: QML gate** | QQuickWindow/QQmlEngine headers don't exist on Redox |
+| `kwin` | **stub (by design)** | cmake configs + kwin_wayland shim → redbear-compositor; real build needs Qt6::Sensors |
+| `kf6-attica` | **builds (in repo)** | Minimal core library (2.4MB pkgar) — NEW |
 | `test-phase4-runtime.sh` | **exists** | Phase 4 KDE Plasma preflight harness (guest + QEMU modes) |
 | `test-phase5-gpu-runtime.sh` | **exists** | Phase 5 hardware GPU preflight harness (guest + QEMU modes) |
 | `redbear-phase4-kde-check` | **builds** | Phase 4 KDE preflight: KF6 libraries plus resolved KF6 version suffixes, plasma binaries, session entry points, and kirigami status |
