@@ -91,7 +91,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain) — pkgar in repo |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
-| kf6-kwallet | **builds** | enabled | Real API-only core wallet cmake build; QML/GPG disabled |
+| kf6-kwallet | **exists in-tree** | not in enabled subset | Real API-only core wallet cmake build; QML/GPG disabled; not part of current redbear-full enabled surface |
 | kf6-attica | **builds** | enabled (NEW) | Minimal core library (v6.10.0, 2.4MB pkgar in repo) |
 | plasma-framework | **blocked (QML gate)** | commented out | Depends on kirigami |
 | plasma-workspace | **blocked** | commented out | Depends on kf6-knewstuff payload + kwin real build |
@@ -144,7 +144,7 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 36 KDE packages (29 KF6 + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
+- 36 KDE packages (33 kf6-* + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
 - kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
 - mesa + libdrm (GPU software stack)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
