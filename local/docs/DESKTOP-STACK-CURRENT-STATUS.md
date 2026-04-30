@@ -59,7 +59,7 @@
 
 - **Qt Wayland shell integration**: Compositor correctly parses protocol now, but Qt6's Wayland plugin reports "Loading shell integration failed" and falls back to redox platform plugin. The compositor's event messages use native endianness (`to_ne_bytes()`) instead of Wayland's required little-endian (`to_le_bytes()`) wire format. Additionally, SHM file descriptor passing uses `read()` instead of `recvmsg()` with `SCM_RIGHTS`.
 - **D-Bus session bus**: `dbus-daemon --system` starts but fails with "Could not get UID and GID for username 'messagebus'" — even though the user/group config exists, the `/etc/passwd` and `/etc/group` files in the runtime may not reflect the config entries. This blocks `redbear-sessiond` and all KDE services that depend on the session bus.
-- **KF6 enablement**: superseded by Wave 7 — 22 KF6 packages + kglobalacceld are now enabled; `kirigami`, `kf6-knewstuff`, and `kf6-kwallet` remain suppressed.
+- **KF6 enablement**: superseded — see Current KDE Package Status table above. 36 KDE packages enabled, 12 blocked with documented reasons.
 
 ## Recent Changes (2026-04-28, Wave 3)
 
@@ -283,7 +283,7 @@ exercised on real Intel and AMD hardware.
 
 ### 6. KDE Plasma session assembly blocked on QML stack (Phase 4 gate)
 
-Kirigami is stub-only (QML-dependent; qtdeclarative exists but downstream QML/Kirigami proof insufficient). `kf6-knewstuff` and `kf6-kwallet` now have real cmake build attempts with stub fallback; enabled in config.
+Kirigami is QML-gated (source unconditionally includes QQuickWindow/QQmlEngine). `kf6-kwallet` builds (API-only). `kf6-knewstuff` blocked (empty package — cmake succeeds, no libs produced). All status in Current KDE Package Status table above.
 the KDE Plasma session. `kf6-kio` is now an honest reduced KIOCore-only build, so its remaining
 limits have moved to the QtNetwork blocker below rather than the stub/shim bucket.
 
@@ -336,7 +336,7 @@ The Red Bear desktop stack has crossed major build-side gates and one important 
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
 - KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
-- Critical blockers for Phase 4: KWin must become real (currently stub); plasma packages blocked by kf6-knewstuff (QtNetwork now re-enabled — needs Qt6 rebuild); 22 additional KF6 recipes need explicit config enablement
+- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 12 packages blocked total (see canonical status table above)
 
-The remaining work is **broader runtime validation, compositor/session stability, and closing the documentation-reality gap in config enablement**.
+The remaining work is **platform prerequisite resolution** (QML JIT, Qt6::Sensors, libinput ports) before full KDE Plasma session can be assembled. Phase 1-2 runtime validation continues via QEMU.
 Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: KWin must become real (currently stub) + 22 KF6 recipes must be enabled in config + plasma packages need unblocking.
