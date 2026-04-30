@@ -129,7 +129,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
 | **Blocked: dependencies** | 1 | kde-cli-tools (depends on kf6-kio) |
 
-**Total: 47 recipes. 36 build (15 in repo + 21 stage-only). 11 blocked (documented).**
+**Total: 48 recipes. 36 build (15 in repo + 21 stage-only). 12 blocked.. 12 blocked (documented).**
 
 Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
@@ -172,7 +172,7 @@ Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.
 | `test-phase3-runtime.sh` | **builds** | Automated guest/QEMU Phase 3 harness using explicit binary checks and exit-code-only pass/fail markers |
 | | | |
 | **Phase 4 (KDE Plasma) — see canonical status table above** | | |
-| KF6 frameworks | **36 build / 11 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
+| KF6 frameworks | **36 build / 12 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
 | `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by kf6-knewstuff empty package + kwin stub |
 | `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by plasma-workspace |
 | `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by kirigami |

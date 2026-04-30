@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-29):** All code artifacts are build-verified on both Linux host and Redox target (x86_64-unknown-redox). 9 KF6 frameworks + ECM + kwin are in the built image (pulled as transitive dependencies of kwin). 47 KDE recipes exist in local/recipes/kde/ with real cmake builds — but only kwin is explicitly enabled in config (and kwin is a stub that delegates to redbear-compositor). Plasma packages (framework, workspace, desktop) are blocked and commented out. The KF6 count discrepancy (22 claimed vs 9 actual) is a documentation gap — the recipes exist and build, but are not enabled in config. Remaining items in this document are runtime validation gates requiring QEMU or hardware plus config enablement gaps.
+**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (15 in repo, 21 stage-only). 12 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
 
 ## Purpose
 
@@ -100,7 +100,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
 | plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
 
-**Verdict**: KDE/Plasma recipes exist (47 total) with real builds, but only kwin (stub) is explicitly enabled in config. 9 KF6 frameworks reach the image as transitive deps. Plasma packages and 23 KF6 frameworks are build-ready but commented out in config. Real Plasma session requires: enabling KF6+plasma packages in config + real KWin build (currently stub) + Qt6Quick downstream proof.
+**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 12 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
 
 ### LAYER 7 — Validation Infrastructure
 
@@ -144,8 +144,8 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- kwin = {} (stub — delegates to redbear-compositor; the only KDE package explicitly in config)
-- 9 KF6 frameworks (pulled as transitive deps of kwin): extra-cmake-modules, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, kwidgetsaddons, kwindowsystem
+- 36 KDE packages (33 KF6 + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
+- kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
 - 3 Plasma packages (commented out as BLOCKED): framework, workspace, desktop
 - 23 additional KF6 recipes exist in local/recipes/kde/ with real cmake builds but are not enabled in config
 - kirigami, kf6-knewstuff, kf6-kwallet (commented out as suppressed/blocked)
