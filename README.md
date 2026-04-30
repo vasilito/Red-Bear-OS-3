@@ -60,13 +60,9 @@ The current public roadmap and execution model live in the
 For readers landing on GitHub, the most useful entry points are:
 
 - [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
-- [Comprehensive OS Desktop Readiness Assessment](./local/docs/COMPREHENSIVE-OS-ASSESSMENT.md) — **canonical full-OS plan**: kernel, devices, DRM, Wayland, KDE, all blockers
-- [relibc Comprehensive Assessment](./local/docs/RELIBC-COMPREHENSIVE-ASSESSMENT.md) — end-to-end relibc assessment: patch chain, kernel interactions, graphics integration
-- [relibc Assessment and Improvement Plan](./local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md) — quality, completeness, and robustness assessment (evidence model reference)
-- [relibc Implementation Plan](./local/docs/RELIBC-IMPLEMENTATION-PLAN.md) — detailed engineering plan for closing relibc POSIX gaps
+- [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — **canonical comprehensive implementation plan**: kernel→DRM→Mesa→Wayland→KDE, all blockers, honest assessment
+- [Kernel IPC Credential Plan](./local/docs/KERNEL-IPC-CREDENTIAL-PLAN.md) — kernel credential syscalls, IPC, RLIMIT (Phases K1-K2,K4 complete)
 - [relibc IPC Assessment and Improvement Plan](./local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md) — IPC-focused companion plan for bounded relibc compatibility layers
-- [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — canonical path from console boot to hardware-accelerated KDE Plasma on Wayland
-- [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
 - [Script Behavior Matrix](./local/docs/SCRIPT-BEHAVIOR-MATRIX.md) — what the main sync/fetch/apply/build scripts do and do not guarantee
 
 Current subsystem-specific plans also include:
