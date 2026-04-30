@@ -39,10 +39,10 @@ index 48cce34..d9f0141 100644
      (
          unsafe { (*STATIC_PROC_INFO.get()).proc_fd.as_ref().unwrap() },
 diff --git a/redox-rt/src/sys.rs b/redox-rt/src/sys.rs
-index f0363a3..2fc04ef 100644
+index f0363a3..db6e77d 100644
 --- a/redox-rt/src/sys.rs
 +++ b/redox-rt/src/sys.rs
-@@ -415,6 +415,31 @@ pub fn posix_getresugid() -> Resugid<u32> {
+@@ -415,6 +415,54 @@ pub fn posix_getresugid() -> Resugid<u32> {
          sgid,
      }
  }
@@ -69,13 +69,36 @@ index f0363a3..2fc04ef 100644
 +
 +pub fn posix_getgroups() -> Vec<u32> {
 +    let _sig_guard = tmp_disable_signals();
-+    DYNAMIC_PROC_INFO.lock().groups.clone()
++    let groups = DYNAMIC_PROC_INFO.lock().groups.clone();
++    if !groups.is_empty() {
++        return groups;
++    }
++    drop(_sig_guard);
++    posix_readback_groups().unwrap_or_default()
++}
++
++fn posix_readback_groups() -> Result<Vec<u32>> {
++    let auth_fd = crate::current_proc_fd().as_raw_fd();
++    let groups_path = alloc::format!("auth-{}-groups", auth_fd);
++    let thr_fd = crate::RtTcb::current().thread_fd();
++    let groups_fd = thr_fd.dup(groups_path.as_bytes())?;
++
++    let mut buf = vec![0u8; 65536 * size_of::<u32>()];
++    let n = syscall::read(groups_fd.as_raw_fd(), &mut buf)?;
++    let count = n / size_of::<u32>();
++    let mut groups = Vec::with_capacity(count);
++    for chunk in buf[..n].chunks_exact(size_of::<u32>()) {
++        groups.push(u32::from_ne_bytes(chunk.try_into().unwrap()));
++    }
++    let mut guard = DYNAMIC_PROC_INFO.lock();
++    guard.groups = groups.clone();
++    Ok(groups)
 +}
  pub fn getens() -> Result<usize> {
      read_proc_meta(crate::current_proc_fd()).map(|meta| meta.ens as usize)
  }
 diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
-index 752339a..bff5be4 100644
+index 752339a..a0b4304 100644
 --- a/src/platform/redox/mod.rs
 +++ b/src/platform/redox/mod.rs
 @@ -43,7 +43,7 @@ use crate::{
@@ -148,7 +171,7 @@ index 752339a..bff5be4 100644
      }
  
      fn getpagesize() -> usize {
-@@ -736,21 +702,39 @@ impl Pal for Sys {
+@@ -736,21 +702,45 @@ impl Pal for Sys {
      }
  
      fn getrlimit(resource: c_int, mut rlim: Out<rlimit>) -> Result<()> {
@@ -175,11 +198,17 @@ index 752339a..bff5be4 100644
 -        todo_skip!(0, "setrlimit({}, {:p}): not implemented", resource, rlim);
 -        Err(Errno(EPERM))
 +    unsafe fn setrlimit(resource: c_int, _rlim: *const rlimit) -> Result<()> {
-+        if resource as u32 == RLIMIT_NOFILE as u32 || resource as u32 == RLIMIT_NPROC as u32 {
-+            Err(Errno(EPERM))
-+        } else {
-+            // Other limits are silently ignored (compatibility)
-+            Ok(())
++        match resource as u32 {
++            r if r == RLIMIT_NOFILE as u32 || r == RLIMIT_NPROC as u32 => Err(Errno(EPERM)),
++            r if r == RLIMIT_CORE as u32
++                || r == RLIMIT_STACK as u32
++                || r == RLIMIT_DATA as u32
++                || r == RLIMIT_AS as u32
++                || r == RLIMIT_FSIZE as u32 =>
++            {
++                Ok(())
++            }
++            _ => Err(Errno(EINVAL)),
 +        }
      }
  
@@ -198,7 +227,7 @@ index 752339a..bff5be4 100644
          Ok(())
      }
  
-@@ -913,23 +897,7 @@ impl Pal for Sys {
+@@ -913,23 +903,7 @@ impl Pal for Sys {
          Ok(())
      }
  
@@ -223,7 +252,7 @@ index 752339a..bff5be4 100644
  
      unsafe fn munlock(addr: *const c_void, len: usize) -> Result<()> {
          // Redox never swaps
-@@ -953,16 +921,7 @@ impl Pal for Sys {
+@@ -953,16 +927,7 @@ impl Pal for Sys {
          Ok(())
      }
  
@@ -241,7 +270,7 @@ index 752339a..bff5be4 100644
  
      unsafe fn nanosleep(rqtp: *const timespec, rmtp: *mut timespec) -> Result<()> {
          let redox_rqtp = unsafe { redox_timespec::from(&*rqtp) };
-@@ -1220,9 +1179,19 @@ impl Pal for Sys {
+@@ -1220,9 +1185,19 @@ impl Pal for Sys {
      }
  
      unsafe fn setgroups(size: size_t, list: *const gid_t) -> Result<()> {

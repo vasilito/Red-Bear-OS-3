@@ -1,5 +1,5 @@
 diff --git a/src/context/context.rs b/src/context/context.rs
-index c97c516..1c86cec 100644
+index c97c516..6d723f4 100644
 --- a/src/context/context.rs
 +++ b/src/context/context.rs
 @@ -148,6 +148,8 @@ pub struct Context {
@@ -19,8 +19,36 @@ index c97c516..1c86cec 100644
  
              #[cfg(feature = "syscall_debug")]
              syscall_debug_info: crate::syscall::debug::SyscallDebugInfo::default(),
+@@ -479,6 +482,7 @@ impl Context {
+             uid: self.euid,
+             gid: self.egid,
+             pid: self.pid,
++            groups: self.groups.clone(),
+         }
+     }
+ }
+diff --git a/src/scheme/mod.rs b/src/scheme/mod.rs
+index d30272c..9da2b28 100644
+--- a/src/scheme/mod.rs
++++ b/src/scheme/mod.rs
+@@ -777,6 +777,7 @@ pub struct CallerCtx {
+     pub pid: usize,
+     pub uid: u32,
+     pub gid: u32,
++    pub groups: alloc::vec::Vec<u32>,
+ }
+ impl CallerCtx {
+     pub fn filter_uid_gid(self, euid: u32, egid: u32) -> Self {
+@@ -785,6 +786,7 @@ impl CallerCtx {
+                 pid: self.pid,
+                 uid: euid,
+                 gid: egid,
++                groups: self.groups,
+             }
+         } else {
+             self
 diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
-index 47588e1..30ae5ea 100644
+index 47588e1..6ffb256 100644
 --- a/src/scheme/proc.rs
 +++ b/src/scheme/proc.rs
 @@ -105,6 +105,7 @@ enum ContextHandle {
@@ -51,24 +79,47 @@ index 47588e1..30ae5ea 100644
                          HANDLES.write(token.token()).insert(
                              id.get(),
                              Handle {
-@@ -1271,6 +1278,16 @@ impl ContextHandle {
+@@ -1271,6 +1278,39 @@ impl ContextHandle {
                  guard.prio = (info.prio as usize).min(39);
                  Ok(size_of::<ProcSchemeAttrs>())
              }
 +            Self::Groups => {
++                const NGROUPS_MAX: usize = 65536;
++                if buf.len() % size_of::<u32>() != 0 {
++                    return Err(Error::new(EINVAL));
++                }
 +                let count = buf.len() / size_of::<u32>();
++                if count > NGROUPS_MAX {
++                    return Err(Error::new(EINVAL));
++                }
 +                let mut groups = Vec::with_capacity(count);
 +                for chunk in buf.in_exact_chunks(size_of::<u32>()).take(count) {
 +                    groups.push(chunk.read_u32()?);
 +                }
-+                let mut guard = context.write(token.token());
-+                guard.groups = groups;
++                let proc_id = {
++                    let guard = context.read(token.token());
++                    guard.owner_proc_id
++                };
++                {
++                    let mut guard = context.write(token.token());
++                    guard.groups = groups.clone();
++                }
++                if let Some(pid) = proc_id {
++                    let mut contexts = context::contexts(token.downgrade());
++                    let (contexts, mut t) = contexts.token_split();
++                    for context_ref in contexts.iter() {
++                        let mut ctx = context_ref.write(t.token());
++                        if ctx.owner_proc_id == Some(pid) {
++                            ctx.groups = groups.clone();
++                        }
++                    }
++                }
 +                Ok(count * size_of::<u32>())
 +            }
              ContextHandle::OpenViaDup => {
                  let mut args = buf.usizes();
  
-@@ -1475,6 +1492,15 @@ impl ContextHandle {
+@@ -1475,6 +1515,15 @@ impl ContextHandle {
                      debug_name,
                  })
              }
