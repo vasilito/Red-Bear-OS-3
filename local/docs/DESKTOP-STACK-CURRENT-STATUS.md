@@ -16,7 +16,7 @@
 
 - **KF6 surface made more honest for Phase 3/4**:
   - `kf6-kdeclarative` is enabled in `config/redbear-full.toml` (real reduced cmake build with `BUILD_WITH_QML=OFF`).
-  - `kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain) (commented out — source-incompatible).
+  - `kf6-kio` is enabled (HostInfo stub fix — pkgar in repo).
 - `kf6-knewstuff` and `kf6-kwallet` have real cmake builds; `kf6-kwallet` enabled, `kf6-knewstuff` blocked (empty package).
 - Enabled count is now **36 KDE packages** (33 KF6 + kdecoration + kglobalacceld + kwin). See Current KDE Package Status table for full breakdown.
 
@@ -123,7 +123,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Building (stage only)** | 23 | kdecoration, kwallet + 21 other KF6 frameworks — compiled during cook, need full make all to push to repo |
 | **Attica (new)** | — | Minimal core library build, KF6::Attica cmake target (counted in Building+repo above) |
 | **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
-| **Blocked: compilation** | 2 | breeze, kf6-kio — upstream source incompatibilities with Redox toolchain |
+| **Blocked: compilation** | 1 | breeze — upstream source incompatibility with Redox toolchain |
 | **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
 | **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
