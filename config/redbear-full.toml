@@ -57,12 +57,12 @@ qt6-sensors = {}
 kf6-kio = {}
 # kde-cli-tools = {}   # blocked: direct repo cook fails
 
-# kdecoration = {}  # blocked: no pkgar artifact in repo
+kdecoration = {}
 kf6-attica = {}
 kf6-karchive = {}
 kf6-kauth = {}
 kf6-kbookmarks = {}
-# kf6-kcmutils = {}  # blocked: no pkgar artifact in repo
+kf6-kcmutils = {}
 kf6-kcodecs = {}
 kf6-kcolorscheme = {}
 kf6-kcompletion = {}

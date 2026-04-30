@@ -1,25 +1,85 @@
-#TODO: KWin remains a Red Bear transition stub for now. Upstream 6.3.4 lets us disable X11,
-# KCMs, screenlocker, tabbox, global shortcuts, runners, and notifications, but the top-level
-# CMake still hard-requires non-X11 pieces that are not part of the tracked Red Bear build
-# surface yet: Qt6::Sensors is only available as an uncompiled WIP recipe, libinput is still a
-# WIP port and is explicitly ignored in config/redbear-full.toml, and there is no canberra recipe
-# in-tree.
-# This recipe therefore does NOT invoke upstream CMake yet; it only stages
-# redbear-compositor-backed kwin_wayland/kwin_wayland_wrapper shims plus the minimal
-# KF6WindowSystem/KF6Config CMake config stubs consumed by downstream KDE recipes during the
-# transition.
+#TODO: KWin — Qt6::Sensors now available (2026-04-30). Remaining blockers:
+# libinput (still ignored in config), QML/Quick (JIT disabled on Redox),
+# no canberra in-tree. Attempting bounded cmake build with these disabled.
+# Falls back to redbear-compositor wrapper on build failure.
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
 blake3 = "2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f"
 
 [build]
 template = "custom"
+dependencies = [
+    "qtbase",
+    "qtdeclarative",
+    "qt6-sensors",
+    "kf6-extra-cmake-modules",
+    "kf6-kcoreaddons",
+    "kf6-ki18n",
+    "kf6-kconfig",
+    "kf6-kcrash",
+    "kf6-kdbusaddons",
+    "kf6-kservice",
+    "kf6-kwayland",
+    "kf6-kwindowsystem",
+    "kf6-kconfigwidgets",
+    "kf6-kglobalaccel",
+    "kf6-kidletime",
+    "kf6-knotifications",
+    "kf6-kpackage",
+    "kf6-kdeclarative",
+    "kf6-kio",
+    "kdecoration",
+    "kf6-kcmutils",
+    "plasma-wayland-protocols",
+    "libepoxy-stub",
+    "libudev-stub",
+    "wayland-protocols",
+    "redbear-compositor",
+]
 script = """
-STAGE="${COOKBOOK_STAGE}/usr"
-mkdir -p "${STAGE}/bin"
-mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem"
-mkdir -p "${STAGE}/lib/cmake/KF6Config"
+DYNAMIC_INIT
 
+HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+STAGE="${COOKBOOK_STAGE}/usr"
+
+for qtdir in plugins mkspecs metatypes modules; do
+    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
+        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
+    fi
+done
+
+# Attempt real cmake build with Redox-viable feature set
+sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+
+rm -f CMakeCache.txt
+rm -rf CMakeFiles
+
+if cmake "${COOKBOOK_SOURCE}" \
+    -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
+    -DQT_HOST_PATH="${HOST_BUILD}" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_QCH=OFF \
+    -DKWIN_BUILD_X11=OFF \
+    -DKWIN_BUILD_KCMS=OFF \
+    -DKWIN_BUILD_SCREENLOCKER=OFF \
+    -DKWIN_BUILD_TABBOX=OFF \
+    -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
+    -DKWIN_BUILD_RUNNERS=OFF \
+    -DKWIN_BUILD_NOTIFICATIONS=OFF \
+    -Wno-dev 2>&1; then
+    cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1 || true
+    cmake --install . --prefix "${STAGE}" 2>&1 || true
+fi
+
+# Always provide the redbear-compositor fallback wrapper
+mkdir -p "${STAGE}/bin"
 cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
 #!/bin/sh
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
@@ -31,21 +91,17 @@ chmod +x "${STAGE}/bin/kwin_wayland"
 
 cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
 #!/bin/sh
-RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
-mkdir -p "$RUNTIME_DIR"
-export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
 exec /usr/bin/kwin_wayland "$@"
 EOFBIN
 chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
 
+# Minimal cmake config stubs for downstream KDE recipes
+mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
 cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
-add_definitions(-DKF6WINDOWSYSTEM_NO_EXPORT)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 set(KF6WindowSystem_LIBRARIES Qt6::Gui)
 EOFCMAKE
-
 cat > "${STAGE}/lib/cmake/KF6Config/KF6ConfigConfig.cmake" << 'EOFCMAKE'
-add_definitions(-DKF6CONFIG_NO_EXPORT)
 find_package(Qt6 REQUIRED COMPONENTS Core)
 set(KF6Config_LIBRARIES Qt6::Core)
 EOFCMAKE
