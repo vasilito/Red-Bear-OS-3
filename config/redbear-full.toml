@@ -41,8 +41,8 @@ redbear-compositor = {}
 # Keyboard/input
 # libxkbcommon = {}  # build needed
 # xkeyboard-config = {}  # build needed
-# libevdev = {}  # build needed
-libinput = "ignore"
+libevdev = {}
+libinput = {}
 
 # Qt6 stack
 qtbase = {}
