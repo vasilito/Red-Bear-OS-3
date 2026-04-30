@@ -1,7 +1,6 @@
 # Red Bear OS DRM Modernization Execution Plan
 
-**Date:** 2026-04-18
-**Scope:** Shared DRM substrate, shared DRM core, Intel and AMD vendor backends, userland DRM integration, and validation needed to move Red Bear OS from build-visible DRM progress to evidence-backed modern GPU support.
+**2026-04-29 build verification update:** All individual DRM/Mesa recipes compile successfully (redox-driver-sys, linux-kpi, redox-drm, mesa/swrast, amdgpu, firmware-loader, iommu). amdgpu is now included in redbear-full (ignore removed from config). Hardware GPU rendering (command submission, fences, Mesa hardware winsys) remains blocked — these are large engineering tasks requiring GPU-architecture-specific work. See hard blockers below.
 **Position in the doc set:** This is the single comprehensive GPU/DRM execution plan beneath `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. It does not replace the canonical desktop path. It is the canonical GPU/DRM plan and should be preferred over older GPU-specific planning docs when execution order, acceptance criteria, or claim language conflict.
 
 **Supersedes as planning authority:**
@@ -53,9 +52,11 @@ The repo has real progress in shared DRM/KMS, GEM, PRIME, firmware plumbing, int
 | KMS ioctl surface | Implemented in shared scheme layer | `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
 | GEM allocation and mapping | Implemented in shared scheme and GEM manager | `local/recipes/gpu/redox-drm/source/src/gem.rs`, `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
 | PRIME and DMA-BUF style sharing | Implemented at scheme level | `local/docs/HARDWARE-3D-ASSESSMENT.md`, `local/docs/DMA-BUF-IMPROVEMENT-PLAN.md`, `local/recipes/gpu/redox-drm/source/src/scheme.rs` |
-| AMD display backend | Build-visible on the bounded retained path, firmware-aware, interrupt-aware | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs`, `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` |
+| AMD display backend | Build-visible on the bounded retained path, firmware-aware, interrupt-aware; amdgpu C port compiles | `local/recipes/gpu/redox-drm/source/src/drivers/amd/mod.rs`, `local/recipes/gpu/amdgpu/source/amdgpu_redox_main.c` |
 | Intel display backend | Build-visible, GGTT and ring scaffolding present | `local/recipes/gpu/redox-drm/source/src/drivers/intel/mod.rs`, `.../intel/ring.rs` |
-| Mesa userland base | Builds with EGL, GBM, OSMesa, software Gallium path | `recipes/libs/mesa/recipe.toml` |
+| Mesa userland base | Builds with EGL, GBM, OSMesa, software Gallium path (swrast) | `recipes/libs/mesa/recipe.toml` |
+| AMD GPU C port (amdgpu) | ✅ Builds + included in redbear-full (2026-04-29) — C-language port using linux-kpi compatibility; `amdgpu = "ignore"` removed from config | `local/recipes/gpu/amdgpu/`, `config/redbear-full.toml` |
+| redbear-full image | ✅ Rebuilt with amdgpu included (2026-04-29) — harddrive.img generated successfully | `build/x86_64/redbear-full/harddrive.img` |
 
 ### Hard blockers
 

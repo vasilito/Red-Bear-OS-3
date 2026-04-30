@@ -108,7 +108,7 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
 - **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
 - **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
-- **GPU drivers**: redox-drm scheme daemon exists; Intel build-oriented path exists; AMD currently has a bounded retained compile path (`redox-drm` + Red Bear glue) while the imported Linux AMD DC/TTM/core trees remain under compile triage. Hardware validation is still pending.
+- **GPU drivers**: redox-drm scheme daemon exists; Intel build-oriented path exists; AMD currently has a bounded retained compile path (`redox-drm` + Red Bear glue) while the imported Linux AMD DC/TTM/core trees remain builds and included in redbear-full (2026-04-29). Hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built
 - **Networking**: native wired stack present (`pcid-spawner` → NIC daemon → `smolnetd`/`dhcpd`/`netcfg`), Red Bear ships a native `netctl` command, RTL8125 is wired into the existing Realtek autoload path, and the bounded Intel Wi‑Fi path now has host-tested profile start/stop plus interface-specific DHCP handoff without claiming real wireless connectivity.
 - **PCI / IRQ quality**: architecturally strong substrate exists, with bounded MSI-X, IOMMU, xHCI IRQ, and low-level-controller proof surfaces; broader hardware robustness is still intentionally tracked as open work in `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md`

@@ -41,7 +41,7 @@ include(ECMConfiguredInstall)
 include(ECMQtDeclareLoggingCategory)
 include(ECMSetupQtPluginMacroNames)
 include(ECMSetupVersion)
-include(ECMQmlModule)
+##include(ECMQmlModule)
 include(ECMGenerateQmlTypes)
 include(ECMDeprecationSettings)
 
@@ -543,4 +543,4 @@ if (KWIN_BUILD_X11_BACKEND)
 endif()
 
 
-ki18n_install(po)
+#ki18n_install(po)

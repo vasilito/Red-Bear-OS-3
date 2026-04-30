@@ -44,7 +44,7 @@ take 5+ years.
 | x2APIC | ✅ Works | Auto-detected via CPUID, APIC/SMP functional |
 | HPET | ✅ Works | Timer initialized from ACPI |
 | IOMMU | 🚧 In progress | `iommu` daemon now builds, auto-discovers common IVRS table paths, reaches unit detection plus `scheme:iommu` registration in the QEMU/AMD-IOMMU validation path, and now has a guest-driven first-use self-test that initializes both discovered units and drains events successfully in QEMU; real hardware validation is still missing |
-| AMD GPU | 🚧 In progress | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
+| AMD GPU | 🚧 In progress | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain builds and included in redbear-full (2026-04-29); no hardware validation yet |
 | Wi-Fi/BT | 🚧 In progress | Repo now carries bounded wireless scaffolding: one experimental in-tree Bluetooth slice exists, and a bounded Intel Wi-Fi scaffold exists elsewhere, but validated wireless connectivity support is still incomplete |
 | USB | ⚠️ Variable | Some USB controllers work, others don't |
 
@@ -259,7 +259,7 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 | MSI-X interrupt support | ✅ | `local/recipes/gpu/redox-drm/source/src/drivers/interrupt.rs` — shared MSI-X/MSI/legacy abstraction with quirk-aware fallback |
 | Intel pcid-spawner config | ✅ | `local/config/pcid.d/intel_gpu.toml` — auto-detect Intel GPUs |
 
-### P2: AMD GPU Display — BOUNDED PATH BUILDS (imported Linux AMD DC/TTM/core still under compile triage)
+### P2: AMD GPU Display — BOUNDED PATH BUILDS (imported Linux AMD DC/TTM/core still builds and included in redbear-full (2026-04-29))
 
 | Component | Status | Files |
 |-----------|--------|-------|
@@ -277,7 +277,7 @@ ONLY the display/modesetting portion first, using linux-kpi headers.
 
 The current retained AMD build path now produces the `amdgpu` recipe from the Red Bear glue layer
 plus Rust-side driver/runtime pieces. The broad imported Linux AMD display, TTM, and amdgpu core
-trees are no longer treated as compile-complete deliverables; they remain under compile triage until
+trees are no longer treated as compile-complete deliverables; they remain builds and included in redbear-full (2026-04-29) until
 the bounded path proves a concrete need to re-introduce them.
 
 For bounded runtime display validation, Red Bear now uses the shared

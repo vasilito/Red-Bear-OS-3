@@ -295,7 +295,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 | ACPI power | 🚧 | `\_PS0`/`\_PS3`/`\_PPC` AML methods are available and the runtime power surface performs bounded AML-backed enumeration, but bootstrap preconditions and validation are still too weak for stronger support claims; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` |
 | x2APIC/SMP | ✅ | Multi-core works |
 | IOMMU | 🚧 | QEMU first-use proof now passes; real hardware validation still open |
-| AMD GPU | 🚧 | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain under compile triage; no hardware validation yet |
+| AMD GPU | 🚧 | MMIO mapped, bounded Red Bear display glue path builds, MSI-X wired; imported Linux AMD DC/TTM/core remain builds and included in redbear-full (2026-04-29); no hardware validation yet |
 
 ### Phased Roadmap (historical P0–P6)
 
@@ -307,7 +307,7 @@ See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical desktop path p
 |-------|----------|----------|
 | ~~P0: Fix ACPI for AMD~~ | ~~4-6 weeks~~ | ✅ Materially complete — boots on modern AMD bare metal; see `local/docs/ACPI-IMPROVEMENT-PLAN.md` for forward work |
 | ~~P1: Driver infrastructure~~ | ~~8-12 weeks~~ | ✅ Complete — redox-driver-sys + linux-kpi + firmware-loader + pcid /config + MSI-X (compiles) |
-| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | 🚧 Partial — redox-drm + bounded Red Bear AMD display glue build; imported Linux AMD DC/TTM/core remain under compile triage; Intel driver compiles, no HW validation |
+| ~~P2: AMD GPU display~~ | ~~12-16 weeks~~ | 🚧 Partial — redox-drm + bounded Red Bear AMD display glue build; imported Linux AMD DC/TTM/core remain builds and included in redbear-full (2026-04-29); Intel driver compiles, no HW validation |
 | ~~P3: POSIX + input~~ | ~~4-8 weeks~~ | 🚧 Build-side work substantially complete — the active relibc recipe patch chain now carries the bounded fd-event, semaphore, and waitid compatibility surface needed by current downstreams, while broader runtime validation and input-stack maturity remain open |
 | P4: Wayland compositor | 4-6 weeks | 🚧 Partial — libwayland/Qt6 Wayland/Mesa EGL+GBM+GLES2/Qt6 OpenGL now build, but compositor/runtime validation is still incomplete |
 | ~~P5: DML2 enablement~~ | ~~partial~~ | 🚧 Historical DML2 config work landed, but the current retained AMDGPU build no longer treats imported DML2/TTM as part of the default bounded compile path; libdrm amdgpu ✅, `iommu` daemon now builds; hardware validation still open |

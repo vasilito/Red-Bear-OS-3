@@ -190,7 +190,7 @@ Recipe versions tracked in this tree: KF6 frameworks v6.10.0, Plasma v6.3.4, Att
 | **Phase 5 (Hardware GPU) — driver scaffold** | | |
 | `redox-drm` | **builds** | DRM scheme daemon with Intel Gen8-Gen12 + AMD device support and quirk tables; no hardware validation |
 | `mesa` | **builds** | Software llvmpipe renderer; hardware renderers (radeonsi/iris) not cross-compiled |
-| `amdgpu` | **compile triage** | Imported Linux AMD DC/TTM/core C port; bounded path compiles |
+| `amdgpu` | **builds + included in redbear-full** (2026-04-29) | Imported Linux AMD DC/TTM/core C port; bounded path compiles; enabled in config (`amdgpu = {}`) |
 | `test-phase5-network-qemu.sh` | **exists** | Legacy Phase 5 network/session QEMU launcher (pre-v2.0 plan) |
 
 ## Profile View
