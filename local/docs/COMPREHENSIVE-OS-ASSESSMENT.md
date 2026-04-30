@@ -28,11 +28,11 @@ Red Bear OS has meaningful build-side progress across all major subsystems. The 
 
 ### Bottom Line
 
-**The OS boots, but a graphical KDE Plasma desktop session is not yet functional.** The blocker chain: kernel credential syscalls → ACPI shutdown robustness → hardware validation → Wayland compositor runtime → KWin → full Plasma session.
+**The OS boots, but a graphical KDE Plasma desktop session is not yet functional.** The blocker chain: ACPI shutdown robustness → hardware validation → Wayland compositor runtime → KWin → full Plasma session.
 
-### Critical Single Blocker
+### Previously Critical Blocker — RESOLVED (2026-04-30)
 
-**Credential syscalls** (`SYS_SETUID`, `SYS_SETGID`, `SYS_SETGROUPS`, etc.) are ENOSYS in the Redox microkernel. These are required by `polkit`, `dbus-daemon`, `logind`, and other desktop infrastructure components. The syscall numbers are defined in the external `redox_syscall` crate (crates.io), not in the kernel tree. Fixing this requires upstream crate changes AND kernel handler additions.
+**Credential syscalls** (`setgroups`, `getgroups`, `setresuid`, `setresgid`) are now implemented via the kernel proc scheme (`auth-{fd}-groups` path). `getrlimit`/`setrlimit` return userspace defaults. See `local/docs/KERNEL-IPC-CREDENTIAL-PLAN.md` for the full implementation detail. Kernel changes: `Context.groups`, `CallerCtx.groups`, Groups proc scheme handle. Relibc changes: `posix_setgroups()`/`posix_getgroups()`, real `setgroups()` impl, RLIMIT stubs. Durable patches: `local/patches/kernel/P4-supplementary-groups.patch`, `local/patches/relibc/P4-setgroups-getgroups.patch`.
 
 ---
 
@@ -43,8 +43,8 @@ Red Bear OS has meaningful build-side progress across all major subsystems. The 
 The kernel handles 35 syscalls explicitly. All others fall through to `ENOSYS`.
 
 **Genuinely missing for desktop:**
-- `SYS_SETUID`, `SYS_SETGID`, `SYS_SETGROUPS`, `SYS_GETGROUPS` — credential syscalls, ENOSYS
-- `SYS_GETRLIMIT`, `SYS_SETRLIMIT` — resource limits, ENOSYS
+- ~~`SYS_SETUID`, `SYS_SETGID`, `SYS_SETGROUPS`, `SYS_GETGROUPS` — credential syscalls~~ ✅ RESOLVED (2026-04-30): implemented via proc scheme `auth-{fd}-groups` path
+- ~~`SYS_GETRLIMIT`, `SYS_SETRLIMIT` — resource limits~~ ✅ RESOLVED (2026-04-30): userspace stubs with reasonable defaults
 - `SYS_CLOCK_SETTIME` — set system clock, ENOSYS
 - `SYS_PTRACE` — debugging, handled via scheme paths
 
@@ -171,13 +171,15 @@ All 24 driver categories have been hardened (panic→error conversion). **Zero d
 | 4.3 | Desktop Wi-Fi API (D-Bus) | NetworkManager-like surface |
 | 4.4 | Bluetooth desktop integration | HID, audio, file transfer |
 
-### Kernel Blocker (Parallel, upstream-dependent)
+### Kernel Blocker — RESOLVED (2026-04-30)
 
-| # | Action | Impact |
-|---|--------|--------|
-| K1 | Engage Redox upstream for credential syscall additions in `redox_syscall` | `SYS_SETUID`, `SYS_SETGID`, `SYS_SETGROUPS` |
-| K2 | Add kernel handler for credential syscalls | Remove ENOSYS catch-all gap |
-| K3 | Add RLIMIT syscalls or formally design them out | Resource limit support |
+| # | Action | Impact | Status |
+|---|--------|--------|--------|
+| K1 | Engage Redox upstream for credential syscall additions in `redox_syscall` | `SYS_SETUID`, `SYS_SETGID`, `SYS_SETGROUPS` | ✅ Done via proc scheme (no crate changes needed) |
+| K2 | Add kernel handler for credential syscalls | Remove ENOSYS catch-all gap | ✅ `auth-{fd}-groups` proc scheme path |
+| K3 | Add RLIMIT syscalls or formally design them out | Resource limit support | ✅ Userspace stubs with defaults |
+
+**Remaining kernel gaps:** `clock_settime`, ACPI shutdown robustness, hardware validation.
 
 ---
 

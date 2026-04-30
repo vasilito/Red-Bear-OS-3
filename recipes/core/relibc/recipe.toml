@@ -41,6 +41,7 @@ patches = [
     "../../../local/patches/relibc/P3-sysv-ipc.patch",
     "../../../local/patches/relibc/P3-sysv-sem-impl.patch",
     "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
+    "../../../local/patches/relibc/P4-setgroups-getgroups.patch",
 ]
 
 [build]

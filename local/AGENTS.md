@@ -601,13 +601,16 @@ Instead, **implement the missing functionality properly**:
 
 ### Current Comprehensive Implementation Gaps
 
-**ROOT CAUSE (Credential Syscalls)**: The Redox microkernel lacks process credentials syscalls. This is NOT a relibc issue - the kernel itself does not implement them.
+**CREDENTIAL SYSCALLS — RESOLVED (2026-04-30)**: `setgroups`, `getgroups`, `initgroups`, `setresuid`, `setresgid`, `getrlimit`, `setrlimit` are now implemented. See `local/docs/KERNEL-IPC-CREDENTIAL-PLAN.md` for the full implementation detail.
 
-| Gap | Root Cause | Required Work |
-|-----|-----------|---------------|
-| `setgroups` ENOSYS on Redox | Redox kernel has NO `SYS_SETGROUPS` syscall number or handler. `redox_syscall` crate (upstream) doesn't define it. | **KERNEL WORK**: Add syscall number to `redox_syscall` + implement handler in kernel + wire in `redox_rt` |
-| `getgroups` returns only egid | Redox kernel has no group table concept | **KERNEL WORK**: Design and implement supplementary groups |
-| `setuid/setgid/getuid/getgid` | Same - no credential syscalls in kernel | **KERNEL WORK**: Same pattern |
+**Implementation**: Kernel: `Context.groups: Vec<u32>`, `CallerCtx.groups`, Groups proc scheme handle at `auth-{fd}-groups`. Relibc: `posix_setgroups()`/`posix_getgroups()` in redox-rt, real `setgroups()`/`getgroups()` in platform layer, RLIMIT userspace stubs. Durable patches: `local/patches/kernel/P4-supplementary-groups.patch`, `local/patches/relibc/P4-setgroups-getgroups.patch`.
+
+| Gap | Root Cause | Status |
+|-----|-----------|--------|
+| `setgroups` ENOSYS on Redox | Redox kernel had no supplementary group infrastructure | ✅ RESOLVED |
+| `getgroups` returns only egid | Redox kernel had no group table concept | ✅ RESOLVED |
+| `setuid/setgid/getuid/getgid` | No credential syscalls in kernel | ✅ Already worked via `posix_setresugid` (proc scheme) |
+| `getrlimit`/`setrlimit` | ENOSYS | ✅ RESOLVED — userspace stubs with defaults |
 | **CONFIG: KWin is a stub** | KWin recipe downloads real v6.3.4 source but build script never compiles it — only creates wrapper scripts + fake cmake configs | **KWin RECIPE WORK**: Convert from custom stub to real cmake build, or document as permanent stub |
 | **CONFIG: 22 KF6 recipes not enabled** | 47 KF6/Plasma/KWin recipes exist in local/recipes/kde/ with real cmake builds, but only 9 KF6 + kwin (stub) are in the built image — the rest are commented out in config | **CONFIG WORK**: Enable buildable KF6 packages in redbear-full.toml |
 | **CONFIG: Plasma packages blocked** | plasma-framework, plasma-workspace, plasma-desktop have real cmake builds but are commented out as BLOCKED in redbear-full.toml | **CONFIG WORK**: Resolve blockers (kwin stub → real, kf6-knewstuff → QtNetwork) then enable |

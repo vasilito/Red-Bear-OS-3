@@ -1,8 +1,16 @@
 diff --git a/redox-rt/src/lib.rs b/redox-rt/src/lib.rs
-index 12835a6..062178a 100644
+index 12835a6..93e8fd6 100644
 --- a/redox-rt/src/lib.rs
 +++ b/redox-rt/src/lib.rs
-@@ -241,6 +241,7 @@ pub struct DynamicProcInfo {
+@@ -224,6 +224,7 @@ pub unsafe fn initialize(
+             rgid: metadata.rgid,
+             sgid: metadata.sgid,
+             ns_fd,
++            groups: Vec::new(),
+         };
+     }
+ }
+@@ -241,6 +242,7 @@ pub struct DynamicProcInfo {
      pub rgid: u32,
      pub sgid: u32,
      pub ns_fd: Option<FdGuardUpper>,
@@ -10,7 +18,7 @@ index 12835a6..062178a 100644
  }
  
  static DYNAMIC_PROC_INFO: Mutex<DynamicProcInfo> = Mutex::new(DynamicProcInfo {
-@@ -252,6 +253,7 @@ static DYNAMIC_PROC_INFO: Mutex<DynamicProcInfo> = Mutex::new(DynamicProcInfo {
+@@ -252,6 +254,7 @@ static DYNAMIC_PROC_INFO: Mutex<DynamicProcInfo> = Mutex::new(DynamicProcInfo {
      egid: u32::MAX,
      sgid: u32::MAX,
      ns_fd: None,
@@ -67,9 +75,18 @@ index f0363a3..2fc04ef 100644
      read_proc_meta(crate::current_proc_fd()).map(|meta| meta.ens as usize)
  }
 diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
-index 752339a..637b719 100644
+index 752339a..bff5be4 100644
 --- a/src/platform/redox/mod.rs
 +++ b/src/platform/redox/mod.rs
+@@ -43,7 +43,7 @@ use crate::{
+         sys_file,
+         sys_mman::{MAP_ANONYMOUS, PROT_READ, PROT_WRITE},
+         sys_random,
+-        sys_resource::{RLIM_INFINITY, rlimit, rusage},
++        sys_resource::{RLIMIT_AS, RLIMIT_CORE, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_STACK, RLIM_INFINITY, rlimit, rusage},
+         sys_select::timeval,
+         sys_stat::{S_ISVTX, stat},
+         sys_statvfs::statvfs,
 @@ -605,51 +605,17 @@ impl Pal for Sys {
      }
  
@@ -131,8 +148,39 @@ index 752339a..637b719 100644
      }
  
      fn getpagesize() -> usize {
-@@ -749,8 +715,16 @@ impl Pal for Sys {
-         Err(Errno(EPERM))
+@@ -736,21 +702,39 @@ impl Pal for Sys {
+     }
+ 
+     fn getrlimit(resource: c_int, mut rlim: Out<rlimit>) -> Result<()> {
+-        todo_skip!(0, "getrlimit({}, {:p}): not implemented", resource, rlim);
+-        rlim.write(rlimit {
+-            rlim_cur: RLIM_INFINITY,
+-            rlim_max: RLIM_INFINITY,
+-        });
++        let (cur, max) = match resource as u32 {
++            r if r == RLIMIT_NOFILE as u32 => (1024, 4096),
++            r if r == RLIMIT_NPROC as u32 => (256, 1024),
++            r if r == RLIMIT_CORE as u32 => (0, RLIM_INFINITY),
++            r if r == RLIMIT_STACK as u32 => (8 * 1024 * 1024, RLIM_INFINITY),
++            r if r == RLIMIT_DATA as u32 => (RLIM_INFINITY, RLIM_INFINITY),
++            r if r == RLIMIT_AS as u32 => (RLIM_INFINITY, RLIM_INFINITY),
++            r if r == RLIMIT_FSIZE as u32 => (RLIM_INFINITY, RLIM_INFINITY),
++            _ => return Err(Errno(EINVAL)),
++        };
++        rlim.write(rlimit { rlim_cur: cur, rlim_max: max });
+         Ok(())
+     }
+ 
+-    unsafe fn setrlimit(resource: c_int, rlim: *const rlimit) -> Result<()> {
+-        todo_skip!(0, "setrlimit({}, {:p}): not implemented", resource, rlim);
+-        Err(Errno(EPERM))
++    unsafe fn setrlimit(resource: c_int, _rlim: *const rlimit) -> Result<()> {
++        if resource as u32 == RLIMIT_NOFILE as u32 || resource as u32 == RLIMIT_NPROC as u32 {
++            Err(Errno(EPERM))
++        } else {
++            // Other limits are silently ignored (compatibility)
++            Ok(())
++        }
      }
  
 -    fn getrusage(who: c_int, r_usage: Out<rusage>) -> Result<()> {
@@ -150,7 +198,7 @@ index 752339a..637b719 100644
          Ok(())
      }
  
-@@ -913,23 +887,7 @@ impl Pal for Sys {
+@@ -913,23 +897,7 @@ impl Pal for Sys {
          Ok(())
      }
  
@@ -175,7 +223,7 @@ index 752339a..637b719 100644
  
      unsafe fn munlock(addr: *const c_void, len: usize) -> Result<()> {
          // Redox never swaps
-@@ -953,16 +911,7 @@ impl Pal for Sys {
+@@ -953,16 +921,7 @@ impl Pal for Sys {
          Ok(())
      }
  
@@ -193,7 +241,7 @@ index 752339a..637b719 100644
  
      unsafe fn nanosleep(rqtp: *const timespec, rmtp: *mut timespec) -> Result<()> {
          let redox_rqtp = unsafe { redox_timespec::from(&*rqtp) };
-@@ -1220,9 +1169,19 @@ impl Pal for Sys {
+@@ -1220,9 +1179,19 @@ impl Pal for Sys {
      }
  
      unsafe fn setgroups(size: size_t, list: *const gid_t) -> Result<()> {

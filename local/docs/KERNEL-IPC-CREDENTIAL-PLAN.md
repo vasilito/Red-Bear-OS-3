@@ -2,6 +2,7 @@
 
 **Date:** 2026-04-30
 **Scope:** Kernel architecture, IPC infrastructure, credential syscalls, process isolation
+**Implementation status:** Phases K1-K2, K4 ✅ complete. Phases K3, K5 deferred.
 **Status:** This document is the canonical kernel + IPC plan, extending `local/docs/COMPREHENSIVE-OS-ASSESSMENT.md`
 
 ## 1. Purpose
