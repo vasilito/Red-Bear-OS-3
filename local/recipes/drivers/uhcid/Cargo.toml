@@ -1,0 +1,14 @@
+[package]
+name = "uhcid"
+version = "0.1.0"
+edition = "2024"
+description = "UHCI USB 1.1 host controller driver for Red Bear OS"
+
+[[bin]]
+name = "uhcid"
+path = "src/main.rs"
+
+[dependencies]
+usb-core = { path = "../../usb-core/source" }
+redox_syscall = "0.7"
+log = "0.4"

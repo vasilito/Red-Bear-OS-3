@@ -1,0 +1,19 @@
+[package]
+name = "driver-manager"
+version = "0.1.0"
+edition = "2024"
+description = "Device driver manager with deferred and async probing"
+
+[[bin]]
+name = "driver-manager"
+path = "src/main.rs"
+
+[dependencies]
+redox-driver-core = { path = "../../../drivers/redox-driver-core/source" }
+redox-driver-pci = { path = "../../../drivers/redox-driver-pci/source" }
+pcid_interface = { path = "../../../../../recipes/core/base/source/drivers/pcid", package = "pcid" }
+redox-scheme = "0.11"
+syscall = { package = "redox_syscall", version = "0.7" }
+log = "0.4"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }

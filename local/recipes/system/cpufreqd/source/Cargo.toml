@@ -1,0 +1,12 @@
+[package]
+name = "cpufreqd"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "cpufreqd"
+path = "src/main.rs"
+
+[dependencies]
+redox_syscall = "0.7"
+log = "0.4"

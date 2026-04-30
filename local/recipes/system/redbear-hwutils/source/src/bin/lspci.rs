@@ -104,6 +104,28 @@ fn lookup_quirks(
     lookup_pci_quirks(&info)
 }
 
+fn resolve_driver_params(loc: &str) -> Option<HashMap<String, String>> {
+    let base = format!("/tmp/redbear-driver-params/{}", loc);
+    let dir = std::fs::read_dir(&base).ok()?;
+    let mut params = HashMap::new();
+    for entry in dir.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        let value = match std::fs::read_to_string(entry.path()) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        params.insert(name, value.trim().to_string());
+    }
+    if params.is_empty() {
+        None
+    } else {
+        Some(params)
+    }
+}
+
 fn collect_runtime_irq_modes() -> HashMap<String, String> {
     let mut modes = HashMap::new();
     for dir in [
@@ -187,6 +209,13 @@ fn run() -> Result<(), String> {
         let loc_key = device.location.to_string().replace(':', "--");
         if let Some(mode) = runtime_modes.get(&loc_key) {
             print!(" runtime-mode: {mode}");
+        }
+        if let Some(params) = resolve_driver_params(&loc_key) {
+            let param_str: Vec<String> = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect();
+            print!(" driver-params: {}", param_str.join(" "));
         }
         println!();
     }

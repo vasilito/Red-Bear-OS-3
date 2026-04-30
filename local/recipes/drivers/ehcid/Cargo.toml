@@ -1,0 +1,14 @@
+[package]
+name = "ehcid"
+version = "0.1.0"
+edition = "2024"
+description = "EHCI USB 2.0 host controller driver for Red Bear OS"
+
+[[bin]]
+name = "ehcid"
+path = "src/main.rs"
+
+[dependencies]
+usb-core = { path = "../../usb-core/source" }
+redox_syscall = "0.7"
+log = "0.4"

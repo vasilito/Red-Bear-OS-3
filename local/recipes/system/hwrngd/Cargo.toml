@@ -1,0 +1,14 @@
+[package]
+name = "hwrngd"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "hwrngd"
+path = "source/src/main.rs"
+
+[dependencies]
+libredox = { version = "0.1", features = ["call", "std"] }
+log = { version = "0.4", features = ["std"] }
+redox-scheme = "0.11"
+syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }

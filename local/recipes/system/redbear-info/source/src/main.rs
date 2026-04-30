@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use redox_driver_sys::pci::{parse_device_info_from_config_space, InterruptSupport};
-use redox_driver_sys::quirks::{lookup_pci_quirks, PciQuirkFlags};
+use redox_driver_sys::pci::{InterruptSupport, parse_device_info_from_config_space};
+use redox_driver_sys::quirks::{PciQuirkFlags, lookup_pci_quirks};
+use serde_json::Value as JsonValue;
 use toml::Value;
 
 #[cfg(test)]
@@ -23,6 +24,8 @@ const RTL8125_DEVICE_ID: u16 = 0x8125;
 const VIRTIO_NET_VENDOR_ID: u16 = 0x1af4;
 const VIRTIO_NET_DEVICE_ID: u16 = 0x1000;
 const BLUETOOTH_STATUS_FRESHNESS_SECS: u64 = 90;
+const BOOT_TIMELINE_PATH: &str = "/tmp/redbear-boot-timeline.json";
+const DRIVER_PARAMS_ROOT: &str = "/tmp/redbear-driver-params";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputMode {
@@ -31,12 +34,16 @@ enum OutputMode {
     Test,
     Quirks,
     Probe,
+    Boot,
+    Device,
+    Health,
     Help,
 }
 
 struct Options {
     mode: OutputMode,
     verbose: bool,
+    device: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +177,58 @@ struct Report<'a> {
     network: NetworkReport,
     hardware: HardwareReport,
     integrations: Vec<IntegrationStatus<'a>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BootTimelineEntry {
+    ts: u128,
+    event: BootTimelineEvent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum BootTimelineEvent {
+    BusEnumerated {
+        bus: String,
+        count: usize,
+    },
+    Probe {
+        device: String,
+        driver: String,
+        status: BootProbeStatus,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BootProbeStatus {
+    Bound,
+    Deferred,
+    Failed,
+    Skipped,
+}
+
+struct DeviceStatusReport {
+    selector: String,
+    status: Option<BootProbeStatus>,
+    vendor_id: u16,
+    device_id: u16,
+    class_code: u8,
+    class_name: &'static str,
+    irq_mode: String,
+    driver: Option<String>,
+    parameters: Vec<(String, String)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HealthState {
+    Healthy,
+    Warning,
+    Critical,
+}
+
+struct HealthItem {
+    label: &'static str,
+    state: HealthState,
+    detail: String,
 }
 
 const INTEGRATIONS: &[IntegrationCheck] = &[
@@ -497,7 +556,29 @@ fn run() -> Result<(), String> {
         return Err("some Phase 1 services are not present".to_string());
     }
 
+    if options.mode == OutputMode::Boot {
+        let timeline = collect_boot_timeline(&runtime)?;
+        print_boot_timeline(&timeline);
+        return Ok(());
+    }
+
+    if options.mode == OutputMode::Device {
+        let requested = options
+            .device
+            .as_deref()
+            .ok_or_else(|| "missing device selector".to_string())?;
+        let report = collect_device_status(&runtime, requested)?;
+        print_device_status(&report);
+        return Ok(());
+    }
+
     let report = collect_report(&runtime);
+
+    if options.mode == OutputMode::Health {
+        let health = collect_health_items(&runtime, &report);
+        print_health_dashboard(&health);
+        return Ok(());
+    }
 
     match options.mode {
         OutputMode::Table => print_table(&report, options.verbose),
@@ -505,6 +586,9 @@ fn run() -> Result<(), String> {
         OutputMode::Test => print_tests(&report, options.verbose),
         OutputMode::Quirks => {}
         OutputMode::Probe => {}
+        OutputMode::Boot => {}
+        OutputMode::Device => {}
+        OutputMode::Health => {}
         OutputMode::Help => {}
     }
 
@@ -963,10 +1047,11 @@ fn collect_hardware(runtime: &Runtime, network: &NetworkReport) -> HardwareRepor
         }
     }
 
-    let rtl8125_present = rtl8125_present_from_pci || network
-        .network_schemes
-        .iter()
-        .any(|name| name.contains("rtl8125"));
+    let rtl8125_present = rtl8125_present_from_pci
+        || network
+            .network_schemes
+            .iter()
+            .any(|name| name.contains("rtl8125"));
 
     let virtio_net_present = runtime
         .read_dir_names("/scheme/pci")
@@ -1080,7 +1165,11 @@ fn collect_irq_runtime_reports(runtime: &Runtime) -> Vec<IrqRuntimeReport> {
         }
     }
 
-    reports.sort_by(|left, right| left.driver.cmp(&right.driver).then(left.device.cmp(&right.device)));
+    reports.sort_by(|left, right| {
+        left.driver
+            .cmp(&right.driver)
+            .then(left.device.cmp(&right.device))
+    });
     reports
 }
 
@@ -1163,7 +1252,9 @@ fn probe_firmware_active() -> bool {
     std::fs::read_dir("/scheme/")
         .map(|mut entries| {
             entries.any(|entry| {
-                entry.map_or(false, |entry| entry.file_name().to_string_lossy() == "firmware")
+                entry.map_or(false, |entry| {
+                    entry.file_name().to_string_lossy() == "firmware"
+                })
             })
         })
         .unwrap_or(false)
@@ -1292,9 +1383,7 @@ fn parse_pci_quirk(entry: &Value) -> Option<QuirkEntry> {
 fn parse_usb_quirk(entry: &Value) -> Option<UsbQuirkEntry> {
     let table = entry.as_table()?;
     let vendor = table.get("vendor").and_then(|value| format_hex(value, 4))?;
-    let product = table
-        .get("product")
-        .and_then(|value| format_hex(value, 4));
+    let product = table.get("product").and_then(|value| format_hex(value, 4));
     let flags = table.get("flags").and_then(parse_string_array)?;
 
     Some(UsbQuirkEntry {
@@ -1407,6 +1496,36 @@ fn control_surface_present(runtime: &Runtime, check: &IntegrationCheck, path: &s
     }
 }
 
+fn output_mode_flag(mode: OutputMode) -> &'static str {
+    match mode {
+        OutputMode::Table => "table output",
+        OutputMode::Json => "--json",
+        OutputMode::Test => "--test",
+        OutputMode::Quirks => "--quirks",
+        OutputMode::Probe => "--probe",
+        OutputMode::Boot => "--boot",
+        OutputMode::Device => "--device",
+        OutputMode::Health => "--health",
+        OutputMode::Help => "--help",
+    }
+}
+
+fn set_output_mode(
+    mode: &mut OutputMode,
+    next_mode: OutputMode,
+    next_flag: &str,
+) -> Result<(), String> {
+    if matches!(*mode, OutputMode::Table | OutputMode::Help) {
+        *mode = next_mode;
+        Ok(())
+    } else {
+        Err(format!(
+            "cannot combine {next_flag} with {}",
+            output_mode_flag(*mode)
+        ))
+    }
+}
+
 fn parse_args<I>(args: I) -> Result<Options, String>
 where
     I: IntoIterator<Item = String>,
@@ -1414,63 +1533,38 @@ where
     let mut mode = OutputMode::Table;
     let mut verbose = false;
 
-    for arg in args.into_iter().skip(1) {
+    let mut device = None;
+    let mut args = args.into_iter().skip(1).peekable();
+
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "-v" | "--verbose" => verbose = true,
-            "--json" => {
-                if mode == OutputMode::Test {
-                    return Err("cannot combine --json with --test".to_string());
+            "--json" => set_output_mode(&mut mode, OutputMode::Json, "--json")?,
+            "--test" => set_output_mode(&mut mode, OutputMode::Test, "--test")?,
+            "--quirks" => set_output_mode(&mut mode, OutputMode::Quirks, "--quirks")?,
+            "--probe" => set_output_mode(&mut mode, OutputMode::Probe, "--probe")?,
+            "--boot" => set_output_mode(&mut mode, OutputMode::Boot, "--boot")?,
+            "--health" => set_output_mode(&mut mode, OutputMode::Health, "--health")?,
+            "--device" => {
+                set_output_mode(&mut mode, OutputMode::Device, "--device")?;
+                let Some(value) = args.next() else {
+                    return Err("--device requires a PCI address".to_string());
+                };
+                if value.starts_with('-') {
+                    return Err("--device requires a PCI address".to_string());
                 }
-                if mode == OutputMode::Quirks {
-                    return Err("cannot combine --json with --quirks".to_string());
-                }
-                if mode == OutputMode::Probe {
-                    return Err("cannot combine --json with --probe".to_string());
-                }
-                mode = OutputMode::Json;
-            }
-            "--test" => {
-                if mode == OutputMode::Json {
-                    return Err("cannot combine --test with --json".to_string());
-                }
-                if mode == OutputMode::Quirks {
-                    return Err("cannot combine --test with --quirks".to_string());
-                }
-                if mode == OutputMode::Probe {
-                    return Err("cannot combine --test with --probe".to_string());
-                }
-                mode = OutputMode::Test;
-            }
-            "--quirks" => {
-                if mode == OutputMode::Json {
-                    return Err("cannot combine --quirks with --json".to_string());
-                }
-                if mode == OutputMode::Test {
-                    return Err("cannot combine --quirks with --test".to_string());
-                }
-                if mode == OutputMode::Probe {
-                    return Err("cannot combine --quirks with --probe".to_string());
-                }
-                mode = OutputMode::Quirks;
-            }
-            "--probe" => {
-                if mode == OutputMode::Json {
-                    return Err("cannot combine --probe with --json".to_string());
-                }
-                if mode == OutputMode::Test {
-                    return Err("cannot combine --probe with --test".to_string());
-                }
-                if mode == OutputMode::Quirks {
-                    return Err("cannot combine --probe with --quirks".to_string());
-                }
-                mode = OutputMode::Probe;
+                device = Some(value);
             }
             "-h" | "--help" => mode = OutputMode::Help,
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
 
-    Ok(Options { mode, verbose })
+    Ok(Options {
+        mode,
+        verbose,
+        device,
+    })
 }
 
 fn print_table(report: &Report<'_>, verbose: bool) {
@@ -1831,6 +1925,8 @@ fn print_tests(report: &Report<'_>, verbose: bool) {
     println!();
     println!("  redbear-info --json");
     println!("  redbear-info --verbose");
+    println!("  redbear-info --boot");
+    println!("  redbear-info --health");
     println!("  netctl status");
     println!("  lspci");
     println!("  lsusb");
@@ -2230,14 +2326,18 @@ fn print_json(report: &Report<'_>) {
 }
 
 fn print_help() {
-    println!("Usage: redbear-info [--verbose|-v] [--json|--test|--quirks|--probe]");
+    println!(
+        "Usage: redbear-info [--verbose|-v] [--json|--test|--quirks|--probe|--boot|--device <pci>|--health]"
+    );
     println!();
     println!("Passive runtime integration report for Red Bear OS.");
     println!();
     println!("This tool distinguishes:");
     println!("  present     artifact or config exists");
     println!("  active      live runtime surface exists");
-    println!("  functional  read-only runtime probe succeeded (table/test output; --probe mode uses PRESENT/ABSENT)");
+    println!(
+        "  functional  read-only runtime probe succeeded (table/test output; --probe mode uses PRESENT/ABSENT)"
+    );
     println!();
     println!("Connected means the local networking stack has a configured address.");
     println!("It does not prove internet reachability.");
@@ -2247,7 +2347,12 @@ fn print_help() {
     println!("      --json     Print structured JSON");
     println!("      --test     Print suggested diagnostic commands");
     println!("      --quirks   Print configured hardware quirk data");
-    println!("      --probe    Probe Phase 1 service liveness (evdevd, udev-shim, firmware-loader, drm, time)");
+    println!(
+        "      --probe    Probe Phase 1 service liveness (evdevd, udev-shim, firmware-loader, drm, time)"
+    );
+    println!("      --boot     Show device-init boot timeline");
+    println!("      --device   Show per-device runtime status (example: pci/00:02:0)");
+    println!("      --health   Show subsystem health dashboard");
     println!("  -h, --help     Show this help message");
 }
 
@@ -2365,6 +2470,505 @@ fn read_prefix_bytes(runtime: &Runtime, path: &str, max_len: usize) -> Option<Ve
     let read = file.read(&mut bytes).ok()?;
     bytes.truncate(read);
     Some(bytes)
+}
+
+fn read_all_bytes(runtime: &Runtime, path: &str) -> Option<Vec<u8>> {
+    fs::read(runtime.resolve(path)).ok()
+}
+
+impl BootProbeStatus {
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "bound" => Some(Self::Bound),
+            "deferred" => Some(Self::Deferred),
+            "failed" => Some(Self::Failed),
+            "skipped" => Some(Self::Skipped),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Bound => "bound",
+            Self::Deferred => "deferred",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+fn collect_boot_timeline(runtime: &Runtime) -> Result<Vec<BootTimelineEntry>, String> {
+    let content = runtime
+        .read_to_string(BOOT_TIMELINE_PATH)
+        .ok_or_else(|| format!("boot timeline not found at {BOOT_TIMELINE_PATH}"))?;
+
+    let mut entries = Vec::new();
+
+    for (index, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let value: JsonValue = serde_json::from_str(line)
+            .map_err(|err| format!("invalid boot timeline entry {}: {err}", index + 1))?;
+        let ts = value
+            .get("ts")
+            .and_then(JsonValue::as_u64)
+            .map(u128::from)
+            .ok_or_else(|| format!("boot timeline entry {} is missing ts", index + 1))?;
+        let event_name = value
+            .get("event")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| format!("boot timeline entry {} is missing event", index + 1))?;
+
+        let event = match event_name {
+            "bus_enumerated" => BootTimelineEvent::BusEnumerated {
+                bus: value
+                    .get("bus")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| format!("boot timeline entry {} is missing bus", index + 1))?
+                    .to_string(),
+                count: value
+                    .get("count")
+                    .and_then(JsonValue::as_u64)
+                    .map(|value| value as usize)
+                    .ok_or_else(|| format!("boot timeline entry {} is missing count", index + 1))?,
+            },
+            "probe" => BootTimelineEvent::Probe {
+                device: value
+                    .get("device")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| format!("boot timeline entry {} is missing device", index + 1))?
+                    .to_string(),
+                driver: value
+                    .get("driver")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| format!("boot timeline entry {} is missing driver", index + 1))?
+                    .to_string(),
+                status: value
+                    .get("status")
+                    .and_then(JsonValue::as_str)
+                    .and_then(BootProbeStatus::from_str)
+                    .ok_or_else(|| {
+                        format!("boot timeline entry {} is missing status", index + 1)
+                    })?,
+            },
+            _ => continue,
+        };
+
+        entries.push(BootTimelineEntry { ts, event });
+    }
+
+    entries.sort_by_key(|entry| entry.ts);
+    Ok(entries)
+}
+
+fn print_boot_timeline(entries: &[BootTimelineEntry]) {
+    println!("Boot Timeline:");
+
+    if entries.is_empty() {
+        println!("  no timeline data recorded");
+        return;
+    }
+
+    let first_ts = entries.first().map(|entry| entry.ts).unwrap_or(0);
+    let mut bound = 0usize;
+    let mut deferred = 0usize;
+    let mut failed = 0usize;
+
+    for entry in entries {
+        let delta = entry.ts.saturating_sub(first_ts);
+        match &entry.event {
+            BootTimelineEvent::BusEnumerated { bus, count } => {
+                println!("[{delta:>4}ms] bus {bus} enumerated {count} device(s)");
+            }
+            BootTimelineEvent::Probe {
+                device,
+                driver,
+                status,
+            } => {
+                match status {
+                    BootProbeStatus::Bound => bound += 1,
+                    BootProbeStatus::Deferred => deferred += 1,
+                    BootProbeStatus::Failed => failed += 1,
+                    BootProbeStatus::Skipped => {}
+                }
+                println!(
+                    "[{delta:>4}ms] probed {} -> {} ({})",
+                    format_timeline_device(device),
+                    driver,
+                    status.as_str()
+                );
+            }
+        }
+    }
+
+    println!("Total: {bound} bound, {deferred} deferred, {failed} failed");
+}
+
+fn collect_device_status(runtime: &Runtime, requested: &str) -> Result<DeviceStatusReport, String> {
+    let location = parse_requested_pci_location(requested)
+        .ok_or_else(|| format!("invalid PCI device selector: {requested}"))?;
+    let scheme_entry = format_scheme_pci_entry(&location);
+    let config_path = format!("/scheme/pci/{scheme_entry}/config");
+    let bytes = read_all_bytes(runtime, &config_path)
+        .ok_or_else(|| format!("device config not found at {config_path}"))?;
+    if bytes.len() < 64 {
+        return Err(format!("device config at {config_path} is too short"));
+    }
+
+    let info = parse_device_info_from_config_space(location, &bytes)
+        .ok_or_else(|| format!("failed to parse PCI config at {config_path}"))?;
+    let params = collect_driver_params(runtime, &scheme_entry);
+    let driver = params
+        .iter()
+        .find_map(|(key, value)| (key == "driver" && !value.is_empty()).then(|| value.clone()));
+    let parameters = params
+        .into_iter()
+        .filter(|(key, _)| key != "driver")
+        .collect::<Vec<_>>();
+    let runtime_device = format_runtime_pci_location(&location);
+    let irq_mode = collect_irq_runtime_reports(runtime)
+        .into_iter()
+        .find(|report| report.device == runtime_device)
+        .map(|report| format_irq_mode(&report.mode))
+        .unwrap_or_else(|| format_irq_mode(info.interrupt_support().as_str()));
+    let status = latest_boot_status_for_device(runtime, &location);
+
+    Ok(DeviceStatusReport {
+        selector: format_device_selector(&location),
+        status,
+        vendor_id: info.vendor_id,
+        device_id: info.device_id,
+        class_code: info.class_code,
+        class_name: pci_class_name(info.class_code),
+        irq_mode,
+        driver,
+        parameters,
+    })
+}
+
+fn print_device_status(report: &DeviceStatusReport) {
+    println!("Device: {}", report.selector);
+    println!(
+        "  Status: {}",
+        report
+            .status
+            .map(BootProbeStatus::as_str)
+            .unwrap_or("unknown")
+    );
+    println!(
+        "  Vendor: 0x{:04x}  Device: 0x{:04x}",
+        report.vendor_id, report.device_id
+    );
+    println!(
+        "  Class: 0x{:02x} ({})",
+        report.class_code, report.class_name
+    );
+    println!("  IRQ mode: {}", report.irq_mode);
+    println!(
+        "  Driver: {}",
+        report.driver.as_deref().unwrap_or("unknown")
+    );
+    println!(
+        "  Parameters: {}",
+        if report.parameters.is_empty() {
+            "none".to_string()
+        } else {
+            report
+                .parameters
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+    );
+}
+
+fn collect_health_items(runtime: &Runtime, report: &Report<'_>) -> Vec<HealthItem> {
+    let mut items = Vec::new();
+
+    items.push(HealthItem {
+        label: "PCI scheme",
+        state: if runtime.is_dir("/scheme/pci") {
+            HealthState::Healthy
+        } else {
+            HealthState::Critical
+        },
+        detail: "/scheme/pci".to_string(),
+    });
+
+    let usb_scheme_present = runtime.is_dir("/scheme/usb") || report.hardware.usb_controllers > 0;
+    items.push(HealthItem {
+        label: "USB scheme",
+        state: if usb_scheme_present {
+            HealthState::Healthy
+        } else if runtime.exists("/usr/lib/drivers/xhcid") {
+            HealthState::Warning
+        } else {
+            HealthState::Critical
+        },
+        detail: if runtime.is_dir("/scheme/usb") {
+            "/scheme/usb".to_string()
+        } else if report.hardware.usb_controllers > 0 {
+            format!(
+                "{} usb.* controller scheme(s)",
+                report.hardware.usb_controllers
+            )
+        } else {
+            "no USB runtime surface".to_string()
+        },
+    });
+
+    items.push(HealthItem {
+        label: "ACPI scheme",
+        state: if runtime.is_dir("/scheme/acpi") {
+            HealthState::Healthy
+        } else {
+            HealthState::Critical
+        },
+        detail: "/scheme/acpi".to_string(),
+    });
+
+    items.push(HealthItem {
+        label: "DRM scheme",
+        state: if runtime.is_dir("/scheme/drm") && report.hardware.drm_cards > 0 {
+            HealthState::Healthy
+        } else if runtime.is_dir("/scheme/drm") {
+            HealthState::Warning
+        } else {
+            HealthState::Critical
+        },
+        detail: if report.hardware.drm_cards > 0 {
+            format!("/scheme/drm ({} card(s))", report.hardware.drm_cards)
+        } else {
+            "/scheme/drm".to_string()
+        },
+    });
+
+    items.push(HealthItem {
+        label: "Network",
+        state: if report.network.connected {
+            HealthState::Healthy
+        } else if matches!(
+            report.network.state,
+            ProbeState::Active | ProbeState::Functional
+        ) {
+            HealthState::Warning
+        } else {
+            HealthState::Critical
+        },
+        detail: if report.network.connected {
+            match report.network.interface.as_deref() {
+                Some(interface) => format!("configured address on {interface}"),
+                None => "configured address present".to_string(),
+            }
+        } else if runtime.exists("/scheme/netcfg") {
+            "network stack visible, not configured".to_string()
+        } else {
+            "dhcpd/netcfg not active".to_string()
+        },
+    });
+
+    items.push(HealthItem {
+        label: "Wi-Fi",
+        state: if !report.network.wifi_interfaces.is_empty() {
+            HealthState::Healthy
+        } else if report.network.wifi_control_state != ProbeState::Absent {
+            HealthState::Warning
+        } else {
+            HealthState::Critical
+        },
+        detail: if !report.network.wifi_interfaces.is_empty() {
+            report.network.wifi_interfaces.join(", ")
+        } else if report.network.wifi_control_state != ProbeState::Absent {
+            "no adapter".to_string()
+        } else {
+            "not running".to_string()
+        },
+    });
+
+    items.push(HealthItem {
+        label: "Bluetooth",
+        state: if !report.network.bluetooth_adapters.is_empty() {
+            HealthState::Healthy
+        } else if report.network.bluetooth_transport_state != ProbeState::Absent
+            || report.network.bluetooth_control_state != ProbeState::Absent
+        {
+            HealthState::Warning
+        } else {
+            HealthState::Critical
+        },
+        detail: if !report.network.bluetooth_adapters.is_empty() {
+            report.network.bluetooth_adapters.join(", ")
+        } else if report.network.bluetooth_transport_state != ProbeState::Absent
+            || report.network.bluetooth_control_state != ProbeState::Absent
+        {
+            "no adapter".to_string()
+        } else {
+            "not running".to_string()
+        },
+    });
+
+    items
+}
+
+fn print_health_dashboard(items: &[HealthItem]) {
+    println!("Health Dashboard:");
+    for item in items {
+        println!(
+            "[{}] {:<12} ({})",
+            health_marker(item.state),
+            item.label,
+            item.detail
+        );
+    }
+}
+
+fn health_marker(state: HealthState) -> &'static str {
+    match state {
+        HealthState::Healthy => "✓",
+        HealthState::Warning => "⚠",
+        HealthState::Critical => "✗",
+    }
+}
+
+fn format_timeline_device(device: &str) -> String {
+    parse_requested_pci_location(device)
+        .map(|location| {
+            format!(
+                "{:02x}.{:02x}.{}",
+                location.bus, location.device, location.function
+            )
+        })
+        .unwrap_or_else(|| {
+            device
+                .trim_start_matches("pci/")
+                .replace(':', ".")
+                .replace("..", ".")
+        })
+}
+
+fn latest_boot_status_for_device(
+    runtime: &Runtime,
+    location: &redox_driver_sys::pci::PciLocation,
+) -> Option<BootProbeStatus> {
+    collect_boot_timeline(runtime)
+        .ok()?
+        .iter()
+        .rev()
+        .find_map(|entry| match &entry.event {
+            BootTimelineEvent::Probe { device, status, .. }
+                if parse_requested_pci_location(device).as_ref() == Some(location) =>
+            {
+                Some(*status)
+            }
+            _ => None,
+        })
+}
+
+fn parse_requested_pci_location(value: &str) -> Option<redox_driver_sys::pci::PciLocation> {
+    let raw = value.trim().trim_start_matches("pci/");
+
+    if raw.contains("--") {
+        return parse_scheme_pci_location(raw);
+    }
+
+    if raw.matches(':').count() == 2 && raw.contains('.') {
+        let (segment, rest) = raw.split_once(':')?;
+        let (bus, rest) = rest.split_once(':')?;
+        let (device, function) = rest.split_once('.')?;
+        return Some(redox_driver_sys::pci::PciLocation {
+            segment: u16::from_str_radix(segment, 16).ok()?,
+            bus: u8::from_str_radix(bus, 16).ok()?,
+            device: u8::from_str_radix(device, 16).ok()?,
+            function: u8::from_str_radix(function, 16).ok()?,
+        });
+    }
+
+    let normalized = raw.replace('.', ":");
+    let mut parts = normalized.split(':');
+    let bus = u8::from_str_radix(parts.next()?, 16).ok()?;
+    let device = u8::from_str_radix(parts.next()?, 16).ok()?;
+    let function = u8::from_str_radix(parts.next()?, 16).ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+
+    Some(redox_driver_sys::pci::PciLocation {
+        segment: 0,
+        bus,
+        device,
+        function,
+    })
+}
+
+fn format_scheme_pci_entry(location: &redox_driver_sys::pci::PciLocation) -> String {
+    format!(
+        "{:04x}--{:02x}--{:02x}.{}",
+        location.segment, location.bus, location.device, location.function
+    )
+}
+
+fn format_runtime_pci_location(location: &redox_driver_sys::pci::PciLocation) -> String {
+    format!(
+        "{:04x}:{:02x}:{:02x}.{}",
+        location.segment, location.bus, location.device, location.function
+    )
+}
+
+fn format_device_selector(location: &redox_driver_sys::pci::PciLocation) -> String {
+    format!(
+        "pci/{:02x}:{:02x}:{}",
+        location.bus, location.device, location.function
+    )
+}
+
+fn collect_driver_params(runtime: &Runtime, scheme_entry: &str) -> Vec<(String, String)> {
+    let dir = format!("{DRIVER_PARAMS_ROOT}/{scheme_entry}");
+    runtime
+        .read_dir_names(&dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|name| {
+            read_trimmed(runtime, &format!("{dir}/{name}")).map(|value| (name, value))
+        })
+        .collect()
+}
+
+fn format_irq_mode(value: &str) -> String {
+    match value {
+        "msix" => "msi-x".to_string(),
+        "msi_or_msix" => "msi/msi-x".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn pci_class_name(class_code: u8) -> &'static str {
+    match class_code {
+        0x00 => "Unclassified",
+        0x01 => "Mass storage controller",
+        0x02 => "Network controller",
+        0x03 => "Display controller",
+        0x04 => "Multimedia controller",
+        0x05 => "Memory controller",
+        0x06 => "Bridge device",
+        0x07 => "Communication controller",
+        0x08 => "System peripheral",
+        0x09 => "Input device controller",
+        0x0a => "Docking station",
+        0x0b => "Processor",
+        0x0c => "Serial bus controller",
+        0x0d => "Wireless controller",
+        0x0e => "Intelligent controller",
+        0x0f => "Satellite communication controller",
+        0x10 => "Encryption controller",
+        0x11 => "Signal processing controller",
+        0x12 => "Processing accelerator",
+        0x13 => "Non-essential instrumentation",
+        _ => "Unknown class",
+    }
 }
 
 fn parse_default_route(routes: &str) -> Option<String> {
@@ -2590,9 +3194,8 @@ fn probe_serio_surface(
     _hardware: &HardwareReport,
     _check: &IntegrationCheck,
 ) -> Option<String> {
-    (runtime.exists("/scheme/serio/0") && runtime.exists("/scheme/serio/1")).then(|| {
-        "serio keyboard and mouse nodes are visible for PS/2 proof".to_string()
-    })
+    (runtime.exists("/scheme/serio/0") && runtime.exists("/scheme/serio/1"))
+        .then(|| "serio keyboard and mouse nodes are visible for PS/2 proof".to_string())
 }
 
 fn probe_time_surface(
@@ -3351,7 +3954,7 @@ mod tests {
     fn rtl8125_hardware_detection_parses_pci_config() {
         let root = temp_root();
         create_dir(&root, "/scheme/pci/0000--02--00.0");
-        let mut config = [0u8; 64];
+        let mut config = [0u8; 68];
         config[0x00] = (RTL8125_VENDOR_ID & 0xff) as u8;
         config[0x01] = (RTL8125_VENDOR_ID >> 8) as u8;
         config[0x02] = (RTL8125_DEVICE_ID & 0xff) as u8;
@@ -3374,7 +3977,7 @@ mod tests {
     fn virtio_net_hardware_detection_parses_pci_config() {
         let root = temp_root();
         create_dir(&root, "/scheme/pci/0000--00--03.0");
-        let mut config = [0u8; 64];
+        let mut config = [0u8; 68];
         config[0x00] = (VIRTIO_NET_VENDOR_ID & 0xff) as u8;
         config[0x01] = (VIRTIO_NET_VENDOR_ID >> 8) as u8;
         config[0x02] = (VIRTIO_NET_DEVICE_ID & 0xff) as u8;
@@ -3496,7 +4099,10 @@ mod tests {
         write_file(&root, "/usr/bin/redbear-upower", "");
 
         let report = collect_report(&Runtime::from_root(root.clone()));
-        assert_eq!(integration_state(&report, "redbear-upower"), ProbeState::Present);
+        assert_eq!(
+            integration_state(&report, "redbear-upower"),
+            ProbeState::Present
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -3509,7 +4115,10 @@ mod tests {
         create_dir(&root, "/scheme/acpi/power/batteries");
 
         let report = collect_report(&Runtime::from_root(root.clone()));
-        assert_eq!(integration_state(&report, "redbear-upower"), ProbeState::Functional);
+        assert_eq!(
+            integration_state(&report, "redbear-upower"),
+            ProbeState::Functional
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -3586,12 +4195,201 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_accepts_probe_mode() {
-        let options = parse_args([
+    fn collect_boot_timeline_reads_probe_events() {
+        let root = temp_root();
+        write_file(
+            &root,
+            BOOT_TIMELINE_PATH,
+            concat!(
+                "{\"ts\":1000,\"event\":\"bus_enumerated\",\"bus\":\"pci\",\"count\":5}\n",
+                "{\"ts\":1120,\"event\":\"probe\",\"device\":\"pci/00:02:0\",\"driver\":\"redox-drm\",\"status\":\"bound\"}\n",
+                "{\"ts\":1750,\"event\":\"probe\",\"device\":\"pci/00:19:0\",\"driver\":\"e1000d\",\"status\":\"deferred\"}\n"
+            ),
+        );
+
+        let timeline = collect_boot_timeline(&Runtime::from_root(root.clone())).unwrap();
+        assert_eq!(timeline.len(), 3);
+        assert!(matches!(
+            timeline[0].event,
+            BootTimelineEvent::BusEnumerated { ref bus, count } if bus == "pci" && count == 5
+        ));
+        assert!(matches!(
+            timeline[1].event,
+            BootTimelineEvent::Probe {
+                ref driver,
+                status: BootProbeStatus::Bound,
+                ..
+            } if driver == "redox-drm"
+        ));
+        assert_eq!(format_timeline_device("pci/00:02:0"), "00.02.0");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_device_status_reads_config_params_and_irq_mode() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/pci/0000--00--02.0");
+        create_dir(&root, "/proc/123");
+        let mut config = [0u8; 68];
+        config[0x00] = 0x86;
+        config[0x01] = 0x80;
+        config[0x02] = 0x34;
+        config[0x03] = 0x12;
+        config[0x0b] = 0x03;
+        config[0x0a] = 0x00;
+        config[0x09] = 0x00;
+        config[0x0e] = 0x00;
+        config[0x06] = 0x10;
+        config[0x34] = 0x40;
+        config[0x40] = 0x11;
+        fs::write(root.join("scheme/pci/0000--00--02.0/config"), config).unwrap();
+        write_file(
+            &root,
+            "/tmp/redbear-driver-params/0000--00--02.0/driver",
+            "redox-drm\n",
+        );
+        write_file(
+            &root,
+            "/tmp/redbear-driver-params/0000--00--02.0/enabled",
+            "true\n",
+        );
+        write_file(
+            &root,
+            "/tmp/redbear-driver-params/0000--00--02.0/priority",
+            "60\n",
+        );
+        write_file(
+            &root,
+            "/tmp/redbear-irq-report/redox-drm.env",
+            "driver=redox-drm\npid=123\ndevice=0000:00:02.0\nmode=msix\nreason=driver_selected_interrupt_delivery\n",
+        );
+        write_file(
+            &root,
+            BOOT_TIMELINE_PATH,
+            concat!(
+                "{\"ts\":1000,\"event\":\"probe\",\"device\":\"pci/00:02:0\",\"driver\":\"redox-drm\",\"status\":\"deferred\"}\n",
+                "{\"ts\":1200,\"event\":\"probe\",\"device\":\"0000:00:02.0\",\"driver\":\"redox-drm\",\"status\":\"bound\"}\n"
+            ),
+        );
+
+        let report =
+            collect_device_status(&Runtime::from_root(root.clone()), "pci/00:02:0").unwrap();
+        assert_eq!(report.selector, "pci/00:02:0");
+        assert_eq!(report.status, Some(BootProbeStatus::Bound));
+        assert_eq!(report.vendor_id, 0x8086);
+        assert_eq!(report.device_id, 0x1234);
+        assert_eq!(report.class_name, "Display controller");
+        assert_eq!(report.irq_mode, "msi-x");
+        assert_eq!(report.driver.as_deref(), Some("redox-drm"));
+        assert_eq!(
+            report.parameters,
+            vec![
+                ("enabled".to_string(), "true".to_string()),
+                ("priority".to_string(), "60".to_string())
+            ]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_device_status_falls_back_to_config_irq_mode_without_runtime_report() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/pci/0000--00--02.0");
+        let mut config = [0u8; 68];
+        config[0x00] = 0x86;
+        config[0x01] = 0x80;
+        config[0x02] = 0x34;
+        config[0x03] = 0x12;
+        config[0x0b] = 0x03;
+        config[0x0a] = 0x00;
+        config[0x09] = 0x00;
+        config[0x0e] = 0x00;
+        config[0x06] = 0x10;
+        config[0x34] = 0x40;
+        config[0x40] = 0x11;
+        fs::write(root.join("scheme/pci/0000--00--02.0/config"), config).unwrap();
+
+        let report =
+            collect_device_status(&Runtime::from_root(root.clone()), "pci/00:02:0").unwrap();
+        assert_eq!(report.irq_mode, "msi-x");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn collect_health_items_reports_scheme_and_adapter_gaps() {
+        let root = temp_root();
+        create_dir(&root, "/scheme/pci");
+        create_dir(&root, "/scheme/acpi");
+        create_dir(&root, "/scheme/drm/card0");
+        create_dir(&root, "/scheme/usb");
+        create_dir(&root, "/scheme/netcfg");
+        create_dir(&root, "/scheme/wifictl");
+
+        let runtime = Runtime::from_root(root.clone());
+        let report = collect_report(&runtime);
+        let health = collect_health_items(&runtime, &report);
+
+        assert!(
+            health
+                .iter()
+                .any(|item| { item.label == "PCI scheme" && item.state == HealthState::Healthy })
+        );
+        assert!(health.iter().any(|item| {
+            item.label == "Wi-Fi"
+                && item.state == HealthState::Warning
+                && item.detail == "no adapter"
+        }));
+        assert!(health.iter().any(|item| {
+            item.label == "Bluetooth"
+                && item.state == HealthState::Critical
+                && item.detail == "not running"
+        }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parse_args_accepts_boot_health_and_device_modes() {
+        let boot = parse_args(["redbear-info".to_string(), "--boot".to_string()]).unwrap();
+        assert!(matches!(boot.mode, OutputMode::Boot));
+
+        let health = parse_args(["redbear-info".to_string(), "--health".to_string()]).unwrap();
+        assert!(matches!(health.mode, OutputMode::Health));
+
+        let device = parse_args([
             "redbear-info".to_string(),
-            "--probe".to_string(),
+            "--device".to_string(),
+            "pci/00:02:0".to_string(),
         ])
         .unwrap();
+        assert!(matches!(device.mode, OutputMode::Device));
+        assert_eq!(device.device.as_deref(), Some("pci/00:02:0"));
+    }
+
+    #[test]
+    fn parse_args_rejects_device_without_value_and_with_other_modes() {
+        assert_eq!(
+            parse_args(["redbear-info".to_string(), "--device".to_string()]).err(),
+            Some("--device requires a PCI address".to_string())
+        );
+        assert_eq!(
+            parse_args([
+                "redbear-info".to_string(),
+                "--json".to_string(),
+                "--device".to_string(),
+                "pci/00:02:0".to_string(),
+            ])
+            .err(),
+            Some("cannot combine --device with --json".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_probe_mode() {
+        let options = parse_args(["redbear-info".to_string(), "--probe".to_string()]).unwrap();
 
         assert!(matches!(options.mode, OutputMode::Probe));
     }

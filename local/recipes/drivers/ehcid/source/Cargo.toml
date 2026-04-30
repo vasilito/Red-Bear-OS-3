@@ -1,0 +1,20 @@
+[package]
+name = "ehcid"
+version = "0.1.0"
+edition = "2024"
+description = "EHCI USB 2.0 host controller driver for Red Bear OS"
+
+[[bin]]
+name = "ehcid"
+path = "src/main.rs"
+
+[dependencies]
+usb-core = { path = "../../usb-core/source" }
+libredox = { version = "0.1", features = ["call", "std"] }
+log = { version = "0.4", features = ["std"] }
+redox-driver-sys = { path = "../../redox-driver-sys/source" }
+redox-scheme = "0.11"
+syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }
+
+[target.'cfg(target_os = "redox")'.dependencies]
+redox-driver-sys = { path = "../../redox-driver-sys/source", features = ["redox"] }

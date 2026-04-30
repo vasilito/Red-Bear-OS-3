@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use log::warn;
 use redox_scheme::scheme::SchemeSync;
@@ -12,6 +13,7 @@ use crate::blob::FirmwareRegistry;
 
 #[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 const SCHEME_ROOT_ID: usize = 1;
+const FIRMWARE_LOAD_TIMEOUT_MS: u64 = 5000;
 
 #[cfg_attr(not(target_os = "redox"), allow(dead_code))]
 struct Handle {
@@ -94,15 +96,22 @@ impl SchemeSync for FirmwareScheme {
 
         let key = resolve_key(path).ok_or(Error::new(EISDIR))?;
 
-        if !self.registry.contains(&key) {
-            warn!("firmware-loader: firmware not found: {}", path);
-            return Err(Error::new(ENOENT));
-        }
-
-        let data = self.registry.load(&key).map_err(|e| {
-            warn!("firmware-loader: failed to load firmware '{}': {}", key, e);
-            Error::new(ENOENT)
-        })?;
+        let started_at = Instant::now();
+        let data = self
+            .registry
+            .load_with_timeout(
+                &key,
+                started_at,
+                std::time::Duration::from_millis(FIRMWARE_LOAD_TIMEOUT_MS),
+            )
+            .map_err(|e| {
+                warn!("firmware-loader: failed to load firmware '{}': {}", key, e);
+                match e {
+                    crate::blob::BlobError::LoadTimeout { .. } => Error::new(ETIMEDOUT),
+                    crate::blob::BlobError::ReadError { .. } => Error::new(EIO),
+                    _ => Error::new(ENOENT),
+                }
+            })?;
 
         let id = self.next_id;
         self.next_id += 1;
@@ -172,7 +181,7 @@ impl SchemeSync for FirmwareScheme {
         stat.st_mode = MODE_FILE | 0o444;
         stat.st_size = handle.data.len() as u64;
         stat.st_blksize = 4096;
-        stat.st_blocks = (handle.data.len() as u64 + 511) / 512;
+        stat.st_blocks = (handle.data.len() as u64).div_ceil(512);
         stat.st_nlink = 1;
 
         Ok(())
@@ -386,9 +395,7 @@ mod tests {
         let mut scheme = FirmwareScheme::new(registry);
         let ctx = test_ctx();
 
-        let err = scheme
-            .openat(SCHEME_ROOT_ID, "", 0, 0, &ctx)
-            .unwrap_err();
+        let err = scheme.openat(SCHEME_ROOT_ID, "", 0, 0, &ctx).unwrap_err();
         assert_eq!(err.errno, EISDIR);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -399,9 +406,7 @@ mod tests {
         let mut scheme = FirmwareScheme::new(registry);
         let ctx = test_ctx();
 
-        let err = scheme
-            .openat(999, "test-blob.bin", 0, 0, &ctx)
-            .unwrap_err();
+        let err = scheme.openat(999, "test-blob.bin", 0, 0, &ctx).unwrap_err();
         assert_eq!(err.errno, EACCES);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -641,9 +646,7 @@ mod tests {
         let id = open_test_blob(&mut scheme);
         let ctx = test_ctx();
 
-        let flags = scheme
-            .fevent(id, EventFlags::empty(), &ctx)
-            .unwrap();
+        let flags = scheme.fevent(id, EventFlags::empty(), &ctx).unwrap();
         assert_eq!(flags, EventFlags::empty());
         let _ = fs::remove_dir_all(&dir);
     }

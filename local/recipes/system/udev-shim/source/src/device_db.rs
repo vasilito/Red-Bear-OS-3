@@ -102,6 +102,29 @@ impl DeviceInfo {
     pub fn is_input_mouse(&self) -> bool {
         self.input_kind == Some(InputKind::Mouse)
     }
+
+    pub fn kernel_name(&self) -> Option<&str> {
+        self.devnode
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+    }
+
+    pub fn storage_model(&self) -> String {
+        if self.name.is_empty() {
+            format!("storage-{:04x}-{:04x}", self.vendor_id, self.device_id)
+        } else {
+            self.name.clone()
+        }
+    }
+
+    pub fn storage_serial(&self) -> String {
+        if self.is_pci {
+            format!("0000:{:02x}:{:02x}.{}", self.bus, self.dev, self.func)
+        } else {
+            self.id_path()
+        }
+    }
 }
 
 pub fn classify_pci_device(bus: u8, dev: u8, func: u8) -> DeviceInfo {
@@ -486,6 +509,10 @@ pub fn device_properties(dev: &DeviceInfo) -> Vec<(String, String)> {
         props.push(("DEVNAME".to_string(), dev.devnode.clone()));
     }
 
+    if let Some(kernel_name) = dev.kernel_name() {
+        props.push(("KERNEL".to_string(), kernel_name.to_string()));
+    }
+
     let id_path = dev.id_path();
     if !id_path.is_empty() {
         props.push(("ID_PATH".to_string(), id_path));
@@ -517,6 +544,21 @@ pub fn device_properties(dev: &DeviceInfo) -> Vec<(String, String)> {
             }
             _ => {}
         }
+    }
+
+    match dev.subsystem {
+        Subsystem::Network => {
+            if let Some(interface_name) = dev.kernel_name() {
+                props.push(("INTERFACE".to_string(), interface_name.to_string()));
+                props.push(("ID_NET_NAME_PATH".to_string(), interface_name.to_string()));
+            }
+        }
+        Subsystem::Storage => {
+            props.push(("DEVTYPE".to_string(), "disk".to_string()));
+            props.push(("ID_MODEL".to_string(), dev.storage_model()));
+            props.push(("ID_SERIAL".to_string(), dev.storage_serial()));
+        }
+        _ => {}
     }
 
     props

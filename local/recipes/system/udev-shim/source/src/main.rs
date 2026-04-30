@@ -1,15 +1,20 @@
+mod naming;
 mod device_db;
 mod scheme;
 
 use std::env;
 use std::os::fd::RawFd;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use log::{error, info, LevelFilter, Metadata, Record};
+use log::{error, info, warn, LevelFilter, Metadata, Record};
 use redox_scheme::{
     scheme::{SchemeState, SchemeSync},
     SignalBehavior, Socket,
 };
 
+use naming::write_default_rules_file;
 use scheme::UdevScheme;
 
 struct StderrLogger {
@@ -75,6 +80,11 @@ fn main() {
         Err(e) => error!("udev-shim: PCI scan failed: {}", e),
     }
 
+    match write_default_rules_file() {
+        Ok(path) => info!("udev-shim: wrote default rules to {path}"),
+        Err(err) => warn!("udev-shim: failed to write default rules: {err}"),
+    }
+
     let notify_fd = unsafe { get_init_notify_fd() };
     let socket = Socket::create().expect("udev-shim: failed to create udev scheme");
     let mut state = SchemeState::new();
@@ -85,13 +95,39 @@ fn main() {
 
     info!("udev-shim: registered scheme:udev");
 
+    // Hotplug polling: periodically check driver-manager for device changes
+    let scheme = Arc::new(Mutex::new(scheme));
+    let scheme_clone = Arc::clone(&scheme);
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(2));
+            if let Ok(mut s) = scheme_clone.lock() {
+                match s.scan_pci_devices() {
+                    Ok(n) if n > 0 => info!("udev-shim: hotplug detected {} device(s)", n),
+                    Err(e) => error!("udev-shim: hotplug scan failed: {}", e),
+                    _ => {}
+                }
+            }
+        }
+    });
+
     while let Some(request) = socket
         .next_request(SignalBehavior::Restart)
         .expect("udev-shim: failed to read scheme request")
     {
         match request.kind() {
             redox_scheme::RequestKind::Call(request) => {
-                let response = request.handle_sync(&mut scheme, &mut state);
+                let response = {
+                    let mut guard = match scheme.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => {
+                            error!("udev-shim: recovering from poisoned scheme lock");
+                            poisoned.into_inner()
+                        }
+                    };
+
+                    request.handle_sync(&mut *guard, &mut state)
+                };
                 socket
                     .write_response(response, SignalBehavior::Restart)
                     .expect("udev-shim: failed to write response");

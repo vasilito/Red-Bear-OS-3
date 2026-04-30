@@ -1,0 +1,14 @@
+[package]
+name = "driver-params"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "driver-params"
+path = "src/main.rs"
+
+[dependencies]
+redox_syscall = "0.7"
+redox-scheme = "0.11"
+libredox = "0.1"
+log = "0.4"

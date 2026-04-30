@@ -1,10 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use log::{info, warn};
 use thiserror::Error;
+
+const DEFAULT_FALLBACKS_DIR: &str = "/etc/firmware-fallbacks.d";
+const DEFAULT_CACHE_DIR: &str = "/var/lib/firmware/cache";
 
 #[allow(dead_code)]
 #[derive(Error, Debug)]
@@ -21,6 +28,8 @@ pub enum BlobError {
         #[source]
         source: std::io::Error,
     },
+    #[error("firmware load timed out for {key} after {timeout:?}")]
+    LoadTimeout { key: String, timeout: Duration },
 }
 
 #[allow(dead_code)]
@@ -30,20 +39,365 @@ pub struct FirmwareBlob {
     pub path: PathBuf,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CacheMetadata {
+    requested_key: String,
+    source_key: String,
+    source_mtime_ns: u128,
+    source_len: u64,
+}
+
+impl CacheMetadata {
+    #[allow(dead_code)]
+    fn placeholder(key: &str, len: u64) -> Self {
+        Self {
+            requested_key: key.to_string(),
+            source_key: key.to_string(),
+            source_mtime_ns: 0,
+            source_len: len,
+        }
+    }
+
+    fn from_source(requested_key: &str, source_key: &str, signature: &SourceSignature) -> Self {
+        Self {
+            requested_key: requested_key.to_string(),
+            source_key: source_key.to_string(),
+            source_mtime_ns: signature.modified_ns,
+            source_len: signature.len,
+        }
+    }
+
+    fn matches(&self, requested_key: &str, source_key: &str, signature: &SourceSignature) -> bool {
+        self.requested_key == requested_key
+            && self.source_key == source_key
+            && self.source_mtime_ns == signature.modified_ns
+            && self.source_len == signature.len
+    }
+}
+
+#[derive(Clone)]
+struct CachedBlob {
+    data: Arc<Vec<u8>>,
+    metadata: CacheMetadata,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceSignature {
+    modified_ns: u128,
+    len: u64,
+}
+
+pub struct FirmwareFallback {
+    fallbacks: HashMap<String, Vec<String>>,
+}
+
+impl FirmwareFallback {
+    pub fn load_defaults() -> Self {
+        Self::load_from_dir(Path::new(DEFAULT_FALLBACKS_DIR))
+    }
+
+    fn load_from_dir(dir: &Path) -> Self {
+        let mut fallbacks = Self::builtins();
+
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == ErrorKind::NotFound => return fallbacks,
+            Err(err) => {
+                warn!(
+                    "firmware-loader: failed to read fallback directory {}: {}",
+                    dir.display(),
+                    err
+                );
+                return fallbacks;
+            }
+        };
+
+        let mut paths = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    if path.extension() == Some(OsStr::new("toml")) {
+                        paths.push(path);
+                    }
+                }
+                Err(err) => warn!(
+                    "firmware-loader: skipping unreadable fallback entry in {}: {}",
+                    dir.display(),
+                    err
+                ),
+            }
+        }
+        paths.sort();
+
+        for path in paths {
+            let contents = match fs::read_to_string(&path) {
+                Ok(contents) => contents,
+                Err(err) => {
+                    warn!(
+                        "firmware-loader: failed to read fallback file {}: {}",
+                        path.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+
+            match parse_fallback_file(&contents) {
+                Ok(loaded) => {
+                    for (pattern, variants) in loaded {
+                        if variants.is_empty() {
+                            continue;
+                        }
+                        fallbacks
+                            .fallbacks
+                            .entry(pattern)
+                            .or_default()
+                            .extend(variants);
+                    }
+                }
+                Err(err) => warn!(
+                    "firmware-loader: failed to parse fallback file {}: {}",
+                    path.display(),
+                    err
+                ),
+            }
+        }
+
+        fallbacks
+    }
+
+    pub fn get_fallback_chain(&self, key: &str) -> Vec<String> {
+        let mut chain = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(exact) = self.fallbacks.get(key) {
+            append_variants(key, "", exact, &mut seen, &mut chain);
+        }
+
+        let mut patterns: Vec<&str> = self.fallbacks.keys().map(String::as_str).collect();
+        patterns.sort_unstable();
+
+        for pattern in patterns {
+            if pattern == key {
+                continue;
+            }
+
+            if let Some(capture) = pattern_capture(pattern, key) {
+                if let Some(variants) = self.fallbacks.get(pattern) {
+                    append_variants(key, capture, variants, &mut seen, &mut chain);
+                }
+            }
+        }
+
+        chain
+    }
+
+    fn builtins() -> Self {
+        let mut fallbacks = HashMap::new();
+        fallbacks.insert(
+            "amdgpu/dmcub_dcn31.bin".to_string(),
+            vec![
+                "amdgpu/dmcub_dcn30.bin".to_string(),
+                "amdgpu/dmcub_dcn20.bin".to_string(),
+            ],
+        );
+        fallbacks.insert(
+            "amdgpu/dmcub_dcn30.bin".to_string(),
+            vec!["amdgpu/dmcub_dcn20.bin".to_string()],
+        );
+        fallbacks.insert(
+            "iwlwifi-*-92.ucode".to_string(),
+            vec![
+                "iwlwifi-*-83.ucode".to_string(),
+                "iwlwifi-*-77.ucode".to_string(),
+            ],
+        );
+        fallbacks.insert(
+            "iwlwifi-*-83.ucode".to_string(),
+            vec!["iwlwifi-*-77.ucode".to_string()],
+        );
+
+        Self { fallbacks }
+    }
+}
+
+pub struct FirmwareCache {
+    cache_dir: PathBuf,
+}
+
+impl FirmwareCache {
+    pub fn new(cache_dir: &Path) -> Self {
+        Self {
+            cache_dir: cache_dir.to_path_buf(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
+        self.load_entry(key, None, None)
+            .ok()
+            .flatten()
+            .map(|entry| entry.data.as_ref().clone())
+    }
+
+    #[allow(dead_code)]
+    pub fn store(&self, key: &str, data: &[u8]) -> Result<(), std::io::Error> {
+        self.store_entry(
+            key,
+            data,
+            &CacheMetadata::placeholder(key, data.len() as u64),
+        )
+    }
+
+    pub fn invalidate(&self, key: &str) {
+        let Some(path) = self.cache_path(key) else {
+            return;
+        };
+
+        for cache_file in [path.clone(), metadata_path_for(&path)] {
+            match fs::remove_file(&cache_file) {
+                Ok(()) => {}
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => warn!(
+                    "firmware-loader: failed to invalidate persistent cache {}: {}",
+                    cache_file.display(),
+                    err
+                ),
+            }
+        }
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        self.cache_path(key).is_some_and(|path| path.exists())
+    }
+
+    fn load_entry(
+        &self,
+        key: &str,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<Option<CachedBlob>, BlobError> {
+        let Some(path) = self.cache_path(key) else {
+            warn!(
+                "firmware-loader: refusing to read invalid persistent cache key {}",
+                key
+            );
+            return Ok(None);
+        };
+
+        let metadata_path = metadata_path_for(&path);
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let metadata = match load_cache_metadata(&metadata_path, key, started_at, timeout) {
+            Ok(metadata) => {
+                let Some(metadata) = metadata else {
+                    self.invalidate(key);
+                    return Ok(None);
+                };
+                metadata
+            }
+            Err(BlobError::LoadTimeout { .. }) => {
+                return Err(BlobError::LoadTimeout {
+                    key: key.to_string(),
+                    timeout: timeout.unwrap_or_default(),
+                })
+            }
+            Err(err) => {
+                warn!(
+                    "firmware-loader: failed to load metadata for persistent cache {}: {}",
+                    metadata_path.display(),
+                    err
+                );
+                self.invalidate(key);
+                return Ok(None);
+            }
+        };
+
+        match read_path_bytes(&path, key, started_at, timeout) {
+            Ok(data) => Ok(Some(CachedBlob {
+                data: Arc::new(data),
+                metadata,
+            })),
+            Err(BlobError::ReadError { .. }) => {
+                warn!(
+                    "firmware-loader: failed to read persistent cache {}, invalidating entry",
+                    path.display()
+                );
+                self.invalidate(key);
+                Ok(None)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn store_entry(
+        &self,
+        key: &str,
+        data: &[u8],
+        metadata: &CacheMetadata,
+    ) -> Result<(), std::io::Error> {
+        let path = self.cache_path(key).ok_or_else(|| {
+            std::io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("invalid cache key for persistent firmware cache: {key}"),
+            )
+        })?;
+        let metadata_path = metadata_path_for(&path);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::write(&path, data)?;
+        write_cache_metadata(&metadata_path, metadata)
+    }
+
+    fn cache_path(&self, key: &str) -> Option<PathBuf> {
+        if !is_safe_key(key) {
+            return None;
+        }
+
+        let relative = Path::new(key);
+        if relative.is_absolute() {
+            return None;
+        }
+
+        if relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir
+                    | Component::CurDir
+                    | Component::Prefix(_)
+                    | Component::RootDir
+            )
+        }) {
+            return None;
+        }
+
+        Some(self.cache_dir.join(relative))
+    }
+}
+
 #[allow(dead_code)]
 pub struct FirmwareRegistry {
     base_dir: PathBuf,
     blobs: HashMap<String, FirmwareBlob>,
-    cache: Arc<Mutex<HashMap<String, Arc<Vec<u8>>>>>,
+    cache: Arc<Mutex<HashMap<String, CachedBlob>>>,
+    persistent_cache: FirmwareCache,
+    fallbacks: FirmwareFallback,
 }
 
 impl FirmwareRegistry {
     pub fn empty(base_dir: &Path) -> Self {
-        FirmwareRegistry {
-            base_dir: base_dir.to_path_buf(),
-            blobs: HashMap::new(),
-            cache: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self::with_components(
+            base_dir,
+            HashMap::new(),
+            FirmwareCache::new(Path::new(DEFAULT_CACHE_DIR)),
+            FirmwareFallback::load_defaults(),
+        )
     }
 
     pub fn new(base_dir: &Path) -> Result<Self, BlobError> {
@@ -58,11 +412,12 @@ impl FirmwareRegistry {
             base_dir.display()
         );
 
-        Ok(FirmwareRegistry {
-            base_dir: base_dir.to_path_buf(),
+        Ok(Self::with_components(
+            base_dir,
             blobs,
-            cache: Arc::new(Mutex::new(HashMap::new())),
-        })
+            FirmwareCache::new(Path::new(DEFAULT_CACHE_DIR)),
+            FirmwareFallback::load_defaults(),
+        ))
     }
 
     #[allow(dead_code)]
@@ -72,48 +427,30 @@ impl FirmwareRegistry {
 
     #[allow(dead_code)]
     pub fn contains(&self, key: &str) -> bool {
-        self.blobs.contains_key(key)
+        self.resolve_blob_path(key).is_some()
+            || self.persistent_cache.contains(key)
+            || self
+                .fallbacks
+                .get_fallback_chain(key)
+                .into_iter()
+                .any(|candidate| {
+                    self.resolve_blob_path(&candidate).is_some()
+                        || self.persistent_cache.contains(&candidate)
+                })
     }
 
     #[allow(dead_code)]
     pub fn load(&self, key: &str) -> Result<Arc<Vec<u8>>, BlobError> {
-        {
-            let cache = self.cache.lock().map_err(|e| BlobError::ReadError {
-                path: self.base_dir.clone(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-            })?;
-            if let Some(data) = cache.get(key) {
-                return Ok(Arc::clone(data));
-            }
-        }
+        self.load_internal(key, None, None)
+    }
 
-        let blob = self.blobs.get(key).ok_or_else(|| {
-            warn!("firmware-loader: requested firmware not found: {}", key);
-            BlobError::FirmwareNotFound(self.base_dir.join(key))
-        })?;
-
-        let data = fs::read(&blob.path).map_err(|e| BlobError::ReadError {
-            path: blob.path.clone(),
-            source: e,
-        })?;
-
-        info!(
-            "firmware-loader: loaded firmware blob {} ({} bytes) from {}",
-            key,
-            data.len(),
-            blob.path.display()
-        );
-
-        let data = Arc::new(data);
-        {
-            let mut cache = self.cache.lock().map_err(|e| BlobError::ReadError {
-                path: self.base_dir.clone(),
-                source: std::io::Error::new(std::io::ErrorKind::Other, e.to_string()),
-            })?;
-            cache.insert(key.to_string(), Arc::clone(&data));
-        }
-
-        Ok(data)
+    pub fn load_with_timeout(
+        &self,
+        key: &str,
+        started_at: Instant,
+        timeout: Duration,
+    ) -> Result<Arc<Vec<u8>>, BlobError> {
+        self.load_internal(key, Some(started_at), Some(timeout))
     }
 
     pub fn len(&self) -> usize {
@@ -124,9 +461,227 @@ impl FirmwareRegistry {
     pub fn list_keys(&self) -> Vec<&str> {
         self.blobs.keys().map(|s| s.as_str()).collect()
     }
+
+    fn with_components(
+        base_dir: &Path,
+        blobs: HashMap<String, FirmwareBlob>,
+        persistent_cache: FirmwareCache,
+        fallbacks: FirmwareFallback,
+    ) -> Self {
+        Self {
+            base_dir: base_dir.to_path_buf(),
+            blobs,
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            persistent_cache,
+            fallbacks,
+        }
+    }
+
+    fn resolve_blob_path(&self, key: &str) -> Option<PathBuf> {
+        if let Some(blob) = self.blobs.get(key) {
+            return Some(blob.path.clone());
+        }
+
+        if !is_safe_key(key) {
+            return None;
+        }
+
+        let path = self.base_dir.join(key);
+        let file_name = path.file_name().and_then(|name| name.to_str())?;
+        if is_metadata_file(file_name) {
+            return None;
+        }
+
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => Some(path),
+            _ => None,
+        }
+    }
+
+    fn load_internal(
+        &self,
+        key: &str,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<Arc<Vec<u8>>, BlobError> {
+        if let Some(entry) = self.load_validated_persistent_cache(key, started_at, timeout)? {
+            self.insert_memory_cache(key, entry.clone());
+            info!(
+                "firmware-loader: loaded firmware blob {} ({} bytes) from persistent cache",
+                key,
+                entry.data.len()
+            );
+            return Ok(entry.data);
+        }
+
+        if let Some(entry) = self.memory_cache_get_validated(key, started_at, timeout)? {
+            return Ok(entry.data);
+        }
+
+        let mut last_not_found = BlobError::FirmwareNotFound(self.base_dir.join(key));
+        for candidate in
+            std::iter::once(key.to_string()).chain(self.fallbacks.get_fallback_chain(key))
+        {
+            match self.read_from_filesystem(&candidate, key, started_at, timeout) {
+                Ok(entry) => {
+                    self.insert_memory_cache(key, entry.clone());
+
+                    if let Err(err) = self.persistent_cache.store_entry(
+                        key,
+                        entry.data.as_slice(),
+                        &entry.metadata,
+                    ) {
+                        warn!(
+                            "firmware-loader: failed to persist cache entry for {}: {}",
+                            key, err
+                        );
+                    }
+
+                    if candidate != key {
+                        info!(
+                            "firmware-loader: resolved firmware {} via fallback {} ({} bytes)",
+                            key,
+                            candidate,
+                            entry.data.len()
+                        );
+                    }
+
+                    return Ok(entry.data);
+                }
+                Err(BlobError::FirmwareNotFound(path)) => {
+                    last_not_found = BlobError::FirmwareNotFound(path);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        warn!("firmware-loader: requested firmware not found: {}", key);
+        Err(last_not_found)
+    }
+
+    fn load_validated_persistent_cache(
+        &self,
+        key: &str,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<Option<CachedBlob>, BlobError> {
+        let Some(entry) = self.persistent_cache.load_entry(key, started_at, timeout)? else {
+            return Ok(None);
+        };
+
+        if self.is_cached_entry_valid(key, &entry, started_at, timeout)? {
+            return Ok(Some(entry));
+        }
+
+        self.persistent_cache.invalidate(key);
+        Ok(None)
+    }
+
+    fn memory_cache_get_validated(
+        &self,
+        key: &str,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<Option<CachedBlob>, BlobError> {
+        let entry = match self.cache.lock() {
+            Ok(cache) => cache.get(key).cloned(),
+            Err(err) => {
+                warn!(
+                    "firmware-loader: in-memory cache poisoned while loading {}: {}",
+                    key, err
+                );
+                None
+            }
+        };
+
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+
+        if self.is_cached_entry_valid(key, &entry, started_at, timeout)? {
+            return Ok(Some(entry));
+        }
+
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                cache.remove(key);
+            }
+            Err(err) => warn!(
+                "firmware-loader: failed to invalidate in-memory cache for {}: {}",
+                key, err
+            ),
+        }
+
+        Ok(None)
+    }
+
+    fn is_cached_entry_valid(
+        &self,
+        key: &str,
+        entry: &CachedBlob,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<bool, BlobError> {
+        if let Some(exact_path) = self.resolve_blob_path(key) {
+            if entry.metadata.source_key != key {
+                return Ok(false);
+            }
+
+            let signature = source_signature(&exact_path, key, started_at, timeout)?;
+            return Ok(entry.metadata.matches(key, key, &signature));
+        }
+
+        if let Some(source_path) = self.resolve_blob_path(&entry.metadata.source_key) {
+            let signature = source_signature(&source_path, key, started_at, timeout)?;
+            return Ok(entry
+                .metadata
+                .matches(key, &entry.metadata.source_key, &signature));
+        }
+
+        Ok(entry.metadata.requested_key == key)
+    }
+
+    fn insert_memory_cache(&self, key: &str, entry: CachedBlob) {
+        match self.cache.lock() {
+            Ok(mut cache) => {
+                cache.insert(key.to_string(), entry);
+            }
+            Err(err) => warn!(
+                "firmware-loader: failed to update in-memory cache for {}: {}",
+                key, err
+            ),
+        }
+    }
+
+    fn read_from_filesystem(
+        &self,
+        source_key: &str,
+        requested_key: &str,
+        started_at: Option<Instant>,
+        timeout: Option<Duration>,
+    ) -> Result<CachedBlob, BlobError> {
+        let path = self
+            .resolve_blob_path(source_key)
+            .ok_or_else(|| BlobError::FirmwareNotFound(self.base_dir.join(source_key)))?;
+
+        let signature = source_signature(&path, requested_key, started_at, timeout)?;
+        let data = read_path_bytes(&path, requested_key, started_at, timeout)?;
+
+        info!(
+            "firmware-loader: loaded firmware blob {} ({} bytes) from {}",
+            source_key,
+            data.len(),
+            path.display()
+        );
+
+        Ok(CachedBlob {
+            data: Arc::new(data),
+            metadata: CacheMetadata::from_source(requested_key, source_key, &signature),
+        })
+    }
 }
 
-fn discover_firmware(base_dir: &Path) -> Result<HashMap<String, FirmwareBlob>, BlobError> {
+pub(crate) fn discover_firmware(base_dir: &Path) -> Result<HashMap<String, FirmwareBlob>, BlobError> {
     let mut blobs = HashMap::new();
     let mut stack = vec![(base_dir.to_path_buf(), String::new())];
 
@@ -185,42 +740,620 @@ fn discover_firmware(base_dir: &Path) -> Result<HashMap<String, FirmwareBlob>, B
 fn is_metadata_file(file_name: &str) -> bool {
     matches!(
         file_name,
-        "WHENCE" | "README" | "README.md" | "check_whence.py" | "Makefile"
+        "WHENCE"
+            | "README"
+            | "README.md"
+            | "check_whence.py"
+            | "Makefile"
+            | "MANIFEST.txt"
     ) || file_name.starts_with("LICENCE")
         || file_name.starts_with("LICENSE")
+}
+
+fn is_safe_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.starts_with('.')
+        && !key.contains("..")
+        && key
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '/' || c == '-' || c == '_' || c == '.')
+}
+
+fn load_cache_metadata(
+    path: &Path,
+    key: &str,
+    started_at: Option<Instant>,
+    timeout: Option<Duration>,
+) -> Result<Option<CacheMetadata>, BlobError> {
+    let bytes = match read_path_bytes(path, key, started_at, timeout) {
+        Ok(bytes) => bytes,
+        Err(BlobError::ReadError { source, .. }) if source.kind() == ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(err) => return Err(err),
+    };
+
+    let contents = String::from_utf8(bytes).map_err(|err| BlobError::ReadError {
+        path: path.to_path_buf(),
+        source: std::io::Error::new(ErrorKind::InvalidData, err),
+    })?;
+
+    parse_cache_metadata(&contents)
+        .map(Some)
+        .map_err(|err| BlobError::ReadError {
+            path: path.to_path_buf(),
+            source: std::io::Error::new(ErrorKind::InvalidData, err),
+        })
+}
+
+fn write_cache_metadata(path: &Path, metadata: &CacheMetadata) -> Result<(), std::io::Error> {
+    fs::write(path, serialize_cache_metadata(metadata))
+}
+
+fn serialize_cache_metadata(metadata: &CacheMetadata) -> String {
+    format!(
+        "requested_key = {}\nsource_key = {}\nsource_mtime_ns = {}\nsource_len = {}\n",
+        toml::Value::String(metadata.requested_key.clone()),
+        toml::Value::String(metadata.source_key.clone()),
+        metadata.source_mtime_ns,
+        metadata.source_len,
+    )
+}
+
+fn parse_cache_metadata(contents: &str) -> Result<CacheMetadata, String> {
+    let value = contents
+        .parse::<toml::Value>()
+        .map_err(|err| err.to_string())?;
+    let table = value
+        .as_table()
+        .ok_or_else(|| "cache metadata must be a TOML table".to_string())?;
+
+    let requested_key = table
+        .get("requested_key")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| "cache metadata missing requested_key".to_string())?;
+    let source_key = table
+        .get("source_key")
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| "cache metadata missing source_key".to_string())?;
+    let source_mtime_ns = table
+        .get("source_mtime_ns")
+        .and_then(toml::Value::as_integer)
+        .ok_or_else(|| "cache metadata missing source_mtime_ns".to_string())?;
+    let source_len = table
+        .get("source_len")
+        .and_then(toml::Value::as_integer)
+        .ok_or_else(|| "cache metadata missing source_len".to_string())?;
+
+    let source_mtime_ns = u128::try_from(source_mtime_ns)
+        .map_err(|_| "cache metadata source_mtime_ns must be non-negative".to_string())?;
+    let source_len = u64::try_from(source_len)
+        .map_err(|_| "cache metadata source_len must be non-negative".to_string())?;
+
+    Ok(CacheMetadata {
+        requested_key: requested_key.to_string(),
+        source_key: source_key.to_string(),
+        source_mtime_ns,
+        source_len,
+    })
+}
+
+fn parse_fallback_file(contents: &str) -> Result<HashMap<String, Vec<String>>, String> {
+    let value = contents
+        .parse::<toml::Value>()
+        .map_err(|err| err.to_string())?;
+    let table = value
+        .as_table()
+        .ok_or_else(|| "fallback config must be a TOML table".to_string())?;
+
+    let mut fallbacks = HashMap::new();
+
+    for (key, value) in table {
+        if key == "fallbacks" {
+            let nested = value
+                .as_table()
+                .ok_or_else(|| "fallbacks must be a table of string arrays".to_string())?;
+            parse_fallback_entries(nested, &mut fallbacks)?;
+            continue;
+        }
+
+        if value.is_array() {
+            parse_fallback_entry(key, value, &mut fallbacks)?;
+        }
+    }
+
+    Ok(fallbacks)
+}
+
+fn parse_fallback_entries(
+    entries: &toml::map::Map<String, toml::Value>,
+    fallbacks: &mut HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    for (key, value) in entries {
+        parse_fallback_entry(key, value, fallbacks)?;
+    }
+    Ok(())
+}
+
+fn parse_fallback_entry(
+    key: &str,
+    value: &toml::Value,
+    fallbacks: &mut HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let array = value
+        .as_array()
+        .ok_or_else(|| format!("fallback entry {key} must be an array"))?;
+
+    let mut variants = Vec::with_capacity(array.len());
+    for item in array {
+        let variant = item
+            .as_str()
+            .ok_or_else(|| format!("fallback entry {key} must contain only strings"))?;
+        variants.push(variant.to_string());
+    }
+
+    fallbacks.insert(key.to_string(), variants);
+    Ok(())
+}
+
+fn source_signature(
+    path: &Path,
+    key: &str,
+    started_at: Option<Instant>,
+    timeout: Option<Duration>,
+) -> Result<SourceSignature, BlobError> {
+    let metadata = run_io_with_timeout(path, key, started_at, timeout, |path| fs::metadata(path))?;
+    let modified_ns = match metadata.modified() {
+        Ok(modified) => match modified.duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(_) => 0,
+        },
+        Err(_) => 0,
+    };
+
+    Ok(SourceSignature {
+        modified_ns,
+        len: metadata.len(),
+    })
+}
+
+fn read_path_bytes(
+    path: &Path,
+    key: &str,
+    started_at: Option<Instant>,
+    timeout: Option<Duration>,
+) -> Result<Vec<u8>, BlobError> {
+    run_io_with_timeout(path, key, started_at, timeout, |path| fs::read(path))
+}
+
+fn run_io_with_timeout<T, F>(
+    path: &Path,
+    key: &str,
+    started_at: Option<Instant>,
+    timeout: Option<Duration>,
+    operation: F,
+) -> Result<T, BlobError>
+where
+    T: Send + 'static,
+    F: FnOnce(PathBuf) -> Result<T, std::io::Error> + Send + 'static,
+{
+    let path_buf = path.to_path_buf();
+
+    if timeout.is_none() {
+        return operation(path_buf.clone()).map_err(|source| BlobError::ReadError {
+            path: path_buf,
+            source,
+        });
+    }
+
+    let total_timeout = timeout.unwrap_or_default();
+    let remaining = remaining_timeout(key, started_at, timeout)?;
+    let (tx, rx) = mpsc::sync_channel(1);
+
+    std::thread::spawn(move || {
+        let result = operation(path_buf.clone());
+        let _ = tx.send((path_buf, result));
+    });
+
+    match rx.recv_timeout(remaining) {
+        Ok((_path, Ok(value))) => Ok(value),
+        Ok((path, Err(source))) => Err(BlobError::ReadError { path, source }),
+        Err(RecvTimeoutError::Timeout) => Err(BlobError::LoadTimeout {
+            key: key.to_string(),
+            timeout: total_timeout,
+        }),
+        Err(RecvTimeoutError::Disconnected) => Err(BlobError::ReadError {
+            path: path.to_path_buf(),
+            source: std::io::Error::new(
+                ErrorKind::BrokenPipe,
+                "firmware-loader I/O worker disconnected unexpectedly",
+            ),
+        }),
+    }
+}
+
+fn remaining_timeout(
+    key: &str,
+    started_at: Option<Instant>,
+    timeout: Option<Duration>,
+) -> Result<Duration, BlobError> {
+    match (started_at, timeout) {
+        (Some(started_at), Some(timeout)) => {
+            timeout
+                .checked_sub(started_at.elapsed())
+                .ok_or_else(|| BlobError::LoadTimeout {
+                    key: key.to_string(),
+                    timeout,
+                })
+        }
+        _ => Ok(Duration::MAX),
+    }
+}
+
+fn metadata_path_for(path: &Path) -> PathBuf {
+    let mut file_name = path
+        .file_name()
+        .map(OsStr::to_os_string)
+        .unwrap_or_default();
+    file_name.push(".meta");
+    path.with_file_name(file_name)
+}
+
+fn pattern_capture<'a>(pattern: &'a str, key: &'a str) -> Option<&'a str> {
+    if let Some(index) = pattern.find('*') {
+        let prefix = &pattern[..index];
+        let suffix = &pattern[index + 1..];
+        if !key.starts_with(prefix) || !key.ends_with(suffix) {
+            return None;
+        }
+        let capture_end = key.len().checked_sub(suffix.len())?;
+        if capture_end < prefix.len() {
+            return None;
+        }
+        return Some(&key[prefix.len()..capture_end]);
+    }
+
+    if key == pattern {
+        return Some("");
+    }
+
+    if key.starts_with(pattern) {
+        let boundary = key.as_bytes().get(pattern.len()).copied();
+        if matches!(boundary, Some(b'/')) {
+            return Some("");
+        }
+    }
+
+    None
+}
+
+fn append_variants(
+    key: &str,
+    capture: &str,
+    variants: &[String],
+    seen: &mut HashSet<String>,
+    chain: &mut Vec<String>,
+) {
+    for variant in variants {
+        let candidate = if variant.contains('*') {
+            variant.replace('*', capture)
+        } else {
+            variant.clone()
+        };
+
+        if candidate != key && seen.insert(candidate.clone()) {
+            chain.push(candidate);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_root(prefix: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let stamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos(),
+            Err(err) => panic!("system clock error while creating temp path: {err}"),
+        };
         let path = std::env::temp_dir().join(format!("{prefix}-{stamp}"));
-        fs::create_dir_all(&path).unwrap();
+        if let Err(err) = fs::create_dir_all(&path) {
+            panic!("failed to create temp directory {}: {err}", path.display());
+        }
         path
+    }
+
+    fn registry_with_cache(
+        base_dir: &Path,
+        cache_dir: &Path,
+        fallbacks: FirmwareFallback,
+    ) -> FirmwareRegistry {
+        let blobs = match discover_firmware(base_dir) {
+            Ok(blobs) => blobs,
+            Err(err) => panic!(
+                "failed to discover firmware in {}: {err}",
+                base_dir.display()
+            ),
+        };
+
+        FirmwareRegistry::with_components(base_dir, blobs, FirmwareCache::new(cache_dir), fallbacks)
     }
 
     #[test]
     fn discovers_ucode_pnvm_and_bin_but_skips_license_metadata() {
         let root = temp_root("rbos-fw-discover");
-        fs::write(root.join("demo.bin"), []).unwrap();
-        fs::write(root.join("iwlwifi-bz-b0-gf-a0-92.ucode"), []).unwrap();
-        fs::write(root.join("iwlwifi-bz-b0-gf-a0.pnvm"), []).unwrap();
-        fs::write(root.join("LICENCE.test"), "license").unwrap();
-        fs::write(root.join("WHENCE"), "meta").unwrap();
+        if let Err(err) = fs::write(root.join("demo.bin"), []) {
+            panic!("failed to write demo firmware: {err}");
+        }
+        if let Err(err) = fs::write(root.join("iwlwifi-bz-b0-gf-a0-92.ucode"), []) {
+            panic!("failed to write ucode firmware: {err}");
+        }
+        if let Err(err) = fs::write(root.join("iwlwifi-bz-b0-gf-a0.pnvm"), []) {
+            panic!("failed to write pnvm firmware: {err}");
+        }
+        if let Err(err) = fs::write(root.join("LICENCE.test"), "license") {
+            panic!("failed to write metadata file: {err}");
+        }
+        if let Err(err) = fs::write(root.join("WHENCE"), "meta") {
+            panic!("failed to write whence file: {err}");
+        }
+        if let Err(err) = fs::write(root.join("MANIFEST.txt"), "manifest") {
+            panic!("failed to write manifest metadata file: {err}");
+        }
 
-        let blobs = discover_firmware(&root).unwrap();
+        let blobs = match discover_firmware(&root) {
+            Ok(blobs) => blobs,
+            Err(err) => panic!("failed to discover firmware: {err}"),
+        };
         assert!(blobs.contains_key("demo.bin"));
         assert!(blobs.contains_key("iwlwifi-bz-b0-gf-a0-92.ucode"));
         assert!(blobs.contains_key("iwlwifi-bz-b0-gf-a0.pnvm"));
         assert!(!blobs.contains_key("LICENCE.test"));
         assert!(!blobs.contains_key("WHENCE"));
+        assert!(!blobs.contains_key("MANIFEST.txt"));
 
-        fs::remove_dir_all(root).unwrap();
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+    }
+
+    #[test]
+    fn fallback_chain_matches_builtin_wildcards() {
+        let fallbacks = FirmwareFallback::builtins();
+        let chain = fallbacks.get_fallback_chain("iwlwifi-bz-b0-gf-a0-92.ucode");
+
+        assert_eq!(
+            chain,
+            vec![
+                "iwlwifi-bz-b0-gf-a0-83.ucode".to_string(),
+                "iwlwifi-bz-b0-gf-a0-77.ucode".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn load_uses_fallback_and_populates_persistent_cache() {
+        let root = temp_root("rbos-fw-fallback");
+        let cache = temp_root("rbos-fw-cache");
+        let amdgpu = root.join("amdgpu");
+        if let Err(err) = fs::create_dir_all(&amdgpu) {
+            panic!("failed to create amdgpu directory: {err}");
+        }
+        if let Err(err) = fs::write(amdgpu.join("dmcub_dcn30.bin"), b"dcn30") {
+            panic!("failed to write fallback firmware: {err}");
+        }
+
+        let registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        let data = match registry.load("amdgpu/dmcub_dcn31.bin") {
+            Ok(data) => data,
+            Err(err) => panic!("failed to load fallback firmware: {err}"),
+        };
+
+        assert_eq!(data.as_slice(), b"dcn30");
+
+        let cached = match fs::read(cache.join("amdgpu/dmcub_dcn31.bin")) {
+            Ok(data) => data,
+            Err(err) => panic!("failed to read persistent cache file: {err}"),
+        };
+        assert_eq!(cached, b"dcn30");
+
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+        if let Err(err) = fs::remove_dir_all(&cache) {
+            panic!("failed to remove temp directory {}: {err}", cache.display());
+        }
+    }
+
+    #[test]
+    fn persistent_cache_survives_registry_restart() {
+        let root = temp_root("rbos-fw-restart");
+        let cache = temp_root("rbos-fw-restart-cache");
+        let amdgpu = root.join("amdgpu");
+        if let Err(err) = fs::create_dir_all(&amdgpu) {
+            panic!("failed to create amdgpu directory: {err}");
+        }
+        if let Err(err) = fs::write(amdgpu.join("dmcub_dcn30.bin"), b"persistent") {
+            panic!("failed to write fallback firmware: {err}");
+        }
+
+        let first_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        if let Err(err) = first_registry.load("amdgpu/dmcub_dcn31.bin") {
+            panic!("failed to prime persistent cache: {err}");
+        }
+
+        if let Err(err) = fs::remove_file(amdgpu.join("dmcub_dcn30.bin")) {
+            panic!("failed to remove source firmware: {err}");
+        }
+
+        let restarted_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        let data = match restarted_registry.load("amdgpu/dmcub_dcn31.bin") {
+            Ok(data) => data,
+            Err(err) => panic!("failed to load firmware from persistent cache: {err}"),
+        };
+        assert_eq!(data.as_slice(), b"persistent");
+
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+        if let Err(err) = fs::remove_dir_all(&cache) {
+            panic!("failed to remove temp directory {}: {err}", cache.display());
+        }
+    }
+
+    #[test]
+    fn persistent_cache_invalidates_when_exact_firmware_appears() {
+        let root = temp_root("rbos-fw-exact-wins");
+        let cache = temp_root("rbos-fw-exact-cache");
+        let amdgpu = root.join("amdgpu");
+        if let Err(err) = fs::create_dir_all(&amdgpu) {
+            panic!("failed to create amdgpu directory: {err}");
+        }
+        if let Err(err) = fs::write(amdgpu.join("dmcub_dcn30.bin"), b"fallback") {
+            panic!("failed to write fallback firmware: {err}");
+        }
+
+        let first_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        if let Err(err) = first_registry.load("amdgpu/dmcub_dcn31.bin") {
+            panic!("failed to prime persistent cache: {err}");
+        }
+
+        if let Err(err) = fs::write(amdgpu.join("dmcub_dcn31.bin"), b"exact") {
+            panic!("failed to write exact firmware: {err}");
+        }
+
+        let restarted_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        let data = match restarted_registry.load("amdgpu/dmcub_dcn31.bin") {
+            Ok(data) => data,
+            Err(err) => panic!("failed to reload firmware after exact install: {err}"),
+        };
+        assert_eq!(data.as_slice(), b"exact");
+
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+        if let Err(err) = fs::remove_dir_all(&cache) {
+            panic!("failed to remove temp directory {}: {err}", cache.display());
+        }
+    }
+
+    #[test]
+    fn persistent_cache_refreshes_when_source_blob_changes() {
+        let root = temp_root("rbos-fw-refresh");
+        let cache = temp_root("rbos-fw-refresh-cache");
+        if let Err(err) = fs::write(root.join("demo.bin"), b"old") {
+            panic!("failed to write initial firmware: {err}");
+        }
+
+        let first_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        if let Err(err) = first_registry.load("demo.bin") {
+            panic!("failed to prime exact persistent cache: {err}");
+        }
+
+        std::thread::sleep(Duration::from_millis(5));
+        if let Err(err) = fs::write(root.join("demo.bin"), b"new") {
+            panic!("failed to update firmware: {err}");
+        }
+
+        let restarted_registry = registry_with_cache(&root, &cache, FirmwareFallback::builtins());
+        let data = match restarted_registry.load("demo.bin") {
+            Ok(data) => data,
+            Err(err) => panic!("failed to reload updated firmware: {err}"),
+        };
+        assert_eq!(data.as_slice(), b"new");
+
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+        if let Err(err) = fs::remove_dir_all(&cache) {
+            panic!("failed to remove temp directory {}: {err}", cache.display());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn actual_blocking_read_times_out_within_budget() {
+        let root = temp_root("rbos-fw-timeout");
+        let fifo = root.join("blocking.fifo");
+
+        let fifo_c_string = match CString::new(fifo.as_os_str().as_bytes()) {
+            Ok(value) => value,
+            Err(err) => panic!("failed to build fifo path string: {err}"),
+        };
+        let result = unsafe { libc::mkfifo(fifo_c_string.as_ptr(), 0o644) };
+        if result != 0 {
+            let errno = std::io::Error::last_os_error();
+            panic!("failed to create fifo {}: {errno}", fifo.display());
+        }
+
+        let started = Instant::now();
+        let result = read_path_bytes(
+            &fifo,
+            "blocking-firmware.bin",
+            Some(started),
+            Some(Duration::from_millis(100)),
+        );
+        let elapsed = started.elapsed();
+
+        match result {
+            Err(BlobError::LoadTimeout { key, timeout }) => {
+                assert_eq!(key, "blocking-firmware.bin");
+                assert_eq!(timeout, Duration::from_millis(100));
+            }
+            other => panic!("expected timeout error, got {other:?}"),
+        }
+        assert!(elapsed < Duration::from_secs(1));
+
+        if let Err(err) = fs::remove_file(&fifo) {
+            panic!("failed to remove fifo {}: {err}", fifo.display());
+        }
+        if let Err(err) = fs::remove_dir_all(&root) {
+            panic!("failed to remove temp directory {}: {err}", root.display());
+        }
+    }
+
+    #[test]
+    fn parse_fallback_file_supports_nested_and_top_level_rules() {
+        let parsed = match parse_fallback_file(
+            r#"
+"amdgpu/dmcub_dcn31.bin" = ["amdgpu/dmcub_dcn30.bin"]
+
+[fallbacks]
+"iwlwifi-*-92.ucode" = ["iwlwifi-*-83.ucode"]
+"#,
+        ) {
+            Ok(parsed) => parsed,
+            Err(err) => panic!("failed to parse fallback config: {err}"),
+        };
+
+        assert_eq!(
+            parsed.get("amdgpu/dmcub_dcn31.bin"),
+            Some(&vec!["amdgpu/dmcub_dcn30.bin".to_string()])
+        );
+        assert_eq!(
+            parsed.get("iwlwifi-*-92.ucode"),
+            Some(&vec!["iwlwifi-*-83.ucode".to_string()])
+        );
+    }
+
+    #[test]
+    fn parse_cache_metadata_round_trips() {
+        let metadata = CacheMetadata {
+            requested_key: "demo.bin".to_string(),
+            source_key: "demo.bin".to_string(),
+            source_mtime_ns: 123,
+            source_len: 456,
+        };
+
+        let parsed = match parse_cache_metadata(&serialize_cache_metadata(&metadata)) {
+            Ok(parsed) => parsed,
+            Err(err) => panic!("failed to parse cache metadata: {err}"),
+        };
+
+        assert_eq!(parsed, metadata);
     }
 }

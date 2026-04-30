@@ -9,4 +9,5 @@ path = "src/main.rs"
 
 [dependencies]
 redox-driver-sys = { path = "../../../../recipes/drivers/redox-driver-sys/source" }
+serde_json = "1"
 toml = "0.8"

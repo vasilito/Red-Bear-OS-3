@@ -1,4 +1,6 @@
 mod backend;
+#[cfg(target_os = "redox")]
+mod dbus_nm;
 mod scheme;
 
 use std::env;
@@ -8,6 +10,8 @@ use std::path::Path;
 use std::process;
 
 use backend::{Backend, IntelBackend, NoDeviceBackend, StubBackend};
+#[cfg(target_os = "redox")]
+use dbus_nm::register_nm_interface;
 use log::LevelFilter;
 #[cfg(target_os = "redox")]
 use log::{error, info};
@@ -113,6 +117,16 @@ fn build_backend() -> Box<dyn Backend> {
     }
 }
 
+fn split_dbus_args(args: Vec<String>, dbus_env_present: bool) -> (bool, Vec<String>) {
+    let dbus_flag_present = args.iter().any(|arg| arg == "--dbus");
+    let filtered_args = args
+        .into_iter()
+        .filter(|arg| arg != "--dbus")
+        .collect::<Vec<_>>();
+
+    (dbus_env_present || dbus_flag_present, filtered_args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +174,25 @@ mod tests {
             BackendMode::Stub
         );
     }
+
+    #[test]
+    fn dbus_flag_is_detected_and_removed_from_args() {
+        let (dbus_enabled, args) = split_dbus_args(
+            vec!["--dbus".to_string(), "--probe".to_string(), "wlan0".to_string()],
+            false,
+        );
+
+        assert!(dbus_enabled);
+        assert_eq!(args, vec!["--probe".to_string(), "wlan0".to_string()]);
+    }
+
+    #[test]
+    fn dbus_env_enables_registration_without_flag() {
+        let (dbus_enabled, args) = split_dbus_args(vec!["--status".to_string()], true);
+
+        assert!(dbus_enabled);
+        assert_eq!(args, vec!["--status".to_string()]);
+    }
 }
 
 fn main() {
@@ -172,7 +205,13 @@ fn main() {
     };
     init_logging(log_level);
 
-    let mut args = env::args().skip(1);
+    let raw_args = env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(target_os = "redox")]
+    let (dbus_enabled, filtered_args) =
+        split_dbus_args(raw_args, env::var_os("DBUS_SYSTEM_BUS").is_some());
+    #[cfg(not(target_os = "redox"))]
+    let (_, filtered_args) = split_dbus_args(raw_args, env::var_os("DBUS_SYSTEM_BUS").is_some());
+    let mut args = filtered_args.into_iter();
     match args.next().as_deref() {
         Some("--probe") => {
             let backend = build_backend();
@@ -392,6 +431,10 @@ fn main() {
 
     #[cfg(target_os = "redox")]
     {
+        if dbus_enabled {
+            register_nm_interface();
+        }
+
         let notify_fd = unsafe { get_init_notify_fd() };
         let socket = match Socket::create() {
             Ok(s) => s,

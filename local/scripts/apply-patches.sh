@@ -353,4 +353,7 @@ echo "==> All Red Bear OS patches applied. Ready to build."
 if [ "$DRY_RUN" = "1" ]; then
     echo "    [dry-run mode — no changes were made]"
 fi
+echo ""
+echo "==> Guarding recipe durability..."
+./local/scripts/guard-recipes.sh --fix 2>/dev/null || echo "   (guard-recipes.sh not found — run manually)"
 echo "    make all CONFIG_NAME=redbear-full"

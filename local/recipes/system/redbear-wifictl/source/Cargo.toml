@@ -7,6 +7,10 @@ edition = "2024"
 name = "redbear-wifictl"
 path = "src/main.rs"
 
+[features]
+default = []
+dbus-nm = ["dep:zbus"]
+
 [dependencies]
 libc = "0.2"
 libredox = { version = "0.1", features = ["call", "std"] }
@@ -14,6 +18,7 @@ log = { version = "0.4", features = ["std"] }
 redox-scheme = "0.11"
 syscall = { package = "redox_syscall", version = "0.7", features = ["std"] }
 redox-driver-sys = { path = "../../../drivers/redox-driver-sys/source" }
+zbus = { version = "5", default-features = false, features = ["tokio"], optional = true }
 
 [target.'cfg(target_os = "redox")'.dependencies]
 redox-driver-sys = { path = "../../../drivers/redox-driver-sys/source", features = ["redox"] }

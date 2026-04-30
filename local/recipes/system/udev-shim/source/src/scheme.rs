@@ -11,6 +11,10 @@ use syscall::schemev2::NewFdFlags;
 use crate::device_db::{
     classify_pci_device, format_device_info, format_uevent_info, DeviceInfo, InputKind, Subsystem,
 };
+use crate::naming::{
+    create_disk_by_id, disk_by_id_path, predictable_net_name, predictable_nvme_name,
+    predictable_sata_name,
+};
 
 const SCHEME_ROOT_ID: usize = 1;
 
@@ -86,9 +90,8 @@ impl UdevScheme {
                         Err(_) => continue,
                     };
 
-                    let name = match entry.file_name().to_str() {
-                        Some(name) => name.to_string(),
-                        None => continue,
+                    let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                        continue;
                     };
 
                     if let Some(slot) = parse_pci_slot(&name) {
@@ -169,11 +172,16 @@ impl UdevScheme {
 
     fn assign_virtual_nodes(&mut self) {
         for dev in &mut self.devices {
-            if dev.subsystem == Subsystem::Gpu || (dev.subsystem == Subsystem::Input && !dev.is_pci)
-            {
-                dev.set_node_metadata("", "", Vec::new());
-            } else {
-                dev.symlinks.clear();
+            match dev.subsystem {
+                Subsystem::Gpu | Subsystem::Network | Subsystem::Storage => {
+                    dev.set_node_metadata("", "", Vec::new());
+                }
+                Subsystem::Input if !dev.is_pci => {
+                    dev.set_node_metadata("", "", Vec::new());
+                }
+                _ => {
+                    dev.symlinks.clear();
+                }
             }
         }
 
@@ -214,10 +222,12 @@ impl UdevScheme {
         for (event_idx, device_idx) in input_indices.into_iter().enumerate() {
             let devnode = format!("/dev/input/event{event_idx}");
             let scheme_target = format!("evdev/event{event_idx}");
-            let suffix = match self.devices[device_idx].input_kind {
-                Some(InputKind::Keyboard) => "event-kbd",
-                Some(InputKind::Mouse) => "event-mouse",
-                Some(InputKind::Generic) | None => "event",
+            let suffix = if self.devices[device_idx].input_kind == Some(InputKind::Keyboard) {
+                "event-kbd"
+            } else if self.devices[device_idx].input_kind == Some(InputKind::Mouse) {
+                "event-mouse"
+            } else {
+                "event"
             };
             let symlink = format!(
                 "/links/input/by-path/{}-{}",
@@ -225,6 +235,68 @@ impl UdevScheme {
                 suffix
             );
             self.devices[device_idx].set_node_metadata(devnode, scheme_target, vec![symlink]);
+        }
+
+        let mut network_indices: Vec<usize> = self
+            .devices
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, dev)| (dev.subsystem == Subsystem::Network).then_some(idx))
+            .collect();
+        network_indices.sort_by_key(|idx| {
+            let dev = &self.devices[*idx];
+            (dev.bus, dev.dev, dev.func)
+        });
+
+        for device_idx in network_indices {
+            let dev = &self.devices[device_idx];
+            let pci_addr = format!("{:02x}:{:02x}.{}", dev.bus, dev.dev, dev.func);
+            let interface_name = predictable_net_name(&pci_addr);
+            self.devices[device_idx].set_node_metadata(
+                format!("/dev/net/{interface_name}"),
+                "",
+                Vec::new(),
+            );
+        }
+
+        let mut nvme_indices: Vec<usize> = self
+            .devices
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, dev)| {
+                (dev.subsystem == Subsystem::Storage && dev.subclass == 0x08).then_some(idx)
+            })
+            .collect();
+        nvme_indices.sort_by_key(|idx| {
+            let dev = &self.devices[*idx];
+            (dev.bus, dev.dev, dev.func)
+        });
+
+        for (controller_id, device_idx) in nvme_indices.into_iter().enumerate() {
+            let kernel_name = predictable_nvme_name(controller_id as u32, 1);
+            let devnode = format!("/dev/{kernel_name}");
+            let symlink = storage_symlink(&self.devices[device_idx], &kernel_name);
+            self.devices[device_idx].set_node_metadata(devnode, "", symlink.into_iter().collect());
+        }
+
+        let mut sata_indices: Vec<usize> = self
+            .devices
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, dev)| {
+                (dev.subsystem == Subsystem::Storage && dev.subclass != 0x08).then_some(idx)
+            })
+            .collect();
+        sata_indices.sort_by_key(|idx| {
+            let dev = &self.devices[*idx];
+            (dev.bus, dev.dev, dev.func)
+        });
+
+        for (port, device_idx) in sata_indices.into_iter().enumerate() {
+            let kernel_name = predictable_sata_name(u8::try_from(port).unwrap_or(u8::MAX));
+            let devnode = format!("/dev/{kernel_name}");
+            let symlink = storage_symlink(&self.devices[device_idx], &kernel_name);
+            self.devices[device_idx].set_node_metadata(devnode, "", symlink.into_iter().collect());
         }
     }
 
@@ -577,8 +649,9 @@ impl SchemeSync for UdevScheme {
             _ => {
                 let content = self.content_for_handle(&kind)?;
                 let bytes = content.as_bytes();
+                let bytes_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
 
-                if offset >= bytes.len() as u64 {
+                if offset >= bytes_len {
                     return Ok(0);
                 }
 
@@ -616,7 +689,7 @@ impl SchemeSync for UdevScheme {
         let kind = self.kind_for_id(id)?;
         let size = match kind {
             HandleKind::DevInput(_, _) => 0,
-            _ => self.content_for_handle(&kind)?.len() as u64,
+            _ => content_len_u64(self.content_for_handle(&kind)?),
         };
 
         stat.st_mode = if Self::is_directory(&kind) {
@@ -646,7 +719,7 @@ impl SchemeSync for UdevScheme {
         let kind = self.kind_for_id(id)?;
         Ok(match kind {
             HandleKind::DevInput(_, _) => 0,
-            _ => self.content_for_handle(&kind)?.len() as u64,
+            _ => content_len_u64(self.content_for_handle(&kind)?),
         })
     }
 
@@ -709,11 +782,31 @@ fn gpu_priority(dev: &DeviceInfo) -> u8 {
 fn input_priority(dev: &DeviceInfo) -> u8 {
     if dev.is_input_keyboard() {
         0
+    } else if dev.input_kind == Some(InputKind::Mouse) {
+        1
     } else {
-        match dev.input_kind {
-            Some(InputKind::Mouse) => 1,
-            Some(InputKind::Generic) | None => 2,
-            Some(InputKind::Keyboard) => 0,
+        2
+    }
+}
+
+fn storage_symlink(dev: &DeviceInfo, kernel_name: &str) -> Option<String> {
+    let model = dev.storage_model();
+    let serial = dev.storage_serial();
+    let link_path = disk_by_id_path(&model, &serial);
+
+    match create_disk_by_id(kernel_name, &model, &serial) {
+        Ok(_) => Some(link_path),
+        Err(err) => {
+            log::warn!(
+                "udev-shim: failed to create disk-by-id link for {}: {}",
+                kernel_name,
+                err
+            );
+            Some(link_path)
         }
     }
+}
+
+fn content_len_u64(content: String) -> u64 {
+    u64::try_from(content.len()).unwrap_or(u64::MAX)
 }

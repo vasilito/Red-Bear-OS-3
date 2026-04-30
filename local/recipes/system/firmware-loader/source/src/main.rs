@@ -1,4 +1,6 @@
+mod r#async;
 mod blob;
+mod manifest;
 mod scheme;
 
 use std::env;
@@ -6,8 +8,10 @@ use std::env;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::process;
+use std::sync::mpsc;
+use std::time::Duration;
 
-use log::{error, info, LevelFilter, Metadata, Record};
+use log::{error, info, warn, LevelFilter, Metadata, Record};
 #[cfg(target_os = "redox")]
 use redox_scheme::{scheme::SchemeSync, SignalBehavior, Socket};
 
@@ -113,6 +117,85 @@ fn main() {
 
     init_logging(log_level);
 
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if args.first().map(String::as_str) == Some("--generate-manifest") {
+        let Some(path) = args.get(1) else {
+            error!("firmware-loader: --generate-manifest requires a directory path");
+            process::exit(2);
+        };
+
+        if args.len() != 2 {
+            error!("firmware-loader: --generate-manifest accepts exactly one directory path");
+            process::exit(2);
+        }
+
+        match manifest::generate_manifest(path) {
+            Ok(()) => {
+                println!("generated {}/MANIFEST.txt", path.trim_end_matches('/'));
+                return;
+            }
+            Err(err) => {
+                error!(
+                    "firmware-loader: failed to generate manifest for {}: {}",
+                    path, err
+                );
+                process::exit(1);
+            }
+        }
+    }
+
+    if args.first().map(String::as_str) == Some("--request-nowait") {
+        let Some(name) = args.get(1) else {
+            error!("firmware-loader: --request-nowait requires a firmware name");
+            process::exit(2);
+        };
+
+        if args.len() > 3 {
+            error!(
+                "firmware-loader: --request-nowait accepts a firmware name and optional timeout_ms"
+            );
+            process::exit(2);
+        }
+
+        let timeout_ms = match args.get(2) {
+            Some(value) => match value.parse::<u64>() {
+                Ok(timeout_ms) => timeout_ms,
+                Err(err) => {
+                    error!(
+                        "firmware-loader: invalid timeout for --request-nowait ({}): {}",
+                        value, err
+                    );
+                    process::exit(2);
+                }
+            },
+            None => 5000,
+        };
+
+        let (tx, rx) = mpsc::channel();
+        r#async::request_firmware_nowait(name, timeout_ms, move |result| {
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(Duration::from_millis(timeout_ms.saturating_add(1000))) {
+            Ok(Ok(bytes)) => {
+                println!("loaded={} bytes={}", name, bytes.len());
+                return;
+            }
+            Ok(Err(err)) => {
+                error!("firmware-loader: async firmware request failed for {}: {}", name, err);
+                process::exit(1);
+            }
+            Err(err) => {
+                error!(
+                    "firmware-loader: async firmware request channel failed for {}: {}",
+                    name, err
+                );
+                process::exit(1);
+            }
+        }
+    }
+
     let firmware_dir = env::var("FIRMWARE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_firmware_dir());
@@ -121,6 +204,19 @@ fn main() {
         "firmware-loader: starting with directory {}",
         firmware_dir.display()
     );
+
+    let firmware_dir_str = firmware_dir.to_string_lossy().into_owned();
+    match manifest::generate_manifest(&firmware_dir_str) {
+        Ok(()) => info!(
+            "firmware-loader: generated firmware manifest at {}/MANIFEST.txt",
+            firmware_dir.display()
+        ),
+        Err(err) => warn!(
+            "firmware-loader: failed to generate firmware manifest for {}: {}",
+            firmware_dir.display(),
+            err
+        ),
+    }
 
     let registry = match FirmwareRegistry::new(&firmware_dir) {
         Ok(registry) => registry,
@@ -143,7 +239,7 @@ fn main() {
         firmware_dir.display()
     );
 
-    if env::args().nth(1).as_deref() == Some("--probe") {
+    if args.first().map(String::as_str) == Some("--probe") {
         println!("count={}", registry.len());
         let mut keys = registry.list_keys();
         keys.sort_unstable();

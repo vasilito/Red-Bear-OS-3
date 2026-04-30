@@ -1,0 +1,12 @@
+[package]
+name = "usb-core"
+version = "0.1.0"
+edition = "2024"
+description = "Shared USB types and primitives for Red Bear host controller drivers"
+
+[features]
+default = ["std"]
+std = []
+
+[lib]
+path = "source/src/lib.rs"

@@ -76,6 +76,10 @@ name = "redbear-phase-ps2-check"
 path = "src/bin/redbear-phase-ps2-check.rs"
 
 [[bin]]
+name = "cmdline"
+path = "src/bin/cmdline.rs"
+
+[[bin]]
 name = "redbear-phase-timer-check"
 path = "src/bin/redbear-phase-timer-check.rs"
 

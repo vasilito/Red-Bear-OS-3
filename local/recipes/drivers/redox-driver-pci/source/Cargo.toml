@@ -1,0 +1,9 @@
+[package]
+name = "redox-driver-pci"
+version = "0.1.0"
+edition = "2024"
+description = "PCI bus backend for redox-driver-core"
+
+[dependencies]
+redox-driver-core = { path = "../../redox-driver-core/source" }
+redox_syscall = "0.7"

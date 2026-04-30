@@ -276,6 +276,8 @@ fi
 
 echo ""
 echo "==> Sync complete."
+echo "==> Guarding recipe durability..."
+./local/scripts/guard-recipes.sh --restore 2>/dev/null || echo "   (guard-recipes.sh not found — run manually)"
 echo "    Previous HEAD: $PREV_HEAD"
 echo "    New HEAD:      $(git rev-parse HEAD)"
 echo ""

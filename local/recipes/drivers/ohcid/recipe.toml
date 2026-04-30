@@ -1,0 +1,6 @@
+[source]
+path = "source"
+[build]
+template = "cargo"
+[package.files]
+"/usr/lib/drivers/ohcid" = "ohcid"

@@ -1,0 +1,14 @@
+[package]
+name = "redox-driver-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core device-model traits and orchestration for Red Bear drivers"
+
+[features]
+default = ["std"]
+alloc = []
+std = ["alloc"]
+hotplug = []
+
+[dependencies]
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
