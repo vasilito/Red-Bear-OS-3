@@ -113,9 +113,15 @@ The kernel handles 35 syscalls explicitly. Remaining gaps:
 | Component | Status | Detail |
 |-----------|--------|--------|
 | mesa | 🟡 Builds | llvmpipe software renderer; EGL=on, GBM=on, GLES2=on |
+| mesa virgl (QEMU 3D) | 🔴 WIP | Build attempted — virgl_screen.c int-conversion errors; vtest winsys needs `bits/safamily-t.h`; requires Mesa source patches for Redox target |
 | radeonsi (AMD HW) | 🔴 Not built | Not cross-compiled for Redox target |
 | iris (Intel HW) | 🔴 Not built | Not cross-compiled for Redox target |
 | OSMesa | 🟢 Builds | Off-screen software rendering |
+
+**virgl path**: Mesa `-Dgallium-drivers=swrast,virgl` compilation reaches 932/1104 objects.
+Remaining work: (1) fix `virgl_screen.c` int-conversion warnings-as-errors on Redox target,
+(2) provide `bits/safamily-t.h` or disable vtest winsys,
+(3) integrate virgl drm winsys with redox-drm CS ioctl backend.
 
 **Blocker**: Mesa hardware renderer cross-compilation requires CS ioctl backend + validation hardware.
 

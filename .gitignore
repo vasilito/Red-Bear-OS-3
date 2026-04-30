@@ -84,3 +84,4 @@ local/cache/pkgar/
 Packages/redbear-firmware.pkgar
 packages/
 sources/
+local/linux-kernel-cache/
