@@ -119,7 +119,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| **Directly enabled in `config/redbear-full.toml`** | 36 | 33 `kf6-*` packages plus `kdecoration`, `kglobalacceld`, and `kwin` are directly enabled on the tracked desktop-capable target. |
+| **Directly enabled in `config/redbear-full.toml`** | 26 | 25 `kf6-*` packages plus `kwin` are directly enabled on the tracked desktop-capable target. |
 | **KDE-related `.pkgar` artifacts currently visible in `repo/x86_64-unknown-redox/`** | 29 | Confirmed archived artifacts: `kf6-attica`, `kf6-extra-cmake-modules`, `kf6-karchive`, `kf6-kauth`, `kf6-kbookmarks`, `kf6-kcodecs`, `kf6-kcolorscheme`, `kf6-kcompletion`, `kf6-kconfig`, `kf6-kconfigwidgets`, `kf6-kcoreaddons`, `kf6-kcrash`, `kf6-kdbusaddons`, `kf6-kglobalaccel`, `kf6-kguiaddons`, `kf6-ki18n`, `kf6-kiconthemes`, `kf6-kio`, `kf6-kitemviews`, `kf6-kjobwidgets`, `kf6-knotifications`, `kf6-kservice`, `kf6-ktextwidgets`, `kf6-kwidgetsaddons`, `kf6-kwindowsystem`, `kf6-kxmlgui`, `kf6-solid`, `kf6-sonnet`, and `kwin`. |
 | **Do not collapse these two counts** | — | The direct config surface and the archived `.pkgar` surface are not the same set: some archived KDE artifacts are dependency packages not directly enabled, and some directly enabled KDE packages are not evidenced here as `.pkgar` artifacts. |
 | **Blocked: QML gate** | 1 | `kirigami` — source unconditionally includes `QQuickWindow`/`QQmlEngine`. |
