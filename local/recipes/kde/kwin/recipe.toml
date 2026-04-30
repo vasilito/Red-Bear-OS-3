@@ -1,7 +1,8 @@
 #TODO: KWin — Qt6::Sensors now available (2026-04-30). Remaining blockers:
-# libinput (still ignored in config), QML/Quick (JIT disabled on Redox),
-# no canberra in-tree. Attempting bounded cmake build with these disabled.
-# Falls back to redbear-compositor wrapper on build failure.
+# QML/Quick (JIT disabled on Redox) prevents full KWin build.
+# Recipe attempts bounded cmake build; if QML gate is resolved,
+# the build will succeed. Until then, kwin_wayland is provided
+# by redbear-compositor (separate package, not a stub).
 [source]
 tar = "https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz"
 blake3 = "2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f"
@@ -74,28 +75,11 @@ if cmake "${COOKBOOK_SOURCE}" \
     -DKWIN_BUILD_RUNNERS=OFF \
     -DKWIN_BUILD_NOTIFICATIONS=OFF \
     -Wno-dev 2>&1; then
-    cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1 || true
-    cmake --install . --prefix "${STAGE}" 2>&1 || true
+    cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1
+    cmake --install . --prefix "${STAGE}" 2>&1
 fi
 
-# Always provide the redbear-compositor fallback wrapper
-mkdir -p "${STAGE}/bin"
-cat > "${STAGE}/bin/kwin_wayland" << 'EOFBIN'
-#!/bin/sh
-RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/run/redbear-greeter}"
-mkdir -p "$RUNTIME_DIR"
-export XDG_RUNTIME_DIR="${RUNTIME_DIR}"
-exec /usr/bin/redbear-compositor "$@"
-EOFBIN
-chmod +x "${STAGE}/bin/kwin_wayland"
-
-cat > "${STAGE}/bin/kwin_wayland_wrapper" << 'EOFBIN'
-#!/bin/sh
-exec /usr/bin/kwin_wayland "$@"
-EOFBIN
-chmod +x "${STAGE}/bin/kwin_wayland_wrapper"
-
-# Minimal cmake config stubs for downstream KDE recipes
+# cmake config stubs for downstream KDE recipes (needed by plasma-*)
 mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
 cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
