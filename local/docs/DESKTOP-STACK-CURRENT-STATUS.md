@@ -115,7 +115,21 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 |---|---|---|
 | `libwayland` | **builds** | relibc/Wayland-facing compatibility is materially stronger; 33 patches verified (was 25): signalfd, timerfd, eventfd, pthread_yield, secure_getenv, getentropy, dup3, vfork, clock_nanosleep, named-semaphores, tls-get-addr-panic-fix, fcntl-dupfd-cloexec, ipc-tests, socket-flags, syscall-0.7.4-procschemeattrs-ens-to-prio, sysv-ipc, sysv-sem-impl, sysv-shm-impl, waitid-header, open_memstream, F_DUPFD_CLOEXEC, MSG_NOSIGNAL, waitid, RLIMIT, eth0 networking, shm_open, sem_open, select-not-epoll-timeout, exec-root-bypass, tcp-nodelay, netdb-lookup-retry-fix, eventfd-mod, fd-event-tests, ifaddrs-net_if, signalfd-header, elf64-types, socket-cred, strtold-cpp-linkage, semaphore-fixes |
 | Qt6 core stack | **builds** | `qtbase` (7 libs + 12 plugins), `qtdeclarative`, `qtsvg`, `qtwayland`; Qt6Quick/JIT not runtime-proven |
-| KF6 frameworks | **builds** | 32/32 recipes exist; 30 real cmake builds + 2 real build attempts (knewstuff, kwallet); **only 9 KF6 + ECM in built image** (kwin transitive deps); 22 additional KF6 recipes exist but not enabled in config; kirigami stub-only; `kf6-kio` now uses source-local Redox QtNetwork compatibility; 1 suppressed (kirigami, QML) |
+## Current KDE Package Status (2026-04-30)
+
+| Category | Count | Detail |
+|----------|-------|--------|
+| **Building + in repo** | 15 | attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kdecoration, kwin (stub), kf6-kwallet |
+| **Building (stage only)** | 21 | All other KF6 frameworks — compiled during cook but not yet in repo (need full make all with clean repo.tag) |
+| **kf6-knewstuff** | 1 | Publishes to repo as empty package (cmake succeeds, core src produces no libs with QtQuick/widgets off) |
+| **kf6-attica** | 1 | Minimal core library build, KF6::Attica cmake target |
+| **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
+| **Blocked: compilation** | 2 | breeze, kf6-kio — upstream source incompatibilities with Redox toolchain |
+| **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |
+| **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
+| **Blocked: dependencies** | 1 | kde-cli-tools (depends on kf6-kio) |
+
+**Total: 47 recipes. 36 build (15 in repo + 21 stage-only). 11 blocked (documented).**
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
 | plasma-workspace | **blocked (builds real)** | Real cmake build, but commented out in config; depends on kf6-knewstuff + kwin |
 | plasma-desktop | **blocked (builds real)** | Recipe exists; depends on plasma-workspace; commented out in config |
@@ -270,11 +284,13 @@ Kirigami is stub-only (QML-dependent; qtdeclarative exists but downstream QML/Ki
 the KDE Plasma session. `kf6-kio` is now an honest reduced KIOCore-only build, so its remaining
 limits have moved to the QtNetwork blocker below rather than the stub/shim bucket.
 
-### 7. QtNetwork disabled blocks KDE network integration
+### 7. QtNetwork re-enabled for KDE network integration (2026-04-29)
 
-QtNetwork is intentionally disabled because relibc networking is too narrow. This still prevents
-Qt-based network applications, full `kf6-kio` network transparency, and KDE network-dependent
-features.
+QtNetwork has been re-enabled in the qtbase recipe (`-DFEATURE_network=ON`) following DNS resolver
+hardening (use-after-free fix, FD leak fix, transaction ID validation, RCODE/TC handling, typed
+error mapping via `P3-dns-resolver-hardening.patch`). This unblocks Qt-based network applications,
+full `kf6-kio` network transparency, and KDE network-dependent features. Full build validation is
+in progress.
 
 ### 8. Build system improvements completed
 
@@ -317,7 +333,7 @@ The Red Bear desktop stack has crossed major build-side gates and one important 
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
 - KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
-- Critical blockers for Phase 4: KWin must become real (currently stub); plasma packages blocked by kf6-knewstuff (needs QtNetwork); 22 additional KF6 recipes need explicit config enablement
+- Critical blockers for Phase 4: KWin must become real (currently stub); plasma packages blocked by kf6-knewstuff (QtNetwork now re-enabled — needs Qt6 rebuild); 22 additional KF6 recipes need explicit config enablement
 
 The remaining work is **broader runtime validation, compositor/session stability, and closing the documentation-reality gap in config enablement**.
 Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: KWin must become real (currently stub) + 22 KF6 recipes must be enabled in config + plasma packages need unblocking.
