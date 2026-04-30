@@ -9,7 +9,6 @@
 
 #include "commands_p.h"
 #include "connection_p.h"
-#include "hostinfo.h"
 #include "kiocoredebug.h"
 #include "usernotificationhandler_p.h"
 #include "workerbase.h"
@@ -271,7 +270,7 @@ bool WorkerInterface::dispatch(int _cmd, const QByteArray &rawdata)
         QString hostName;
         stream >> hostName;
 
-        const QHostInfo info = HostInfo::lookupHost(hostName, 1500);
+        const QHostInfo info = QHostInfo::fromName(hostName);
 
         QByteArray replyData;
         QDataStream replyStream(&replyData, QIODevice::WriteOnly);

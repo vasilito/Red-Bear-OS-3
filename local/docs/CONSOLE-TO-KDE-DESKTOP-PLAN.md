@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (13 in repo, 23 stage-only). 11 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
+**Implementation status (2026-04-30):** VERIFIED scope is the currently buildable KDE surface on `redbear-full`; packages still blocked by Qt6Quick/QML downstream proof, Qt6::Sensors/libinput, empty-package output, or direct recipe failure stay commented out in config and are not part of this verification claim.
 
 ## Purpose
 

@@ -54,7 +54,7 @@ qt6-wayland-smoke = {}
 # KF6 Frameworks — explicit real-build surface in alphabetical order
 # kirigami: blocked (QML gate — QQuickWindow/QQmlEngine headers don't exist on Redox)
 kf6-kio = {}
-kde-cli-tools = {}
+# kde-cli-tools = {}   # blocked: direct repo cook fails
 
 kdecoration = {}
 kf6-attica = {}
