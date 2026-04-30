@@ -144,9 +144,8 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 36 KDE packages (33 KF6 + kdecoration + kglobalacceld + kwin); 11 blocked/ignored with documented reasons
+- 37 KDE packages (34 KF6 + kdecoration + kglobalacceld + kwin); 11 blocked/ignored with documented reasons
 - kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
-- 12 KDE packages blocked/ignored with documented reasons (see config comments)
 - mesa + libdrm (GPU software stack)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
 - seatd + redbear-authd + redbear-session-launch + redbear-greeter (via redbear-mini)

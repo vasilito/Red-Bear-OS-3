@@ -329,13 +329,13 @@ Init service configuration has been streamlined:
 ## Bottom Line
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, all 32 KF6 recipes, Mesa EGL/GBM/GLES2, and D-Bus build — 36 KDE packages enabled in config (13 in repo with .pkgar, 23 stage-only)
+- All Qt6 core modules, 37 KDE recipes (34 KF6 + kdecoration + kwin + kglobalacceld), Mesa EGL/GBM/GLES2, and D-Bus build — 37 KDE packages enabled in config (14 in repo with .pkgar, 23 stage-only)
 - Three supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
 - relibc compatibility is materially stronger than before
 - Phase 1 test coverage is comprehensive: 300+ unit tests across all Phase 1 daemons (evdevd 65, udev-shim 15, firmware-loader 24, redox-drm 68, redbear-hwutils 79 host + 12 Redox-cfg-gated, bluetooth/wifi 209); service presence probes (`redbear-info --probe`) and 4 check binaries (`redbear-phase1-{evdev,udev,firmware,drm}-check`) validate Phase 1 substrate; 6 C POSIX tests (`relibc-phase1-tests`) exercise relibc compatibility layers
 - KWin recipe is a **stub** — downloads real KWin v6.3.4 source but build script never compiles it; delegates to redbear-compositor via wrapper
-- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 12 packages blocked total (see canonical status table above)
+- Critical blockers for Phase 4: KWin remains stub (needs Qt6::Sensors + libinput); kirigami QML-gated; 11 packages blocked total (see canonical status table above)
 
 The remaining work is **platform prerequisite resolution** (QML JIT, Qt6::Sensors, libinput ports) before full KDE Plasma session can be assembled. Phase 1-2 runtime validation continues via QEMU.
 Phase 1 (Runtime Substrate Validation) has comprehensive test coverage; the remaining gate is live-environment runtime validation. The key boundary for Phase 2 is: no compositor session proof exists. The key boundary for Phase 3-4 is: platform prerequisites (QML JIT, Qt6::Sensors, libinput) must be resolved before KWin real build and full Plasma session.
