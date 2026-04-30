@@ -1,0 +1,225 @@
+diff --git a/src/context/switch.rs b/src/context/switch.rs
+index 86684c8..cd5f7ed 100644
+--- a/src/context/switch.rs
++++ b/src/context/switch.rs
+@@ -5,7 +5,7 @@
+ use crate::{
+     context::{
+         self, arch, idle_contexts, idle_contexts_try, run_contexts, ArcContextLockWriteGuard,
+-        Context, ContextLock, WeakContextRef,
++        Context, ContextLock, SchedPolicy, WeakContextRef,
+     },
+     cpu_set::LogicalCpuId,
+     cpu_stats::{self, CpuState},
+@@ -33,35 +33,17 @@ const SCHED_PRIO_TO_WEIGHT: [usize; 40] = [
+     70, 56, 45, 36, 29, 23, 18, 15,
+ ];
+ 
+-/// Determines if a given context is eligible to be scheduled on a given CPU (in
+-/// principle, the current CPU).
+-///
+-/// # Safety
+-/// This function is unsafe because it modifies the `context`'s state directly without synchronization.
+-///
+-/// # Parameters
+-/// - `context`: The context (process/thread) to be checked.
+-/// - `cpu_id`: The logical ID of the CPU on which the context is being scheduled.
+-///
+-/// # Returns
+-/// - `UpdateResult::CanSwitch`: If the context can be switched to.
+-/// - `UpdateResult::Skip`: If the context should be skipped (e.g., it's running on another CPU).
+ unsafe fn update_runnable(
+     context: &mut Context,
+     cpu_id: LogicalCpuId,
+     switch_time: u128,
+ ) -> UpdateResult {
+-    // Ignore contexts that are already running.
+     if context.running {
+         return UpdateResult::Skip;
+     }
+-
+-    // Ignore contexts assigned to other CPUs.
+     if !context.sched_affinity.contains(cpu_id) {
+         return UpdateResult::Skip;
+     }
+-
+-    // If context is soft-blocked and has a wake-up time, check if it should wake up.
+     if context.status.is_soft_blocked()
+         && let Some(wake) = context.wake
+         && switch_time >= wake
+@@ -69,8 +51,6 @@ unsafe fn update_runnable(
+         context.wake = None;
+         context.unblock_no_ipi();
+     }
+-
+-    // If the context is runnable, indicate it can be switched to.
+     if context.status.is_runnable() {
+         UpdateResult::CanSwitch
+     } else {
+@@ -95,7 +75,7 @@ pub fn tick(token: &mut CleanLockToken) {
+     let new_ticks = ticks_cell.get() + 1;
+     ticks_cell.set(new_ticks);
+ 
+-    // Trigger a context switch after every 3 ticks (approx. 6.75 ms).
++    // Trigger a context switch after every 3 ticks.
+     if new_ticks >= 3 {
+         switch(token);
+         crate::context::signal::signal_handler(token);
+@@ -167,10 +147,7 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+     let mut prev_context_guard = unsafe { prev_context_lock.write_arc() };
+ 
+     if !prev_context_guard.is_preemptable() {
+-        // Unset global lock
+         arch::CONTEXT_SWITCH_LOCK.store(false, Ordering::SeqCst);
+-
+-        // Pretend to have finished switching, so CPU is not idled
+         return SwitchResult::Switched;
+     }
+ 
+@@ -213,6 +190,7 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+ 
+             // Set the previous context as "not running"
+             prev_context.running = false;
++            prev_context.last_cpu = prev_context.cpu_id;
+ 
+             // Set the next context as "running"
+             next_context.running = true;
+@@ -222,6 +200,13 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+             // Update times
+             if !was_idle {
+                 prev_context.cpu_time += switch_time.saturating_sub(prev_context.switch_time);
++            if prev_context.sched_policy == SchedPolicy::Other {
++                let actual_ns = switch_time.saturating_sub(prev_context.switch_time);
++                let weight = SCHED_PRIO_TO_WEIGHT[prev_context.sched_static_prio.min(39)] as u128;
++                let default_weight = SCHED_PRIO_TO_WEIGHT[20] as u128;
++                let delta = actual_ns.saturating_mul(default_weight) / weight.max(1);
++                prev_context.vruntime = prev_context.vruntime.saturating_add(delta);
++            }
+             }
+             next_context.switch_time = switch_time;
+             if next_context.userspace {
+@@ -377,6 +362,124 @@ fn select_next_context(
+     let total_contexts: usize = contexts_list.iter().map(|q| q.len()).sum();
+     let mut skipped_contexts = 0;
+ 
++    // PASS 0: SCHED_FIFO and SCHED_RR — scan for RT contexts to schedule.
++    // When a runnable RT context is found, it takes priority over all SCHED_OTHER.
++    for prio in 0..40 {
++        let rt_contexts = contexts_list
++            .get_mut(prio)
++            .expect("prio should be between [0, 39]");
++        let len = rt_contexts.len();
++        for _ in 0..len {
++            let (rt_ref, rt_lock) = match rt_contexts.pop_front() {
++                Some(lock) => match lock.upgrade() {
++                    Some(l) => (lock, l),
++                    None => {
++                        skipped_contexts += 1;
++                        continue;
++                    }
++                },
++                None => break,
++            };
++            if Arc::ptr_eq(&rt_lock, &idle_context) {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            // Current RT thread: if runnable with no higher-prio RT found yet,
++            // keep it running (no demotion to SCHED_OTHER)
++            if Arc::ptr_eq(&rt_lock, &prev_context_lock) {
++                let rt_guard = unsafe { rt_lock.write_arc() };
++                if rt_guard.status.is_runnable()
++                    && (rt_guard.sched_policy == SchedPolicy::Fifo
++                        || rt_guard.sched_policy == SchedPolicy::RoundRobin)
++                {
++                    percpu.balance.set(balance);
++                    percpu.last_queue.set(i);
++                    return Ok(Some(rt_guard));
++                }
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            let rt_guard = unsafe { rt_lock.write_arc() };
++            if !rt_guard.status.is_runnable() || rt_guard.running
++                || !rt_guard.sched_affinity.contains(cpu_id)
++            {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            if rt_guard.sched_policy == SchedPolicy::Fifo
++                || rt_guard.sched_policy == SchedPolicy::RoundRobin
++            {
++                percpu.balance.set(balance);
++                percpu.last_queue.set(i);
++                if !Arc::ptr_eq(&prev_context_lock, &idle_context) {
++                    let prev_ctx = WeakContextRef(Arc::downgrade(&prev_context_lock));
++                    if prev_context_guard.status.is_runnable() {
++                        contexts_list[prev_context_guard.prio].push_back(prev_ctx);
++                    } else {
++                        idle_contexts(token.token()).push_back(prev_ctx);
++                    }
++                }
++                return Ok(Some(rt_guard));
++            }
++            rt_contexts.push_back(rt_ref);
++        }
++    }
++
++    // PASS 1: SCHED_OTHER — minimum-vruntime selection
++    {
++        let mut min_vruntime = u128::MAX;
++        let mut best: Option<(usize, WeakContextRef)> = None;
++        for (prio, queue) in contexts_list.iter().enumerate() {
++            for ctx_ref in queue.iter() {
++                if let Some(ctx_lock) = ctx_ref.upgrade() {
++                    if Arc::ptr_eq(&ctx_lock, &prev_context_lock) || Arc::ptr_eq(&ctx_lock, &idle_context) {
++                        continue;
++                    }
++                    if let Some(guard) = ctx_lock.try_read(token.token()) {
++                        if guard.status.is_runnable() && !guard.running
++                            && guard.sched_affinity.contains(cpu_id)
++                            && guard.sched_policy == SchedPolicy::Other
++                        {
++                            let mut v = guard.vruntime;
++                            if guard.last_cpu == Some(cpu_id) {
++                                v = v.saturating_sub(v / 8);
++                            }
++                            drop(guard);
++                            if v < min_vruntime {
++                                min_vruntime = v;
++                                best = Some((prio, ctx_ref.clone()));
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        if let Some((best_prio, ctx_ref)) = best {
++            {
++                let queue = contexts_list.get_mut(best_prio).expect("valid prio");
++                queue.retain(|r| !WeakContextRef::eq(r, &ctx_ref));
++            }
++            if let Some(ctx_lock) = ctx_ref.upgrade() {
++                let guard = unsafe { ctx_lock.write_arc() };
++                if guard.status.is_runnable() {
++                    percpu.balance.set(balance);
++                    percpu.last_queue.set(i);
++                    if !Arc::ptr_eq(&prev_context_lock, &idle_context) {
++                        let prev_ctx = WeakContextRef(Arc::downgrade(&prev_context_lock));
++                        if prev_context_guard.status.is_runnable() {
++                            contexts_list[prev_context_guard.prio].push_back(prev_ctx);
++                        } else {
++                            idle_contexts(token.token()).push_back(prev_ctx);
++                        }
++                    }
++                    return Ok(Some(guard));
++                }
++            }
++        }
++    }
++
++    // PASS 2: fallback DWRR deficit tracking
++
+     'priority: loop {
+         i = (i + 1) % 40;
+         total_iters += 1;

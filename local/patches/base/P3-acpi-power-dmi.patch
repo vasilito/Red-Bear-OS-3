@@ -1,0 +1,1294 @@
+diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -1,5 +1,6 @@
+ use acpi::aml::object::{Object, WrappedObject};
+ use acpi::aml::op_region::{RegionHandler, RegionSpace};
++use libredox::Fd;
+ use rustc_hash::FxHashMap;
+ use std::convert::{TryFrom, TryInto};
+ use std::error::Error;
+@@ -228,6 +229,475 @@
+             .field("header", &*self as &SdtHeader)
+             .field("extra_len", &self.data().len())
+             .finish()
++    }
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct DmiInfo {
++    pub bios_vendor: Option<String>,
++    pub bios_version: Option<String>,
++    pub sys_vendor: Option<String>,
++    pub board_vendor: Option<String>,
++    pub board_name: Option<String>,
++    pub board_version: Option<String>,
++    pub product_name: Option<String>,
++    pub product_version: Option<String>,
++}
++
++impl DmiInfo {
++    pub fn to_key_value_lines(&self) -> String {
++        let mut lines = Vec::new();
++
++        if let Some(value) = &self.bios_vendor {
++            lines.push(format!("bios_vendor={value}"));
++        }
++        if let Some(value) = &self.bios_version {
++            lines.push(format!("bios_version={value}"));
++        }
++        if let Some(value) = &self.sys_vendor {
++            lines.push(format!("sys_vendor={value}"));
++        }
++        if let Some(value) = &self.product_name {
++            lines.push(format!("product_name={value}"));
++        }
++        if let Some(value) = &self.product_version {
++            lines.push(format!("product_version={value}"));
++        }
++        if let Some(value) = &self.board_vendor {
++            lines.push(format!("board_vendor={value}"));
++        }
++        if let Some(value) = &self.board_name {
++            lines.push(format!("board_name={value}"));
++        }
++        if let Some(value) = &self.board_version {
++            lines.push(format!("board_version={value}"));
++        }
++
++        lines.join("\n")
++    }
++}
++
++#[repr(C, packed)]
++struct Smbios2EntryPoint {
++    anchor: [u8; 4],
++    checksum: u8,
++    length: u8,
++    major: u8,
++    minor: u8,
++    max_structure_size: u16,
++    entry_point_revision: u8,
++    formatted_area: [u8; 5],
++    intermediate_anchor: [u8; 5],
++    intermediate_checksum: u8,
++    table_length: u16,
++    table_address: u32,
++    structure_count: u16,
++    bcd_revision: u8,
++}
++unsafe impl plain::Plain for Smbios2EntryPoint {}
++
++#[repr(C, packed)]
++struct Smbios3EntryPoint {
++    anchor: [u8; 5],
++    checksum: u8,
++    length: u8,
++    major: u8,
++    minor: u8,
++    docrev: u8,
++    entry_point_revision: u8,
++    reserved: u8,
++    table_max_size: u32,
++    table_address: u64,
++}
++unsafe impl plain::Plain for Smbios3EntryPoint {}
++
++#[repr(C, packed)]
++#[derive(Clone, Copy)]
++struct SmbiosStructHeader {
++    kind: u8,
++    length: u8,
++    handle: u16,
++}
++unsafe impl plain::Plain for SmbiosStructHeader {}
++
++#[derive(Clone, Debug, Default)]
++pub struct AcpiPowerAdapter {
++    pub id: String,
++    pub path: String,
++    pub online: bool,
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct AcpiBattery {
++    pub id: String,
++    pub path: String,
++    pub state: u64,
++    pub present_rate: Option<u64>,
++    pub remaining_capacity: Option<u64>,
++    pub present_voltage: Option<u64>,
++    pub power_unit: Option<String>,
++    pub design_capacity: Option<u64>,
++    pub last_full_capacity: Option<u64>,
++    pub design_voltage: Option<u64>,
++    pub technology: Option<String>,
++    pub model: Option<String>,
++    pub serial: Option<String>,
++    pub battery_type: Option<String>,
++    pub oem_info: Option<String>,
++    pub percentage: Option<f64>,
++}
++
++impl AcpiBattery {
++    pub fn is_charging(&self) -> bool {
++        self.state & 0x2 != 0
++    }
++
++    pub fn is_discharging(&self) -> bool {
++        self.state & 0x1 != 0
++    }
++
++    pub fn is_empty(&self) -> bool {
++        self.state & 0x4 != 0
++    }
++
++    pub fn is_full(&self) -> bool {
++        self.percentage.is_some_and(|percentage| percentage >= 99.0)
++    }
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct AcpiPowerSnapshot {
++    pub adapters: Vec<AcpiPowerAdapter>,
++    pub batteries: Vec<AcpiBattery>,
++}
++
++impl AcpiPowerSnapshot {
++    pub fn adapter_status(&self) -> &'static str {
++        if self.adapters.iter().any(|adapter| adapter.online) {
++            "online"
++        } else {
++            "offline"
++        }
++    }
++
++    pub fn battery_status(&self) -> &'static str {
++        if self.batteries.iter().any(AcpiBattery::is_charging) {
++            return "charging";
++        }
++        if self.batteries.iter().any(AcpiBattery::is_discharging) {
++            return "discharging";
++        }
++        if self.batteries.iter().any(AcpiBattery::is_empty) {
++            return "empty";
++        }
++        if !self.batteries.is_empty() && self.batteries.iter().all(AcpiBattery::is_full) {
++            return "full";
++        }
++
++        "unknown"
++    }
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct AcpiPowerDevicePaths {
++    pub adapters: Vec<String>,
++    pub batteries: Vec<String>,
++}
++
++#[derive(Debug, Error)]
++pub enum PowerQueryError {
++    #[error("AML bootstrap not complete")]
++    Unavailable,
++    #[error("ACPI power namespace unsupported")]
++    Unsupported,
++    #[error("AML error")]
++    Aml(#[from] AmlEvalError),
++}
++
++fn checksum_ok(bytes: &[u8]) -> bool {
++    bytes
++        .iter()
++        .copied()
++        .fold(0u8, |acc, byte| acc.wrapping_add(byte))
++        == 0
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn scan_smbios2() -> Option<(usize, usize, Vec<u8>)> {
++    const START: usize = 0xF0000;
++    const END: usize = 0x100000;
++
++    let mapped = PhysmapGuard::map(START, (END - START).div_ceil(PAGE_SIZE)).ok()?;
++    let bytes = &mapped[..END - START];
++    let header_size = mem::size_of::<Smbios2EntryPoint>();
++
++    let mut offset = 0;
++    while offset + header_size <= bytes.len() {
++        if &bytes[offset..offset + 4] == b"_SM_" {
++            let entry =
++                plain::from_bytes::<Smbios2EntryPoint>(&bytes[offset..offset + header_size]).ok()?;
++            let length = usize::from(entry.length);
++
++            if offset + length <= bytes.len()
++                && length >= header_size
++                && checksum_ok(&bytes[offset..offset + length])
++                && &entry.intermediate_anchor == b"_DMI_"
++            {
++                return Some((
++                    entry.table_address as usize,
++                    entry.table_length as usize,
++                    bytes[offset..offset + length].to_vec(),
++                ));
++            }
++        }
++
++        offset += 16;
++    }
++
++    None
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn scan_smbios3() -> Option<(usize, usize, Vec<u8>)> {
++    const START: usize = 0xF0000;
++    const END: usize = 0x100000;
++
++    let mapped = PhysmapGuard::map(START, (END - START).div_ceil(PAGE_SIZE)).ok()?;
++    let bytes = &mapped[..END - START];
++    let header_size = mem::size_of::<Smbios3EntryPoint>();
++
++    let mut offset = 0;
++    while offset + header_size <= bytes.len() {
++        if &bytes[offset..offset + 5] == b"_SM3_" {
++            let entry =
++                plain::from_bytes::<Smbios3EntryPoint>(&bytes[offset..offset + header_size]).ok()?;
++            let length = usize::from(entry.length);
++
++            if offset + length <= bytes.len() && length >= header_size && checksum_ok(&bytes[offset..offset + length]) {
++                let table_address = usize::try_from(entry.table_address).ok()?;
++                let table_length = usize::try_from(entry.table_max_size).ok()?;
++                return Some((
++                    table_address,
++                    table_length,
++                    bytes[offset..offset + length].to_vec(),
++                ));
++            }
++        }
++
++        offset += 16;
++    }
++
++    None
++}
++
++fn smbios_string(strings: &[u8], index: u8) -> Option<String> {
++    if index == 0 {
++        return None;
++    }
++
++    let mut current = 1u8;
++    for part in strings.split(|byte| *byte == 0) {
++        if part.is_empty() {
++            break;
++        }
++        if current == index {
++            let value = String::from_utf8_lossy(part).trim().to_string();
++            return (!value.is_empty()).then_some(value);
++        }
++        current = current.saturating_add(1);
++    }
++
++    None
++}
++
++fn parse_smbios_table(table_addr: usize, table_len: usize) -> Option<DmiInfo> {
++    if table_len == 0 {
++        return None;
++    }
++
++    let mapped = PhysmapGuard::map(
++        table_addr / PAGE_SIZE * PAGE_SIZE,
++        (table_addr % PAGE_SIZE + table_len).div_ceil(PAGE_SIZE),
++    )
++    .ok()?;
++    let start = table_addr % PAGE_SIZE;
++    let bytes = &mapped[start..start + table_len];
++
++    let mut info = DmiInfo::default();
++    let mut offset = 0usize;
++
++    while offset + mem::size_of::<SmbiosStructHeader>() <= bytes.len() {
++        let header = plain::from_bytes::<SmbiosStructHeader>(
++            &bytes[offset..offset + mem::size_of::<SmbiosStructHeader>()],
++        )
++        .ok()?;
++        let formatted_len = usize::from(header.length);
++        if formatted_len < mem::size_of::<SmbiosStructHeader>() || offset + formatted_len > bytes.len() {
++            break;
++        }
++
++        let struct_bytes = &bytes[offset..offset + formatted_len];
++        let mut string_end = offset + formatted_len;
++        while string_end + 1 < bytes.len() {
++            if bytes[string_end] == 0 && bytes[string_end + 1] == 0 {
++                string_end += 2;
++                break;
++            }
++            string_end += 1;
++        }
++
++        if string_end <= offset || string_end > bytes.len() {
++            break;
++        }
++
++        let strings = &bytes[offset + formatted_len..string_end.saturating_sub(1)];
++
++        match header.kind {
++            0 if formatted_len >= 0x06 => {
++                info.bios_vendor = smbios_string(strings, struct_bytes[0x04]);
++                info.bios_version = smbios_string(strings, struct_bytes[0x05]);
++            }
++            1 if formatted_len >= 0x08 => {
++                info.sys_vendor = smbios_string(strings, struct_bytes[0x04]);
++                info.product_name = smbios_string(strings, struct_bytes[0x05]);
++                info.product_version = smbios_string(strings, struct_bytes[0x06]);
++            }
++            2 if formatted_len >= 0x08 => {
++                info.board_vendor = smbios_string(strings, struct_bytes[0x04]);
++                info.board_name = smbios_string(strings, struct_bytes[0x05]);
++                info.board_version = smbios_string(strings, struct_bytes[0x06]);
++            }
++            127 => break,
++            _ => {}
++        }
++
++        offset = string_end;
++    }
++
++    (!info.to_key_value_lines().is_empty()).then_some(info)
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn load_dmi_data() -> (Option<DmiInfo>, Option<Box<[u8]>>) {
++    let Some((table_addr, table_len, raw)) = scan_smbios3().or_else(scan_smbios2) else {
++        return (None, None);
++    };
++
++    (
++        parse_smbios_table(table_addr, table_len),
++        Some(raw.into_boxed_slice()),
++    )
++}
++
++#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++fn load_dmi_data() -> (Option<DmiInfo>, Option<Box<[u8]>>) {
++    (None, None)
++}
++
++fn symbol_parent_path(symbol: &str, suffix: &str) -> Option<String> {
++    symbol
++        .strip_suffix(suffix)
++        .map(str::to_string)
++        .filter(|path| !path.is_empty())
++}
++
++fn symbol_leaf_id(path: &str) -> String {
++    path.rsplit('.').next().unwrap_or(path).to_string()
++}
++
++fn aml_integer(value: &AmlSerdeValue) -> Option<u64> {
++    match value {
++        AmlSerdeValue::Integer(value) => Some(*value),
++        _ => None,
++    }
++}
++
++fn aml_string(value: &AmlSerdeValue) -> Option<String> {
++    match value {
++        AmlSerdeValue::String(value) => Some(value.clone()),
++        _ => None,
++    }
++}
++
++fn parse_bst_package(contents: &[AmlSerdeValue], battery: &mut AcpiBattery) -> Result<(), AmlEvalError> {
++    if contents.len() < 4 {
++        return Err(AmlEvalError::DeserializationError);
++    }
++
++    battery.state = aml_integer(&contents[0]).ok_or(AmlEvalError::DeserializationError)?;
++    battery.present_rate = aml_integer(&contents[1]);
++    battery.remaining_capacity = aml_integer(&contents[2]);
++    battery.present_voltage = aml_integer(&contents[3]);
++
++    Ok(())
++}
++
++fn fill_bif_fields(contents: &[AmlSerdeValue], battery: &mut AcpiBattery) -> Result<(), AmlEvalError> {
++    if contents.len() < 13 {
++        return Err(AmlEvalError::DeserializationError);
++    }
++
++    battery.power_unit = Some(
++        match aml_integer(&contents[0]).ok_or(AmlEvalError::DeserializationError)? {
++            0 => "mWh",
++            1 => "mAh",
++            _ => "unknown",
++        }
++        .to_string(),
++    );
++    battery.design_capacity = aml_integer(&contents[1]);
++    battery.last_full_capacity = aml_integer(&contents[2]);
++    battery.technology = aml_integer(&contents[3]).map(|value| match value {
++        0 => "primary".to_string(),
++        1 => "rechargeable".to_string(),
++        _ => format!("unknown({value})"),
++    });
++    battery.design_voltage = aml_integer(&contents[4]);
++    battery.battery_type = aml_string(&contents[9]);
++    battery.oem_info = aml_string(&contents[10]);
++    battery.model = aml_string(&contents[11]);
++    battery.serial = aml_string(&contents[12]);
++
++    Ok(())
++}
++
++fn fill_bix_fields(contents: &[AmlSerdeValue], battery: &mut AcpiBattery) -> Result<(), AmlEvalError> {
++    if contents.len() < 16 {
++        return Err(AmlEvalError::DeserializationError);
++    }
++
++    battery.power_unit = Some(
++        match aml_integer(&contents[0]).ok_or(AmlEvalError::DeserializationError)? {
++            0 => "mWh",
++            1 => "mAh",
++            _ => "unknown",
++        }
++        .to_string(),
++    );
++    battery.design_capacity = aml_integer(&contents[1]);
++    battery.last_full_capacity = aml_integer(&contents[2]);
++    battery.technology = aml_integer(&contents[3]).map(|value| match value {
++        0 => "primary".to_string(),
++        1 => "rechargeable".to_string(),
++        _ => format!("unknown({value})"),
++    });
++    battery.design_voltage = aml_integer(&contents[5]);
++    battery.model = aml_string(&contents[13]);
++    battery.serial = aml_string(&contents[14]);
++    battery.battery_type = aml_string(&contents[15]);
++    battery.oem_info = contents.get(16).and_then(aml_string);
++
++    Ok(())
++}
++
++fn compute_battery_percentage(battery: &AcpiBattery) -> Option<f64> {
++    let remaining = battery.remaining_capacity? as f64;
++    let full = battery.last_full_capacity.or(battery.design_capacity)? as f64;
++
++    if full <= 0.0 {
++        None
++    } else {
++        Some((remaining / full * 100.0).clamp(0.0, 100.0))
+     }
+ }
+ 
+@@ -560,6 +1030,8 @@
+     dsdt: Option<Dsdt>,
+     fadt: Option<Fadt>,
+     shutdown_s5: RwLock<Option<SleepTypeData>>,
++    dmi_info: Option<DmiInfo>,
++    dmi_raw: Option<Box<[u8]>>,
+ 
+     aml_symbols: RwLock<AmlSymbols>,
+ 
+@@ -574,11 +1046,12 @@
+ impl AcpiContext {
+     pub fn aml_eval(
+         &self,
++        pci_fd: Option<&Fd>,
+         symbol: AmlName,
+         args: Vec<AmlSerdeValue>,
+     ) -> Result<AmlSerdeValue, AmlEvalError> {
+         let mut symbols = self.aml_symbols.write();
+-        let interpreter = symbols.aml_context_mut(None)?;
++        let interpreter = symbols.aml_context_mut(pci_fd)?;
+         interpreter.acquire_global_lock(16)?;
+ 
+         let args = args
+@@ -592,9 +1065,9 @@
+             .collect::<Result<Vec<WrappedObject>, AmlEvalError>>()?;
+ 
+         let result = interpreter.evaluate(symbol, args);
+-        interpreter
+-            .release_global_lock()
+-            .expect("Failed to release GIL!"); //TODO: check if this should panic
++        if let Err(error) = interpreter.release_global_lock() {
++            log::error!("Failed to release AML global lock: {:?}", error);
++        }
+ 
+         result
+             .map_err(AmlEvalError::from)
+@@ -649,11 +1122,15 @@
+             }
+         }
+ 
++        let (dmi_info, dmi_raw) = load_dmi_data();
++
+         let mut this = Self {
+             tables,
+             dsdt: None,
+             fadt: None,
+             shutdown_s5: RwLock::new(None),
++            dmi_info,
++            dmi_raw,
+ 
+             // Temporary values
+             aml_symbols: RwLock::new(AmlSymbols::new(aml_bootstrap, ec)),
+@@ -735,11 +1212,155 @@
+         self.sdt_order.write().push(Some(*signature));
+     }
+ 
+-    pub fn aml_lookup(&self, symbol: &str) -> Option<String> {
+-        if let Ok(aml_symbols) = self.aml_symbols(None) {
++    pub fn dmi_info(&self) -> Option<&DmiInfo> {
++        self.dmi_info.as_ref()
++    }
++
++    pub fn dmi_raw(&self) -> Option<&[u8]> {
++        self.dmi_raw.as_deref()
++    }
++
++    pub fn aml_lookup(&self, pci_fd: Option<&Fd>, symbol: &str) -> Option<String> {
++        if let Ok(aml_symbols) = self.aml_symbols(pci_fd) {
+             aml_symbols.lookup(symbol)
+         } else {
+             None
++        }
++    }
++
++    pub fn power_object_paths(&self, pci_fd: Option<&Fd>) -> Result<AcpiPowerDevicePaths, PowerQueryError> {
++        let mut aml_symbols = self.aml_symbols.write();
++        let aml_context = aml_symbols.aml_context_mut(pci_fd).map_err(|error| match error {
++            AmlEvalError::NotInitialized => PowerQueryError::Unavailable,
++            other => PowerQueryError::Aml(other),
++        })?;
++
++        let mut symbol_names = Vec::with_capacity(256);
++        aml_context
++            .namespace
++            .lock()
++            .traverse(|level_aml_name, level| {
++                for (child_seg, _handle) in level.values.iter() {
++                    if let Ok(aml_name) =
++                        AmlName::from_name_seg(child_seg.to_owned()).resolve(level_aml_name)
++                    {
++                        symbol_names.push(aml_to_symbol(&aml_name));
++                    }
++                }
++                Ok(true)
++            })
++            .map_err(AmlEvalError::from)
++            .map_err(PowerQueryError::Aml)?;
++        drop(aml_symbols);
++
++        let mut adapter_paths = symbol_names
++            .iter()
++            .filter_map(|symbol| symbol_parent_path(symbol, "._PSR"))
++            .collect::<Vec<_>>();
++        adapter_paths.sort();
++        adapter_paths.dedup();
++
++        let mut battery_paths = symbol_names
++            .iter()
++            .filter_map(|symbol| symbol_parent_path(symbol, "._BST"))
++            .collect::<Vec<_>>();
++        battery_paths.sort();
++        battery_paths.dedup();
++
++        Ok(AcpiPowerDevicePaths {
++            adapters: adapter_paths,
++            batteries: battery_paths,
++        })
++    }
++
++    pub fn power_snapshot(&self, pci_fd: Option<&Fd>) -> Result<AcpiPowerSnapshot, PowerQueryError> {
++        let paths = self.power_object_paths(pci_fd)?;
++        if paths.adapters.is_empty() && paths.batteries.is_empty() {
++            return Err(PowerQueryError::Unsupported);
++        }
++
++        let mut snapshot = AcpiPowerSnapshot::default();
++
++        for path in paths.adapters {
++            let method_name = AmlName::from_str(&format!("\\{}.{}", path, "_PSR"))
++                .map_err(|_| PowerQueryError::Aml(AmlEvalError::DeserializationError))?;
++            match self.aml_eval(pci_fd, method_name, Vec::new()) {
++                Ok(AmlSerdeValue::Integer(state)) => {
++                    snapshot.adapters.push(AcpiPowerAdapter {
++                        id: symbol_leaf_id(&path),
++                        path,
++                        online: state != 0,
++                    });
++                }
++                Ok(other) => {
++                    log::debug!(
++                        "Skipping AC adapter {} due to unexpected _PSR value: {:?}",
++                        path,
++                        other
++                    );
++                }
++                Err(error) => {
++                    log::debug!("Skipping AC adapter {} due to _PSR eval failure: {:?}", path, error);
++                }
++            }
++        }
++
++        for path in paths.batteries {
++            let mut battery = AcpiBattery {
++                id: symbol_leaf_id(&path),
++                path: path.clone(),
++                ..AcpiBattery::default()
++            };
++
++            match self.aml_eval(
++                pci_fd,
++                AmlName::from_str(&format!("\\{}.{}", path, "_BST"))
++                    .map_err(|_| PowerQueryError::Aml(AmlEvalError::DeserializationError))?,
++                Vec::new(),
++            ) {
++                Ok(AmlSerdeValue::Package { contents }) => {
++                    if let Err(error) = parse_bst_package(&contents, &mut battery) {
++                        log::debug!("Skipping battery {} due to malformed _BST: {:?}", path, error);
++                        continue;
++                    }
++                }
++                Ok(other) => {
++                    log::debug!("Skipping battery {} due to unexpected _BST value: {:?}", path, other);
++                    continue;
++                }
++                Err(error) => {
++                    log::debug!("Skipping battery {} due to _BST eval failure: {:?}", path, error);
++                    continue;
++                }
++            }
++
++            for method in ["_BIX", "_BIF"] {
++                let method_name = AmlName::from_str(&format!("\\{}.{}", path, method))
++                    .map_err(|_| PowerQueryError::Aml(AmlEvalError::DeserializationError))?;
++                match self.aml_eval(pci_fd, method_name, Vec::new()) {
++                    Ok(AmlSerdeValue::Package { contents }) => {
++                        let result = if method == "_BIX" {
++                            fill_bix_fields(&contents, &mut battery)
++                        } else {
++                            fill_bif_fields(&contents, &mut battery)
++                        };
++                        if result.is_ok() {
++                            break;
++                        }
++                    }
++                    Ok(_) => {}
++                    Err(_) => {}
++                }
++            }
++
++            battery.percentage = compute_battery_percentage(&battery);
++            snapshot.batteries.push(battery);
++        }
++
++        if snapshot.adapters.is_empty() && snapshot.batteries.is_empty() {
++            Err(PowerQueryError::Unavailable)
++        } else {
++            Ok(snapshot)
+         }
+     }
+ 
+diff --git a/drivers/acpid/src/scheme.rs b/drivers/acpid/src/scheme.rs
+--- a/drivers/acpid/src/scheme.rs
++++ b/drivers/acpid/src/scheme.rs
+@@ -21,7 +21,10 @@
+ use syscall::flag::{O_ACCMODE, O_DIRECTORY, O_RDONLY, O_STAT, O_SYMLINK};
+ use syscall::{EOVERFLOW, EPERM};
+ 
+-use crate::acpi::{AcpiContext, AmlSymbols, SdtSignature};
++use crate::acpi::{
++    AcpiBattery, AcpiContext, AcpiPowerAdapter, AcpiPowerSnapshot, AmlSymbols, DmiInfo,
++    PowerQueryError, SdtSignature,
++};
+ 
+ pub struct AcpiScheme<'acpi, 'sock> {
+     ctx: &'acpi AcpiContext,
+@@ -41,8 +44,151 @@
+     Table(SdtSignature),
+     Symbols(RwLockReadGuard<'a, AmlSymbols>),
+     Symbol { name: String, description: String },
++    DmiDir,
++    Dmi(Vec<u8>),
++    PowerDir,
++    PowerAdaptersDir,
++    PowerAdapterDir(String),
++    PowerBatteriesDir,
++    PowerBatteryDir(String),
++    PowerFile(Vec<u8>),
+     SchemeRoot,
+     RegisterPci,
++}
++
++const DMI_DIRECTORY_ENTRIES: &[&str] = &[
++    "bios_vendor",
++    "bios_version",
++    "sys_vendor",
++    "board_vendor",
++    "board_name",
++    "board_version",
++    "product_name",
++    "product_version",
++    "raw",
++];
++
++const POWER_ROOT_ENTRIES: &[(&str, DirentKind)] = &[
++    ("status", DirentKind::Regular),
++    ("adapter", DirentKind::Regular),
++    ("battery", DirentKind::Regular),
++    ("adapters", DirentKind::Directory),
++    ("batteries", DirentKind::Directory),
++];
++
++fn dmi_match_all_contents(dmi_info: &DmiInfo) -> Vec<u8> {
++    dmi_info.to_key_value_lines().into_bytes()
++}
++
++fn dmi_contents(dmi_info: Option<&DmiInfo>, dmi_raw: Option<&[u8]>, name: &str) -> Option<Vec<u8>> {
++    Some(match name {
++        "raw" => dmi_raw?.to_vec(),
++        "" | "match_all" => dmi_match_all_contents(dmi_info?),
++        "bios_vendor" => dmi_info?.bios_vendor.clone()?.into_bytes(),
++        "bios_version" => dmi_info?.bios_version.clone()?.into_bytes(),
++        "sys_vendor" | "system_vendor" => dmi_info?.sys_vendor.clone()?.into_bytes(),
++        "board_vendor" => dmi_info?.board_vendor.clone()?.into_bytes(),
++        "board_name" => dmi_info?.board_name.clone()?.into_bytes(),
++        "board_version" => dmi_info?.board_version.clone()?.into_bytes(),
++        "product_name" => dmi_info?.product_name.clone()?.into_bytes(),
++        "product_version" => dmi_info?.product_version.clone()?.into_bytes(),
++        _ => return None,
++    })
++}
++
++fn text_file_bytes(value: &str) -> Vec<u8> {
++    format!("{value}\n").into_bytes()
++}
++
++fn power_bool_bytes(value: bool) -> Vec<u8> {
++    text_file_bytes(if value { "1" } else { "0" })
++}
++
++fn power_u64_bytes(value: u64) -> Vec<u8> {
++    format!("{value}\n").into_bytes()
++}
++
++fn power_f64_bytes(value: f64) -> Vec<u8> {
++    format!("{value}\n").into_bytes()
++}
++
++fn power_adapter_file_contents(adapter: &AcpiPowerAdapter, name: &str) -> Option<Vec<u8>> {
++    Some(match name {
++        "path" => text_file_bytes(&adapter.path),
++        "online" => power_bool_bytes(adapter.online),
++        _ => return None,
++    })
++}
++
++fn power_adapter_entry_names() -> &'static [&'static str] {
++    &["path", "online"]
++}
++
++fn power_battery_file_contents(battery: &AcpiBattery, name: &str) -> Option<Vec<u8>> {
++    Some(match name {
++        "path" => text_file_bytes(&battery.path),
++        "state" => power_u64_bytes(battery.state),
++        "present_rate" => power_u64_bytes(battery.present_rate?),
++        "remaining_capacity" => power_u64_bytes(battery.remaining_capacity?),
++        "present_voltage" => power_u64_bytes(battery.present_voltage?),
++        "power_unit" => text_file_bytes(battery.power_unit.as_deref()?),
++        "design_capacity" => power_u64_bytes(battery.design_capacity?),
++        "last_full_capacity" => power_u64_bytes(battery.last_full_capacity?),
++        "design_voltage" => power_u64_bytes(battery.design_voltage?),
++        "technology" => text_file_bytes(battery.technology.as_deref()?),
++        "model" => text_file_bytes(battery.model.as_deref()?),
++        "serial" => text_file_bytes(battery.serial.as_deref()?),
++        "battery_type" => text_file_bytes(battery.battery_type.as_deref()?),
++        "oem_info" => text_file_bytes(battery.oem_info.as_deref()?),
++        "percentage" => power_f64_bytes(battery.percentage?),
++        _ => return None,
++    })
++}
++
++fn power_battery_entry_names(battery: &AcpiBattery) -> Vec<&'static str> {
++    let mut names = vec!["path", "state"];
++
++    if battery.present_rate.is_some() {
++        names.push("present_rate");
++    }
++    if battery.remaining_capacity.is_some() {
++        names.push("remaining_capacity");
++    }
++    if battery.present_voltage.is_some() {
++        names.push("present_voltage");
++    }
++    if battery.power_unit.is_some() {
++        names.push("power_unit");
++    }
++    if battery.design_capacity.is_some() {
++        names.push("design_capacity");
++    }
++    if battery.last_full_capacity.is_some() {
++        names.push("last_full_capacity");
++    }
++    if battery.design_voltage.is_some() {
++        names.push("design_voltage");
++    }
++    if battery.technology.is_some() {
++        names.push("technology");
++    }
++    if battery.model.is_some() {
++        names.push("model");
++    }
++    if battery.serial.is_some() {
++        names.push("serial");
++    }
++    if battery.battery_type.is_some() {
++        names.push("battery_type");
++    }
++    if battery.oem_info.is_some() {
++        names.push("oem_info");
++    }
++    if battery.percentage.is_some() {
++        names.push("percentage");
++    }
++
++    names
+ }
+ 
+ impl HandleKind<'_> {
+@@ -53,6 +199,14 @@
+             Self::Table(_) => false,
+             Self::Symbols(_) => true,
+             Self::Symbol { .. } => false,
++            Self::DmiDir => true,
++            Self::Dmi(_) => false,
++            Self::PowerDir => true,
++            Self::PowerAdaptersDir => true,
++            Self::PowerAdapterDir(_) => true,
++            Self::PowerBatteriesDir => true,
++            Self::PowerBatteryDir(_) => true,
++            Self::PowerFile(_) => false,
+             Self::SchemeRoot => false,
+             Self::RegisterPci => false,
+         }
+@@ -65,8 +219,18 @@
+                 .ok_or(Error::new(EBADFD))?
+                 .length(),
+             Self::Symbol { description, .. } => description.len(),
++            Self::Dmi(contents) => contents.len(),
++            Self::PowerFile(contents) => contents.len(),
+             // Directories
+-            Self::TopLevel | Self::Symbols(_) | Self::Tables => 0,
++            Self::TopLevel
++            | Self::Symbols(_)
++            | Self::Tables
++            | Self::DmiDir
++            | Self::PowerDir
++            | Self::PowerAdaptersDir
++            | Self::PowerAdapterDir(_)
++            | Self::PowerBatteriesDir
++            | Self::PowerBatteryDir(_) => 0,
+             Self::SchemeRoot | Self::RegisterPci => return Err(Error::new(EBADF)),
+         })
+     }
+@@ -79,6 +243,154 @@
+             handles: HandleMap::new(),
+             pci_fd: None,
+             socket,
++        }
++    }
++
++    fn power_snapshot(&self) -> Result<AcpiPowerSnapshot> {
++        self.ctx
++            .power_snapshot(self.pci_fd.as_ref())
++            .map_err(|error| match error {
++                PowerQueryError::Unavailable | PowerQueryError::Unsupported => Error::new(ENOENT),
++                PowerQueryError::Aml(other) => {
++                    log::warn!("Failed to build ACPI power snapshot: {:?}", other);
++                    Error::new(EIO)
++                }
++            })
++    }
++
++    fn power_surface_counts(&self) -> (bool, usize, usize) {
++        let Ok(paths) = self.ctx.power_object_paths(self.pci_fd.as_ref()) else {
++            return (false, 0, 0);
++        };
++
++        (
++            self.ctx.power_snapshot(self.pci_fd.as_ref()).is_ok(),
++            paths.batteries.len(),
++            paths.adapters.len(),
++        )
++    }
++
++    fn power_status_contents(&self) -> Vec<u8> {
++        let (available, battery_count, adapter_count) = self.power_surface_counts();
++        format!(
++            "{{\"available\": {}, \"battery_count\": {}, \"adapter_count\": {}}}\n",
++            available, battery_count, adapter_count
++        )
++        .into_bytes()
++    }
++
++    fn power_adapter_summary_contents(&self) -> Vec<u8> {
++        let Ok(paths) = self.ctx.power_object_paths(self.pci_fd.as_ref()) else {
++            return text_file_bytes("unavailable");
++        };
++        if paths.adapters.is_empty() {
++            return text_file_bytes("unsupported");
++        }
++
++        match self.ctx.power_snapshot(self.pci_fd.as_ref()) {
++            Ok(snapshot) => text_file_bytes(snapshot.adapter_status()),
++            Err(_) => text_file_bytes("unavailable"),
++        }
++    }
++
++    fn power_battery_summary_contents(&self) -> Vec<u8> {
++        let Ok(paths) = self.ctx.power_object_paths(self.pci_fd.as_ref()) else {
++            return text_file_bytes("unavailable");
++        };
++        if paths.batteries.is_empty() {
++            return text_file_bytes("unsupported");
++        }
++
++        match self.ctx.power_snapshot(self.pci_fd.as_ref()) {
++            Ok(snapshot) => text_file_bytes(snapshot.battery_status()),
++            Err(_) => text_file_bytes("unavailable"),
++        }
++    }
++
++    fn power_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
++        let normalized = path.trim_matches('/');
++
++        if normalized.is_empty() {
++            return Ok(HandleKind::PowerDir);
++        }
++        if normalized == "status" {
++            return Ok(HandleKind::PowerFile(self.power_status_contents()));
++        }
++        if normalized == "adapter" {
++            return Ok(HandleKind::PowerFile(self.power_adapter_summary_contents()));
++        }
++        if normalized == "battery" {
++            return Ok(HandleKind::PowerFile(self.power_battery_summary_contents()));
++        }
++        if normalized == "adapters" {
++            return Ok(HandleKind::PowerAdaptersDir);
++        }
++        if let Some(rest) = normalized.strip_prefix("adapters/") {
++            return self.power_adapter_handle(rest);
++        }
++        if normalized == "batteries" {
++            return Ok(HandleKind::PowerBatteriesDir);
++        }
++        if let Some(rest) = normalized.strip_prefix("batteries/") {
++            return self.power_battery_handle(rest);
++        }
++
++        Err(Error::new(ENOENT))
++    }
++
++    fn power_adapter_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
++        let normalized = path.trim_matches('/');
++        if normalized.is_empty() {
++            return Ok(HandleKind::PowerAdaptersDir);
++        }
++
++        let mut parts = normalized.split('/');
++        let adapter_id = parts.next().ok_or(Error::new(ENOENT))?;
++        let field = parts.next();
++        if parts.next().is_some() {
++            return Err(Error::new(ENOENT));
++        }
++
++        let snapshot = self.power_snapshot()?;
++        let adapter = snapshot
++            .adapters
++            .iter()
++            .find(|adapter| adapter.id == adapter_id)
++            .ok_or(Error::new(ENOENT))?;
++
++        match field {
++            None | Some("") => Ok(HandleKind::PowerAdapterDir(adapter.id.clone())),
++            Some(name) => Ok(HandleKind::PowerFile(
++                power_adapter_file_contents(adapter, name).ok_or(Error::new(ENOENT))?,
++            )),
++        }
++    }
++
++    fn power_battery_handle(&self, path: &str) -> Result<HandleKind<'acpi>> {
++        let normalized = path.trim_matches('/');
++        if normalized.is_empty() {
++            return Ok(HandleKind::PowerBatteriesDir);
++        }
++
++        let mut parts = normalized.split('/');
++        let battery_id = parts.next().ok_or(Error::new(ENOENT))?;
++        let field = parts.next();
++        if parts.next().is_some() {
++            return Err(Error::new(ENOENT));
++        }
++
++        let snapshot = self.power_snapshot()?;
++        let battery = snapshot
++            .batteries
++            .iter()
++            .find(|battery| battery.id == battery_id)
++            .ok_or(Error::new(ENOENT))?;
++
++        match field {
++            None | Some("") => Ok(HandleKind::PowerBatteryDir(battery.id.clone())),
++            Some(name) => Ok(HandleKind::PowerFile(
++                power_battery_file_contents(battery, name).ok_or(Error::new(ENOENT))?,
++            )),
+         }
+     }
+ }
+@@ -184,9 +496,9 @@
+             HandleKind::SchemeRoot => {
+                 // TODO: arrayvec
+                 let components = {
+-                    let mut v = arrayvec::ArrayVec::<&str, 3>::new();
++                    let mut v = arrayvec::ArrayVec::<&str, 4>::new();
+                     let it = path.split('/');
+-                    for component in it.take(3) {
++                    for component in it.take(4) {
+                         v.push(component);
+                     }
+ 
+@@ -195,6 +507,25 @@
+ 
+                 match &*components {
+                     [""] => HandleKind::TopLevel,
++                    ["dmi"] => {
++                        if flag_dir || flag_stat || path.ends_with('/') {
++                            HandleKind::DmiDir
++                        } else {
++                            HandleKind::Dmi(
++                                dmi_contents(self.ctx.dmi_info(), self.ctx.dmi_raw(), "")
++                                    .ok_or(Error::new(ENOENT))?,
++                            )
++                        }
++                    }
++                    ["dmi", ""] => HandleKind::DmiDir,
++                    ["dmi", field] => HandleKind::Dmi(
++                        dmi_contents(self.ctx.dmi_info(), self.ctx.dmi_raw(), field)
++                            .ok_or(Error::new(ENOENT))?,
++                    ),
++                    ["power"] => HandleKind::PowerDir,
++                    ["power", tail] => self.power_handle(tail)?,
++                    ["power", a, b] => self.power_handle(&format!("{a}/{b}"))?,
++                    ["power", a, b, c] => self.power_handle(&format!("{a}/{b}/{c}"))?,
+                     ["register_pci"] => HandleKind::RegisterPci,
+                     ["tables"] => HandleKind::Tables,
+ 
+@@ -212,7 +543,7 @@
+                     }
+ 
+                     ["symbols", symbol] => {
+-                        if let Some(description) = self.ctx.aml_lookup(symbol) {
++                        if let Some(description) = self.ctx.aml_lookup(self.pci_fd.as_ref(), symbol) {
+                             HandleKind::Symbol {
+                                 name: (*symbol).to_owned(),
+                                 description,
+@@ -225,6 +556,16 @@
+                     _ => return Err(Error::new(ENOENT)),
+                 }
+             }
++            HandleKind::DmiDir => {
++                if path.is_empty() {
++                    HandleKind::DmiDir
++                } else {
++                    HandleKind::Dmi(
++                        dmi_contents(self.ctx.dmi_info(), self.ctx.dmi_raw(), path)
++                            .ok_or(Error::new(ENOENT))?,
++                    )
++                }
++            }
+             HandleKind::Symbols(ref aml_symbols) => {
+                 if let Some(description) = aml_symbols.lookup(path) {
+                     HandleKind::Symbol {
+@@ -233,6 +574,23 @@
+                     }
+                 } else {
+                     return Err(Error::new(ENOENT));
++                }
++            }
++            HandleKind::PowerDir => self.power_handle(path)?,
++            HandleKind::PowerAdaptersDir => self.power_adapter_handle(path)?,
++            HandleKind::PowerAdapterDir(ref adapter_id) => {
++                if path.is_empty() {
++                    HandleKind::PowerAdapterDir(adapter_id.clone())
++                } else {
++                    self.power_adapter_handle(&format!("{adapter_id}/{path}"))?
++                }
++            }
++            HandleKind::PowerBatteriesDir => self.power_battery_handle(path)?,
++            HandleKind::PowerBatteryDir(ref battery_id) => {
++                if path.is_empty() {
++                    HandleKind::PowerBatteryDir(battery_id.clone())
++                } else {
++                    self.power_battery_handle(&format!("{battery_id}/{path}"))?
+                 }
+             }
+             _ => return Err(Error::new(EACCES)),
+@@ -309,6 +667,8 @@
+                 .ok_or(Error::new(EBADFD))?
+                 .as_slice(),
+             HandleKind::Symbol { description, .. } => description.as_bytes(),
++            HandleKind::Dmi(contents) => contents.as_slice(),
++            HandleKind::PowerFile(contents) => contents.as_slice(),
+             _ => return Err(Error::new(EINVAL)),
+         };
+ 
+@@ -328,13 +688,18 @@
+         mut buf: DirentBuf<&'buf mut [u8]>,
+         opaque_offset: u64,
+     ) -> Result<DirentBuf<&'buf mut [u8]>> {
+-        let handle = self.handles.get_mut(id)?;
++        let handle = self.handles.get(id)?;
+ 
+         match &handle.kind {
+             HandleKind::TopLevel => {
+-                const TOPLEVEL_ENTRIES: &[&str] = &["tables", "symbols"];
+-
+-                for (idx, name) in TOPLEVEL_ENTRIES
++                const TOPLEVEL_ENTRIES: &[(&str, DirentKind)] = &[
++                    ("tables", DirentKind::Directory),
++                    ("symbols", DirentKind::Directory),
++                    ("dmi", DirentKind::Directory),
++                    ("power", DirentKind::Directory),
++                ];
++
++                for (idx, (name, kind)) in TOPLEVEL_ENTRIES
+                     .iter()
+                     .enumerate()
+                     .skip(opaque_offset as usize)
+@@ -343,7 +708,106 @@
+                         inode: 0,
+                         next_opaque_id: idx as u64 + 1,
+                         name,
++                        kind: *kind,
++                    })?;
++                }
++            }
++            HandleKind::DmiDir => {
++                for (idx, name) in DMI_DIRECTORY_ENTRIES
++                    .iter()
++                    .enumerate()
++                    .skip(opaque_offset as usize)
++                {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name,
++                        kind: DirentKind::Regular,
++                    })?;
++                }
++            }
++            HandleKind::PowerDir => {
++                for (idx, (name, kind)) in POWER_ROOT_ENTRIES
++                    .iter()
++                    .enumerate()
++                    .skip(opaque_offset as usize)
++                {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name,
++                        kind: *kind,
++                    })?;
++                }
++            }
++            HandleKind::PowerAdaptersDir => {
++                let snapshot = self.power_snapshot()?;
++                for (idx, adapter) in snapshot
++                    .adapters
++                    .iter()
++                    .enumerate()
++                    .skip(opaque_offset as usize)
++                {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name: adapter.id.as_str(),
+                         kind: DirentKind::Directory,
++                    })?;
++                }
++            }
++            HandleKind::PowerAdapterDir(adapter_id) => {
++                let snapshot = self.power_snapshot()?;
++                let _adapter = snapshot
++                    .adapters
++                    .iter()
++                    .find(|adapter| adapter.id == *adapter_id)
++                    .ok_or(Error::new(EIO))?;
++
++                for (idx, name) in power_adapter_entry_names()
++                    .iter()
++                    .enumerate()
++                    .skip(opaque_offset as usize)
++                {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name,
++                        kind: DirentKind::Regular,
++                    })?;
++                }
++            }
++            HandleKind::PowerBatteriesDir => {
++                let snapshot = self.power_snapshot()?;
++                for (idx, battery) in snapshot
++                    .batteries
++                    .iter()
++                    .enumerate()
++                    .skip(opaque_offset as usize)
++                {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name: battery.id.as_str(),
++                        kind: DirentKind::Directory,
++                    })?;
++                }
++            }
++            HandleKind::PowerBatteryDir(battery_id) => {
++                let snapshot = self.power_snapshot()?;
++                let battery = snapshot
++                    .batteries
++                    .iter()
++                    .find(|battery| battery.id == *battery_id)
++                    .ok_or(Error::new(EIO))?;
++                let entry_names = power_battery_entry_names(battery);
++
++                for (idx, name) in entry_names.iter().enumerate().skip(opaque_offset as usize) {
++                    buf.entry(DirEntry {
++                        inode: 0,
++                        next_opaque_id: idx as u64 + 1,
++                        name,
++                        kind: DirentKind::Regular,
+                     })?;
+                 }
+             }
+@@ -419,11 +883,11 @@
+         };
+ 
+         let Ok(aml_name) = AmlName::from_str(&to_aml_format(name)) else {
+-            log::error!("Failed to convert symbol name: "{name}" to aml name!");
++            log::error!("Failed to convert symbol name: \"{name}\" to aml name!");
+             return Err(Error::new(EBADF));
+         };
+ 
+-        let Ok(result) = self.ctx.aml_eval(aml_name, args) else {
++        let Ok(result) = self.ctx.aml_eval(self.pci_fd.as_ref(), aml_name, args) else {
+             return Err(Error::new(EINVAL));
+         };
+ 

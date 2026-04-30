@@ -6,6 +6,8 @@ patches = [
     "P0-workspace-add-bootstrap.patch",
     "P0-bootstrap-workspace-fix.patch",
     "P2-i2c-gpio-ucsi-drivers.patch",
+    "P3-pcid-bind-scheme.patch",
+    "P3-acpi-wave12-hardening.patch",
 ]
 
 [build]

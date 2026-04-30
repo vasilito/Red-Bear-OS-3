@@ -1,0 +1,20 @@
+diff --git a/src/scheme/mod.rs b/src/scheme/mod.rs
+index d30272c..9da2b28 100644
+--- a/src/scheme/mod.rs
++++ b/src/scheme/mod.rs
+@@ -777,6 +777,7 @@ pub struct CallerCtx {
+     pub pid: usize,
+     pub uid: u32,
+     pub gid: u32,
++    pub groups: alloc::vec::Vec<u32>,
+ }
+ impl CallerCtx {
+     pub fn filter_uid_gid(self, euid: u32, egid: u32) -> Self {
+@@ -785,6 +786,7 @@ impl CallerCtx {
+                 pid: self.pid,
+                 uid: euid,
+                 gid: egid,
++                groups: self.groups,
+             }
+         } else {
+             self

@@ -1,0 +1,130 @@
+diff --git a/src/header/sched/mod.rs b/src/header/sched/mod.rs
+index bcdd346..6066550 100644
+--- a/src/header/sched/mod.rs
++++ b/src/header/sched/mod.rs
+@@ -27,43 +27,110 @@ pub const SCHED_RR: c_int = 1;
+ pub const SCHED_OTHER: c_int = 2;
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_max(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 99,
++        SCHED_OTHER => 0,
++        _ => {
++            crate::platform::ERRNO.set(crate::header::errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+-// #[unsafe(no_mangle)]
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_min.html>.
++#[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_min(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 1,
++        SCHED_OTHER => 0,
++        _ => {
++            crate::platform::ERRNO.set(crate::header::errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_getparam.html>.
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sched_getparam(pid: pid_t, param: *mut sched_param) -> c_int {
+-    todo!()
++    if pid != 0 {
++        crate::platform::ERRNO.set(crate::header::errno::ESRCH);
++        return -1;
++    }
++    crate::platform::ERRNO.set(crate::header::errno::ENOSYS);
++    -1
++}
++
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_getscheduler.html>.
++#[unsafe(no_mangle)]
++pub extern "C" fn sched_getscheduler(pid: pid_t) -> c_int {
++    if pid != 0 {
++        crate::platform::ERRNO.set(crate::header::errno::ESRCH);
++        return -1;
++    }
++    crate::platform::ERRNO.set(crate::header::errno::ENOSYS);
++    -1
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_rr_get_interval.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn sched_rr_get_interval(pid: pid_t, time: *const timespec) -> c_int {
+-    todo!()
++#[unsafe(no_mangle)]
++pub extern "C" fn sched_rr_get_interval(pid: pid_t, tp: *mut timespec) -> c_int {
++    if pid != 0 {
++        crate::platform::ERRNO.set(crate::header::errno::ESRCH);
++        return -1;
++    }
++    if tp.is_null() {
++        crate::platform::ERRNO.set(crate::header::errno::EINVAL);
++        return -1;
++    }
++    unsafe {
++        (*tp).tv_sec = 0;
++        (*tp).tv_nsec = 100_000_000; // 100ms default SCHED_RR quantum
++    }
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setparam.html>.
+-// #[unsafe(no_mangle)]
+-pub unsafe extern "C" fn sched_setparam(pid: pid_t, param: *const sched_param) -> c_int {
+-    todo!()
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn sched_setparam(pid: pid_t, _param: *const sched_param) -> c_int {
++    if pid != 0 {
++        crate::platform::ERRNO.set(crate::header::errno::ESRCH);
++        return -1;
++    }
++    crate::platform::ERRNO.set(crate::header::errno::ENOSYS);
++    -1
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setscheduler.html>.
+-// #[unsafe(no_mangle)]
++#[unsafe(no_mangle)]
+ pub extern "C" fn sched_setscheduler(
+     pid: pid_t,
+     policy: c_int,
+     param: *const sched_param,
+ ) -> c_int {
+-    todo!()
++    if pid != 0 {
++        crate::platform::ERRNO.set(crate::header::errno::ESRCH);
++        return -1;
++    }
++    match policy {
++        SCHED_OTHER => {
++            if !param.is_null() && unsafe { (*param).sched_priority } != 0 {
++                crate::platform::ERRNO.set(crate::header::errno::EINVAL);
++                return -1;
++            }
++            SCHED_OTHER
++        }
++        SCHED_FIFO | SCHED_RR => {
++            crate::platform::ERRNO.set(crate::header::errno::ENOSYS);
++            -1
++        }
++        _ => {
++            crate::platform::ERRNO.set(crate::header::errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_yield.html>.

@@ -24,9 +24,15 @@ shell = "/usr/bin/ion"
 shell = "/usr/bin/zsh"
 
 [packages]
+# Runtime driver parameter control surface.
+driver-params = {}
+
 # Firmware loading
 redbear-firmware = {}
 firmware-loader = {}
+
+# NUMA topology discovery (userspace daemon)
+numad = {}
 
 # GPU/graphics stack
 redox-drm = {}
@@ -400,3 +406,4 @@ subclass = 0x00
 command = ["redox-drm"]
 """
 konsole = {}
+kf6-pty = {}

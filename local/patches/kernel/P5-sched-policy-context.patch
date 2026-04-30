@@ -1,0 +1,176 @@
+diff --git a/src/context/context.rs b/src/context/context.rs
+index c97c516..8a8b078 100644
+--- a/src/context/context.rs
++++ b/src/context/context.rs
+@@ -18,7 +18,8 @@ use crate::{
+     cpu_stats,
+     ipi::{ipi, IpiKind, IpiTarget},
+     memory::{
+-        allocate_p2frame, deallocate_p2frame, Enomem, Frame, RaiiFrame, RmmA, RmmArch, PAGE_SIZE,
++        allocate_p2frame, deallocate_p2frame, Enomem, Frame, PhysicalAddress, RaiiFrame, RmmA,
++        RmmArch, PAGE_SIZE,
+     },
+     percpu::PercpuBlock,
+     scheme::{CallerCtx, FileHandle, SchemeId},
+@@ -62,6 +63,38 @@ impl Status {
+     }
+ }
+ 
++pub const SCHED_PRIORITY_LEVELS: usize = 40;
++pub const DEFAULT_SCHED_OTHER_PRIORITY: usize = 20;
++pub const DEFAULT_SCHED_RR_QUANTUM: u128 = 100_000_000;
++
++#[repr(u8)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum SchedPolicy {
++    Fifo = 0,
++    RoundRobin = 1,
++    Other = 2,
++}
++
++impl SchedPolicy {
++    pub fn try_from_raw(raw: u8) -> Option<Self> {
++        match raw {
++            0 => Some(Self::Fifo),
++            1 => Some(Self::RoundRobin),
++            2 => Some(Self::Other),
++            _ => None,
++        }
++    }
++}
++
++pub fn rt_priority_to_kernel_prio(rt_priority: u8) -> usize {
++    (SCHED_PRIORITY_LEVELS - 1)
++        .saturating_sub((usize::from(rt_priority.min(99)) * (SCHED_PRIORITY_LEVELS - 1)) / 99)
++}
++
++fn clamp_sched_other_prio(prio: usize) -> usize {
++    prio.min(SCHED_PRIORITY_LEVELS - 1)
++}
++
+ #[derive(Clone, Debug)]
+ pub enum HardBlockedReason {
+     /// "SIGSTOP", only procmgr is allowed to switch contexts this state
+@@ -140,6 +173,17 @@ pub struct Context {
+     pub fmap_ret: Option<Frame>,
+     /// Priority
+     pub prio: usize,
++    pub sched_policy: SchedPolicy,
++    pub sched_rt_priority: u8,
++    pub sched_rr_ticks_consumed: u32,
++    pub sched_static_prio: usize,
++    pub sched_rr_quantum: u128,
++    #[allow(dead_code)]
++    pub futex_pi_boost: bool,
++    #[allow(dead_code)]
++    pub futex_pi_original_prio: usize,
++    #[allow(dead_code)]
++    pub futex_pi_waiters: Vec<PhysicalAddress>,
+ 
+     // TODO: id can reappear after wraparound?
+     pub owner_proc_id: Option<NonZeroUsize>,
+@@ -148,6 +192,8 @@ pub struct Context {
+     pub euid: u32,
+     pub egid: u32,
+     pub pid: usize,
++    /// Supplementary group IDs for access control decisions.
++    pub groups: Vec<u32>,
+ 
+     // See [`PreemptGuard`]
+     //
+@@ -197,13 +243,22 @@ impl Context {
+             files: Arc::new(RwLock::new(FdTbl::new())),
+             userspace: false,
+             fmap_ret: None,
+-            prio: 20,
++            prio: DEFAULT_SCHED_OTHER_PRIORITY,
++            sched_policy: SchedPolicy::Other,
++            sched_rt_priority: 0,
++            sched_rr_ticks_consumed: 0,
++            sched_static_prio: DEFAULT_SCHED_OTHER_PRIORITY,
++            sched_rr_quantum: DEFAULT_SCHED_RR_QUANTUM,
++            futex_pi_boost: false,
++            futex_pi_original_prio: DEFAULT_SCHED_OTHER_PRIORITY,
++            futex_pi_waiters: Vec::new(),
+             being_sigkilled: false,
+             owner_proc_id,
+ 
+             euid: 0,
+             egid: 0,
+             pid: 0,
++            groups: Vec::new(),
+ 
+             #[cfg(feature = "syscall_debug")]
+             syscall_debug_info: crate::syscall::debug::SyscallDebugInfo::default(),
+@@ -218,11 +273,47 @@ impl Context {
+         self.preempt_locks == 0
+     }
+ 
++    fn base_sched_prio(&self) -> usize {
++        match self.sched_policy {
++            SchedPolicy::Other => clamp_sched_other_prio(self.sched_static_prio),
++            SchedPolicy::Fifo | SchedPolicy::RoundRobin => {
++                rt_priority_to_kernel_prio(self.sched_rt_priority)
++            }
++        }
++    }
++
++    fn apply_sched_prio(&mut self) {
++        let base_prio = self.base_sched_prio();
++        if self.futex_pi_boost {
++            self.futex_pi_original_prio = base_prio;
++            self.prio = self.prio.min(base_prio);
++        } else {
++            self.futex_pi_original_prio = base_prio;
++            self.prio = base_prio;
++        }
++    }
++
++    pub fn set_sched_other_prio(&mut self, prio: usize) {
++        self.sched_static_prio = clamp_sched_other_prio(prio);
++        self.apply_sched_prio();
++    }
++
++    pub fn set_sched_policy(&mut self, sched_policy: SchedPolicy, rt_priority: u8) {
++        self.sched_policy = sched_policy;
++        self.sched_rt_priority = match sched_policy {
++            SchedPolicy::Other => 0,
++            SchedPolicy::Fifo | SchedPolicy::RoundRobin => rt_priority.min(99),
++        };
++        self.sched_rr_ticks_consumed = 0;
++        self.apply_sched_prio();
++    }
++
+     /// Block the context, and return true if it was runnable before being blocked
+     pub fn block(&mut self, reason: &'static str) -> bool {
+         if self.status.is_runnable() {
+             self.status = Status::Blocked;
+             self.status_reason = reason;
++            self.sched_rr_ticks_consumed = 0;
+             true
+         } else {
+             false
+@@ -232,6 +323,7 @@ impl Context {
+     pub fn hard_block(&mut self, reason: HardBlockedReason) -> bool {
+         if self.status.is_runnable() {
+             self.status = Status::HardBlocked { reason };
++            self.sched_rr_ticks_consumed = 0;
+ 
+             true
+         } else {
+@@ -261,6 +353,7 @@ impl Context {
+         if self.status.is_soft_blocked() {
+             self.status = Status::Runnable;
+             self.status_reason = "";
++            self.sched_rr_ticks_consumed = 0;
+ 
+             true
+         } else {
+@@ -479,6 +572,7 @@ impl Context {
+             uid: self.euid,
+             gid: self.egid,
+             pid: self.pid,
++            groups: self.groups.clone(),
+         }
+     }
+ }

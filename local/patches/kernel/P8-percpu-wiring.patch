@@ -1,0 +1,985 @@
+diff --git a/src/context/switch.rs b/src/context/switch.rs
+index 86684c8..d054734 100644
+--- a/src/context/switch.rs
++++ b/src/context/switch.rs
+@@ -5,18 +5,18 @@
+ use crate::{
+     context::{
+         self, arch, idle_contexts, idle_contexts_try, run_contexts, ArcContextLockWriteGuard,
+-        Context, ContextLock, WeakContextRef,
++        Context, ContextLock, SchedPolicy, WeakContextRef, RUN_QUEUE_COUNT,
+     },
+-    cpu_set::LogicalCpuId,
++    cpu_set::{LogicalCpuId, LogicalCpuSet},
+     cpu_stats::{self, CpuState},
+-    percpu::PercpuBlock,
+-    sync::{ArcRwLockWriteGuard, CleanLockToken, L4},
++    percpu::{get_percpu_block, PerCpuSched, PercpuBlock},
++    sync::{ArcRwLockWriteGuard, CleanLockToken, LockToken, L1, L4},
+ };
+ use alloc::{sync::Arc, vec::Vec};
+ use core::{
+     cell::{Cell, RefCell},
+     hint, mem,
+-    sync::atomic::Ordering,
++    sync::atomic::{AtomicUsize, Ordering},
+ };
+ use syscall::PtraceFlags;
+ 
+@@ -33,35 +33,49 @@ const SCHED_PRIO_TO_WEIGHT: [usize; 40] = [
+     70, 56, 45, 36, 29, 23, 18, 15,
+ ];
+ 
+-/// Determines if a given context is eligible to be scheduled on a given CPU (in
+-/// principle, the current CPU).
+-///
+-/// # Safety
+-/// This function is unsafe because it modifies the `context`'s state directly without synchronization.
+-///
+-/// # Parameters
+-/// - `context`: The context (process/thread) to be checked.
+-/// - `cpu_id`: The logical ID of the CPU on which the context is being scheduled.
+-///
+-/// # Returns
+-/// - `UpdateResult::CanSwitch`: If the context can be switched to.
+-/// - `UpdateResult::Skip`: If the context should be skipped (e.g., it's running on another CPU).
++const LOAD_BALANCE_INTERVAL_NS: u128 = 100_000_000;
++
++static SCHED_STEAL_COUNT: AtomicUsize = AtomicUsize::new(0);
++
++struct SchedQueuesLock<'a> {
++    sched: &'a PerCpuSched,
++}
++
++impl<'a> SchedQueuesLock<'a> {
++    fn new(sched: &'a PerCpuSched) -> Self {
++        sched.take_lock();
++        Self { sched }
++    }
++
++    unsafe fn queues_mut(
++        &mut self,
++    ) -> &mut [alloc::collections::VecDeque<WeakContextRef>; RUN_QUEUE_COUNT] {
++        unsafe { self.sched.queues_mut() }
++    }
++}
++
++impl Drop for SchedQueuesLock<'_> {
++    fn drop(&mut self) {
++        self.sched.release_lock();
++    }
++}
++
++fn assign_context_to_cpu(context: &mut Context, cpu_id: LogicalCpuId) {
++    context.sched_affinity = LogicalCpuSet::empty();
++    context.sched_affinity.atomic_set(cpu_id);
++}
++
+ unsafe fn update_runnable(
+     context: &mut Context,
+     cpu_id: LogicalCpuId,
+     switch_time: u128,
+ ) -> UpdateResult {
+-    // Ignore contexts that are already running.
+     if context.running {
+         return UpdateResult::Skip;
+     }
+-
+-    // Ignore contexts assigned to other CPUs.
+     if !context.sched_affinity.contains(cpu_id) {
+         return UpdateResult::Skip;
+     }
+-
+-    // If context is soft-blocked and has a wake-up time, check if it should wake up.
+     if context.status.is_soft_blocked()
+         && let Some(wake) = context.wake
+         && switch_time >= wake
+@@ -69,8 +83,6 @@ unsafe fn update_runnable(
+         context.wake = None;
+         context.unblock_no_ipi();
+     }
+-
+-    // If the context is runnable, indicate it can be switched to.
+     if context.status.is_runnable() {
+         UpdateResult::CanSwitch
+     } else {
+@@ -90,12 +102,16 @@ struct SwitchResultInner {
+ ///
+ /// The function also calls the signal handler after switching contexts.
+ pub fn tick(token: &mut CleanLockToken) {
+-    let ticks_cell = &PercpuBlock::current().switch_internals.pit_ticks;
++    let percpu = PercpuBlock::current();
++    let ticks_cell = &percpu.switch_internals.pit_ticks;
+ 
+     let new_ticks = ticks_cell.get() + 1;
+     ticks_cell.set(new_ticks);
+ 
+-    // Trigger a context switch after every 3 ticks (approx. 6.75 ms).
++    let balance_time = crate::time::monotonic(token);
++    maybe_balance_queues(token, percpu, balance_time);
++
++    // Trigger a context switch after every 3 ticks.
+     if new_ticks >= 3 {
+         switch(token);
+         crate::context::signal::signal_handler(token);
+@@ -167,22 +183,12 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+     let mut prev_context_guard = unsafe { prev_context_lock.write_arc() };
+ 
+     if !prev_context_guard.is_preemptable() {
+-        // Unset global lock
+         arch::CONTEXT_SWITCH_LOCK.store(false, Ordering::SeqCst);
+-
+-        // Pretend to have finished switching, so CPU is not idled
+         return SwitchResult::Switched;
+     }
+ 
+     // Alarm (previously in update_runnable)
+-    let wakeups = wakeup_contexts(token, switch_time);
+-
+-    if wakeups.len() > 0 {
+-        let mut run_contexts = run_contexts(token.token());
+-        for (prio, context_lock) in wakeups {
+-            run_contexts.set[prio].push_back(context_lock);
+-        }
+-    }
++    wakeup_contexts(token, percpu, switch_time);
+ 
+     let cpu_id = crate::cpu_id();
+ 
+@@ -213,6 +219,7 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+ 
+             // Set the previous context as "not running"
+             prev_context.running = false;
++            prev_context.last_cpu = prev_context.cpu_id;
+ 
+             // Set the next context as "running"
+             next_context.running = true;
+@@ -222,6 +229,14 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+             // Update times
+             if !was_idle {
+                 prev_context.cpu_time += switch_time.saturating_sub(prev_context.switch_time);
++                if prev_context.sched_policy == SchedPolicy::Other {
++                    let actual_ns = switch_time.saturating_sub(prev_context.switch_time);
++                    let weight =
++                        SCHED_PRIO_TO_WEIGHT[prev_context.sched_static_prio.min(39)] as u128;
++                    let default_weight = SCHED_PRIO_TO_WEIGHT[20] as u128;
++                    let delta = actual_ns.saturating_mul(default_weight) / weight.max(1);
++                    prev_context.vruntime = prev_context.vruntime.saturating_add(delta);
++                }
+             }
+             next_context.switch_time = switch_time;
+             if next_context.userspace {
+@@ -302,13 +317,234 @@ pub fn switch(token: &mut CleanLockToken) -> SwitchResult {
+     }
+ }
+ 
+-fn wakeup_contexts(token: &mut CleanLockToken, switch_time: u128) -> Vec<(usize, WeakContextRef)> {
++fn queue_previous_context(
++    token: &mut CleanLockToken,
++    percpu: &PercpuBlock,
++    prev_context_lock: &Arc<ContextLock>,
++    prev_context_guard: &ArcRwLockWriteGuard<L4, Context>,
++    idle_context: &Arc<ContextLock>,
++) {
++    if Arc::ptr_eq(prev_context_lock, idle_context) {
++        return;
++    }
++
++    let prev_ctx = WeakContextRef(Arc::downgrade(prev_context_lock));
++    if prev_context_guard.status.is_runnable() {
++        let prio = prev_context_guard.prio;
++        let mut sched_lock = SchedQueuesLock::new(&percpu.sched);
++        unsafe {
++            sched_lock.queues_mut()[prio].push_back(prev_ctx);
++        }
++    } else {
++        idle_contexts(token.downgrade()).push_back(prev_ctx);
++    }
++}
++
++fn pop_movable_context(
++    token: &mut CleanLockToken,
++    queues: &mut [alloc::collections::VecDeque<WeakContextRef>; RUN_QUEUE_COUNT],
++    target_cpu: LogicalCpuId,
++    switch_time: u128,
++    idle_context: &Arc<ContextLock>,
++) -> Option<(usize, WeakContextRef)> {
++    for prio in 0..RUN_QUEUE_COUNT {
++        let len = queues[prio].len();
++        for _ in 0..len {
++            let Some(context_ref) = queues[prio].pop_front() else {
++                break;
++            };
++            let Some(context_lock) = context_ref.upgrade() else {
++                continue;
++            };
++            if Arc::ptr_eq(&context_lock, idle_context) {
++                queues[prio].push_back(context_ref);
++                continue;
++            }
++
++            let mut context_guard = unsafe { context_lock.write_arc() };
++            let sw = unsafe { update_stealable(&mut context_guard, switch_time) };
++            if let UpdateResult::CanSwitch = sw {
++                assign_context_to_cpu(&mut context_guard, target_cpu);
++                let moved_ref = WeakContextRef(Arc::downgrade(ArcContextLockWriteGuard::rwlock(
++                    &context_guard,
++                )));
++                drop(context_guard);
++                return Some((prio, moved_ref));
++            }
++
++            if matches!(sw, UpdateResult::Blocked) {
++                idle_contexts(token.downgrade()).push_back(context_ref);
++            } else {
++                queues[prio].push_back(context_ref);
++            }
++        }
++    }
++
++    None
++}
++
++fn steal_work(
++    token: &mut CleanLockToken,
++    cpu_id: LogicalCpuId,
++    switch_time: u128,
++) -> Option<ArcContextLockWriteGuard> {
++    let cpu_count = crate::cpu_count();
++    if cpu_count <= 1 {
++        return None;
++    }
++
++    for offset in 1..cpu_count {
++        let victim_id = LogicalCpuId::new((cpu_id.get() + offset) % cpu_count);
++        let Some(victim) = get_percpu_block(victim_id) else {
++            continue;
++        };
++
++        let victim_idle = victim.switch_internals.idle_context();
++        let mut victim_lock = SchedQueuesLock::new(&victim.sched);
++        let victim_queues = unsafe { victim_lock.queues_mut() };
++
++        for prio in 0..RUN_QUEUE_COUNT {
++            let len = victim_queues[prio].len();
++            for _ in 0..len {
++                let Some(context_ref) = victim_queues[prio].pop_front() else {
++                    break;
++                };
++                let Some(context_lock) = context_ref.upgrade() else {
++                    continue;
++                };
++                if Arc::ptr_eq(&context_lock, &victim_idle) {
++                    victim_queues[prio].push_back(context_ref);
++                    continue;
++                }
++
++                let mut context_guard = unsafe { context_lock.write_arc() };
++                let sw = unsafe { update_stealable(&mut context_guard, switch_time) };
++                if let UpdateResult::CanSwitch = sw {
++                    assign_context_to_cpu(&mut context_guard, cpu_id);
++                    SCHED_STEAL_COUNT.fetch_add(1, Ordering::Relaxed);
++                    return Some(context_guard);
++                }
++
++                if matches!(sw, UpdateResult::Blocked) {
++                    idle_contexts(token.downgrade()).push_back(context_ref);
++                } else {
++                    victim_queues[prio].push_back(context_ref);
++                }
++            }
++        }
++    }
++
++    None
++}
++
++fn queue_depth(percpu: &PercpuBlock) -> usize {
++    let mut sched_lock = SchedQueuesLock::new(&percpu.sched);
++    unsafe {
++        sched_lock
++            .queues_mut()
++            .iter()
++            .map(|queue| queue.len())
++            .sum()
++    }
++}
++
++fn migrate_one_context(
++    token: &mut CleanLockToken,
++    source_id: LogicalCpuId,
++    target_id: LogicalCpuId,
++    switch_time: u128,
++) -> bool {
++    let Some(source) = get_percpu_block(source_id) else {
++        return false;
++    };
++    let Some(target) = get_percpu_block(target_id) else {
++        return false;
++    };
++
++    let source_idle = source.switch_internals.idle_context();
++    let moved = {
++        let mut source_lock = SchedQueuesLock::new(&source.sched);
++        let source_queues = unsafe { source_lock.queues_mut() };
++        pop_movable_context(token, source_queues, target_id, switch_time, &source_idle)
++    };
++
++    let Some((prio, context_ref)) = moved else {
++        return false;
++    };
++
++    let mut target_lock = SchedQueuesLock::new(&target.sched);
++    unsafe {
++        target_lock.queues_mut()[prio].push_back(context_ref);
++    }
++    true
++}
++
++fn maybe_balance_queues(token: &mut CleanLockToken, percpu: &PercpuBlock, balance_time: u128) {
++    if crate::cpu_count() <= 1 || percpu.cpu_id != LogicalCpuId::BSP {
++        return;
++    }
++    if balance_time.saturating_sub(percpu.sched.last_balance_time.get()) < LOAD_BALANCE_INTERVAL_NS
++    {
++        return;
++    }
++
++    percpu.sched.last_balance_time.set(balance_time);
++
++    let mut depths = Vec::new();
++    let mut total_depth = 0usize;
++    for raw_id in 0..crate::cpu_count() {
++        let cpu_id = LogicalCpuId::new(raw_id);
++        let Some(cpu_percpu) = get_percpu_block(cpu_id) else {
++            continue;
++        };
++        let depth = queue_depth(cpu_percpu);
++        total_depth += depth;
++        depths.push((cpu_id, depth));
++    }
++
++    if depths.len() <= 1 || total_depth == 0 {
++        return;
++    }
++
++    let avg_depth = (total_depth + depths.len().saturating_sub(1)) / depths.len();
++
++    for target_index in 0..depths.len() {
++        if depths[target_index].1 != 0 {
++            continue;
++        }
++
++        let mut source_index = None;
++        let mut source_depth = 0usize;
++        for (idx, &(_, depth)) in depths.iter().enumerate() {
++            if idx == target_index {
++                continue;
++            }
++            if depth > avg_depth + 1 && depth > source_depth {
++                source_index = Some(idx);
++                source_depth = depth;
++            }
++        }
++
++        let Some(source_index) = source_index else {
++            continue;
++        };
++
++        let source_id = depths[source_index].0;
++        let target_id = depths[target_index].0;
++        if migrate_one_context(token, source_id, target_id, balance_time) {
++            depths[source_index].1 = depths[source_index].1.saturating_sub(1);
++            depths[target_index].1 += 1;
++        }
++    }
++}
++
++fn wakeup_contexts(token: &mut CleanLockToken, percpu: &PercpuBlock, switch_time: u128) {
+     // TODO: Optimise this somehow. Perhaps using a separate timer queue?
+     let mut wakeups = Vec::new();
+     let current_context = context::current();
+     let Some(idle_contexts) = idle_contexts_try(token.downgrade()) else {
+         // other cpus may spawning or killing contexts so let's skip wakeups to avoid contention
+-        return wakeups;
++        return;
+     };
+     let (mut idle_contexts, mut token) = idle_contexts.into_split();
+     let len = idle_contexts.len();
+@@ -327,15 +563,14 @@ fn wakeup_contexts(token: &mut CleanLockToken, switch_time: u128) -> Vec<(usize,
+             idle_contexts.push_back(context_ref);
+             continue;
+         };
+-        if guard.status.is_soft_blocked() {
+-            if let Some(wake) = guard.wake {
+-                if switch_time >= wake {
+-                    let prio = guard.prio;
+-                    drop(guard);
+-                    wakeups.push((prio, context_ref));
+-                    continue;
+-                }
+-            }
++        if guard.status.is_soft_blocked()
++            && let Some(wake) = guard.wake
++            && switch_time >= wake
++        {
++            let prio = guard.prio;
++            drop(guard);
++            wakeups.push((prio, context_ref));
++            continue;
+         }
+ 
+         if guard.status.is_runnable() && !guard.running {
+@@ -348,43 +583,127 @@ fn wakeup_contexts(token: &mut CleanLockToken, switch_time: u128) -> Vec<(usize,
+         drop(guard);
+         idle_contexts.push_back(context_ref);
+     }
+-    wakeups
++
++    if wakeups.is_empty() {
++        return;
++    }
++
++    let mut sched_lock = SchedQueuesLock::new(&percpu.sched);
++    let run_queues = unsafe { sched_lock.queues_mut() };
++    for (prio, context_ref) in wakeups {
++        if let Some(context_lock) = context_ref.upgrade() {
++            let mut context_guard = unsafe { context_lock.write_arc() };
++            assign_context_to_cpu(&mut context_guard, percpu.cpu_id);
++        }
++        run_queues[prio].push_back(context_ref);
++    }
+ }
+ 
+-/// This is the scheduler function which currently utilises Deficit Weighted Round Robin Scheduler
+-fn select_next_context(
++fn pick_next_from_queues(
+     token: &mut CleanLockToken,
+-    percpu: &PercpuBlock,
++    contexts_list: &mut [alloc::collections::VecDeque<WeakContextRef>; RUN_QUEUE_COUNT],
+     cpu_id: LogicalCpuId,
+     switch_time: u128,
+-    was_idle: bool,
+-    prev_context_guard: &mut ArcRwLockWriteGuard<L4, Context>,
+-) -> Result<Option<ArcContextLockWriteGuard>, SwitchResult> {
+-    let contexts_data = run_contexts(token.token());
+-    let (mut contexts_data, mut token) = contexts_data.into_split();
+-    let contexts_list = &mut contexts_data.set;
+-    let idle_context = percpu.switch_internals.idle_context();
+-    let mut balance = percpu.balance.get();
+-    let mut i = percpu.last_queue.get() % 40;
+-
+-    // Lock the previous context.
+-    let prev_context_lock = crate::context::current();
+-
++    prev_context_lock: &Arc<ContextLock>,
++    idle_context: &Arc<ContextLock>,
++    balance: &mut [usize; RUN_QUEUE_COUNT],
++    i: &mut usize,
++) -> Option<ArcContextLockWriteGuard> {
+     let mut empty_queues = 0;
+     let mut total_iters = 0;
+-    let mut next_context_guard_opt = None;
+-
+     let total_contexts: usize = contexts_list.iter().map(|q| q.len()).sum();
+     let mut skipped_contexts = 0;
+ 
++    for prio in 0..RUN_QUEUE_COUNT {
++        let rt_contexts = contexts_list
++            .get_mut(prio)
++            .expect("prio should be between [0, 39]");
++        let len = rt_contexts.len();
++        for _ in 0..len {
++            let (rt_ref, rt_lock) = match rt_contexts.pop_front() {
++                Some(lock) => match lock.upgrade() {
++                    Some(l) => (lock, l),
++                    None => {
++                        skipped_contexts += 1;
++                        continue;
++                    }
++                },
++                None => break,
++            };
++            if Arc::ptr_eq(&rt_lock, idle_context) || Arc::ptr_eq(&rt_lock, prev_context_lock) {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            let rt_guard = unsafe { rt_lock.write_arc() };
++            if !rt_guard.status.is_runnable()
++                || rt_guard.running
++                || !rt_guard.sched_affinity.contains(cpu_id)
++            {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            if rt_guard.sched_policy == SchedPolicy::Fifo
++                || rt_guard.sched_policy == SchedPolicy::RoundRobin
++            {
++                return Some(rt_guard);
++            }
++            rt_contexts.push_back(rt_ref);
++        }
++    }
++
++    {
++        let mut min_vruntime = u128::MAX;
++        let mut best: Option<(usize, WeakContextRef)> = None;
++        for (prio, queue) in contexts_list.iter().enumerate() {
++            for ctx_ref in queue.iter() {
++                if let Some(ctx_lock) = ctx_ref.upgrade() {
++                    if Arc::ptr_eq(&ctx_lock, prev_context_lock)
++                        || Arc::ptr_eq(&ctx_lock, idle_context)
++                    {
++                        continue;
++                    }
++                    if let Some(guard) = ctx_lock.try_read(token.token()) {
++                        if guard.status.is_runnable()
++                            && !guard.running
++                            && guard.sched_affinity.contains(cpu_id)
++                            && guard.sched_policy == SchedPolicy::Other
++                        {
++                            let mut vruntime = guard.vruntime;
++                            if guard.last_cpu == Some(cpu_id) {
++                                vruntime = vruntime.saturating_sub(vruntime / 8);
++                            }
++                            drop(guard);
++                            if vruntime < min_vruntime {
++                                min_vruntime = vruntime;
++                                best = Some((prio, ctx_ref.clone()));
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        if let Some((best_prio, ctx_ref)) = best {
++            contexts_list[best_prio].retain(|r| !WeakContextRef::eq(r, &ctx_ref));
++            if let Some(ctx_lock) = ctx_ref.upgrade() {
++                let guard = unsafe { ctx_lock.write_arc() };
++                if guard.status.is_runnable()
++                    && !guard.running
++                    && guard.sched_affinity.contains(cpu_id)
++                    && guard.sched_policy == SchedPolicy::Other
++                {
++                    return Some(guard);
++                }
++
++                drop(guard);
++                contexts_list[best_prio].push_back(ctx_ref);
++            }
++        }
++    }
++
+     'priority: loop {
+-        i = (i + 1) % 40;
++        *i = (*i + 1) % RUN_QUEUE_COUNT;
+         total_iters += 1;
+ 
+-        // The least prioritised queue takes <5000 iters to build up
+-        // balance = sched_prio_to_weight[20], if we have already spent
+-        // that many iters and not found any context, it is better to just
+-        // skip for now
+         if total_iters >= 5000 {
+             break 'priority;
+         }
+@@ -394,24 +713,21 @@ fn select_next_context(
+         }
+ 
+         let contexts = contexts_list
+-            .get_mut(i)
++            .get_mut(*i)
+             .expect("i should be between [0, 39]!");
+ 
+         if contexts.is_empty() {
+             empty_queues += 1;
+-            if empty_queues >= 40 {
+-                // If all queues are empty, just break out
++            if empty_queues >= RUN_QUEUE_COUNT {
+                 break 'priority;
+             }
+             continue;
+-        } else {
+-            empty_queues = 0;
+         }
+ 
+-        if balance[i] < SCHED_PRIO_TO_WEIGHT[20] {
+-            // This queue does not have enough balance to run,
+-            // increment the balance!
+-            balance[i] += SCHED_PRIO_TO_WEIGHT[i];
++        empty_queues = 0;
++
++        if balance[*i] < SCHED_PRIO_TO_WEIGHT[20] {
++            balance[*i] += SCHED_PRIO_TO_WEIGHT[*i];
+             continue;
+         }
+ 
+@@ -422,67 +738,331 @@ fn select_next_context(
+                     Some(new_lock) => (lock, new_lock),
+                     None => {
+                         skipped_contexts += 1;
+-                        continue; // Ghost Process, just continue
++                        continue;
+                     }
+                 },
+-                None => break, // Empty Queue
++                None => break,
+             };
+ 
+-            if Arc::ptr_eq(&next_context_lock, &prev_context_lock) {
++            if Arc::ptr_eq(&next_context_lock, prev_context_lock)
++                || Arc::ptr_eq(&next_context_lock, idle_context)
++            {
+                 contexts.push_back(next_context_ref);
+                 continue;
+             }
+-            if Arc::ptr_eq(&next_context_lock, &idle_context) {
++            let mut next_context_guard = unsafe { next_context_lock.write_arc() };
++
++            let sw = unsafe { update_runnable(&mut next_context_guard, cpu_id, switch_time) };
++            if let UpdateResult::CanSwitch = sw {
++                balance[*i] -= SCHED_PRIO_TO_WEIGHT[20];
++                return Some(next_context_guard);
++            }
++
++            if matches!(sw, UpdateResult::Blocked) {
++                idle_contexts(token.downgrade()).push_back(next_context_ref);
++            } else {
++                contexts.push_back(next_context_ref);
++            }
++            skipped_contexts += 1;
++
++            if skipped_contexts >= total_contexts {
++                break 'priority;
++            }
++        }
++    }
++
++    None
++}
++
++fn pick_next_from_global_queues(
++    token: &mut LockToken<L1>,
++    contexts_list: &mut [alloc::collections::VecDeque<WeakContextRef>; RUN_QUEUE_COUNT],
++    cpu_id: LogicalCpuId,
++    switch_time: u128,
++    prev_context_lock: &Arc<ContextLock>,
++    idle_context: &Arc<ContextLock>,
++    balance: &mut [usize; RUN_QUEUE_COUNT],
++    i: &mut usize,
++) -> Option<ArcContextLockWriteGuard> {
++    let mut empty_queues = 0;
++    let mut total_iters = 0;
++    let total_contexts: usize = contexts_list.iter().map(|q| q.len()).sum();
++    let mut skipped_contexts = 0;
++
++    for prio in 0..RUN_QUEUE_COUNT {
++        let rt_contexts = contexts_list
++            .get_mut(prio)
++            .expect("prio should be between [0, 39]");
++        let len = rt_contexts.len();
++        for _ in 0..len {
++            let (rt_ref, rt_lock) = match rt_contexts.pop_front() {
++                Some(lock) => match lock.upgrade() {
++                    Some(l) => (lock, l),
++                    None => {
++                        skipped_contexts += 1;
++                        continue;
++                    }
++                },
++                None => break,
++            };
++            if Arc::ptr_eq(&rt_lock, idle_context) || Arc::ptr_eq(&rt_lock, prev_context_lock) {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            let rt_guard = unsafe { rt_lock.write_arc() };
++            if !rt_guard.status.is_runnable()
++                || rt_guard.running
++                || !rt_guard.sched_affinity.contains(cpu_id)
++            {
++                rt_contexts.push_back(rt_ref);
++                continue;
++            }
++            if rt_guard.sched_policy == SchedPolicy::Fifo
++                || rt_guard.sched_policy == SchedPolicy::RoundRobin
++            {
++                return Some(rt_guard);
++            }
++            rt_contexts.push_back(rt_ref);
++        }
++    }
++
++    {
++        let mut min_vruntime = u128::MAX;
++        let mut best: Option<(usize, WeakContextRef)> = None;
++        for (prio, queue) in contexts_list.iter().enumerate() {
++            for ctx_ref in queue.iter() {
++                if let Some(ctx_lock) = ctx_ref.upgrade() {
++                    if Arc::ptr_eq(&ctx_lock, prev_context_lock)
++                        || Arc::ptr_eq(&ctx_lock, idle_context)
++                    {
++                        continue;
++                    }
++                    if let Some(guard) = ctx_lock.try_read(token.token()) {
++                        if guard.status.is_runnable()
++                            && !guard.running
++                            && guard.sched_affinity.contains(cpu_id)
++                            && guard.sched_policy == SchedPolicy::Other
++                        {
++                            let mut vruntime = guard.vruntime;
++                            if guard.last_cpu == Some(cpu_id) {
++                                vruntime = vruntime.saturating_sub(vruntime / 8);
++                            }
++                            drop(guard);
++                            if vruntime < min_vruntime {
++                                min_vruntime = vruntime;
++                                best = Some((prio, ctx_ref.clone()));
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        if let Some((best_prio, ctx_ref)) = best {
++            contexts_list[best_prio].retain(|r| !WeakContextRef::eq(r, &ctx_ref));
++            if let Some(ctx_lock) = ctx_ref.upgrade() {
++                let guard = unsafe { ctx_lock.write_arc() };
++                if guard.status.is_runnable()
++                    && !guard.running
++                    && guard.sched_affinity.contains(cpu_id)
++                    && guard.sched_policy == SchedPolicy::Other
++                {
++                    return Some(guard);
++                }
++
++                drop(guard);
++                contexts_list[best_prio].push_back(ctx_ref);
++            }
++        }
++    }
++
++    'priority: loop {
++        *i = (*i + 1) % RUN_QUEUE_COUNT;
++        total_iters += 1;
++
++        if total_iters >= 5000 {
++            break 'priority;
++        }
++
++        if skipped_contexts > total_contexts && total_contexts > 0 {
++            break 'priority;
++        }
++
++        let contexts = contexts_list
++            .get_mut(*i)
++            .expect("i should be between [0, 39]!");
++
++        if contexts.is_empty() {
++            empty_queues += 1;
++            if empty_queues >= RUN_QUEUE_COUNT {
++                break 'priority;
++            }
++            continue;
++        }
++
++        empty_queues = 0;
++
++        if balance[*i] < SCHED_PRIO_TO_WEIGHT[20] {
++            balance[*i] += SCHED_PRIO_TO_WEIGHT[*i];
++            continue;
++        }
++
++        let len = contexts.len();
++        for _ in 0..len {
++            let (next_context_ref, next_context_lock) = match contexts.pop_front() {
++                Some(lock) => match lock.upgrade() {
++                    Some(new_lock) => (lock, new_lock),
++                    None => {
++                        skipped_contexts += 1;
++                        continue;
++                    }
++                },
++                None => break,
++            };
++
++            if Arc::ptr_eq(&next_context_lock, prev_context_lock)
++                || Arc::ptr_eq(&next_context_lock, idle_context)
++            {
+                 contexts.push_back(next_context_ref);
+                 continue;
+             }
+             let mut next_context_guard = unsafe { next_context_lock.write_arc() };
+ 
+-            // Is this context runnable on this CPU?
+             let sw = unsafe { update_runnable(&mut next_context_guard, cpu_id, switch_time) };
+             if let UpdateResult::CanSwitch = sw {
+-                next_context_guard_opt = Some(next_context_guard);
+-                balance[i] -= SCHED_PRIO_TO_WEIGHT[20];
+-                break 'priority;
++                balance[*i] -= SCHED_PRIO_TO_WEIGHT[20];
++                return Some(next_context_guard);
++            }
++
++            if matches!(sw, UpdateResult::Blocked) {
++                idle_contexts(token.token()).push_back(next_context_ref);
+             } else {
+-                if matches!(sw, UpdateResult::Blocked) {
+-                    idle_contexts(token.token()).push_back(next_context_ref);
+-                } else {
+-                    contexts.push_back(next_context_ref);
+-                };
+-                skipped_contexts += 1;
++                contexts.push_back(next_context_ref);
++            }
++            skipped_contexts += 1;
+ 
+-                if skipped_contexts >= total_contexts {
+-                    break 'priority;
+-                }
++            if skipped_contexts >= total_contexts {
++                break 'priority;
+             }
+         }
+     }
+-    percpu.balance.set(balance);
+-    percpu.last_queue.set(i);
+-
+-    if !Arc::ptr_eq(&prev_context_lock, &idle_context) {
+-        // Send the old process to the back of the line (if it is still runnable)
+-        let prev_ctx = WeakContextRef(Arc::downgrade(&prev_context_lock));
+-        if prev_context_guard.status.is_runnable() {
+-            let prio = prev_context_guard.prio;
+-            contexts_list[prio].push_back(prev_ctx);
+-        } else {
+-            idle_contexts(token.token()).push_back(prev_ctx);
+-        }
++
++    None
++}
++
++unsafe fn update_stealable(context: &mut Context, switch_time: u128) -> UpdateResult {
++    if context.running {
++        return UpdateResult::Skip;
+     }
++    if context.status.is_soft_blocked()
++        && let Some(wake) = context.wake
++        && switch_time >= wake
++    {
++        context.wake = None;
++        context.unblock_no_ipi();
++    }
++    if context.status.is_runnable() {
++        UpdateResult::CanSwitch
++    } else {
++        UpdateResult::Blocked
++    }
++}
+ 
+-    if let Some(next_context_guard) = next_context_guard_opt {
+-        // We found a new process!
++/// This is the scheduler function which currently utilises Deficit Weighted Round Robin Scheduler
++fn select_next_context(
++    token: &mut CleanLockToken,
++    percpu: &PercpuBlock,
++    cpu_id: LogicalCpuId,
++    switch_time: u128,
++    was_idle: bool,
++    prev_context_guard: &mut ArcRwLockWriteGuard<L4, Context>,
++) -> Result<Option<ArcContextLockWriteGuard>, SwitchResult> {
++    let idle_context = percpu.switch_internals.idle_context();
++    let prev_context_lock = crate::context::current();
++
++    let local_next = {
++        let mut sched_lock = SchedQueuesLock::new(&percpu.sched);
++        let mut balance = percpu.sched.balance.get();
++        let mut last_queue = percpu.sched.last_queue.get() % RUN_QUEUE_COUNT;
++        let next = pick_next_from_queues(
++            token,
++            unsafe { sched_lock.queues_mut() },
++            cpu_id,
++            switch_time,
++            &prev_context_lock,
++            &idle_context,
++            &mut balance,
++            &mut last_queue,
++        );
++        percpu.sched.balance.set(balance);
++        percpu.sched.last_queue.set(last_queue);
++        next
++    };
++
++    if let Some(next_context_guard) = local_next {
++        queue_previous_context(
++            token,
++            percpu,
++            &prev_context_lock,
++            prev_context_guard,
++            &idle_context,
++        );
++        return Ok(Some(next_context_guard));
++    }
++
++    if let Some(next_context_guard) = steal_work(token, cpu_id, switch_time) {
++        queue_previous_context(
++            token,
++            percpu,
++            &prev_context_lock,
++            prev_context_guard,
++            &idle_context,
++        );
++        return Ok(Some(next_context_guard));
++    }
++
++    let global_next = {
++        let contexts_data = run_contexts(token.token());
++        let (mut contexts_data, mut contexts_token) = contexts_data.into_split();
++        let mut balance = percpu.sched.balance.get();
++        let mut last_queue = percpu.sched.last_queue.get() % RUN_QUEUE_COUNT;
++        let next = pick_next_from_global_queues(
++            &mut contexts_token,
++            &mut contexts_data.set,
++            cpu_id,
++            switch_time,
++            &prev_context_lock,
++            &idle_context,
++            &mut balance,
++            &mut last_queue,
++        );
++        percpu.sched.balance.set(balance);
++        percpu.sched.last_queue.set(last_queue);
++        next
++    };
++
++    if let Some(next_context_guard) = global_next {
++        queue_previous_context(
++            token,
++            percpu,
++            &prev_context_lock,
++            prev_context_guard,
++            &idle_context,
++        );
+         return Ok(Some(next_context_guard));
++    }
++
++    queue_previous_context(
++        token,
++        percpu,
++        &prev_context_lock,
++        prev_context_guard,
++        &idle_context,
++    );
++
++    if !was_idle && !Arc::ptr_eq(&prev_context_lock, &idle_context) {
++        Ok(Some(unsafe { idle_context.write_arc() }))
+     } else {
+-        if !was_idle && !Arc::ptr_eq(&prev_context_lock, &idle_context) {
+-            // We switch into the idle context
+-            Ok(Some(unsafe { idle_context.write_arc() }))
+-        } else {
+-            // We found no other process to run.
+-            Ok(None)
+-        }
++        Ok(None)
+     }
+ }
+ 

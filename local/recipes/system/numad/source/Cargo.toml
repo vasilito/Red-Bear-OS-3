@@ -1,0 +1,9 @@
+[package]
+name = "numad"
+version = "0.1.0"
+edition = "2021"
+description = "Red Bear OS NUMA topology daemon — parses ACPI SRAT/SLIT and feeds kernel NUMA hints"
+
+[[bin]]
+name = "numad"
+path = "src/main.rs"

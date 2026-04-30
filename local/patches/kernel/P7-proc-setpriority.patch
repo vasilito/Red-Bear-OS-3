@@ -1,0 +1,70 @@
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -145,8 +145,9 @@ enum ContextHandle {
+     // TODO: Remove this once openat is implemented, or allow openat-via-dup via e.g. the top-level
+     // directory.
+     OpenViaDup,
++    Priority,
+     SchedAffinity,
+     SchedPolicy,
+     Name,
+ 
+     MmapMinAddr(Arc<AddrSpaceWrapper>),
+@@ -160,6 +161,17 @@ pub struct ProcScheme;
+ static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+ static HANDLES: RwLock<L1, HashMap<usize, Handle>> =
+     RwLock::new(HashMap::with_hasher(DefaultHashBuilder::new()));
++
++const NICE_MIN: i32 = -20;
++const NICE_MAX: i32 = 19;
++
++fn nice_to_kernel_prio(nice: i32) -> usize {
++    (nice.saturating_add(20)).clamp(0, 39) as usize
++}
++
++fn kernel_prio_to_nice(prio: usize) -> i32 {
++    (prio.min(39) as i32) - 20
++}
+ 
+ #[cfg(feature = "debugger")]
+ #[allow(dead_code)]
+ pub fn foreach_addrsp(
+@@ -253,6 +265,7 @@ impl ProcScheme {
+             "sighandler" => (ContextHandle::Sighandler, false),
+             "start" => (ContextHandle::Start, false),
+             "open_via_dup" => (ContextHandle::OpenViaDup, false),
++            "priority" => (ContextHandle::Priority, false),
+             "mmap-min-addr" => (
+                 ContextHandle::MmapMinAddr(Arc::clone(
+                     context
+@@ -1191,6 +1204,17 @@ impl ContextHandle {
+ 
+                 Ok(size_of_val(&mask))
+             }
++            Self::Priority => {
++                let nice = unsafe { buf.read_exact::<i32>()? };
++                if !(NICE_MIN..=NICE_MAX).contains(&nice) {
++                    return Err(Error::new(EINVAL));
++                }
++
++                context
++                    .write(token.token())
++                    .set_sched_other_prio(nice_to_kernel_prio(nice));
++
++                Ok(size_of::<i32>())
++            }
+             Self::SchedPolicy => {
+                 if buf.len() != 2 {
+                     return Err(Error::new(EINVAL));
+@@ -1522,6 +1546,10 @@ impl ContextHandle {
+ 
+                 buf.copy_exactly(crate::cpu_set::mask_as_bytes(&mask))?;
+                 Ok(size_of_val(&mask))
++            }
++            ContextHandle::Priority => {
++                let nice = kernel_prio_to_nice(context.read(token.token()).prio);
++                buf.copy_common_bytes_from_slice(&nice.to_ne_bytes())
+             }
+             ContextHandle::SchedPolicy => {
+                 let context = context.read(token.token());

@@ -1,0 +1,63 @@
+diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+index f049573..f3d665c 100644
+--- a/src/header/signal/mod.rs
++++ b/src/header/signal/mod.rs
+@@ -2,7 +2,10 @@
+ //!
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/signal.h.html>.
+ 
+-use core::{mem, ptr};
++use core::{
++    mem, ptr,
++    sync::atomic::Ordering,
++};
+ 
+ use cbitset::BitSet;
+ 
+@@ -32,6 +35,9 @@ pub mod sys;
+ #[path = "redox.rs"]
+ pub mod sys;
+ 
++mod signalfd;
++pub use self::signalfd::*;
++
+ type SigSet = BitSet<[u64; 1]>;
+ 
+ pub(crate) const SIG_DFL: usize = 0;
+@@ -154,10 +160,15 @@ pub extern "C" fn killpg(pgrp: pid_t, sig: c_int) -> c_int {
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_kill.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_kill(thread: pthread_t, sig: c_int) -> c_int {
+-    let os_tid = {
+-        let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
+-        unsafe { pthread.os_tid.get().read() }
+-    };
++    let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
++    let os_tid = unsafe { pthread.os_tid.get().read() };
++    let flags = crate::pthread::PthreadFlags::from_bits_retain(
++        pthread.flags.load(Ordering::Acquire),
++    );
++    if flags.contains(crate::pthread::PthreadFlags::FINISHED) {
++        return errno::ESRCH;
++    }
++
+     crate::header::pthread::e(unsafe { Sys::rlct_kill(os_tid, sig as usize) })
+ }
+ 
+@@ -168,12 +179,10 @@ pub unsafe extern "C" fn pthread_sigmask(
+     set: *const sigset_t,
+     oldset: *mut sigset_t,
+ ) -> c_int {
+-    // On Linux and Redox, pthread_sigmask and sigprocmask are equivalent
+-    if unsafe { sigprocmask(how, set, oldset) } == 0 {
+-        0
+-    } else {
+-        //TODO: Fix race
+-        platform::ERRNO.get()
++    let filtered_set = unsafe { set.as_ref().map(|&block| block & !RLCT_SIGNAL_MASK) };
++    match unsafe { Sys::sigprocmask(how, filtered_set.as_ref(), oldset.as_mut()) } {
++        Ok(()) => 0,
++        Err(errno) => errno.0,
+     }
+ }
+ 

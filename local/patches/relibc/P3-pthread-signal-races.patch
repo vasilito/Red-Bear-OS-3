@@ -1,0 +1,95 @@
+diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+--- a/src/header/signal/mod.rs
++++ b/src/header/signal/mod.rs
+@@ -2,7 +2,10 @@
+ //!
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/signal.h.html>.
+ 
+-use core::{mem, ptr};
++use core::{
++    mem, ptr,
++    sync::atomic::Ordering,
++};
+ 
+ use cbitset::BitSet;
+ 
+@@ -157,10 +160,17 @@
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_kill.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_kill(thread: pthread_t, sig: c_int) -> c_int {
+-    let os_tid = {
+-        let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
+-        unsafe { pthread.os_tid.get().read() }
+-    };
++    let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
++    let os_tid = unsafe { pthread.os_tid.get().read() };
++    let flags = crate::pthread::PthreadFlags::from_bits_retain(
++        pthread.flags.load(Ordering::Acquire),
++    );
++    if flags.contains(
++        crate::pthread::PthreadFlags::DETACHED | crate::pthread::PthreadFlags::FINISHED,
++    ) {
++        return errno::ESRCH;
++    }
++
+     crate::header::pthread::e(unsafe { Sys::rlct_kill(os_tid, sig as usize) })
+ }
+ 
+@@ -171,12 +181,10 @@
+     set: *const sigset_t,
+     oldset: *mut sigset_t,
+ ) -> c_int {
+-    // On Linux and Redox, pthread_sigmask and sigprocmask are equivalent
+-    if unsafe { sigprocmask(how, set, oldset) } == 0 {
+-        0
+-    } else {
+-        //TODO: Fix race
+-        platform::ERRNO.get()
++    let result = unsafe { Sys::sigprocmask(how, set.as_ref(), oldset.as_mut()) };
++    match result {
++        Ok(()) => 0,
++        Err(errno) => errno.0,
+     }
+ }
+ 
+diff --git a/src/pthread/mod.rs b/src/pthread/mod.rs
+--- a/src/pthread/mod.rs
++++ b/src/pthread/mod.rs
+@@ -31,6 +31,7 @@
+         stack_size: 0,
+ 
+         os_tid: UnsafeCell::new(Sys::current_os_tid()),
++        robust_list_head: UnsafeCell::new(ptr::null_mut()),
+     };
+ 
+     #[cfg(target_os = "redox")]
+@@ -60,6 +61,7 @@
+ bitflags::bitflags! {
+     pub struct PthreadFlags: usize {
+         const DETACHED = 1;
++        const FINISHED = 1 << 1;
+     }
+ }
+ 
+@@ -306,7 +308,9 @@
+ 
+     unsafe { crate::sync::pthread_mutex::mark_robust_mutexes_dead(this) };
+ 
+-    if this.flags.load(Ordering::Acquire) & PthreadFlags::DETACHED.bits() != 0 {
++    let flags = this.flags.fetch_or(PthreadFlags::FINISHED.bits(), Ordering::AcqRel);
++
++    if flags & PthreadFlags::DETACHED.bits() != 0 {
+         unsafe { dealloc_thread(this) };
+     } else {
+         unsafe { this.waitval.post(retval) };
+diff --git a/src/ld_so/tcb.rs b/src/ld_so/tcb.rs
+--- a/src/ld_so/tcb.rs
++++ b/src/ld_so/tcb.rs
+@@ -107,6 +107,7 @@
+                     stack_base: core::ptr::null_mut(),
+                     stack_size: 0,
+                     os_tid: UnsafeCell::new(OsTid::default()),
++                    robust_list_head: UnsafeCell::new(ptr::null_mut()),
+                 },
+ 
+                 dtv_ptr: ptr::null_mut(),

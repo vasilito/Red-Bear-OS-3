@@ -1,0 +1,398 @@
+--- a/drivers/pcid/src/cfg_access/mod.rs
++++ b/drivers/pcid/src/cfg_access/mod.rs
+@@ -349,6 +349,10 @@
+         let bus_addr = self.bus_addr(address.segment(), address.bus())?;
+         Some(unsafe { bus_addr.add(Self::bus_addr_offset_in_dwords(address, offset)) })
+     }
++
++    pub fn has_extended_config(&self, address: PciAddress) -> bool {
++        self.mmio_addr(address, 0x100).is_some()
++    }
+ }
+ 
+ impl ConfigRegionAccess for Pcie {
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -5,12 +5,61 @@
+ use redox_scheme::{CallerCtx, OpenResult};
+ use scheme_utils::HandleMap;
+ use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
+-use syscall::error::{Error, Result, EACCES, EBADF, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, EALREADY};
++use syscall::error::{
++    Error, Result, EACCES, EALREADY, EBADF, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, EROFS,
++};
+ use syscall::flag::{MODE_CHR, MODE_DIR, O_DIRECTORY, O_STAT};
+ use syscall::schemev2::NewFdFlags;
+ use syscall::ENOLCK;
+ 
+ use crate::cfg_access::Pcie;
++
++const PCIE_EXTENDED_CAPABILITY_AER: u16 = 0x0001;
++
++#[derive(Clone, Copy)]
++enum AerRegisterName {
++    UncorStatus,
++    UncorMask,
++    UncorSeverity,
++    CorStatus,
++    CorMask,
++    Cap,
++    HeaderLog,
++}
++
++impl AerRegisterName {
++    fn from_path(path: &str) -> Option<Self> {
++        Some(match path {
++            "uncor_status" => Self::UncorStatus,
++            "uncor_mask" => Self::UncorMask,
++            "uncor_severity" => Self::UncorSeverity,
++            "cor_status" => Self::CorStatus,
++            "cor_mask" => Self::CorMask,
++            "cap" => Self::Cap,
++            "header_log" => Self::HeaderLog,
++            _ => return None,
++        })
++    }
++
++    const fn offset(self) -> u16 {
++        match self {
++            Self::UncorStatus => 0x00,
++            Self::UncorMask => 0x04,
++            Self::UncorSeverity => 0x08,
++            Self::CorStatus => 0x0C,
++            Self::CorMask => 0x10,
++            Self::Cap => 0x14,
++            Self::HeaderLog => 0x18,
++        }
++    }
++
++    const fn len(self) -> usize {
++        match self {
++            Self::HeaderLog => 16,
++            _ => 4,
++        }
++    }
++}
+ 
+ pub struct PciScheme {
+     handles: HandleMap<HandleWrapper>,
+@@ -20,13 +69,27 @@
+     binds: HashMap<String, u32>,
+ }
+ enum Handle {
+-    TopLevel { entries: Vec<String> },
++    TopLevel {
++        entries: Vec<String>,
++    },
+     Access,
+-    Device,
+-    Channel { addr: PciAddress, st: ChannelState },
++    Device {
++        addr: PciAddress,
++    },
++    Channel {
++        addr: PciAddress,
++        st: ChannelState,
++    },
+     SchemeRoot,
+     /// Represents an open handle to a device's bind endpoint
+-    Bind { addr: PciAddress },
++    Bind {
++        addr: PciAddress,
++    },
++    AerDir,
++    Aer {
++        addr: PciAddress,
++        register: AerRegisterName,
++    },
+     /// Uevent surface for hotplug consumers. Opening uevent returns an object
+     /// from which device add/remove events can be read. Since pcid currently
+     /// only scans at startup, this surface is ready for hotplug polling consumers.
+@@ -38,13 +101,23 @@
+ }
+ impl Handle {
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. } | Self::Uevent)
++        matches!(
++            self,
++            Self::Access
++                | Self::Channel { .. }
++                | Self::Bind { .. }
++                | Self::Aer { .. }
++                | Self::Uevent
++        )
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+     }
+     fn requires_root(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. })
++        matches!(
++            self,
++            Self::Access | Self::Channel { .. } | Self::Bind { .. }
++        )
+     }
+     fn is_scheme_root(&self) -> bool {
+         matches!(self, Self::SchemeRoot)
+@@ -57,6 +130,16 @@
+ }
+ 
+ const DEVICE_CONTENTS: &[&str] = &["channel", "bind"];
++const DEVICE_AER_CONTENTS: &[&str] = &["channel", "bind", "aer"];
++const AER_CONTENTS: &[&str] = &[
++    "uncor_status",
++    "uncor_mask",
++    "uncor_severity",
++    "cor_status",
++    "cor_mask",
++    "cap",
++    "header_log",
++];
+ 
+ impl PciScheme {
+     pub fn access(&mut self) -> usize {
+@@ -141,7 +224,12 @@
+ 
+         let (len, mode) = match handle.inner {
+             Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
+-            Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
++            Handle::Device { addr } => (
++                Self::device_entries(&self.pcie, addr).len(),
++                MODE_DIR | 0o755,
++            ),
++            Handle::AerDir => (AER_CONTENTS.len(), MODE_DIR | 0o755),
++            Handle::Aer { register, .. } => (register.len(), MODE_CHR | 0o444),
+             Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } => (0, MODE_CHR | 0o600),
+             Handle::Uevent => (0, MODE_CHR | 0o644),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+@@ -154,7 +242,7 @@
+         &mut self,
+         id: usize,
+         buf: &mut [u8],
+-        _offset: u64,
++        offset: u64,
+         _fcntl_flags: u32,
+         _ctx: &CallerCtx,
+     ) -> Result<usize> {
+@@ -166,11 +254,14 @@
+ 
+         match handle.inner {
+             Handle::TopLevel { .. } => Err(Error::new(EISDIR)),
+-            Handle::Device => Err(Error::new(EISDIR)),
++            Handle::Device { .. } | Handle::AerDir => Err(Error::new(EISDIR)),
+             Handle::Channel {
+                 addr: _,
+                 ref mut st,
+             } => Self::read_channel(st, buf),
++            Handle::Aer { addr, register } => {
++                Self::read_aer_register(&self.pcie, addr, register, buf, offset)
++            }
+             Handle::Uevent => {
+                 // Uevent surface is ready for hotplug polling consumers.
+                 // pcid currently only scans at startup, so return empty (EAGAIN would indicate no data available).
+@@ -209,8 +300,15 @@
+                 }
+                 return Ok(buf);
+             }
+-            Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } | Handle::Uevent => return Err(Error::new(ENOTDIR)),
++            Handle::Device { addr } => Self::device_entries(&self.pcie, addr),
++            Handle::AerDir => AER_CONTENTS,
++            Handle::Access
++            | Handle::Channel { .. }
++            | Handle::Bind { .. }
++            | Handle::Aer { .. }
++            | Handle::Uevent => {
++                return Err(Error::new(ENOTDIR));
++            }
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+ 
+@@ -243,6 +341,7 @@
+             Handle::Channel { addr, ref mut st } => {
+                 Self::write_channel(&self.pcie, &mut self.tree, addr, st, buf)
+             }
++            Handle::Aer { .. } => Err(Error::new(EROFS)),
+ 
+             _ => Err(Error::new(EBADF)),
+         }
+@@ -357,45 +456,151 @@
+             binds: HashMap::new(),
+         }
+     }
+-    fn parse_after_pci_addr(&mut self, addr: PciAddress, after: &str, ctx: &CallerCtx) -> Result<Handle> {
++    fn device_entries(pcie: &Pcie, addr: PciAddress) -> &'static [&'static str] {
++        if Self::find_pcie_extended_capability(pcie, addr, PCIE_EXTENDED_CAPABILITY_AER).is_some() {
++            DEVICE_AER_CONTENTS
++        } else {
++            DEVICE_CONTENTS
++        }
++    }
++    fn find_pcie_extended_capability(
++        pcie: &Pcie,
++        addr: PciAddress,
++        capability_id: u16,
++    ) -> Option<u16> {
++        if !pcie.has_extended_config(addr) {
++            return None;
++        }
++
++        let mut offset = 0x100_u16;
++
++        while offset <= 0xFFC {
++            let header = unsafe { pcie.read(addr, offset) };
++            if header == 0 || header == u32::MAX {
++                return None;
++            }
++
++            if (header & 0xFFFF) as u16 == capability_id {
++                return Some(offset);
++            }
++
++            let next = ((header >> 20) & 0xFFF) as u16;
++            if next < 0x100 || next <= offset || next > 0xFFC || next % 4 != 0 {
++                return None;
++            }
++            offset = next;
++        }
++
++        None
++    }
++    fn read_file_bytes(data: &[u8], buf: &mut [u8], offset: u64) -> Result<usize> {
++        let Ok(offset) = usize::try_from(offset) else {
++            return Ok(0);
++        };
++        if offset >= data.len() {
++            return Ok(0);
++        }
++
++        let count = std::cmp::min(buf.len(), data.len() - offset);
++        buf[..count].copy_from_slice(&data[offset..offset + count]);
++        Ok(count)
++    }
++    fn read_aer_register(
++        pcie: &Pcie,
++        addr: PciAddress,
++        register: AerRegisterName,
++        buf: &mut [u8],
++        offset: u64,
++    ) -> Result<usize> {
++        let Some(aer_base) =
++            Self::find_pcie_extended_capability(pcie, addr, PCIE_EXTENDED_CAPABILITY_AER)
++        else {
++            return Err(Error::new(ENOENT));
++        };
++
++        let mut data = [0_u8; 16];
++        for (index, chunk) in data[..register.len()].chunks_exact_mut(4).enumerate() {
++            let index = u16::try_from(index).map_err(|_| Error::new(EIO))?;
++            let value = unsafe { pcie.read(addr, aer_base + register.offset() + index * 4) };
++            chunk.copy_from_slice(&value.to_le_bytes());
++        }
++
++        Self::read_file_bytes(&data[..register.len()], buf, offset)
++    }
++    fn parse_after_pci_addr(
++        &mut self,
++        addr: PciAddress,
++        after: &str,
++        ctx: &CallerCtx,
++    ) -> Result<Handle> {
+         if after.chars().next().map_or(false, |c| c != '/') {
+             return Err(Error::new(ENOENT));
+         }
+         let func = self.tree.get_mut(&addr).ok_or(Error::new(ENOENT))?;
+ 
+         Ok(if after.is_empty() {
+-            Handle::Device
++            Handle::Device { addr }
+         } else {
+             let path = &after[1..];
+ 
+-            match path {
+-                "channel" => {
+-                    if func.enabled {
+-                        return Err(Error::new(ENOLCK));
++            if path == "aer" {
++                if Self::find_pcie_extended_capability(
++                    &self.pcie,
++                    addr,
++                    PCIE_EXTENDED_CAPABILITY_AER,
++                )
++                .is_none()
++                {
++                    return Err(Error::new(ENOENT));
++                }
++                Handle::AerDir
++            } else if let Some(register_name) = path.strip_prefix("aer/") {
++                let register =
++                    AerRegisterName::from_path(register_name).ok_or(Error::new(ENOENT))?;
++                if Self::find_pcie_extended_capability(
++                    &self.pcie,
++                    addr,
++                    PCIE_EXTENDED_CAPABILITY_AER,
++                )
++                .is_none()
++                {
++                    return Err(Error::new(ENOENT));
++                }
++                Handle::Aer { addr, register }
++            } else {
++                match path {
++                    "channel" => {
++                        if func.enabled {
++                            return Err(Error::new(ENOLCK));
++                        }
++                        func.inner.legacy_interrupt_line = crate::enable_function(
++                            &self.pcie,
++                            &mut func.endpoint_header,
++                            &mut func.capabilities,
++                        );
++                        func.enabled = true;
++                        Handle::Channel {
++                            addr,
++                            st: ChannelState::AwaitingData,
++                        }
+                     }
+-                    func.inner.legacy_interrupt_line = crate::enable_function(
+-                        &self.pcie,
+-                        &mut func.endpoint_header,
+-                        &mut func.capabilities,
+-                    );
+-                    func.enabled = true;
+-                    Handle::Channel {
+-                        addr,
+-                        st: ChannelState::AwaitingData,
++                    "bind" => {
++                        let addr_str = format!("{}", addr);
++                        if let Some(&owner_pid) = self.binds.get(&addr_str) {
++                            log::info!(
++                                "pcid: device {} already bound by pid {}",
++                                addr_str,
++                                owner_pid
++                            );
++                            return Err(Error::new(EALREADY));
++                        }
++                        let caller_pid = u32::try_from(ctx.pid).map_err(|_| Error::new(EINVAL))?;
++                        self.binds.insert(addr_str.clone(), caller_pid);
++                        log::info!("pcid: device {} bound by pid {}", addr_str, caller_pid);
++                        Handle::Bind { addr }
+                     }
+-                }
+-                "bind" => {
+-                    let addr_str = format!("{}", addr);
+-                    if let Some(&owner_pid) = self.binds.get(&addr_str) {
+-                        log::info!("pcid: device {} already bound by pid {}", addr_str, owner_pid);
+-                        return Err(Error::new(EALREADY));
+-                    }
+-                    let caller_pid = ctx.pid;
+-                    self.binds.insert(addr_str.clone(), caller_pid);
+-                    log::info!("pcid: device {} bound by pid {}", addr_str, caller_pid);
+-                    Handle::Bind { addr }
+-                }
+-                _ => return Err(Error::new(ENOENT)),
++                    _ => return Err(Error::new(ENOENT)),
++                }
+             }
+         })
+     }

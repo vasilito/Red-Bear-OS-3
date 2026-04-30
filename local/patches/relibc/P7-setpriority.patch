@@ -1,0 +1,104 @@
+diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
+--- a/src/platform/redox/mod.rs
++++ b/src/platform/redox/mod.rs
+@@ -77,11 +77,74 @@ static mut BRK_CUR: *mut c_void = ptr::null_mut();
+ static mut BRK_END: *mut c_void = ptr::null_mut();
+ 
+ const PAGE_SIZE: usize = 4096;
++const NICE_MIN: c_int = -20;
++const NICE_MAX: c_int = 19;
+ 
+ fn round_up_to_page_size(val: usize) -> Option<usize> {
+     val.checked_add(PAGE_SIZE)
+         .map(|val| (val - 1) / PAGE_SIZE * PAGE_SIZE)
+ }
++
++fn is_current_process_priority_target(which: c_int, who: id_t) -> bool {
++    which == crate::header::sys_resource::PRIO_PROCESS
++        && (who == 0 || who == redox_rt::sys::posix_getpid() as id_t)
++}
++
++fn current_process_thread_handle(index: usize) -> Result<Option<FdGuard>> {
++    let thread_name = format!("thread-{index}");
++    match redox_rt::current_proc_fd().dup(thread_name.as_bytes()) {
++        Ok(thread_fd) => Ok(Some(thread_fd)),
++        Err(error) if error.errno == ENOENT => Ok(None),
++        Err(error) => Err(Errno(error.errno)),
++    }
++}
++
++fn current_process_priority_handle(index: usize) -> Result<Option<FdGuard>> {
++    let Some(thread_fd) = current_process_thread_handle(index)? else {
++        return Ok(None);
++    };
++
++    thread_fd
++        .dup(b"priority")
++        .map(Some)
++        .map_err(|error| Errno(error.errno))
++}
++
++fn read_current_process_nice() -> Result<c_int> {
++    let Some(priority_fd) = current_process_priority_handle(0)? else {
++        return Err(Errno(ESRCH));
++    };
++
++    let mut nice_bytes = [0_u8; size_of::<c_int>()];
++    if priority_fd.read(&mut nice_bytes)? != size_of::<c_int>() {
++        return Err(Errno(EIO));
++    }
++
++    Ok(c_int::from_ne_bytes(nice_bytes))
++}
++
++fn write_current_process_nice(nice: c_int) -> Result<()> {
++    let mut updated_threads = 0;
++    let nice_bytes = nice.to_ne_bytes();
++
++    for index in 0.. {
++        let Some(priority_fd) = current_process_priority_handle(index)? else {
++            break;
++        };
++
++        if priority_fd.write(&nice_bytes)? != nice_bytes.len() {
++            return Err(Errno(EIO));
++        }
++        updated_threads += 1;
++    }
++
++    if updated_threads == 0 {
++        return Err(Errno(ESRCH));
++    }
++
++    Ok(())
++}
+ 
+ fn cvt_uid(id: c_int) -> Result<Option<u32>> {
+     if id == -1 {
+         return Ok(None);
+@@ -698,6 +761,11 @@ impl Pal for Sys {
+     }
+ 
+     fn getpriority(which: c_int, who: id_t) -> Result<c_int> {
++        if is_current_process_priority_target(which, who) {
++            let nice = read_current_process_nice()?;
++            return Ok(20 - nice);
++        }
++
+         match redox_rt::sys::posix_getpriority(which, who as u32) {
+             Ok(kernel_prio) => {
+                 let posix_prio = (kernel_prio as i32 * -1) + 40 as i32;
+@@ -1274,7 +1342,12 @@ impl Pal for Sys {
+     }
+ 
+     fn setpriority(which: c_int, who: id_t, prio: c_int) -> Result<()> {
+-        let clamped_prio = prio.clamp(-20, 19);
++        let clamped_prio = prio.clamp(NICE_MIN, NICE_MAX);
++
++        if is_current_process_priority_target(which, who) {
++            return write_current_process_nice(clamped_prio);
++        }
++
+         let kernel_prio = (20 + clamped_prio) as u32;
+ 
+         match redox_rt::sys::posix_setpriority(which, who as u32, kernel_prio) {

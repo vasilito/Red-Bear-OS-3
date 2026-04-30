@@ -1,0 +1,844 @@
+diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+index 94a1eb17..c8919290 100644
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -52,9 +52,7 @@ impl SdtHeader {
+         }
+     }
+     pub fn length(&self) -> usize {
+-        self.length
+-            .try_into()
+-            .expect("expected usize to be at least 32 bits")
++        self.length as usize
+     }
+ }
+ 
+@@ -132,6 +130,9 @@ impl Drop for PhysmapGuard {
+ pub struct Sdt(Arc<[u8]>);
+ 
+ impl Sdt {
++    // SDT validation is split between parser and caller policy:
++    // - this parser only decides whether a given byte slice is structurally valid,
++    // - callers decide whether rejection is fatal (root [R|X]SDT) or degradable (child tables).
+     pub fn new(slice: Arc<[u8]>) -> Result<Self, InvalidSdtError> {
+         let header = match plain::from_bytes::<SdtHeader>(&slice) {
+             Ok(header) => header,
+@@ -233,6 +234,177 @@ impl fmt::Debug for Sdt {
+ pub struct Dsdt(Sdt);
+ pub struct Ssdt(Sdt);
+ 
++#[derive(Clone, Copy, Debug)]
++pub enum AmlBootstrapMethod {
++    HwdEnv,
++    X86BiosFallback,
++}
++impl AmlBootstrapMethod {
++    fn as_str(self) -> &'static str {
++        match self {
++            Self::HwdEnv => "hwd RSDP_ADDR/RSDP_SIZE handoff",
++            Self::X86BiosFallback => "x86 BIOS fallback",
++        }
++    }
++}
++
++#[derive(Clone, Debug)]
++pub struct AmlBootstrap {
++    rsdp_addr: usize,
++    rsdp_size: Option<usize>,
++    method: AmlBootstrapMethod,
++}
++impl AmlBootstrap {
++    pub fn from_env() -> Result<Self, Box<dyn Error>> {
++        let rsdp_addr = usize::from_str_radix(&std::env::var("RSDP_ADDR")?, 16)?;
++        let rsdp_size = match std::env::var("RSDP_SIZE") {
++            Ok(size) => Some(usize::from_str_radix(&size, 16)?),
++            Err(std::env::VarError::NotPresent) => None,
++            Err(err) => return Err(Box::new(err)),
++        };
++
++        Ok(Self {
++            rsdp_addr,
++            rsdp_size,
++            method: AmlBootstrapMethod::HwdEnv,
++        })
++    }
++
++    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++    pub fn x86_bios_fallback() -> Result<Option<Self>, Box<dyn Error>> {
++        if let Some(rsdp_addr) = search_x86_bios_rsdp()? {
++            return Ok(Some(Self {
++                rsdp_addr,
++                rsdp_size: None,
++                method: AmlBootstrapMethod::X86BiosFallback,
++            }));
++        }
++
++        Ok(None)
++    }
++
++    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++    pub fn x86_bios_fallback() -> Result<Option<Self>, Box<dyn Error>> {
++        Ok(None)
++    }
++
++    pub fn log_bootstrap(&self) {
++        log::info!(
++            "acpid: AML bootstrap via {} (RSDP at {:#X})",
++            self.method.as_str(),
++            self.rsdp_addr
++        );
++
++        if let Some(rsdp_size) = self.rsdp_size {
++            log::debug!("acpid: AML bootstrap RSDP_SIZE={:#X}", rsdp_size);
++        }
++    }
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++const RSDP_SIGNATURE: &[u8; 8] = b"RSD PTR ";
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn search_x86_bios_rsdp() -> Result<Option<usize>, Box<dyn Error>> {
++    let ebda_segment = read_u16_physical(0x40E)?;
++    let ebda_addr = usize::from(ebda_segment) << 4;
++
++    if ebda_addr != 0 {
++        if let Some(rsdp_addr) = search_rsdp_region(ebda_addr, 1024)? {
++            return Ok(Some(rsdp_addr));
++        }
++    }
++
++    search_rsdp_region(0xE0000, 0x20000).map_err(Into::into)
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn read_u16_physical(physaddr: usize) -> std::io::Result<u16> {
++    let start_page = physaddr / PAGE_SIZE * PAGE_SIZE;
++    let page_offset = physaddr % PAGE_SIZE;
++    let map = PhysmapGuard::map(start_page, 1)?;
++    let bytes = map
++        .get(page_offset..page_offset + mem::size_of::<u16>())
++        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short BIOS map"))?;
++
++    Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn search_rsdp_region(physaddr: usize, length: usize) -> std::io::Result<Option<usize>> {
++    let start_page = physaddr / PAGE_SIZE * PAGE_SIZE;
++    let page_offset = physaddr % PAGE_SIZE;
++    let mapped_len = page_offset + length;
++    let page_count = mapped_len.div_ceil(PAGE_SIZE);
++    let map = PhysmapGuard::map(start_page, page_count)?;
++    let region = map.get(page_offset..page_offset + length).ok_or_else(|| {
++        std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short BIOS RSDP search window")
++    })?;
++
++    for candidate_offset in (0..=length.saturating_sub(20)).step_by(16) {
++        if region
++            .get(candidate_offset..candidate_offset + RSDP_SIGNATURE.len())
++            != Some(&RSDP_SIGNATURE[..])
++        {
++            continue;
++        }
++
++        if rsdp_candidate_valid(&region[candidate_offset..]) {
++            return Ok(Some(physaddr + candidate_offset));
++        }
++    }
++
++    Ok(None)
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn rsdp_candidate_valid(candidate: &[u8]) -> bool {
++    if candidate.len() < 20 || &candidate[..RSDP_SIGNATURE.len()] != RSDP_SIGNATURE {
++        return false;
++    }
++
++    if checksum_is_zero(&candidate[..20]).is_err() {
++        return false;
++    }
++
++    let revision = candidate[15];
++    if revision < 2 {
++        return true;
++    }
++
++    if candidate.len() < 36 {
++        return false;
++    }
++
++    let declared_length = u32::from_le_bytes([candidate[20], candidate[21], candidate[22], candidate[23]])
++        as usize;
++    if declared_length < 36 || candidate.len() < declared_length {
++        return false;
++    }
++
++    checksum_is_zero(&candidate[..declared_length]).is_ok()
++}
++
++#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++fn checksum_is_zero(bytes: &[u8]) -> Result<(), ()> {
++    let checksum = bytes
++        .iter()
++        .copied()
++        .fold(0_u8, |current_sum, item| current_sum.wrapping_add(item));
++
++    if checksum == 0 {
++        Ok(())
++    } else {
++        Err(())
++    }
++}
++
++#[derive(Clone, Copy, Debug)]
++struct SleepTypeData {
++    slp_typa: u16,
++    slp_typb: u16,
++}
++
+ // Current AML implementation builds the aml_context.namespace at startup,
+ // but the cache for symbols is lazy-loaded when someone
+ // reads from the acpi:/symbols scheme.
+@@ -245,15 +417,20 @@ pub struct AmlSymbols {
+     symbol_cache: FxHashMap<String, String>,
+     page_cache: Arc<Mutex<AmlPageCache>>,
+     aml_region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler>)>,
++    aml_bootstrap: Option<AmlBootstrap>,
+ }
+ 
+ impl AmlSymbols {
+-    pub fn new(aml_region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler>)>) -> Self {
++    pub fn new(
++        aml_bootstrap: Option<AmlBootstrap>,
++        aml_region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler>)>,
++    ) -> Self {
+         Self {
+             aml_context: None,
+             symbol_cache: FxHashMap::default(),
+             page_cache: Arc::new(Mutex::new(AmlPageCache::default())),
+             aml_region_handlers,
++            aml_bootstrap,
+         }
+     }
+ 
+@@ -264,9 +441,12 @@ impl AmlSymbols {
+         let format_err = |err| format!("{:?}", err);
+         let handler = AmlPhysMemHandler::new(pci_fd, Arc::clone(&self.page_cache));
+         //TODO: use these parsed tables for the rest of acpid
+-        let rsdp_address = usize::from_str_radix(&std::env::var("RSDP_ADDR")?, 16)?;
++        let bootstrap = self
++            .aml_bootstrap
++            .as_ref()
++            .ok_or_else(|| std::io::Error::other("AML bootstrap unavailable"))?;
+         let tables =
+-            unsafe { AcpiTables::from_rsdp(handler.clone(), rsdp_address).map_err(format_err)? };
++            unsafe { AcpiTables::from_rsdp(handler.clone(), bootstrap.rsdp_addr).map_err(format_err)? };
+         let platform = AcpiPlatform::new(tables, handler).map_err(format_err)?;
+         let interpreter = Interpreter::new_from_platform(&platform).map_err(format_err)?;
+         for (region, handler) in self.aml_region_handlers.drain(..) {
+@@ -316,7 +496,7 @@ impl AmlSymbols {
+             .namespace
+             .lock()
+             .traverse(|level_aml_name, level| {
+-                for (child_seg, handle) in level.values.iter() {
++                for (child_seg, _handle) in level.values.iter() {
+                     if let Ok(aml_name) =
+                         AmlName::from_name_seg(child_seg.to_owned()).resolve(level_aml_name)
+                     {
+@@ -379,6 +559,7 @@ pub struct AcpiContext {
+     tables: Vec<Sdt>,
+     dsdt: Option<Dsdt>,
+     fadt: Option<Fadt>,
++    shutdown_s5: RwLock<Option<SleepTypeData>>,
+ 
+     aml_symbols: RwLock<AmlSymbols>,
+ 
+@@ -426,27 +607,56 @@ impl AcpiContext {
+ 
+     pub fn init(
+         rxsdt_physaddrs: impl Iterator<Item = u64>,
++        aml_bootstrap: Option<AmlBootstrap>,
+         ec: Vec<(RegionSpace, Box<dyn RegionHandler>)>,
+     ) -> Self {
+-        let tables = rxsdt_physaddrs
+-            .map(|physaddr| {
+-                let physaddr: usize = physaddr
+-                    .try_into()
+-                    .expect("expected ACPI addresses to be compatible with the current word size");
+-
+-                log::trace!("TABLE AT {:#>08X}", physaddr);
+-
+-                Sdt::load_from_physical(physaddr).expect("failed to load physical SDT")
+-            })
+-            .collect::<Vec<Sdt>>();
++        // Child-table validation policy:
++        // - checksum/length failures are degradable: warn, skip the table, continue boot,
++        // - malformed FADT is handled separately as "raw-table-only" mode for ACPI control paths,
++        // - MADT subtable interpretation is delegated to consumers, which must skip unknown entry
++        //   types instead of treating them as daemon-fatal.
++        let mut tables = Vec::new();
++        for physaddr in rxsdt_physaddrs {
++            let physaddr: usize = match physaddr.try_into() {
++                Ok(physaddr) => physaddr,
++                Err(_) => {
++                    log::warn!(
++                        "acpid: skipping ACPI table at {:#X}: physical address out of range",
++                        physaddr
++                    );
++                    continue;
++                }
++            };
++
++            match Sdt::load_from_physical(physaddr) {
++                Ok(table) => {
++                    log::debug!(
++                        "acpid: accepted ACPI table {} at {:#X}",
++                        String::from_utf8_lossy(&table.signature),
++                        physaddr
++                    );
++                    tables.push(table);
++                }
++                Err(TablePhysLoadError::Validity(InvalidSdtError::BadChecksum)) => {
++                    log::warn!(
++                        "acpid: skipping ACPI table at {:#X}: checksum validation failed",
++                        physaddr
++                    );
++                }
++                Err(err) => {
++                    log::warn!("acpid: skipping ACPI table at {:#X}: {}", physaddr, err);
++                }
++            }
++        }
+ 
+         let mut this = Self {
+             tables,
+             dsdt: None,
+             fadt: None,
++            shutdown_s5: RwLock::new(None),
+ 
+             // Temporary values
+-            aml_symbols: RwLock::new(AmlSymbols::new(ec)),
++            aml_symbols: RwLock::new(AmlSymbols::new(aml_bootstrap, ec)),
+ 
+             next_ctx: RwLock::new(0),
+ 
+@@ -581,55 +791,26 @@ impl AcpiContext {
+         let port = fadt.pm1a_control_block as u16;
+         let mut val = 1 << 13;
+ 
+-        let aml_symbols = self.aml_symbols.read();
+-
+-        let s5_aml_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
+-            Ok(aml_name) => aml_name,
+-            Err(error) => {
+-                log::error!("Could not build AmlName for \\_S5, {:?}", error);
+-                return;
+-            }
+-        };
+-
+-        let s5 = match &aml_symbols.aml_context {
+-            Some(aml_context) => match aml_context.namespace.lock().get(s5_aml_name) {
+-                Ok(s5) => s5,
+-                Err(error) => {
+-                    log::error!("Cannot set S-state, missing \\_S5, {:?}", error);
+-                    return;
++        if self.shutdown_s5.read().is_none() {
++            match self.cache_shutdown_s5_from_ready_aml("existing AML context") {
++                Ok(true) | Ok(false) => {}
++                Err(err) => {
++                    log::warn!("acpid: _S5 was not ready at shutdown: {}", err);
+                 }
+-            },
+-            None => {
+-                log::error!("Cannot set S-state, AML context not initialized");
+-                return;
+             }
+-        };
+-
+-        let package = match s5.deref() {
+-            acpi::aml::object::Object::Package(package) => package,
+-            _ => {
+-                log::error!("Cannot set S-state, \\_S5 is not a package");
+-                return;
+-            }
+-        };
++        }
+ 
+-        let slp_typa = match package[0].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typa is not an Integer");
+-                return;
+-            }
+-        };
+-        let slp_typb = match package[1].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typb is not an Integer");
+-                return;
+-            }
++        let Some(sleep_types) = *self.shutdown_s5.read() else {
++            log::error!("Cannot set S-state, missing derived \\_S5 sleep types");
++            return;
+         };
+ 
+-        log::trace!("Shutdown SLP_TYPa {:X}, SLP_TYPb {:X}", slp_typa, slp_typb);
+-        val |= slp_typa as u16;
++        log::trace!(
++            "Shutdown SLP_TYPa {:X}, SLP_TYPb {:X}",
++            sleep_types.slp_typa,
++            sleep_types.slp_typb
++        );
++        val |= sleep_types.slp_typa;
+ 
+         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+         {
+@@ -652,6 +833,86 @@ impl AcpiContext {
+             core::hint::spin_loop();
+         }
+     }
++
++    pub fn prime_shutdown_s5(&self, pci_fd: Option<&libredox::Fd>, source: &'static str) {
++        match self.cache_shutdown_s5(pci_fd, source) {
++            Ok(()) => {}
++            Err(err) => {
++                log::warn!("acpid: unable to derive _S5 from {}: {}", source, err);
++            }
++        }
++    }
++
++    fn cache_shutdown_s5(
++        &self,
++        pci_fd: Option<&libredox::Fd>,
++        source: &'static str,
++    ) -> Result<(), String> {
++        if self.shutdown_s5.read().is_some() {
++            return Ok(());
++        }
++
++        let mut aml_symbols = self.aml_symbols.write();
++        let aml_context = aml_symbols
++            .aml_context_mut(pci_fd)
++            .map_err(|err| format!("AML not ready: {err}"))?;
++        let sleep_types = extract_s5_sleep_types(aml_context)?;
++
++        *self.shutdown_s5.write() = Some(sleep_types);
++        log::info!("acpid: _S5 derived from {}", source);
++        Ok(())
++    }
++
++    fn cache_shutdown_s5_from_ready_aml(&self, source: &'static str) -> Result<bool, String> {
++        if self.shutdown_s5.read().is_some() {
++            return Ok(true);
++        }
++
++        let aml_symbols = self.aml_symbols.read();
++        let Some(aml_context) = aml_symbols.aml_context.as_ref() else {
++            return Ok(false);
++        };
++
++        let sleep_types = extract_s5_sleep_types(aml_context)?;
++        drop(aml_symbols);
++
++        *self.shutdown_s5.write() = Some(sleep_types);
++        log::info!("acpid: _S5 derived from {}", source);
++        Ok(true)
++    }
++}
++
++fn extract_s5_sleep_types(
++    aml_context: &Interpreter<AmlPhysMemHandler>,
++) -> Result<SleepTypeData, String> {
++    let s5_aml_name = acpi::aml::namespace::AmlName::from_str("\\_S5")
++        .map_err(|error| format!("failed to build \\_S5 name: {error:?}"))?;
++    let s5 = aml_context
++        .namespace
++        .lock()
++        .get(s5_aml_name)
++        .map_err(|error| format!("missing \\_S5: {error:?}"))?;
++    let package = match s5.deref() {
++        acpi::aml::object::Object::Package(package) => package,
++        _ => return Err("\\_S5 is not a package".into()),
++    };
++
++    let slp_typa = extract_sleep_type(package.get(0), "SLP_TYPa")?;
++    let slp_typb = extract_sleep_type(package.get(1), "SLP_TYPb")?;
++
++    Ok(SleepTypeData { slp_typa, slp_typb })
++}
++
++fn extract_sleep_type(value: Option<&WrappedObject>, label: &'static str) -> Result<u16, String> {
++    let Some(value) = value else {
++        return Err(format!("missing {label} in \\_S5 package"));
++    };
++
++    match value.deref() {
++        acpi::aml::object::Object::Integer(i) => u16::try_from(*i)
++            .map_err(|_| format!("{label} out of range for PM1 control register")),
++        _ => Err(format!("{label} is not an Integer")),
++    }
+ }
+ 
+ #[repr(C, packed)]
+@@ -760,45 +1021,66 @@ impl Deref for Fadt {
+     type Target = FadtStruct;
+ 
+     fn deref(&self) -> &Self::Target {
+-        plain::from_bytes::<FadtStruct>(&self.0 .0)
+-            .expect("expected FADT struct to already be validated in Deref impl")
++        match plain::from_bytes::<FadtStruct>(&self.0 .0) {
++            Ok(fadt) => fadt,
++            Err(plain::Error::TooShort) => unreachable!(
++                "Fadt::new validates the minimum FADT size before constructing Fadt"
++            ),
++            Err(plain::Error::BadAlignment) => unreachable!(
++                "plain::from_bytes reported bad alignment, but FadtStruct is #[repr(packed)]"
++            ),
++        }
+     }
+ }
+ 
+ impl Fadt {
+     pub fn new(sdt: Sdt) -> Option<Fadt> {
+-        if sdt.signature != *b"FACP" || sdt.length() < mem::size_of::<Fadt>() {
++        if sdt.signature != *b"FACP" || sdt.length() < mem::size_of::<FadtStruct>() {
+             return None;
+         }
+         Some(Fadt(sdt))
+     }
+ 
+     pub fn init(context: &mut AcpiContext) {
+-        let fadt_sdt = context
+-            .take_single_sdt(*b"FACP")
+-            .expect("expected ACPI to always have a FADT");
++        // FADT policy: this table is mandatory for ACPI control services such as shutdown/reboot.
++        // If it is missing or malformed, acpid stays alive for diagnostics/raw tables but degrades
++        // into raw-table-only mode instead of crashing the boot.
++        let Some(fadt_sdt) = context.take_single_sdt(*b"FACP") else {
++            log::error!("acpid: missing FADT; booting without ACPI control services");
++            return;
++        };
+ 
+         let fadt = match Fadt::new(fadt_sdt) {
+             Some(fadt) => fadt,
+             None => {
+-                log::error!("Failed to find FADT");
++                log::error!("acpid: corrupt FADT; booting without ACPI control services");
+                 return;
+             }
+         };
+ 
+         let dsdt_ptr = match fadt.acpi_2_struct() {
+-            Some(fadt2) => usize::try_from(fadt2.x_dsdt).unwrap_or_else(|_| {
+-                usize::try_from(fadt.dsdt).expect("expected any given u32 to fit within usize")
+-            }),
+-            None => usize::try_from(fadt.dsdt).expect("expected any given u32 to fit within usize"),
++            Some(fadt2) if fadt2.x_dsdt != 0 => match usize::try_from(fadt2.x_dsdt) {
++                Ok(dsdt_ptr) => dsdt_ptr,
++                Err(_) => {
++                    log::warn!(
++                        "acpid: x_dsdt address out of range; falling back to 32-bit DSDT pointer"
++                    );
++                    fadt.dsdt as usize
++                }
++            },
++            _ => fadt.dsdt as usize,
+         };
+ 
+         log::debug!("FACP at {:X}", { dsdt_ptr });
+ 
+-        let dsdt_sdt = match Sdt::load_from_physical(fadt.dsdt as usize) {
++        let dsdt_sdt = match Sdt::load_from_physical(dsdt_ptr) {
+             Ok(dsdt) => dsdt,
+             Err(error) => {
+-                log::error!("Failed to load DSDT: {}", error);
++                log::error!(
++                    "acpid: corrupt FADT/DSDT linkage (DSDT at {:#X}): booting without ACPI control services: {}",
++                    dsdt_ptr,
++                    error
++                );
+                 return;
+             }
+         };
+diff --git a/drivers/acpid/src/main.rs b/drivers/acpid/src/main.rs
+index 059254b3..25566553 100644
+--- a/drivers/acpid/src/main.rs
++++ b/drivers/acpid/src/main.rs
+@@ -3,6 +3,7 @@ use std::fs::File;
+ use std::mem;
+ use std::ops::ControlFlow;
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ use std::sync::Arc;
+ 
+ use ::acpi::aml::op_region::{RegionHandler, RegionSpace};
+@@ -28,94 +29,206 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     log::info!("acpid start");
+ 
+-    let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
+-        .expect("acpid: failed to read `/scheme/kernel.acpi/rxsdt`")
+-        .into();
++    let rxsdt_raw_data: Arc<[u8]> = match std::fs::read("/scheme/kernel.acpi/rxsdt") {
++        Ok(data) => data.into(),
++        Err(err) => {
++            log::error!("acpid: failed to read `/scheme/kernel.acpi/rxsdt`: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     if rxsdt_raw_data.is_empty() {
+         log::info!("System doesn't use ACPI");
+         daemon.ready();
+-        std::process::exit(0);
++        process::exit(0);
+     }
+ 
+-    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).expect("acpid: failed to parse [RX]SDT");
++    // Root-table policy: if the kernel-provided [R|X]SDT is malformed, acpid cannot enumerate any
++    // firmware tables at all. That is fatal to this daemon, but it must fail with a logged exit
++    // rather than a panic on malformed firmware input.
++    let sdt = match self::acpi::Sdt::new(rxsdt_raw_data) {
++        Ok(sdt) => sdt,
++        Err(err) => {
++            log::error!("acpid: failed to parse kernel [R|X]SDT: {}", err);
++            process::exit(1);
++        }
++    };
++
++    // AML bootstrap contract:
++    // - preferred path: RSDP_ADDR[/RSDP_SIZE] inherited into acpid by the boot path,
++    // - x86 fallback: bounded BIOS RSDP search when that explicit handoff is absent or unusable.
++    let aml_bootstrap = match self::acpi::AmlBootstrap::from_env() {
++        Ok(bootstrap) => {
++            bootstrap.log_bootstrap();
++            Some(bootstrap)
++        }
++        Err(err) => {
++            log::warn!(
++                "acpid: explicit AML bootstrap handoff unavailable ({}); trying x86 BIOS fallback",
++                err
++            );
+ 
+-    let mut thirty_two_bit;
+-    let mut sixty_four_bit;
++            match self::acpi::AmlBootstrap::x86_bios_fallback() {
++                Ok(Some(bootstrap)) => {
++                    bootstrap.log_bootstrap();
++                    Some(bootstrap)
++                }
++                Ok(None) => {
++                    log::warn!(
++                        "acpid: AML bootstrap unavailable; continuing without AML-backed ACPI services"
++                    );
++                    None
++                }
++                Err(err) => {
++                    log::warn!(
++                        "acpid: x86 BIOS AML bootstrap fallback failed ({}); continuing without AML-backed ACPI services",
++                        err
++                    );
++                    None
++                }
++            }
++        }
++    };
+ 
+-    let physaddrs_iter = match &sdt.signature {
++    let physaddrs = match &sdt.signature {
+         b"RSDT" => {
+-            thirty_two_bit = sdt
+-                .data()
+-                .chunks(mem::size_of::<u32>())
+-                // TODO: With const generics, the compiler has some way of doing this for static sizes.
+-                .map(|chunk| <[u8; mem::size_of::<u32>()]>::try_from(chunk).unwrap())
+-                .map(|chunk| u32::from_le_bytes(chunk))
+-                .map(u64::from);
+-
+-            &mut thirty_two_bit as &mut dyn Iterator<Item = u64>
++            let chunks = sdt.data().chunks_exact(mem::size_of::<u32>());
++            if !chunks.remainder().is_empty() {
++                log::error!("acpid: malformed RSDT payload length {}", sdt.data().len());
++                process::exit(1);
++            }
++
++            chunks
++                .map(|chunk| {
++                    let chunk = <[u8; mem::size_of::<u32>()]>::try_from(chunk)
++                        .map_err(|_| "invalid 32-bit RSDT entry width")?;
++                    Ok(u64::from(u32::from_le_bytes(chunk)))
++                })
++                .collect::<Result<Vec<u64>, &str>>()
+         }
+         b"XSDT" => {
+-            sixty_four_bit = sdt
+-                .data()
+-                .chunks(mem::size_of::<u64>())
+-                .map(|chunk| <[u8; mem::size_of::<u64>()]>::try_from(chunk).unwrap())
+-                .map(|chunk| u64::from_le_bytes(chunk));
++            let chunks = sdt.data().chunks_exact(mem::size_of::<u64>());
++            if !chunks.remainder().is_empty() {
++                log::error!("acpid: malformed XSDT payload length {}", sdt.data().len());
++                process::exit(1);
++            }
+ 
+-            &mut sixty_four_bit as &mut dyn Iterator<Item = u64>
++            chunks
++                .map(|chunk| {
++                    let chunk = <[u8; mem::size_of::<u64>()]>::try_from(chunk)
++                        .map_err(|_| "invalid 64-bit XSDT entry width")?;
++                    Ok(u64::from_le_bytes(chunk))
++                })
++                .collect::<Result<Vec<u64>, &str>>()
++        }
++        _ => {
++            log::error!(
++                "acpid: expected kernel root table to be RSDT or XSDT, got {}",
++                String::from_utf8_lossy(&sdt.signature)
++            );
++            process::exit(1);
++        }
++    };
++    let physaddrs = match physaddrs {
++        Ok(physaddrs) => physaddrs,
++        Err(err) => {
++            log::error!("acpid: failed to decode root table pointers: {}", err);
++            process::exit(1);
+         }
+-        _ => panic!("acpid: expected [RX]SDT from kernel to be either of those"),
+     };
+ 
+     let region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler + 'static>)> = vec![
+         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+         (RegionSpace::EmbeddedControl, Box::new(ec::Ec::new())),
+     ];
+-    let acpi_context = self::acpi::AcpiContext::init(physaddrs_iter, region_handlers);
++    let acpi_context = self::acpi::AcpiContext::init(physaddrs.into_iter(), aml_bootstrap, region_handlers);
+ 
+     // TODO: I/O permission bitmap?
+     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-    common::acquire_port_io_rights().expect("acpid: failed to set I/O privilege level to Ring 3");
++    if let Err(err) = common::acquire_port_io_rights() {
++        log::error!(
++            "acpid: failed to set I/O privilege level to Ring 3: {}",
++            err
++        );
++        process::exit(1);
++    }
+ 
+-    let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop")
+-        .expect("acpid: failed to open `/scheme/kernel.acpi/kstop`");
++    let shutdown_pipe = match File::open("/scheme/kernel.acpi/kstop") {
++        Ok(file) => file,
++        Err(err) => {
++            log::error!("acpid: failed to open `/scheme/kernel.acpi/kstop`: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+-    let mut event_queue = RawEventQueue::new().expect("acpid: failed to create event queue");
+-    let socket = Socket::nonblock().expect("acpid: failed to create disk scheme");
++    let mut event_queue = match RawEventQueue::new() {
++        Ok(event_queue) => event_queue,
++        Err(err) => {
++            log::error!("acpid: failed to create event queue: {}", err);
++            process::exit(1);
++        }
++    };
++    let socket = match Socket::nonblock() {
++        Ok(socket) => socket,
++        Err(err) => {
++            log::error!("acpid: failed to create acpi scheme socket: {}", err);
++            process::exit(1);
++        }
++    };
+ 
+     let mut scheme = self::scheme::AcpiScheme::new(&acpi_context, &socket);
+     let mut handler = Blocking::new(&socket, 16);
+ 
+-    event_queue
+-        .subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
+-        .expect("acpid: failed to register shutdown pipe for event queue");
+-    event_queue
+-        .subscribe(socket.inner().raw(), 1, EventFlags::READ)
+-        .expect("acpid: failed to register scheme socket for event queue");
++    if let Err(err) = event_queue.subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
++    {
++        log::error!(
++            "acpid: failed to register shutdown pipe for event queue: {}",
++            err
++        );
++        process::exit(1);
++    }
++    if let Err(err) = event_queue.subscribe(socket.inner().raw(), 1, EventFlags::READ) {
++        log::error!(
++            "acpid: failed to register scheme socket for event queue: {}",
++            err
++        );
++        process::exit(1);
++    }
+ 
+-    register_sync_scheme(&socket, "acpi", &mut scheme)
+-        .expect("acpid: failed to register acpi scheme to namespace");
++    if let Err(err) = register_sync_scheme(&socket, "acpi", &mut scheme) {
++        log::error!("acpid: failed to register acpi scheme to namespace: {}", err);
++        process::exit(1);
++    }
+ 
+     daemon.ready();
+ 
+-    libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        log::error!("acpid: failed to enter null namespace: {}", err);
++        process::exit(1);
++    }
+ 
+     let mut mounted = true;
+     while mounted {
+-        let Some(event) = event_queue
+-            .next()
+-            .transpose()
+-            .expect("acpid: failed to read event file")
+-        else {
++        let event = match event_queue.next().transpose() {
++            Ok(event) => event,
++            Err(err) => {
++                log::error!("acpid: failed to read event file: {}", err);
++                process::exit(1);
++            }
++        };
++        let Some(event) = event else {
+             break;
+         };
+ 
+         if event.fd == socket.inner().raw() {
+             loop {
+-                match handler
+-                    .process_requests_nonblocking(&mut scheme)
+-                    .expect("acpid: failed to process requests")
+-                {
++                match match handler.process_requests_nonblocking(&mut scheme) {
++                    Ok(flow) => flow,
++                    Err(err) => {
++                        log::error!("acpid: failed to process requests: {}", err);
++                        process::exit(1);
++                    }
++                } {
+                     ControlFlow::Continue(()) => {}
+                     ControlFlow::Break(()) => break,
+                 }
+diff --git a/drivers/acpid/src/scheme.rs b/drivers/acpid/src/scheme.rs
+index 5a5040c3..6e57624a 100644
+--- a/drivers/acpid/src/scheme.rs
++++ b/drivers/acpid/src/scheme.rs
+@@ -474,6 +474,8 @@ impl SchemeSync for AcpiScheme<'_, '_> {
+             return Err(Error::new(EINVAL));
+         } else {
+             self.pci_fd = Some(new_fd);
++            self.ctx
++                .prime_shutdown_s5(self.pci_fd.as_ref(), "PCI-backed AML handoff");
+         }
+ 
+         Ok(num_fds)

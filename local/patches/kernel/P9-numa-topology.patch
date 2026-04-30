@@ -1,0 +1,68 @@
+diff --git a/src/numa.rs b/src/numa.rs
+new file mode 100644
+index 0000000..40c5a06
+--- /dev/null
++++ b/src/numa.rs
+@@ -0,0 +1,62 @@
++/// NUMA topology hints for the kernel scheduler.
++/// NUMA discovery (SRAT/SLIT parsing) is performed by a userspace daemon
++/// (numad) via /scheme/acpi/, then pushed to the kernel via scheme:numa.
++/// The kernel stores a lightweight copy for O(1) scheduling lookups.
++use crate::cpu_set::{LogicalCpuId, LogicalCpuSet};
++use core::sync::atomic::{AtomicBool, Ordering};
++
++const MAX_NUMA_NODES: usize = 8;
++
++#[derive(Clone, Debug)]
++pub struct NumaHint {
++    pub node_id: u8,
++    pub cpus: LogicalCpuSet,
++}
++
++pub struct NumaTopology {
++    pub nodes: [Option<NumaHint>; MAX_NUMA_NODES],
++    pub initialized: AtomicBool,
++}
++
++impl NumaTopology {
++    pub const fn new() -> Self {
++        const NONE: Option<NumaHint> = None;
++        Self {
++            nodes: [NONE; MAX_NUMA_NODES],
++            initialized: AtomicBool::new(false),
++        }
++    }
++
++    pub fn node_for_cpu(&self, cpu: LogicalCpuId) -> Option<u8> {
++        for node in self.nodes.iter().flatten() {
++            if node.cpus.contains(cpu) {
++                return Some(node.node_id);
++            }
++        }
++        None
++    }
++
++    pub fn same_node(&self, cpu1: LogicalCpuId, cpu2: LogicalCpuId) -> bool {
++        self.node_for_cpu(cpu1) == self.node_for_cpu(cpu2)
++    }
++}
++
++static mut NUMA_TOPOLOGY: NumaTopology = NumaTopology::new();
++
++pub fn topology() -> &'static NumaTopology {
++    unsafe { &NUMA_TOPOLOGY }
++}
++
++pub fn init_default() {
++    let topo = topology();
++    if topo.initialized.swap(true, Ordering::AcqRel) {
++        return;
++    }
++    unsafe {
++        let topo_mut = &mut *core::ptr::addr_of_mut!(NUMA_TOPOLOGY);
++        topo_mut.nodes[0] = Some(NumaHint {
++            node_id: 0,
++            cpus: LogicalCpuSet::all(),
++        });
++    }
++}

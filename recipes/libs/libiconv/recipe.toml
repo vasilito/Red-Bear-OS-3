@@ -22,6 +22,137 @@ script = """
 DYNAMIC_STATIC_INIT
 COOKBOOK_CONFIGURE_FLAGS+=(
     ac_cv_have_decl_program_invocation_name=no
+    ac_cv_objext=o
+    ac_cv_prog_cc_c_o=yes
+    ac_cv_exeext=
+    acl_cv_rpath=done
 )
+
+# Restore the pristine configure scripts on every build, then layer our Redox
+# cross-build fixes on top. Host autoconf 2.72 regenerates an invalid top-level
+# configure for this recipe in our environment, so we patch the shipped script
+# instead of regenerating it.
+python3 - <<'PYEOF'
+import os
+import tarfile
+from pathlib import Path
+
+source_dir = Path(os.environ["COOKBOOK_SOURCE"])
+source_tar = Path(os.environ["COOKBOOK_RECIPE"]) / "source.tar"
+with tarfile.open(source_tar) as tf:
+    for relative in ("configure", "libcharset/configure"):
+        member = next(m for m in tf.getmembers() if m.name.endswith("/" + relative))
+        target = source_dir / relative
+        target.write_text(tf.extractfile(member).read().decode("utf-8", errors="replace"))
+PYEOF
+
+# Upgrade bundled libtool glue in both the top-level tree and nested
+# libcharset tree to the current host libtool (2.6.0) so generated libtool
+# helpers match the host ltmain.sh version.
+for subdir in "${COOKBOOK_SOURCE}" "${COOKBOOK_SOURCE}/libcharset"; do
+    if [ -d "${subdir}" ]; then
+        mkdir -p "${subdir}/m4" "${subdir}/build-aux"
+        cp -f /usr/share/aclocal/libtool.m4 "${subdir}/m4/"
+        cp -f /usr/share/aclocal/ltoptions.m4 "${subdir}/m4/"
+        cp -f /usr/share/aclocal/ltsugar.m4 "${subdir}/m4/"
+        cp -f /usr/share/aclocal/ltversion.m4 "${subdir}/m4/"
+        cp -f /usr/share/aclocal/lt~obsolete.m4 "${subdir}/m4/"
+        cp -f /usr/share/libtool/build-aux/ltmain.sh "${subdir}/build-aux/"
+    fi
+done
+
+if [ -d "${COOKBOOK_SOURCE}/libcharset" ]; then
+    (
+        cd "${COOKBOOK_SOURCE}/libcharset"
+        cp -f ../srcm4/relocatable.m4 m4/
+        cp -f ../srcm4/codeset.m4 m4/
+        cp -f ../srcm4/fcntl-o.m4 m4/
+        cp -f ../srcm4/visibility.m4 m4/
+    )
+fi
+
+# libcharset templates currently keep @HAVE_VISIBILITY@ unsubstituted on our
+# Redox cross build. Patch the source templates before configure so every
+# generated header gets a stable fallback value.
+for template in \
+    "${COOKBOOK_SOURCE}/libcharset/include/libcharset.h.build.in" \
+    "${COOKBOOK_SOURCE}/libcharset/include/localcharset.h.build.in" \
+    "${COOKBOOK_SOURCE}/include/iconv.h.build.in"
+do
+    if [ -f "${template}" ]; then
+        sed -i 's/@HAVE_VISIBILITY@/0/g' "${template}"
+    fi
+done
+
+export CPP="${GNU_TARGET}-gcc -E"
+
+# Force cross mode in the shipped top-level configure and keep the rest of the
+# generated shell structure intact.
+sed -i '0,/cross_compiling=maybe/s//cross_compiling=yes/' "${COOKBOOK_SOURCE}/configure"
+python3 - <<'PYEOF'
+from pathlib import Path
+import os
+for relative in ('configure', 'libcharset/configure'):
+    path = Path(os.environ['COOKBOOK_SOURCE']) / relative
+    lines = path.read_text().splitlines()
+    for i, line in enumerate(lines):
+        if "macro_version='2.4.7'" in line or "macro_version='2.5.4-redox-9510'" in line:
+            lines[i] = "macro_version='2.6.0'"
+        if "macro_revision='2.4.7'" in line or "macro_revision='2.5.4-redox-9510'" in line:
+            lines[i] = "macro_revision='2.6.0'"
+        if "grep -v '^ *+' conftest.err >conftest.er1" in line:
+            lines[i] = "test -f conftest.err && grep -v '^ *+' conftest.err > conftest.er1.tmp && mv -f conftest.er1.tmp conftest.er1 || :"
+        if 'cat conftest.er1 >&5' in line:
+            lines[i] = 'test -f conftest.er1 && cat conftest.er1 >&5 || :'
+        if 'mv -f conftest.er1 conftest.err' in line:
+            lines[i] = 'test -f conftest.er1 && mv -f conftest.er1 conftest.err || :'
+        if line.strip() == 'rm -f conftest conftest$ac_cv_exeext':
+            lines[i] = 'rm -rf conftest conftest$ac_cv_exeext'
+    path.write_text("\\n".join(lines) + "\\n")
+PYEOF
+
 cookbook_configure
+
+# libcharset's configure currently leaves @HAVE_VISIBILITY@ unsubstituted in
+# generated headers on our Redox cross build. Normalize the generated headers
+# so the compile path matches the already-published libiconv artifact.
+for header in \
+    include/libcharset.h \
+    include/localcharset.h \
+    libcharset/include/libcharset.h \
+    libcharset/include/localcharset.h
+do
+    if [ -f "${header}" ]; then
+        sed -i 's/@HAVE_VISIBILITY@/0/g' "${header}"
+    fi
+done
+
+# Force the nested libcharset configure step now, then patch the generated
+# headers in the build tree before the top-level make descends into libcharset.
+if [ -d "libcharset" ]; then
+    (
+        cd libcharset
+        "${COOKBOOK_SOURCE}/libcharset/configure" \
+            --disable-option-checking \
+            --prefix=/usr \
+            --host="${GNU_TARGET}" \
+            --enable-shared \
+            --enable-static \
+            ac_cv_have_decl_program_invocation_name=no \
+            CC="${GNU_TARGET}-gcc" \
+            LDFLAGS="${LDFLAGS}" \
+            CPPFLAGS="${CPPFLAGS}" \
+            --cache-file=/dev/null \
+            --srcdir="${COOKBOOK_SOURCE}/libcharset"
+    )
+    for header in \
+        libcharset/include/libcharset.h \
+        libcharset/include/localcharset.h
+    do
+        if [ -f "${header}" ]; then
+            sed -i 's/@HAVE_VISIBILITY@/0/g' "${header}"
+        fi
+    done
+fi
+
 """

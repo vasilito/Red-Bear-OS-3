@@ -1,0 +1,152 @@
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+index 47588e1..6578761 100644
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -1,7 +1,7 @@
+ use crate::{
+     context::{
+         self,
+-        context::{HardBlockedReason, LockedFdTbl, SignalState},
++        context::{HardBlockedReason, LockedFdTbl, SchedPolicy, SignalState},
+         file::InternalFlags,
+         memory::{handle_notify_files, AddrSpace, AddrSpaceWrapper, Grant, PageSpan},
+         Context, ContextLock, Status,
+@@ -105,6 +105,7 @@ enum ContextHandle {
+     // Attr handles, to set ens/euid/egid/pid.
+     Authority,
+     Attr,
++    Groups,
+ 
+     Status {
+         privileged: bool,
+@@ -145,6 +146,7 @@ enum ContextHandle {
+     // directory.
+     OpenViaDup,
+     SchedAffinity,
++    SchedPolicy,
+ 
+     MmapMinAddr(Arc<AddrSpaceWrapper>),
+ }
+@@ -249,6 +251,9 @@ impl ProcScheme {
+                 false,
+             ),
+             "sched-affinity" => (ContextHandle::SchedAffinity, true),
++            // TODO: Switch this kernel-local proc handle over to a stable upstream
++            // redox_syscall ProcCall::SetSchedPolicy opcode once that lands.
++            "sched-policy" => (ContextHandle::SchedPolicy, false),
+             "status" => (ContextHandle::Status { privileged: false }, false),
+             _ if path.starts_with("auth-") => {
+                 let nonprefix = &path["auth-".len()..];
+@@ -261,6 +266,7 @@ impl ProcScheme {
+                 let handle = match actual_name {
+                     "attrs" => ContextHandle::Attr,
+                     "status" => ContextHandle::Status { privileged: true },
++                    "groups" => ContextHandle::Groups,
+                     _ => return Err(Error::new(ENOENT)),
+                 };
+ 
+@@ -306,6 +312,11 @@ impl ProcScheme {
+                         let id = NonZeroUsize::new(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+                             .ok_or(Error::new(EMFILE))?;
+                         let context = context::spawn(true, Some(id), ret, token)?;
++                        {
++                            let parent_groups =
++                                context::current().read(token.token()).groups.clone();
++                            context.write(token.token()).groups = parent_groups;
++                        }
+                         HANDLES.write(token.token()).insert(
+                             id.get(),
+                             Handle {
+@@ -1165,6 +1176,20 @@ impl ContextHandle {
+ 
+                 Ok(size_of_val(&mask))
+             }
++            Self::SchedPolicy => {
++                if buf.len() != 2 {
++                    return Err(Error::new(EINVAL));
++                }
++
++                let [policy, rt_priority] = unsafe { buf.read_exact::<[u8; 2]>()? };
++                let sched_policy = SchedPolicy::try_from_raw(policy).ok_or(Error::new(EINVAL))?;
++
++                context
++                    .write(token.token())
++                    .set_sched_policy(sched_policy, rt_priority);
++
++                Ok(2)
++            }
+             ContextHandle::Status { privileged } => {
+                 let mut args = buf.usizes();
+ 
+@@ -1268,9 +1293,42 @@ impl ContextHandle {
+                 guard.pid = info.pid as usize;
+                 guard.euid = info.euid;
+                 guard.egid = info.egid;
+-                guard.prio = (info.prio as usize).min(39);
++                guard.set_sched_other_prio(info.prio as usize);
+                 Ok(size_of::<ProcSchemeAttrs>())
+             }
++            Self::Groups => {
++                const NGROUPS_MAX: usize = 65536;
++                if buf.len() % size_of::<u32>() != 0 {
++                    return Err(Error::new(EINVAL));
++                }
++                let count = buf.len() / size_of::<u32>();
++                if count > NGROUPS_MAX {
++                    return Err(Error::new(EINVAL));
++                }
++                let mut groups = Vec::with_capacity(count);
++                for chunk in buf.in_exact_chunks(size_of::<u32>()).take(count) {
++                    groups.push(chunk.read_u32()?);
++                }
++                let proc_id = {
++                    let guard = context.read(token.token());
++                    guard.owner_proc_id
++                };
++                {
++                    let mut guard = context.write(token.token());
++                    guard.groups = groups.clone();
++                }
++                if let Some(pid) = proc_id {
++                    let mut contexts = context::contexts(token.downgrade());
++                    let (contexts, mut t) = contexts.token_split();
++                    for context_ref in contexts.iter() {
++                        let mut ctx = context_ref.write(t.token());
++                        if ctx.owner_proc_id == Some(pid) {
++                            ctx.groups = groups.clone();
++                        }
++                    }
++                }
++                Ok(count * size_of::<u32>())
++            }
+             ContextHandle::OpenViaDup => {
+                 let mut args = buf.usizes();
+ 
+@@ -1427,6 +1485,11 @@ impl ContextHandle {
+ 
+                 buf.copy_exactly(crate::cpu_set::mask_as_bytes(&mask))?;
+                 Ok(size_of_val(&mask))
++            }
++            ContextHandle::SchedPolicy => {
++                let context = context.read(token.token());
++                let data = [context.sched_policy as u8, context.sched_rt_priority];
++                buf.copy_common_bytes_from_slice(&data)
+             } // TODO: Replace write() with SYS_SENDFD?
+             ContextHandle::Status { .. } => {
+                 let status = {
+@@ -1475,6 +1538,15 @@ impl ContextHandle {
+                     debug_name,
+                 })
+             }
++            Self::Groups => {
++                let c = &context.read(token.token());
++                let max = buf.len() / size_of::<u32>();
++                let count = c.groups.len().min(max);
++                for (chunk, gid) in buf.in_exact_chunks(size_of::<u32>()).zip(&c.groups).take(count) {
++                    chunk.copy_from_slice(&gid.to_ne_bytes())?;
++                }
++                Ok(count * size_of::<u32>())
++            }
+             ContextHandle::Sighandler => {
+                 let data = match context.read(token.token()).sig {
+                     Some(ref sig) => SetSighandlerData {

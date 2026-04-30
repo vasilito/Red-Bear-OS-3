@@ -1,0 +1,13 @@
+diff --git a/src/context/mod.rs b/src/context/mod.rs
+index 37c73f5..4f5d60f 100644
+--- a/src/context/mod.rs
++++ b/src/context/mod.rs
+@@ -22,7 +22,7 @@ use crate::{
+ 
+ use self::context::Kstack;
+ pub use self::{
+-    context::{BorrowedHtBuf, Context, Status},
++    context::{BorrowedHtBuf, Context, SchedPolicy, Status},
+     switch::switch,
+ };
+ 

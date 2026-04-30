@@ -1,0 +1,89 @@
+diff --git a/src/percpu.rs b/src/percpu.rs
+index f4ad5e6..1844d62 100644
+--- a/src/percpu.rs
++++ b/src/percpu.rs
+@@ -1,4 +1,5 @@
+ use alloc::{
++    collections::VecDeque,
+     sync::{Arc, Weak},
+     vec::Vec,
+ };
+@@ -12,7 +13,10 @@ use syscall::PtraceFlags;
+ 
+ use crate::{
+     arch::device::ArchPercpuMisc,
+-    context::{empty_cr3, memory::AddrSpaceWrapper, switch::ContextSwitchPercpu},
++    context::{
++        empty_cr3, memory::AddrSpaceWrapper, switch::ContextSwitchPercpu, WeakContextRef,
++        RUN_QUEUE_COUNT,
++    },
+     cpu_set::{LogicalCpuId, MAX_CPU_COUNT},
+     cpu_stats::{CpuStats, CpuStatsData},
+     ptrace::Session,
+@@ -20,6 +24,42 @@ use crate::{
+     syscall::debug::SyscallDebugInfo,
+ };
+ 
++#[allow(dead_code)]
++pub struct PerCpuSched {
++    pub run_queues: [VecDeque<WeakContextRef>; RUN_QUEUE_COUNT],
++    pub run_queues_lock: AtomicBool,
++    pub balance: Cell<[usize; RUN_QUEUE_COUNT]>,
++    pub last_queue: Cell<usize>,
++}
++
++impl PerCpuSched {
++    pub const fn new() -> Self {
++        const EMPTY: VecDeque<WeakContextRef> = VecDeque::new();
++        Self {
++            run_queues: [EMPTY; RUN_QUEUE_COUNT],
++            run_queues_lock: AtomicBool::new(false),
++            balance: Cell::new([0; RUN_QUEUE_COUNT]),
++            last_queue: Cell::new(0),
++        }
++    }
++
++    pub fn take_lock(&self) {
++        while self
++            .run_queues_lock
++            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
++            .is_err()
++        {
++            while self.run_queues_lock.load(Ordering::Relaxed) {
++                core::hint::spin_loop();
++            }
++        }
++    }
++
++    pub fn release_lock(&self) {
++        self.run_queues_lock.store(false, Ordering::Release);
++    }
++}
++
+ /// The percpu block, that stored all percpu variables.
+ pub struct PercpuBlock {
+     /// A unique immutable number that identifies the current CPU - used for scheduling
+@@ -31,7 +71,12 @@ pub struct PercpuBlock {
+     pub current_addrsp: RefCell<Option<Arc<AddrSpaceWrapper>>>,
+     pub new_addrsp_tmp: Cell<Option<Arc<AddrSpaceWrapper>>>,
+     pub wants_tlb_shootdown: AtomicBool,
+-    pub balance: Cell<[usize; 40]>,
++
++    pub sched: PerCpuSched,
++
++    // Legacy DWRR state used by context/switch.rs until the per-CPU scheduler migration is
++    // finished.
++    pub balance: Cell<[usize; RUN_QUEUE_COUNT]>,
+     pub last_queue: Cell<usize>,
+ 
+     // TODO: Put mailbox queues here, e.g. for TLB shootdown? Just be sure to 128-byte align it
+@@ -187,7 +232,8 @@ impl PercpuBlock {
+             current_addrsp: RefCell::new(None),
+             new_addrsp_tmp: Cell::new(None),
+             wants_tlb_shootdown: AtomicBool::new(false),
+-            balance: Cell::new([0; 40]),
++            sched: PerCpuSched::new(),
++            balance: Cell::new([0; RUN_QUEUE_COUNT]),
+             last_queue: Cell::new(39),
+             ptrace_flags: Cell::new(PtraceFlags::empty()),
+             ptrace_session: RefCell::new(None),

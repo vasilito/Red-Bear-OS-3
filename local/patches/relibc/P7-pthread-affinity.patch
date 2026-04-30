@@ -1,0 +1,231 @@
+diff --git a/src/header/pthread/cbindgen.toml b/src/header/pthread/cbindgen.toml
+--- a/src/header/pthread/cbindgen.toml
++++ b/src/header/pthread/cbindgen.toml
+@@ -10,0 +11 @@ cpp_compat = true
++"cpu_set_t" = "struct cpu_set_t"
+diff --git a/src/header/pthread/mod.rs b/src/header/pthread/mod.rs
+--- a/src/header/pthread/mod.rs
++++ b/src/header/pthread/mod.rs
+@@ -6 +6,8 @@ use alloc::collections::LinkedList;
+-use core::{cell::Cell, ptr::NonNull};
++use core::{cell::Cell, mem::size_of, ptr::NonNull};
++
++#[cfg(target_os = "linux")]
++use sc::syscall;
++#[cfg(target_os = "redox")]
++use redox_rt::proc::FdGuard;
++#[cfg(target_os = "redox")]
++use syscall;
+@@ -9,0 +17 @@ use crate::{
++    header::errno::EINVAL,
+@@ -14 +22 @@ use crate::{
+-            c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
++            c_char, c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
+@@ -22,0 +31,3 @@ use crate::{
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
+@@ -29,0 +41,93 @@ pub fn e(result: Result<(), Errno>) -> i32 {
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
+@@ -188,0 +293,36 @@ pub unsafe extern "C" fn pthread_getcpuclockid(
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread).and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+@@ -237,0 +378,36 @@ pub unsafe extern "C" fn pthread_self() -> pthread_t {
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset).and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+diff --git a/src/header/sched/cbindgen.toml b/src/header/sched/cbindgen.toml
+--- a/src/header/sched/cbindgen.toml
++++ b/src/header/sched/cbindgen.toml
+@@ -22,0 +23,14 @@ prefix_with_name = true
++
++[export]
++include = [
++    "sched_param",
++    "cpu_set_t",
++    "sched_get_priority_max",
++    "sched_get_priority_min",
++    "sched_getparam",
++    "sched_getscheduler",
++    "sched_rr_get_interval",
++    "sched_setparam",
++    "sched_setscheduler",
++    "sched_yield",
++]
+diff --git a/src/header/sched/mod.rs b/src/header/sched/mod.rs
+--- a/src/header/sched/mod.rs
++++ b/src/header/sched/mod.rs
+@@ -12,0 +13,2 @@
++pub const CPU_SETSIZE: usize = 1024;
++
+@@ -20,0 +23,7 @@
++/// Linux-compatible CPU affinity mask storage.
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default)]
++pub struct cpu_set_t {
++    pub __bits: [u64; 16],
++}
++
+@@ -143,0 +153,3 @@
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn cbindgen_stupid_struct_user_for_cpu_set_t(_: cpu_set_t) {}

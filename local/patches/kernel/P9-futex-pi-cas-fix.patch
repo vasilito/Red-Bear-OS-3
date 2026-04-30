@@ -1,0 +1,21 @@
+diff --git a/src/syscall/futex.rs b/src/syscall/futex.rs
+--- a/src/syscall/futex.rs
++++ b/src/syscall/futex.rs
+@@
+-                        let futex_atomic = futex_atomic_u32(locked_physaddr);
+-                        let mut current = futex_atomic.load(Ordering::SeqCst);
++                        let futex_atomic = futex_atomic_u32(locked_physaddr);
++                        let mut current = futex_atomic.load(Ordering::SeqCst);
++                        let queue = futexes
++                            .entry(locked_physaddr)
++                            .or_insert_with(FutexQueue::default);
+ 
+                         loop {
+                             let owner_tid = current & FUTEX_TID_MASK;
+-                            let queue = futexes
+-                                .entry(locked_physaddr)
+-                                .or_insert_with(FutexQueue::default);
+                             let desired_waiters = if queue.waiters.is_empty() {
+                                 0
+                             } else {
+                                 FUTEX_WAITERS

@@ -1,0 +1,264 @@
+diff --git a/src/context/context.rs b/src/context/context.rs
+--- a/src/context/context.rs
++++ b/src/context/context.rs
+@@
+     #[allow(dead_code)]
+     pub futex_pi_waiters: Vec<PhysicalAddress>,
++    pub robust_list_head: Option<usize>,
+@@
+             futex_pi_boost: false,
+             futex_pi_original_prio: DEFAULT_SCHED_OTHER_PRIORITY,
+             futex_pi_waiters: Vec::new(),
++            robust_list_head: None,
+             being_sigkilled: false,
+diff --git a/src/syscall/debug.rs b/src/syscall/debug.rs
+--- a/src/syscall/debug.rs
++++ b/src/syscall/debug.rs
+@@
+ use crate::{sync::CleanLockToken, syscall::error::Result};
++
++const SYS_SET_ROBUST_LIST: usize = 311;
++const SYS_GET_ROBUST_LIST: usize = 312;
+@@
+         SYS_FUTEX => format!(
+             "futex({:#X} [{:?}], {}, {}, {}, {}, {})",
+@@
+         ),
++        SYS_SET_ROBUST_LIST => format!("set_robust_list({:#X}, {})", b, c),
++        SYS_GET_ROBUST_LIST => format!("get_robust_list({}, {:#X}, {:#X})", b, c, d),
+         SYS_MKNS => format!(
+diff --git a/src/syscall/futex.rs b/src/syscall/futex.rs
+--- a/src/syscall/futex.rs
++++ b/src/syscall/futex.rs
+@@
+-use crate::syscall::{
+-    data::TimeSpec,
+-    error::{Error, Result, EAGAIN, EDEADLK, EFAULT, EINVAL, EPERM, ETIMEDOUT},
+-    flag::{FUTEX_REQUEUE, FUTEX_WAIT, FUTEX_WAIT64, FUTEX_WAKE},
+-};
++use crate::syscall::{
++    data::TimeSpec,
++    error::{Error, Result, EAGAIN, EDEADLK, EFAULT, EINVAL, EPERM, ESRCH, ETIMEDOUT},
++    flag::{FUTEX_REQUEUE, FUTEX_WAIT, FUTEX_WAIT64, FUTEX_WAKE},
++};
++
++use super::usercopy::UserSliceWo;
+@@
+ const FUTEX_WAITERS: u32 = 0x8000_0000;
+ const FUTEX_OWNER_DIED: u32 = 0x4000_0000;
+ const FUTEX_TID_MASK: u32 = 0x3FFF_FFFF;
++
++const ROBUST_LIST_LIMIT: usize = 2048;
++const ROBUST_LIST_HEAD_SIZE: usize = size_of::<RobustListHead>();
+@@
+ pub struct FutexEntry {
+@@
+ }
++
++#[derive(Clone, Copy, Debug)]
++#[repr(C)]
++struct RobustList {
++    next: usize,
++}
++
++#[derive(Clone, Copy, Debug)]
++#[repr(C)]
++struct RobustListHead {
++    list: RobustList,
++    futex_offset: isize,
++    list_op_pending: usize,
++}
+@@
++fn lookup_robust_list_head(pid: usize, token: &mut CleanLockToken) -> Result<(usize, usize)> {
++    let current = context::current();
++    {
++        let current_guard = current.read(token.token());
++        if pid == 0 || current_guard.pid == pid {
++            return Ok((current_guard.robust_list_head.unwrap_or(0), ROBUST_LIST_HEAD_SIZE));
++        }
++    }
++
++    let mut token_ref = token.token();
++    let mut contexts = context::contexts(token_ref.downgrade());
++    let (contexts, mut contexts_token) = contexts.token_split();
++    for context_ref in contexts.iter() {
++        let context = context_ref.read(contexts_token.token());
++        if context.pid == pid {
++            return Ok((context.robust_list_head.unwrap_or(0), ROBUST_LIST_HEAD_SIZE));
++        }
++    }
++
++    Err(Error::new(ESRCH))
++}
++
++fn walk_robust_list_node(
++    node_ptr: usize,
++    futex_offset: isize,
++    owner_tid: u32,
++    token: &mut CleanLockToken,
++) {
++    if node_ptr == 0 {
++        return;
++    }
++
++    let Ok(futex_addr) = node_ptr.checked_add_signed(futex_offset).ok_or(Error::new(EFAULT)) else {
++        return;
++    };
++    let Ok(target_virtaddr) = validate_futex_u32_addr(futex_addr) else {
++        return;
++    };
++
++    let current_addrsp = match AddrSpace::current() {
++        Ok(addrsp) => addrsp,
++        Err(_) => return,
++    };
++
++    let shard = futex_shard(validate_and_translate_virt(
++        &current_addrsp.acquire_read(token.downgrade()),
++        target_virtaddr,
++    ).ok_or(Error::new(EFAULT)).unwrap_or_else(|_| return));
++
++    let mut futexes = FUTEXES[shard].lock(token.token());
++    let (futexes, mut futex_token) = futexes.token_split();
++    let addr_space_guard = current_addrsp.acquire_read(futex_token.downgrade());
++    let Some(locked_physaddr) = validate_and_translate_virt(&addr_space_guard, target_virtaddr) else {
++        return;
++    };
++    drop(addr_space_guard);
++
++    let futex_atomic = futex_atomic_u32(locked_physaddr);
++    let current = futex_atomic.load(Ordering::SeqCst);
++    if (current & FUTEX_TID_MASK) != owner_tid {
++        return;
++    }
++
++    let mut new = (current & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
++    if let Some(queue) = futexes.get_mut(&locked_physaddr) {
++        queue.pi_owner = None;
++        let mut woke = false;
++        let mut i = 0;
++        while i < queue.waiters.len() && !woke {
++            let waiter = match queue.waiters.get(i) {
++                Some(waiter) => waiter,
++                None => break,
++            };
++            if waiter.target_virtaddr != target_virtaddr || !Arc::downgrade(&current_addrsp).ptr_eq(&waiter.addr_space) {
++                i += 1;
++                continue;
++            }
++            let waiter = queue.waiters.swap_remove(i);
++            waiter.context_lock.write(futex_token.token()).unblock();
++            woke = true;
++        }
++        if !queue.waiters.is_empty() {
++            new |= FUTEX_WAITERS;
++        }
++    }
++
++    futex_atomic.store(new, Ordering::SeqCst);
++}
++
++pub fn cleanup_current_robust_futexes(token: &mut CleanLockToken) {
++    let context_lock = context::current();
++    let (head_ptr, owner_tid) = {
++        let context = context_lock.read(token.token());
++        let Some(head_ptr) = context.robust_list_head else {
++            return;
++        };
++        (head_ptr, context_futex_tid(&context))
++    };
++
++    let Ok(head) = UserSlice::ro(head_ptr, ROBUST_LIST_HEAD_SIZE)
++        .and_then(|slice| unsafe { slice.read_exact::<RobustListHead>() })
++    else {
++        return;
++    };
++
++    let mut next = head.list.next;
++    let mut walked = 0;
++    while next != 0 && next != head_ptr && walked < ROBUST_LIST_LIMIT {
++        let node_ptr = next;
++        let Ok(node) = UserSlice::ro(node_ptr, size_of::<RobustList>())
++            .and_then(|slice| unsafe { slice.read_exact::<RobustList>() })
++        else {
++            break;
++        };
++        walk_robust_list_node(node_ptr, head.futex_offset, owner_tid, token);
++        next = node.next;
++        walked += 1;
++    }
++
++    if head.list_op_pending != 0 {
++        walk_robust_list_node(head.list_op_pending, head.futex_offset, owner_tid, token);
++    }
++}
++
++pub fn set_robust_list(head: usize, len: usize, token: &mut CleanLockToken) -> Result<()> {
++    if len != ROBUST_LIST_HEAD_SIZE {
++        return Err(Error::new(EINVAL));
++    }
++    if head != 0 {
++        UserSlice::ro(head, ROBUST_LIST_HEAD_SIZE)?;
++    }
++
++    let current = context::current();
++    current.write(token.token()).robust_list_head = (head != 0).then_some(head);
++    Ok(())
++}
++
++pub fn get_robust_list(pid: usize, head_ptr: usize, len_ptr: usize, token: &mut CleanLockToken) -> Result<()> {
++    let (head, len) = lookup_robust_list_head(pid, token)?;
++    UserSliceWo::wo(head_ptr, size_of::<usize>())?.write_usize(head)?;
++    UserSliceWo::wo(len_ptr, size_of::<usize>())?.write_usize(len)?;
++    Ok(())
++}
+diff --git a/src/syscall/mod.rs b/src/syscall/mod.rs
+--- a/src/syscall/mod.rs
++++ b/src/syscall/mod.rs
+@@
+-pub use self::{
+-    fs::*,
+-    futex::futex,
+-    process::*,
+-    time::*,
+-    usercopy::validate_region,
+-};
++pub use self::{
++    fs::*,
++    futex::{futex, get_robust_list, set_robust_list},
++    process::*,
++    time::*,
++    usercopy::validate_region,
++};
+@@
++const SYS_SET_ROBUST_LIST: usize = 311;
++const SYS_GET_ROBUST_LIST: usize = 312;
+@@
+             SYS_CLOCK_GETTIME => {
+                 clock_gettime(b, UserSlice::wo(c, size_of::<TimeSpec>())?, token).map(|()| 0)
+             }
+             SYS_FUTEX => futex(b, c, d, e, f, g, token),
++            SYS_SET_ROBUST_LIST => set_robust_list(b, c, token).map(|()| 0),
++            SYS_GET_ROBUST_LIST => get_robust_list(b, c, d, token).map(|()| 0),
+ 
+             SYS_MPROTECT => mprotect(b, c, MapFlags::from_bits_truncate(d), token).map(|()| 0),
+diff --git a/src/syscall/process.rs b/src/syscall/process.rs
+--- a/src/syscall/process.rs
++++ b/src/syscall/process.rs
+@@
+ pub fn exit_this_context(excp: Option<syscall::Exception>, token: &mut CleanLockToken) -> ! {
+     let mut close_files;
+     let addrspace_opt;
+ 
++    super::futex::cleanup_current_robust_futexes(token);
++
+     let context_lock = context::current();
+     {
+         let mut context = context_lock.write(token.token());
+@@
+         addrspace_opt = context
+             .set_addr_space(None, token.downgrade())
+             .and_then(|a| Arc::try_unwrap(a).ok());
++        context.robust_list_head = None;
+         drop(mem::replace(&mut context.syscall_head, SyscallFrame::Dummy));
+         drop(mem::replace(&mut context.syscall_tail, SyscallFrame::Dummy));

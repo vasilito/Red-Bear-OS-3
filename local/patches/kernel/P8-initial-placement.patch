@@ -1,0 +1,56 @@
+diff --git a/src/context/mod.rs b/src/context/mod.rs
+--- a/src/context/mod.rs
++++ b/src/context/mod.rs
+@@ -10,9 +10,9 @@ use core::{num::NonZeroUsize, ops::Deref};
+ 
+ use crate::{
+     context::memory::AddrSpaceWrapper,
+-    cpu_set::LogicalCpuSet,
++    cpu_set::{LogicalCpuId, LogicalCpuSet},
+     memory::{RmmA, RmmArch, TableKind},
+-    percpu::PercpuBlock,
++    percpu::{get_percpu_block, PercpuBlock},
+     sync::{
+         ArcRwLockWriteGuard, CleanLockToken, LockToken, Mutex, MutexGuard, RwLock, RwLockReadGuard,
+         RwLockWriteGuard, L0, L1, L2, L4,
+@@ -118,6 +118,30 @@ pub fn run_contexts(token: LockToken<'_, L0>) -> MutexGuard<'_, L1, RunContextDa
+     RUN_CONTEXTS.lock(token)
+ }
+ 
++fn least_loaded_cpu() -> LogicalCpuId {
++    let current_cpu = crate::cpu_id();
++    let mut best_cpu = current_cpu;
++    let mut best_depth = usize::MAX;
++
++    for raw_id in 0..crate::cpu_count() {
++        let cpu_id = LogicalCpuId::new(raw_id);
++        let Some(percpu) = get_percpu_block(cpu_id) else {
++            continue;
++        };
++
++        percpu.sched.take_lock();
++        let depth = unsafe { percpu.sched.queues().iter().map(|queue| queue.len()).sum() };
++        percpu.sched.release_lock();
++
++        if depth < best_depth {
++            best_depth = depth;
++            best_cpu = cpu_id;
++        }
++    }
++
++    best_cpu
++}
++
+ pub fn init(token: &mut CleanLockToken) {
+     let owner = None; // kmain not owned by any fd
+     let mut context = Context::new(owner).expect("failed to create kmain context");
+@@ -238,6 +262,9 @@ pub fn spawn(
+ 
+     context.kstack = Some(stack);
+     context.userspace = userspace_allowed;
++    let target_cpu = least_loaded_cpu();
++    context.sched_affinity = LogicalCpuSet::empty();
++    context.sched_affinity.atomic_set(target_cpu);
+ 
+     let context_lock = Arc::new(ContextLock::new(context));
+     let context_ref = ContextRef(Arc::clone(&context_lock));

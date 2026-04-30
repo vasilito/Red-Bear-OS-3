@@ -1,0 +1,20 @@
+diff --git a/drivers/usb/xhcid/src/xhci/mod.rs b/drivers/usb/xhcid/src/xhci/mod.rs
+index f1c6d08e..a3f2e15c 100644
+--- a/drivers/usb/xhcid/src/xhci/mod.rs
++++ b/drivers/usb/xhcid/src/xhci/mod.rs
+@@ -904,6 +904,7 @@ impl<const N: usize> Xhci<N> {
+             match self.spawn_drivers(port_id) {
+                 Ok(()) => {
+                     info!("xhcid: uevent add device usb/{}", port_id.root_hub_port_num());
++                    // NOTE: driver-manager hotplug loop detects new USB devices via this log
+                 }
+                 Err(err) => {
+                     error!("Failed to spawn driver for port {}: `{}`", port_id, err)
+@@ -974,6 +975,8 @@ impl<const N: usize> Xhci<N> {
+             info!("xhcid: uevent remove device usb/{}", port_id.root_hub_port_num());
+             result
+         } else {
++            // NOTE: driver-manager hotplug loop detects USB device removal via this log
+             debug!(
+                 "Attempted to detach from port {}, which wasn't previously attached.",
+                 port_id

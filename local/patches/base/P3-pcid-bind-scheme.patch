@@ -1,0 +1,182 @@
+diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
+index bb9f39a3..06be6267 100644
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -1,11 +1,11 @@
+-use std::collections::{BTreeMap, VecDeque};
++use std::collections::{BTreeMap, HashMap, VecDeque};
+ 
+ use pci_types::{ConfigRegionAccess, PciAddress};
+ use redox_scheme::scheme::SchemeSync;
+ use redox_scheme::{CallerCtx, OpenResult};
+ use scheme_utils::HandleMap;
+ use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
+-use syscall::error::{Error, Result, EACCES, EBADF, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR};
++use syscall::error::{Error, Result, EACCES, EBADF, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, EALREADY};
+ use syscall::flag::{MODE_CHR, MODE_DIR, O_DIRECTORY, O_STAT};
+ use syscall::schemev2::NewFdFlags;
+ use syscall::ENOLCK;
+@@ -16,6 +16,8 @@ pub struct PciScheme {
+     handles: HandleMap<HandleWrapper>,
+     pub pcie: Pcie,
+     pub tree: BTreeMap<PciAddress, crate::Func>,
++    /// Maps device address string (e.g. "0000:00:14.0") to owning PID
++    binds: HashMap<String, u32>,
+ }
+ enum Handle {
+     TopLevel { entries: Vec<String> },
+@@ -23,6 +25,12 @@ enum Handle {
+     Device,
+     Channel { addr: PciAddress, st: ChannelState },
+     SchemeRoot,
++    /// Represents an open handle to a device's bind endpoint
++    Bind { addr: PciAddress },
++    /// Uevent surface for hotplug consumers. Opening uevent returns an object
++    /// from which device add/remove events can be read. Since pcid currently
++    /// only scans at startup, this surface is ready for hotplug polling consumers.
++    Uevent,
+ }
+ struct HandleWrapper {
+     inner: Handle,
+@@ -30,14 +38,13 @@ struct HandleWrapper {
+ }
+ impl Handle {
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. } | Self::Uevent)
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+     }
+-    // TODO: capability rather than root
+     fn requires_root(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. })
++        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. })
+     }
+     fn is_scheme_root(&self) -> bool {
+         matches!(self, Self::SchemeRoot)
+@@ -49,7 +56,7 @@ enum ChannelState {
+     AwaitingResponseRead(VecDeque<u8>),
+ }
+ 
+-const DEVICE_CONTENTS: &[&str] = &["channel"];
++const DEVICE_CONTENTS: &[&str] = &["channel", "bind"];
+ 
+ impl PciScheme {
+     pub fn access(&mut self) -> usize {
+@@ -88,22 +95,25 @@ impl SchemeSync for PciScheme {
+         let path = path.trim_matches('/');
+ 
+         let handle = if path.is_empty() {
+-            Handle::TopLevel {
+-                entries: self
+-                    .tree
+-                    .iter()
+-                    // FIXME remove replacement of : once the old scheme format is no longer supported.
+-                    .map(|(addr, _)| format!("{}", addr).replace(':', "--"))
+-                    .collect::<Vec<_>>(),
+-            }
++            let mut entries: Vec<String> = self
++                .tree
++                .iter()
++                // FIXME remove replacement of : once the old scheme format is no longer supported.
++                .map(|(addr, _)| format!("{}", addr).replace(':', "--"))
++                .collect();
++            entries.push(String::from("uevent"));
++            entries.push(String::from("access"));
++            Handle::TopLevel { entries }
+         } else if path == "access" {
+             Handle::Access
++        } else if path == "uevent" {
++            Handle::Uevent
+         } else {
+             let idx = path.find('/').unwrap_or(path.len());
+             let (addr_str, after) = path.split_at(idx);
+             let addr = parse_pci_addr(addr_str).ok_or(Error::new(ENOENT))?;
+ 
+-            self.parse_after_pci_addr(addr, after)?
++            self.parse_after_pci_addr(addr, after, ctx)?
+         };
+ 
+         let stat = flags & O_STAT != 0;
+@@ -132,7 +142,8 @@ impl SchemeSync for PciScheme {
+         let (len, mode) = match handle.inner {
+             Handle::TopLevel { ref entries } => (entries.len(), MODE_DIR | 0o755),
+             Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
+-            Handle::Access | Handle::Channel { .. } => (0, MODE_CHR | 0o600),
++            Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } => (0, MODE_CHR | 0o600),
++            Handle::Uevent => (0, MODE_CHR | 0o644),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+         stat.st_size = len as u64;
+@@ -160,7 +171,13 @@ impl SchemeSync for PciScheme {
+                 addr: _,
+                 ref mut st,
+             } => Self::read_channel(st, buf),
+-            Handle::SchemeRoot => Err(Error::new(EBADF)),
++            Handle::Uevent => {
++                // Uevent surface is ready for hotplug polling consumers.
++                // pcid currently only scans at startup, so return empty (EAGAIN would indicate no data available).
++                // Consumers can poll and re-read to check for new events.
++                Ok(0)
++            }
++            Handle::SchemeRoot | Handle::Bind { .. } => Err(Error::new(EBADF)),
+             _ => Err(Error::new(EBADF)),
+         }
+     }
+@@ -193,7 +210,7 @@ impl SchemeSync for PciScheme {
+                 return Ok(buf);
+             }
+             Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } => return Err(Error::new(ENOTDIR)),
++            Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } | Handle::Uevent => return Err(Error::new(ENOTDIR)),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+ 
+@@ -316,6 +333,16 @@ impl SchemeSync for PciScheme {
+                     func.enabled = false;
+                 }
+             }
++            Some(HandleWrapper {
++                inner: Handle::Bind { addr },
++                ..
++            }) => {
++                let addr_str = format!("{}", addr);
++                if let Some(&owner_pid) = self.binds.get(&addr_str) {
++                    log::info!("pcid: device {} unbound by pid {}", addr_str, owner_pid);
++                }
++                self.binds.remove(&addr_str);
++            }
+             _ => {}
+         }
+     }
+@@ -327,9 +354,10 @@ impl PciScheme {
+             handles: HandleMap::new(),
+             pcie,
+             tree: BTreeMap::new(),
++            binds: HashMap::new(),
+         }
+     }
+-    fn parse_after_pci_addr(&mut self, addr: PciAddress, after: &str) -> Result<Handle> {
++    fn parse_after_pci_addr(&mut self, addr: PciAddress, after: &str, ctx: &CallerCtx) -> Result<Handle> {
+         if after.chars().next().map_or(false, |c| c != '/') {
+             return Err(Error::new(ENOENT));
+         }
+@@ -356,6 +384,17 @@ impl PciScheme {
+                         st: ChannelState::AwaitingData,
+                     }
+                 }
++                "bind" => {
++                    let addr_str = format!("{}", addr);
++                    if let Some(&owner_pid) = self.binds.get(&addr_str) {
++                        log::info!("pcid: device {} already bound by pid {}", addr_str, owner_pid);
++                        return Err(Error::new(EALREADY));
++                    }
++                    let caller_pid = ctx.pid;
++                    self.binds.insert(addr_str.clone(), caller_pid);
++                    log::info!("pcid: device {} bound by pid {}", addr_str, caller_pid);
++                    Handle::Bind { addr }
++                }
+                 _ => return Err(Error::new(ENOENT)),
+             }
+         })

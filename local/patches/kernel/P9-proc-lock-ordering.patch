@@ -1,0 +1,41 @@
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -450,6 +450,7 @@ impl KernelScheme for ProcScheme {
+     }
+ 
+     fn close(&self, id: usize, token: &mut CleanLockToken) -> Result<()> {
++        let mut inner_token = unsafe { CleanLockToken::new() };
+         let handle = HANDLES
+             .write(token.token())
+             .remove(&id)
+@@ -478,9 +479,7 @@ impl KernelScheme for ProcScheme {
+                     ))]
+                     regs.set_arg1(arg1);
+ 
+-                    // TODO: Lock ordering violation
+-                    let mut token = unsafe { CleanLockToken::new() };
+-                    Ok(context.set_addr_space(Some(new), token.downgrade()))
++                    Ok(context.set_addr_space(Some(new), inner_token.downgrade()))
+                 })?;
+                 if let Some(old_ctx) = old_ctx
+                     && let Some(addrspace) = Arc::into_inner(old_ctx)
+@@ -518,6 +517,7 @@ impl KernelScheme for ProcScheme {
+         consume: bool,
+         token: &mut CleanLockToken,
+     ) -> Result<usize> {
++        let mut inner_token = unsafe { CleanLockToken::new() };
+         let handle = HANDLES
+             .read(token.token())
+             .get(&id)
+@@ -609,9 +609,7 @@ impl KernelScheme for ProcScheme {
+                 };
+                 // TODO: Allocated or AllocatedShared?
+                 let addrsp = AddrSpace::current()?;
+-                // TODO: Lock ordering violation
+-                let mut token = unsafe { CleanLockToken::new() };
+-                let page = addrsp.acquire_write(token.downgrade()).mmap_anywhere(
++                let page = addrsp.acquire_write(inner_token.downgrade()).mmap_anywhere(
+                     &addrsp,
+                     NonZeroUsize::new(1).unwrap(),
+                     MapFlags::PROT_READ | MapFlags::PROT_WRITE,

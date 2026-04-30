@@ -1,0 +1,123 @@
+diff --git a/src/percpu.rs b/src/percpu.rs
+index f4ad5e6..da10036 100644
+--- a/src/percpu.rs
++++ b/src/percpu.rs
+@@ -1,9 +1,10 @@
+ use alloc::{
++    collections::VecDeque,
+     sync::{Arc, Weak},
+     vec::Vec,
+ };
+ use core::{
+-    cell::{Cell, RefCell},
++    cell::{Cell, RefCell, SyncUnsafeCell},
+     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
+ };
+ 
+@@ -12,7 +13,10 @@ use syscall::PtraceFlags;
+ 
+ use crate::{
+     arch::device::ArchPercpuMisc,
+-    context::{empty_cr3, memory::AddrSpaceWrapper, switch::ContextSwitchPercpu},
++    context::{
++        empty_cr3, memory::AddrSpaceWrapper, switch::ContextSwitchPercpu, WeakContextRef,
++        RUN_QUEUE_COUNT,
++    },
+     cpu_set::{LogicalCpuId, MAX_CPU_COUNT},
+     cpu_stats::{CpuStats, CpuStatsData},
+     ptrace::Session,
+@@ -20,6 +24,58 @@ use crate::{
+     syscall::debug::SyscallDebugInfo,
+ };
+ 
++#[allow(dead_code)]
++pub struct PerCpuSched {
++    pub run_queues: SyncUnsafeCell<[VecDeque<WeakContextRef>; RUN_QUEUE_COUNT]>,
++    pub run_queues_lock: AtomicBool,
++    pub balance: Cell<[usize; RUN_QUEUE_COUNT]>,
++    pub last_queue: Cell<usize>,
++    pub last_balance_time: Cell<u128>,
++}
++
++impl PerCpuSched {
++    pub const fn new() -> Self {
++        const EMPTY: VecDeque<WeakContextRef> = VecDeque::new();
++        Self {
++            run_queues: SyncUnsafeCell::new([EMPTY; RUN_QUEUE_COUNT]),
++            run_queues_lock: AtomicBool::new(false),
++            balance: Cell::new([0; RUN_QUEUE_COUNT]),
++            last_queue: Cell::new(0),
++            last_balance_time: Cell::new(0),
++        }
++    }
++
++    pub fn take_lock(&self) {
++        while self
++            .run_queues_lock
++            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
++            .is_err()
++        {
++            while self.run_queues_lock.load(Ordering::Relaxed) {
++                core::hint::spin_loop();
++            }
++        }
++    }
++
++    pub fn release_lock(&self) {
++        self.run_queues_lock.store(false, Ordering::Release);
++    }
++
++    /// # Safety
++    ///
++    /// The caller must hold `run_queues_lock` while accessing the returned reference.
++    pub unsafe fn queues(&self) -> &[VecDeque<WeakContextRef>; RUN_QUEUE_COUNT] {
++        unsafe { &*self.run_queues.get() }
++    }
++
++    /// # Safety
++    ///
++    /// The caller must hold `run_queues_lock` while accessing the returned reference.
++    pub unsafe fn queues_mut(&self) -> &mut [VecDeque<WeakContextRef>; RUN_QUEUE_COUNT] {
++        unsafe { &mut *self.run_queues.get() }
++    }
++}
++
+ /// The percpu block, that stored all percpu variables.
+ pub struct PercpuBlock {
+     /// A unique immutable number that identifies the current CPU - used for scheduling
+@@ -31,8 +87,8 @@ pub struct PercpuBlock {
+     pub current_addrsp: RefCell<Option<Arc<AddrSpaceWrapper>>>,
+     pub new_addrsp_tmp: Cell<Option<Arc<AddrSpaceWrapper>>>,
+     pub wants_tlb_shootdown: AtomicBool,
+-    pub balance: Cell<[usize; 40]>,
+-    pub last_queue: Cell<usize>,
++
++    pub sched: PerCpuSched,
+ 
+     // TODO: Put mailbox queues here, e.g. for TLB shootdown? Just be sure to 128-byte align it
+     // first to avoid cache invalidation.
+@@ -57,6 +113,14 @@ pub unsafe fn init_tlb_shootdown(id: LogicalCpuId, block: *mut PercpuBlock) {
+     ALL_PERCPU_BLOCKS[id.get() as usize].store(block, Ordering::Release)
+ }
+ 
++pub fn get_percpu_block(id: LogicalCpuId) -> Option<&'static PercpuBlock> {
++    unsafe {
++        ALL_PERCPU_BLOCKS[id.get() as usize]
++            .load(Ordering::Acquire)
++            .as_ref()
++    }
++}
++
+ pub fn get_all_stats() -> Vec<(LogicalCpuId, CpuStatsData)> {
+     let mut res = ALL_PERCPU_BLOCKS
+         .iter()
+@@ -187,8 +251,7 @@ impl PercpuBlock {
+             current_addrsp: RefCell::new(None),
+             new_addrsp_tmp: Cell::new(None),
+             wants_tlb_shootdown: AtomicBool::new(false),
+-            balance: Cell::new([0; 40]),
+-            last_queue: Cell::new(39),
++            sched: PerCpuSched::new(),
+             ptrace_flags: Cell::new(PtraceFlags::empty()),
+             ptrace_session: RefCell::new(None),
+             inside_syscall: Cell::new(false),

@@ -1,0 +1,42 @@
+diff --git a/src/syscall/futex.rs b/src/syscall/futex.rs
+index 4c187b8..9884d2b 100644
+--- a/src/syscall/futex.rs
++++ b/src/syscall/futex.rs
+@@ -49,8 +49,13 @@ pub struct FutexEntry {
+ // implement that fully in userspace. Although futex is probably the best API for process-shared
+ // POSIX synchronization primitives, a local hash table and wait-for-thread kernel APIs (e.g.
+ // lwp_park/lwp_unpark from NetBSD) could be a simpler replacement.
+-static FUTEXES: Mutex<L1, FutexList> =
+-    Mutex::new(FutexList::with_hasher(DefaultHashBuilder::new()));
++const FUTEX_SHARDS: usize = 64;
++
++fn futex_shard(phys: PhysicalAddress) -> usize {
++    (phys.data() as usize >> 12) % FUTEX_SHARDS
++}
++
++static FUTEXES: [Mutex<L1, FutexList>; FUTEX_SHARDS] = [const { Mutex::new(FutexList::with_hasher(DefaultHashBuilder::new())) }; FUTEX_SHARDS];
+ 
+ fn validate_and_translate_virt(space: &AddrSpace, addr: VirtualAddress) -> Option<PhysicalAddress> {
+     // TODO: Move this elsewhere!
+@@ -97,7 +102,7 @@ pub fn futex(
+             {
+                 // TODO: Lock ordering violation
+                 let mut token = unsafe { CleanLockToken::new() };
+-                let mut futexes = FUTEXES.lock(token.token());
++                let mut futexes = FUTEXES[futex_shard(target_physaddr)].lock(token.token());
+                 let (futexes, mut token) = futexes.token_split();
+ 
+                 let (fetched, expected) = if op == FUTEX_WAIT {
+@@ -181,10 +186,11 @@ pub fn futex(
+         }
+         FUTEX_WAKE => {
+             let mut woken = 0;
++            let shard = futex_shard(target_physaddr);
+ 
+             {
+                 drop(addr_space_guard);
+-                let mut futexes_map = FUTEXES.lock(token.token());
++                let mut futexes_map = FUTEXES[shard].lock(token.token());
+                 let (futexes_map, mut token) = futexes_map.token_split();
+ 
+                 let is_empty = if let Some(futexes) = futexes_map.get_mut(&target_physaddr) {
