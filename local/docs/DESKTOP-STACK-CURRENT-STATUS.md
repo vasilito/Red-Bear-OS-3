@@ -175,7 +175,7 @@ Recipe versions tracked in this tree: KF6 frameworks v6.10.0, Plasma v6.3.4, Att
 | `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by `kf6-knewstuff` payload + real `kwin` |
 | `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by `plasma-workspace` |
 | `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by `kirigami` |
-| `kdecoration` | **enabled in config; archive state not claimed here** | Window decoration library |
+| `kdecoration` | **enabled in config; archive state not claimed here** | Window decoration library; keep archive claims tied to visible `.pkgar` evidence |
 | `kf6-kwayland` | **enabled in config; archive state not claimed here** | Qt/C++ Wayland protocol wrapper |
 | `plasma-wayland-protocols` | **recipe exists** | XML protocol definitions for kwayland/KWin |
 | `kirigami` | **blocked: QML gate** | `QQuickWindow`/`QQmlEngine` headers do not exist on Redox |
