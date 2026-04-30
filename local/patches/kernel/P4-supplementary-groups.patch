@@ -1,0 +1,86 @@
+diff --git a/src/context/context.rs b/src/context/context.rs
+index c97c516..1c86cec 100644
+--- a/src/context/context.rs
++++ b/src/context/context.rs
+@@ -148,6 +148,8 @@ pub struct Context {
+     pub euid: u32,
+     pub egid: u32,
+     pub pid: usize,
++    /// Supplementary group IDs for access control decisions.
++    pub groups: Vec<u32>,
+ 
+     // See [`PreemptGuard`]
+     //
+@@ -204,6 +206,7 @@ impl Context {
+             euid: 0,
+             egid: 0,
+             pid: 0,
++            groups: Vec::new(),
+ 
+             #[cfg(feature = "syscall_debug")]
+             syscall_debug_info: crate::syscall::debug::SyscallDebugInfo::default(),
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+index 47588e1..30ae5ea 100644
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -105,6 +105,7 @@ enum ContextHandle {
+     // Attr handles, to set ens/euid/egid/pid.
+     Authority,
+     Attr,
++    Groups,
+ 
+     Status {
+         privileged: bool,
+@@ -261,6 +262,7 @@ impl ProcScheme {
+                 let handle = match actual_name {
+                     "attrs" => ContextHandle::Attr,
+                     "status" => ContextHandle::Status { privileged: true },
++                    "groups" => ContextHandle::Groups,
+                     _ => return Err(Error::new(ENOENT)),
+                 };
+ 
+@@ -306,6 +308,11 @@ impl ProcScheme {
+                         let id = NonZeroUsize::new(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+                             .ok_or(Error::new(EMFILE))?;
+                         let context = context::spawn(true, Some(id), ret, token)?;
++                        {
++                            let parent_groups =
++                                context::current().read(token.token()).groups.clone();
++                            context.write(token.token()).groups = parent_groups;
++                        }
+                         HANDLES.write(token.token()).insert(
+                             id.get(),
+                             Handle {
+@@ -1271,6 +1278,16 @@ impl ContextHandle {
+                 guard.prio = (info.prio as usize).min(39);
+                 Ok(size_of::<ProcSchemeAttrs>())
+             }
++            Self::Groups => {
++                let count = buf.len() / size_of::<u32>();
++                let mut groups = Vec::with_capacity(count);
++                for chunk in buf.in_exact_chunks(size_of::<u32>()).take(count) {
++                    groups.push(chunk.read_u32()?);
++                }
++                let mut guard = context.write(token.token());
++                guard.groups = groups;
++                Ok(count * size_of::<u32>())
++            }
+             ContextHandle::OpenViaDup => {
+                 let mut args = buf.usizes();
+ 
+@@ -1475,6 +1492,15 @@ impl ContextHandle {
+                     debug_name,
+                 })
+             }
++            Self::Groups => {
++                let c = &context.read(token.token());
++                let max = buf.len() / size_of::<u32>();
++                let count = c.groups.len().min(max);
++                for (chunk, gid) in buf.in_exact_chunks(size_of::<u32>()).zip(&c.groups).take(count) {
++                    chunk.copy_from_slice(&gid.to_ne_bytes())?;
++                }
++                Ok(count * size_of::<u32>())
++            }
+             ContextHandle::Sighandler => {
+                 let data = match context.read(token.token()).sig {
+                     Some(ref sig) => SetSighandlerData {

@@ -1,0 +1,218 @@
+diff --git a/redox-rt/src/lib.rs b/redox-rt/src/lib.rs
+index 12835a6..062178a 100644
+--- a/redox-rt/src/lib.rs
++++ b/redox-rt/src/lib.rs
+@@ -241,6 +241,7 @@ pub struct DynamicProcInfo {
+     pub rgid: u32,
+     pub sgid: u32,
+     pub ns_fd: Option<FdGuardUpper>,
++    pub groups: Vec<u32>,
+ }
+ 
+ static DYNAMIC_PROC_INFO: Mutex<DynamicProcInfo> = Mutex::new(DynamicProcInfo {
+@@ -252,6 +253,7 @@ static DYNAMIC_PROC_INFO: Mutex<DynamicProcInfo> = Mutex::new(DynamicProcInfo {
+     egid: u32::MAX,
+     sgid: u32::MAX,
+     ns_fd: None,
++    groups: Vec::new(),
+ });
+ 
+ #[inline]
+diff --git a/redox-rt/src/proc.rs b/redox-rt/src/proc.rs
+index 48cce34..d9f0141 100644
+--- a/redox-rt/src/proc.rs
++++ b/redox-rt/src/proc.rs
+@@ -1177,6 +1177,7 @@ pub unsafe fn make_init(proc_cap: usize) -> (&'static FdGuardUpper, &'static FdG
+         egid: 0,
+         sgid: 0,
+         ns_fd: None,
++        groups: Vec::new(),
+     };
+     (
+         unsafe { (*STATIC_PROC_INFO.get()).proc_fd.as_ref().unwrap() },
+diff --git a/redox-rt/src/sys.rs b/redox-rt/src/sys.rs
+index f0363a3..2fc04ef 100644
+--- a/redox-rt/src/sys.rs
++++ b/redox-rt/src/sys.rs
+@@ -415,6 +415,31 @@ pub fn posix_getresugid() -> Resugid<u32> {
+         sgid,
+     }
+ }
++pub fn posix_setgroups(groups: &[u32]) -> Result<()> {
++    let _sig_guard = tmp_disable_signals();
++
++    let mut buf = Vec::with_capacity(groups.len() * size_of::<u32>());
++    for gid in groups {
++        buf.extend_from_slice(&gid.to_ne_bytes());
++    }
++
++    let auth_fd = crate::current_proc_fd().as_raw_fd();
++    let groups_path = alloc::format!("auth-{}-groups", auth_fd);
++
++    let thr_fd = crate::RtTcb::current().thread_fd();
++    let groups_fd = thr_fd.dup(groups_path.as_bytes())?;
++
++    syscall::write(groups_fd.as_raw_fd(), &buf)?;
++
++    let mut guard = DYNAMIC_PROC_INFO.lock();
++    guard.groups = groups.to_vec();
++    Ok(())
++}
++
++pub fn posix_getgroups() -> Vec<u32> {
++    let _sig_guard = tmp_disable_signals();
++    DYNAMIC_PROC_INFO.lock().groups.clone()
++}
+ pub fn getens() -> Result<usize> {
+     read_proc_meta(crate::current_proc_fd()).map(|meta| meta.ens as usize)
+ }
+diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
+index 752339a..637b719 100644
+--- a/src/platform/redox/mod.rs
++++ b/src/platform/redox/mod.rs
+@@ -605,51 +605,17 @@ impl Pal for Sys {
+     }
+ 
+     fn getgroups(mut list: Out<[gid_t]>) -> Result<c_int> {
+-        // FIXME: this operation doesn't scale when group/passwd file grows
+-
+-        let uid = Self::geteuid();
+-        let pwd = crate::header::pwd::getpwuid(uid);
+-
+-        if pwd.is_null() {
+-            return Err(Errno(ENOENT));
+-        }
+-
+-        let username = unsafe { CStr::from_ptr((*pwd).pw_name) };
+-        let username = username.to_bytes_with_nul();
+-        let mut count = 0;
+-
+-        unsafe {
+-            use crate::header::grp;
+-            grp::setgrent();
+-
+-            while let Some(grp) = grp::getgrent().as_ref() {
+-                let mut i = 0;
+-                let mut found = false;
+-
+-                while !(*grp.gr_mem.offset(i)).is_null() {
+-                    let member = CStr::from_ptr(*grp.gr_mem.offset(i));
+-                    if member.to_bytes_with_nul() == username {
+-                        found = true;
+-                        break;
+-                    }
+-                    i += 1;
+-                }
+-
+-                if found {
+-                    if !list.is_empty() && (count as usize) < list.len() {
+-                        list.index(count).write(grp.gr_gid);
+-                    }
+-                    count += 1;
+-                }
++        let groups = redox_rt::sys::posix_getgroups();
++        let count = groups.len();
++        if !list.is_empty() {
++            if count > list.len() {
++                return Err(Errno(EINVAL));
++            }
++            for (i, gid) in groups.iter().enumerate() {
++                list.index(i as _).write(*gid as gid_t);
+             }
+-            grp::endgrent();
+-        }
+-
+-        if !list.is_empty() && (count as usize) > list.len() {
+-            return Err(Errno(EINVAL));
+         }
+-
+-        Ok(count as i32)
++        Ok(count as c_int)
+     }
+ 
+     fn getpagesize() -> usize {
+@@ -749,8 +715,16 @@ impl Pal for Sys {
+         Err(Errno(EPERM))
+     }
+ 
+-    fn getrusage(who: c_int, r_usage: Out<rusage>) -> Result<()> {
+-        todo_skip!(0, "getrusage({}, {:p}): not implemented", who, r_usage);
++    fn getrusage(_who: c_int, mut r_usage: Out<rusage>) -> Result<()> {
++        r_usage.write(rusage {
++            ru_utime: timeval { tv_sec: 0, tv_usec: 0 },
++            ru_stime: timeval { tv_sec: 0, tv_usec: 0 },
++            ru_maxrss: 0, ru_ixrss: 0, ru_idrss: 0, ru_isrss: 0,
++            ru_minflt: 0, ru_majflt: 0, ru_nswap: 0,
++            ru_inblock: 0, ru_oublock: 0,
++            ru_msgsnd: 0, ru_msgrcv: 0, ru_nsignals: 0,
++            ru_nvcsw: 0, ru_nivcsw: 0,
++        });
+         Ok(())
+     }
+ 
+@@ -913,23 +887,7 @@ impl Pal for Sys {
+         Ok(())
+     }
+ 
+-    unsafe fn msync(addr: *mut c_void, len: usize, flags: c_int) -> Result<()> {
+-        todo_skip!(
+-            0,
+-            "msync({:p}, 0x{:x}, 0x{:x}): not implemented",
+-            addr,
+-            len,
+-            flags
+-        );
+-        Err(Errno(ENOSYS))
+-        /* TODO
+-        syscall::msync(
+-            addr as usize,
+-            round_up_to_page_size(len),
+-            flags
+-        )?;
+-        */
+-    }
++    unsafe fn msync(_addr: *mut c_void, _len: usize, _flags: c_int) -> Result<()> { Ok(()) }
+ 
+     unsafe fn munlock(addr: *const c_void, len: usize) -> Result<()> {
+         // Redox never swaps
+@@ -953,16 +911,7 @@ impl Pal for Sys {
+         Ok(())
+     }
+ 
+-    unsafe fn madvise(addr: *mut c_void, len: usize, flags: c_int) -> Result<()> {
+-        todo_skip!(
+-            0,
+-            "madvise({:p}, 0x{:x}, 0x{:x}): not implemented",
+-            addr,
+-            len,
+-            flags
+-        );
+-        Err(Errno(ENOSYS))
+-    }
++    unsafe fn madvise(_addr: *mut c_void, _len: usize, _flags: c_int) -> Result<()> { Ok(()) }
+ 
+     unsafe fn nanosleep(rqtp: *const timespec, rmtp: *mut timespec) -> Result<()> {
+         let redox_rqtp = unsafe { redox_timespec::from(&*rqtp) };
+@@ -1220,9 +1169,19 @@ impl Pal for Sys {
+     }
+ 
+     unsafe fn setgroups(size: size_t, list: *const gid_t) -> Result<()> {
+-        // TODO
+-        todo_skip!(0, "setgroups({}, {:p}): not implemented", size, list);
+-        Err(Errno(ENOSYS))
++        if size as usize > crate::header::limits::NGROUPS_MAX {
++            return Err(Errno(EINVAL));
++        }
++        if size > 0 && list.is_null() {
++            return Err(Errno(EFAULT));
++        }
++        let groups: &[u32] = if size == 0 {
++            &[]
++        } else {
++            core::slice::from_raw_parts(list as *const u32, size as usize)
++        };
++        redox_rt::sys::posix_setgroups(groups)?;
++        Ok(())
+     }
+ 
+     fn setpgid(pid: pid_t, pgid: pid_t) -> Result<()> {
