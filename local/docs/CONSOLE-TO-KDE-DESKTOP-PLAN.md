@@ -87,7 +87,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KDE/Plasma surface (48 recipes) | **37 build / 11 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
+| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
 | kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain) — pkgar in repo |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
@@ -100,7 +100,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
 | plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
 
-**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 11 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
+**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 12 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
 
 ### LAYER 7 — Validation Infrastructure
 
@@ -144,7 +144,7 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 37 KDE packages (34 KF6 + kdecoration + kglobalacceld + kwin); 11 blocked/ignored with documented reasons
+- 36 KDE packages (29 KF6 + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
 - kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
 - mesa + libdrm (GPU software stack)
 - qtbase + qtdeclarative + qtwayland + qtsvg + qt6-wayland-smoke
