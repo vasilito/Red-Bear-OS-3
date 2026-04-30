@@ -53,11 +53,14 @@ qt6-wayland-smoke = {}
 
 # KF6 Frameworks — explicit real-build surface in alphabetical order
 # kirigami: core-only build (QML disabled), needed as build-dep for plasma-framework
-# kf6-kio: honest KIOCORE_ONLY build (source-local QtNetwork compat headers)
-kirigami = {}
+# kf6-kio: honest KIOCORE_ONLY build (QtNetwork now available in qtbase)
+kirigami = "ignore"
 kf6-kio = {}
+kf6-knewstuff = {}
+kf6-kwallet = {}
 
 kdecoration = {}
+kf6-attica = {}
 kf6-karchive = {}
 kf6-kauth = {}
 kf6-kbookmarks = {}

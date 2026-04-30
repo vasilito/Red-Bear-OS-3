@@ -184,6 +184,7 @@ symlink "../../local/recipes/kde/kf6-kcolorscheme" "recipes/kde/kf6-kcolorscheme
 symlink "../../local/recipes/kde/kf6-kauth" "recipes/kde/kf6-kauth"
 symlink "../../local/recipes/kde/kf6-kitemmodels" "recipes/kde/kf6-kitemmodels"
 symlink "../../local/recipes/kde/kf6-kitemviews" "recipes/kde/kf6-kitemviews"
+symlink "../../local/recipes/kde/kf6-attica" "recipes/kde/kf6-attica"
 symlink "../../local/recipes/kde/kf6-karchive" "recipes/kde/kf6-karchive"
 symlink "../../local/recipes/kde/kf6-kwindowsystem" "recipes/kde/kf6-kwindowsystem"
 symlink "../../local/recipes/kde/kf6-knotifications" "recipes/kde/kf6-knotifications"

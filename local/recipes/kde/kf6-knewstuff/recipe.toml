@@ -1,9 +1,4 @@
-#TODO: KNewStuff — attempt an honest core-only build on Redox. Qt Quick, widgets, tools, and Kirigami-facing surfaces stay disabled; the remaining hard blockers are the missing KF6Attica package in-tree and the still-disabled QtNetwork surface in qtbase.
-[source]
-tar = "https://invent.kde.org/frameworks/knewstuff/-/archive/v6.10.0/knewstuff-v6.10.0.tar.gz"
-
-[build]
-template = "custom"
+#TODO: KNewStuff — core-only build on Redox. Qt Quick, widgets, tools, and Kirigami-facing surfaces disabled. KF6Attica now available in-tree (kf6-attica recipe).
 dependencies = [
     "qtbase",
     "kf6-extra-cmake-modules",
@@ -12,6 +7,8 @@ dependencies = [
     "kf6-kconfig",
     "kf6-karchive",
     "kf6-kpackage",
+    "kf6-kwidgetsaddons",
+    "kf6-attica",
 ]
 script = """
 DYNAMIC_INIT
@@ -33,6 +30,10 @@ sed -i 's/^find_package(KF6Kirigami2.*/# find_package(KF6Kirigami2 disabled for 
 sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^add_subdirectory(qtquick)/# add_subdirectory(qtquick) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(tools)/# add_subdirectory(tools) # disabled for Redox core-only build/' \
+    "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
+sed -i 's/^add_subdirectory(widgets)/# add_subdirectory(widgets) # disabled for Redox core-only build/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true
 sed -i 's/^add_subdirectory(tools)/# add_subdirectory(tools) # disabled for Redox core-only build/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt" 2>/dev/null || true

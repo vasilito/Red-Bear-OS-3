@@ -570,7 +570,7 @@ fn topological_sort(recipes: Vec<CookRecipe>) -> Result<Vec<CookRecipe>, Package
     }
 
     if sorted.len() != recipes.len() {
-        return Ok(recipes);
+        return Err(PackageError::Recursion(Default::default()));
     }
 
     Ok(sorted)
