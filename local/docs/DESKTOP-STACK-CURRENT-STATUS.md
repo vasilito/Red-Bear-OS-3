@@ -119,10 +119,9 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| **Building + in repo** | 13 | attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kdecoration, kwin (stub), kf6-kwallet |
-| **Building (stage only)** | 21 | All other KF6 frameworks — compiled during cook but not yet in repo (need full make all with clean repo.tag) |
-| **kf6-knewstuff** | 1 | Publishes to repo as empty package (cmake succeeds, core src produces no libs with QtQuick/widgets off) |
-| **kf6-attica** | 1 | Minimal core library build, KF6::Attica cmake target |
+| **Building + in repo** | 13 | PKGAR artifacts: attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kwin |
+| **Building (stage only)** | 23 | kdecoration, kwallet + 21 other KF6 frameworks — compiled during cook, need full make all to push to repo |
+| **Attica (new)** | — | Minimal core library build, KF6::Attica cmake target (counted in Building+repo above) |
 | **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
 | **Blocked: compilation** | 2 | breeze, kf6-kio — upstream source incompatibilities with Redox toolchain |
 | **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |

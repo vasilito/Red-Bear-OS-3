@@ -87,7 +87,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 13 in repo, 23 stage-only. |
+| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
 | kf6-kio | **blocked** | commented out in config | Compilation error — upstream source incompatibility |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
