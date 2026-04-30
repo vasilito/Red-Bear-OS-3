@@ -96,9 +96,9 @@ kglobalacceld = {}
 kwin = {}
 
 # Plasma + app packages — blocked
-# plasma-framework: blocked (depends on kirigami — QML gate)
-# plasma-workspace: blocked (depends on kf6-knewstuff empty package + kwin stub)
-# plasma-desktop: blocked (depends on plasma-workspace)
+plasma-framework = {}
+plasma-workspace = {}
+plasma-desktop = {}
 
 # Greeter/login stack
 redbear-authd = {}
