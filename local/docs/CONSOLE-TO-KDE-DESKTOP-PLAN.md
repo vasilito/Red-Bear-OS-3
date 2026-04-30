@@ -87,14 +87,15 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KF6 frameworks (32/32 recipes exist) | **builds** | 9 KF6 + ECM in built image; 30 real cmake builds + 2 real build attempts (knewstuff, kwallet); only kwin explicitly enabled in config; kirigami suppressed (QML-gated); 23 KF6 recipes exist but are not in image |
-| kf6-kio | **honest build** | enabled | KIOCore-only; local Redox compat headers; no sysroot fakery |
-| kirigami | **builds, suppressed** | suppressed | Real core-only cmake build; QML runtime gated; gated on Qt6Quick downstream proof |
-| kf6-knewstuff | **builds** | enabled | Real NewStuffCore cmake build; QML disabled |
+| KF6 frameworks (32/32 recipes exist) | **36 build / 11 blocked** | 33 enabled + 3 blocked in config. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. 15 in repo, 21 stage-only. |
+| kf6-kio | **blocked** | commented out in config | Compilation error — upstream source incompatibility |
+| kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
+| kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
 | kf6-kwallet | **builds** | enabled | Real API-only core wallet cmake build; QML/GPG disabled |
-| plasma-framework | **builds real, blocked** | commented out in config | BUILD_WITH_QML=OFF; blocked by kf6-knewstuff (needs QtNetwork) |
-| plasma-workspace | **builds real, blocked** | commented out in config | 52 dependency items; blocked by kf6-knewstuff + kwin (stub needs to become real) |
-| plasma-desktop | **builds real, blocked** | commented out in config | Depends on plasma-workspace |
+| kf6-attica | **builds** | enabled (NEW) | Minimal core library (v6.10.0, 2.4MB pkgar in repo) |
+| plasma-framework | **blocked (QML gate)** | commented out | Depends on kirigami |
+| plasma-workspace | **blocked** | commented out | Depends on kf6-knewstuff payload + kwin real build |
+| plasma-desktop | **blocked (transitive)** | commented out | Depends on plasma-workspace |
 | kdecoration | **builds** | transitively via plasma-workspace | Window decoration library |
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
 | plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |

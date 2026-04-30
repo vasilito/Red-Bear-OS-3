@@ -55,9 +55,11 @@ qt6-wayland-smoke = {}
 # kirigami: core-only build (QML disabled), needed as build-dep for plasma-framework
 # kf6-kio: honest KIOCORE_ONLY build (QtNetwork now available in qtbase)
 kirigami = "ignore"
-kf6-kio = {}
-kf6-knewstuff = {}
+# kf6-kio: blocked (compilation error — upstream source incompatibility)
+# kf6-knewstuff: blocked (empty package — cmake succeeds, produces no libs)
 kf6-kwallet = {}
+# breeze: blocked (compilation error — upstream source incompatibility)
+# kde-cli-tools: blocked (depends on kf6-kio)
 
 kdecoration = {}
 kf6-attica = {}
@@ -97,12 +99,10 @@ kglobalacceld = {}
 # KWin Wayland compositor (stub — delegates to redbear-compositor; real build needs Qt6::Sensors + libinput)
 kwin = {}
 
-# Plasma + app packages
+# Plasma + app packages — blocked
 # plasma-framework: blocked (depends on kirigami — QML gate)
 # plasma-workspace: blocked (depends on kf6-knewstuff empty package + kwin stub)
 # plasma-desktop: blocked (depends on plasma-workspace)
-breeze = {}
-kde-cli-tools = {}
 
 # Greeter/login stack
 redbear-authd = {}
