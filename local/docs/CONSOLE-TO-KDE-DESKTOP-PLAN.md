@@ -3,7 +3,7 @@
 **Version:** 3.0 (2026-04-29)
 **Replaces:** v2.2 and all prior desktop-path documents
 **Status:** Canonical desktop path plan — OLW-drafted, build-verified
-**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (13 in repo, 23 stage-only). 12 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
+**Implementation status (2026-04-30):** 36 of 48 KDE recipes build (13 in repo, 23 stage-only). 11 blocked: 3 platform-gap (QML gate — kirigami + plasma-framework), 3 source-incompatible (kf6-kio, breeze, kde-cli-tools), 1 empty-package (kf6-knewstuff), 1 Qt6::Sensors (kwin real), 4 transitive. Config honest: 36 enabled, 12 commented/ignored with documented reasons. See DESKTOP-STACK-CURRENT-STATUS.md for full breakdown.
 
 ## Purpose
 
@@ -87,8 +87,8 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | qtdeclarative | **builds** | enabled | Qt6Quick metadata exported; QML JIT disabled for Redox; downstream proof insufficient |
 | qtwayland | **builds** | enabled | Wayland QPA plugin |
 | qtsvg | **builds** | enabled | SVG support |
-| KDE/Plasma surface (48 recipes) | **36 build / 12 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
-| kf6-kio | **blocked** | commented out in config | Compilation error — upstream source incompatibility |
+| KDE/Plasma surface (48 recipes) | **37 build / 11 blocked** | 36 enabled in config, 12 commented/ignored. See DESKTOP-STACK-CURRENT-STATUS.md for exact breakdown. |
+| kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain)** | commented out in config | Compilation error — upstream source incompatibility |
 | kirigami | **blocked: QML gate** | ignored in config | QQuickWindow/QQmlEngine headers don't exist on Redox |
 | kf6-knewstuff | **blocked** | commented out | Empty package — cmake succeeds but core source produces no libs with QtQuick off |
 | kf6-kwallet | **builds** | enabled | Real API-only core wallet cmake build; QML/GPG disabled |
@@ -100,7 +100,7 @@ and what must happen, in what order, to reach a usable KDE Plasma desktop.**
 | kf6-kwayland | **builds** | enabled | Qt/C++ Wayland protocol wrapper |
 | plasma-wayland-protocols | **builds** | transitively | XML protocol definitions |
 
-**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 12 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
+**Verdict**: KDE/Plasma recipes exist (48 total). 36 build, 11 blocked with documented reasons. Real Plasma session requires resolving platform prerequisites: QML JIT for kirigami, Qt6::Sensors for kwin real build.
 
 ### LAYER 7 — Validation Infrastructure
 
@@ -144,7 +144,7 @@ Environmental gate (hardware): Layer 1 (GPU CS ioctl backend) ← hardware + Mes
 
 `config/redbear-full.toml` enables the full desktop-capable surface including:
 
-- 36 KDE packages (33 KF6 + kdecoration + kglobalacceld + kwin); 12 blocked/ignored with documented reasons
+- 36 KDE packages (33 KF6 + kdecoration + kglobalacceld + kwin); 11 blocked/ignored with documented reasons
 - kf6-attica (NEW — minimal core library, 2.4MB pkgar in repo)
 - 12 KDE packages blocked/ignored with documented reasons (see config comments)
 - mesa + libdrm (GPU software stack)

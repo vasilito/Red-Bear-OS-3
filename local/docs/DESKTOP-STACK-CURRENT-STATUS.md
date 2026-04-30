@@ -16,7 +16,7 @@
 
 - **KF6 surface made more honest for Phase 3/4**:
   - `kf6-kdeclarative` is enabled in `config/redbear-full.toml` (real reduced cmake build with `BUILD_WITH_QML=OFF`).
-  - `kf6-kio` is blocked (commented out — source-incompatible).
+  - `kf6-kio | **builds** | enabled | HostInfo stub (direct QHostInfo::fromName replaces QtConcurrent chain) (commented out — source-incompatible).
 - `kf6-knewstuff` and `kf6-kwallet` have real cmake builds; `kf6-kwallet` enabled, `kf6-knewstuff` blocked (empty package).
 - Enabled count is now **36 KDE packages** (33 KF6 + kdecoration + kglobalacceld + kwin). See Current KDE Package Status table for full breakdown.
 
@@ -59,7 +59,7 @@
 
 - **Qt Wayland shell integration**: Compositor correctly parses protocol now, but Qt6's Wayland plugin reports "Loading shell integration failed" and falls back to redox platform plugin. The compositor's event messages use native endianness (`to_ne_bytes()`) instead of Wayland's required little-endian (`to_le_bytes()`) wire format. Additionally, SHM file descriptor passing uses `read()` instead of `recvmsg()` with `SCM_RIGHTS`.
 - **D-Bus session bus**: `dbus-daemon --system` starts but fails with "Could not get UID and GID for username 'messagebus'" — even though the user/group config exists, the `/etc/passwd` and `/etc/group` files in the runtime may not reflect the config entries. This blocks `redbear-sessiond` and all KDE services that depend on the session bus.
-- **KF6 enablement**: superseded — see Current KDE Package Status table above. 36 KDE packages enabled, 12 blocked with documented reasons.
+- **KF6 enablement**: superseded — see Current KDE Package Status table above. 36 KDE packages enabled, 11 blocked with documented reasons.
 
 ## Recent Changes (2026-04-28, Wave 3)
 
@@ -128,7 +128,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
 | **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
 
-**Total: 48 recipes. 36 build (13 in repo + 23 stage-only). 12 blocked (documented).**
+**Total: 48 recipes. 37 build (13 in repo + 23 stage-only). 11 blocked (documented).**
 
 Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
@@ -171,7 +171,7 @@ Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.
 | `test-phase3-runtime.sh` | **builds** | Automated guest/QEMU Phase 3 harness using explicit binary checks and exit-code-only pass/fail markers |
 | | | |
 | **Phase 4 (KDE Plasma) — see canonical status table above** | | |
-| KF6 frameworks | **36 build / 12 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
+| KF6 frameworks | **37 build / 11 blocked** | See Current KDE Package Status table (lines 122-132) for exact breakdown |
 | `plasma-workspace` | **blocked (transitive)** | Recipe exists, blocked by kf6-knewstuff empty package + kwin stub |
 | `plasma-desktop` | **blocked (transitive)** | Recipe exists, blocked by plasma-workspace |
 | `plasma-framework` | **blocked (QML gate)** | Recipe exists, blocked by kirigami |
