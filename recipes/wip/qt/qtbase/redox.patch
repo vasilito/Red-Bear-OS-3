@@ -535,7 +535,7 @@ diff -ruwN /dev/null source/src/corelib/global/qt_float16_shims.c
 diff -ruwN source-old/src/corelib/CMakeLists.txt source/src/corelib/CMakeLists.txt
 --- source-old/src/corelib/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
 +++ source/src/corelib/CMakeLists.txt	2026-04-13 00:00:00.000000000 +0000
-@@ -61,6 +61,7 @@
+@@ -61,5 +61,6 @@
          global/qfloat16.cpp global/qfloat16.h
 +        global/qt_float16_shims.c
          global/qforeach.h

@@ -1,0 +1,177 @@
+diff --git a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
+new file mode 100644
+index 0000000..9469888
+--- /dev/null
++++ b/src/header/sys_timerfd/cbindgen.toml
+@@ -0,0 +1,12 @@
++sys_includes = ["time.h"]
++include_guard = "_SYS_TIMERFD_H"
++language = "C"
++style = "Tag"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
++
++[export.rename]
++"itimerspec" = "struct itimerspec"
+diff --git a/src/header/sys_timerfd/mod.rs b/src/header/sys_timerfd/mod.rs
+index 0959d39..916066f 100644
+--- a/src/header/sys_timerfd/mod.rs
++++ b/src/header/sys_timerfd/mod.rs
+@@ -1,10 +1,8 @@
+ //! `sys/timerfd.h` implementation.
+ //!
+ //! Non-POSIX, see <https://man7.org/linux/man-pages/man2/timerfd_create.2.html>.
+-
+ use alloc::{collections::BTreeMap, format};
+ use core::{mem, slice, sync::atomic::{AtomicBool, Ordering}};
+-
+ use crate::{
+     c_str::{CStr, CString},
+     error::{Errno, ResultExt},
+@@ -14,13 +12,9 @@ use crate::{
+         fcntl::{O_CLOEXEC, O_NONBLOCK, O_RDWR},
+     },
+     out::Out,
+-    platform::{
+-        Pal, Sys,
+-        types::{c_int, clockid_t},
+-    },
++    platform::{Pal, Sys, types::{c_int, clockid_t}},
+     sync::Mutex,
+ };
+-
+ pub use crate::header::time::itimerspec;
+ 
+ pub const TFD_CLOEXEC: c_int = 0x80000;
+@@ -30,104 +24,64 @@ pub const TFD_TIMER_CANCEL_ON_SET: c_int = 0x2;
+ 
+ const NSEC_PER_SEC: i64 = 1_000_000_000;
+ 
++struct TimerState { clockid: clockid_t }
++
+ static MAP_INIT: AtomicBool = AtomicBool::new(false);
+-static TIMERFD_CLOCKIDS: Mutex<Option<BTreeMap<c_int, clockid_t>>> = Mutex::new(None);
++static TIMERFD_STATE: Mutex<Option<BTreeMap<c_int, TimerState>>> = Mutex::new(None);
+ 
+-fn with_map<R>(f: impl FnOnce(&mut BTreeMap<c_int, clockid_t>) -> R) -> R {
+-    let mut guard = TIMERFD_CLOCKIDS.lock();
+-    if !MAP_INIT.load(Ordering::Acquire) {
+-        *guard = Some(BTreeMap::new());
+-        MAP_INIT.store(true, Ordering::Release);
+-    }
++fn with_map<R>(f: impl FnOnce(&mut BTreeMap<c_int, TimerState>) -> R) -> R {
++    let mut guard = TIMERFD_STATE.lock();
++    if !MAP_INIT.load(Ordering::Acquire) { *guard = Some(BTreeMap::new()); MAP_INIT.store(true, Ordering::Release); }
+     f(guard.as_mut().unwrap())
+ }
+-
+ fn add_timespec(a: &timespec, b: &timespec) -> timespec {
+     let total_nsec = a.tv_nsec as i64 + b.tv_nsec as i64;
+     let mut sec = a.tv_sec + b.tv_sec + (total_nsec / NSEC_PER_SEC) as i64;
+     let mut nsec = (total_nsec % NSEC_PER_SEC) as i64;
+-    if nsec < 0 {
+-        sec -= 1;
+-        nsec += NSEC_PER_SEC;
+-    }
++    if nsec < 0 { sec -= 1; nsec += NSEC_PER_SEC; }
+     timespec { tv_sec: sec, tv_nsec: nsec }
+ }
+-
+ fn read_exact(fd: c_int, buf: &mut [u8]) -> Result<(), Errno> {
+-    match Sys::read(fd, buf)? {
+-        n if n == buf.len() => Ok(()),
+-        _ => Err(Errno(EIO)),
+-    }
++    match Sys::read(fd, buf)? { n if n == buf.len() => Ok(()), _ => Err(Errno(EIO)) }
+ }
+-
+ fn write_exact(fd: c_int, buf: &[u8]) -> Result<(), Errno> {
+-    match Sys::write(fd, buf)? {
+-        n if n == buf.len() => Ok(()),
+-        _ => Err(Errno(EIO)),
+-    }
++    match Sys::write(fd, buf)? { n if n == buf.len() => Ok(()), _ => Err(Errno(EIO)) }
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub extern "C" fn timerfd_create(clockid: clockid_t, flags: c_int) -> c_int {
+-    let supported = TFD_CLOEXEC | TFD_NONBLOCK;
+-    if flags & !supported != 0 {
+-        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
+-    }
+-
++    if flags & !(TFD_CLOEXEC | TFD_NONBLOCK) != 0 { return Err::<c_int,_>(Errno(EINVAL)).or_minus_one_errno(); }
+     let mut oflag = O_RDWR;
+-    if flags & TFD_CLOEXEC == TFD_CLOEXEC {
+-        oflag |= O_CLOEXEC;
+-    }
+-    if flags & TFD_NONBLOCK == TFD_NONBLOCK {
+-        oflag |= O_NONBLOCK;
+-    }
+-
+-    let path = match CString::new(format!("/scheme/time/{clockid}")) {
+-        Ok(path) => path,
+-        Err(_) => return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno(),
+-    };
+-    let fd = Sys::open(CStr::borrow(&path), oflag, 0).or_minus_one_errno()?;
+-
+-    // Register the clockid for this fd so timerfd_settime can convert relative times
+-    with_map(|map| { map.insert(fd, clockid); });
+-
++    if flags & TFD_CLOEXEC == TFD_CLOEXEC { oflag |= O_CLOEXEC; }
++    if flags & TFD_NONBLOCK == TFD_NONBLOCK { oflag |= O_NONBLOCK; }
++    let path = match CString::new(format!("/scheme/time/{clockid}")) { Ok(p) => p, Err(_) => return Err::<c_int,_>(Errno(EINVAL)).or_minus_one_errno() };
++    let fd = match Sys::open(CStr::borrow(&path), oflag, 0) { Ok(fd) => fd, Err(Errno(e)) => return Err::<c_int,_>(Errno(e)).or_minus_one_errno() };
++    with_map(|map| { map.insert(fd, TimerState { clockid }); });
+     fd
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn timerfd_settime(fd: c_int, flags: c_int, new: *const itimerspec, old: *mut itimerspec) -> c_int {
+-    let supported = TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET;
+-    if flags & !supported != 0 {
+-        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
+-    }
+-    if new.is_null() {
+-        return Err::<c_int, _>(Errno(EFAULT)).or_minus_one_errno();
+-    }
+-    if !old.is_null() && unsafe { timerfd_gettime(fd, old) } < 0 {
+-        return -1;
+-    }
++    if flags & !(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET) != 0 { return Err::<c_int,_>(Errno(EINVAL)).or_minus_one_errno(); }
++    if new.is_null() { return Err::<c_int,_>(Errno(EFAULT)).or_minus_one_errno(); }
++    if !old.is_null() && unsafe { timerfd_gettime(fd, old) } < 0 { return -1; }
+     let spec = unsafe { &*new };
+-    let mut value = spec.it_value;
+-
+-    // Convert relative time to absolute if TFD_TIMER_ABSTIME is not set
++    let mut value = spec.it_value.clone();
++    // TFD_TIMER_CANCEL_ON_SET: flag accepted; clock-change notification requires
++    // kernel infrastructure not yet available. This is a bounded compatibility surface.
+     if flags & TFD_TIMER_ABSTIME == 0 {
+-        let clockid = with_map(|map| map.get(&fd).copied()).unwrap_or(0);
++        let clockid = with_map(|map| map.get(&fd).map_or(0, |s| s.clockid));
+         let mut now = timespec::default();
+-        if Sys::clock_gettime(clockid, Out::from_mut(&mut now)).is_err() {
+-            return Err::<c_int, _>(Errno(EBADF)).or_minus_one_errno();
+-        }
++        if Sys::clock_gettime(clockid, Out::from_mut(&mut now)).is_err() { return Err::<c_int,_>(Errno(EBADF)).or_minus_one_errno(); }
+         value = add_timespec(&now, &value);
+     }
+-
+     let buf = unsafe { slice::from_raw_parts((&raw const value).cast::<u8>(), mem::size_of::<timespec>()) };
+     write_exact(fd, buf).map(|()| 0).or_minus_one_errno()
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn timerfd_gettime(fd: c_int, curr: *mut itimerspec) -> c_int {
+-    if curr.is_null() {
+-        return Err::<c_int, _>(Errno(EFAULT)).or_minus_one_errno();
+-    }
++    if curr.is_null() { return Err::<c_int,_>(Errno(EFAULT)).or_minus_one_errno(); }
+     let curr = unsafe { &mut *curr };
+     curr.it_interval = timespec::default();
+     let buf = unsafe { slice::from_raw_parts_mut((&raw mut curr.it_value).cast::<u8>(), mem::size_of::<timespec>()) };

@@ -412,6 +412,7 @@ The current subsystem plans to treat as first-class are:
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`
 - `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md`
 - `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`
+- `local/docs/RELIBC-IMPLEMENTATION-PLAN.md` — implementation roadmap for relibc POSIX gaps
 - `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md`
 - `local/docs/QT6-PORT-STATUS.md`
 

@@ -60,11 +60,12 @@ The current public roadmap and execution model live in the
 For readers landing on GitHub, the most useful entry points are:
 
 - [Documentation Index](./docs/README.md) — canonical map of current vs historical docs
-- [relibc Assessment and Improvement Plan](./local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md) — canonical relibc quality, completeness, and robustness assessment
+- [relibc Comprehensive Assessment](./local/docs/RELIBC-COMPREHENSIVE-ASSESSMENT.md) — **canonical** end-to-end assessment: patch chain, kernel interactions, graphics integration, action plan
+- [relibc Assessment and Improvement Plan](./local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md) — quality, completeness, and robustness assessment (evidence model reference)
+- [relibc Implementation Plan](./local/docs/RELIBC-IMPLEMENTATION-PLAN.md) — detailed engineering plan for closing relibc POSIX gaps
 - [relibc IPC Assessment and Improvement Plan](./local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md) — IPC-focused companion plan for bounded relibc compatibility layers
 - [Console to KDE Desktop Plan](./local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md) — canonical path from console boot to hardware-accelerated KDE Plasma on Wayland
 - [Desktop Stack Current Status](./local/docs/DESKTOP-STACK-CURRENT-STATUS.md) — current build/runtime truth for Qt, Wayland, and KDE surfaces
-- [WIP Migration Ledger](./local/docs/WIP-MIGRATION-LEDGER.md) — how Red Bear currently treats upstream WIP versus local overlays
 - [Script Behavior Matrix](./local/docs/SCRIPT-BEHAVIOR-MATRIX.md) — what the main sync/fetch/apply/build scripts do and do not guarantee
 
 Current subsystem-specific plans also include:

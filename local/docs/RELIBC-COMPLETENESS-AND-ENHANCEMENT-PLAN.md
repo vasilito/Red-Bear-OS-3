@@ -69,17 +69,9 @@ The tracked patch list still includes, among others:
 
 - `redox.patch`
 - `P0-strtold-cpp-linkage-and-compat.patch`
-- `P3-eventfd.patch`
 - `P3-signalfd.patch`
 - `P3-signalfd-header.patch`
-- `P3-timerfd.patch`
-- `P3-waitid.patch`
-- `P3-semaphore-fixes.patch`
-- `P3-socket-cred.patch`
-- `P3-elf64-types.patch`
-- `P3-open-memstream.patch`
-- `P3-ifaddrs-net_if.patch`
-- `P3-fd-event-tests.patch`
+- `P3-timerfd-relative.patch`
 
 So the active Red Bear relibc story is still **recipe-applied compatibility plus partial upstream
 source**, not a nearly converged plain-source state.
@@ -88,14 +80,16 @@ source**, not a nearly converged plain-source state.
 
 Observed directly from the current patch set:
 
-- `P3-eventfd.patch`: adds `sys/eventfd.h` support through `/scheme/event/eventfd/...`
 - `P3-signalfd.patch`: adds `signalfd` / `signalfd4` support through `/scheme/event` plus signal-mask handling
-- `P3-timerfd.patch`: adds `sys/timerfd.h` support through `/scheme/time/{clockid}`
+- `P3-timerfd-relative.patch`: adds `sys/timerfd.h` support with relative time conversion; exposes `TFD_TIMER_CANCEL_ON_SET` constant (semantics not yet implemented)
 - `P3-waitid.patch`: adds a bounded `waitid()` implementation plus a focused test
 - `P3-semaphore-fixes.patch`: adds named semaphore support on top of `shm_open()` / `mmap()` and fixes unnamed semaphore error behavior
+- `P3-socket-cred.patch`: adds `SO_PEERCRED` and `getpeereid`
 - `P3-open-memstream.patch`: adds `open_memstream()` plus a focused stdio test
-- `P3-ifaddrs-net_if.patch`: adds a bounded `ifaddrs` / `net_if` surface that currently synthesizes only `loopback` and `eth0`
-- `P3-fd-event-tests.patch`: adds focused `eventfd`, `signalfd`, and `timerfd` tests
+- `P3-ifaddrs-net_if.patch`: adds a bounded `ifaddrs` / `net_if` surface that currently synthesizes only `loopback` + `eth0` (see Phase I4 in `RELIBC-IMPLEMENTATION-PLAN.md` for the live-discovery upgrade path)
+- `P3-fd-event-tests.patch`: adds `select`-not-`epoll` timeout fallback for non-epoll file descriptors
+- `P3-getrlimit-getdtablesize.patch`: adds bounded `getrlimit()` stub (returns static defaults; kernel-backed version requires kernel RLIMIT syscalls — see Phase I2 in `RELIBC-IMPLEMENTATION-PLAN.md`)
+- `P3-in6-pktinfo.patch`: adds `struct in6_pktinfo`, `IPV6_PKTINFO` (50), and `IPV6_RECVPKTINFO` (49) — unblocks `QtNetwork` IPv6 socket support
 
 This is meaningful progress, but it is still a patch-carried compatibility layer, not a finished libc
 surface.
@@ -172,14 +166,16 @@ Still absent or TODO in the live source tree:
 The active build surface includes several features that should be described as **bounded**, not
 fully complete:
 
-- `timerfd`: the patch exposes `TFD_TIMER_CANCEL_ON_SET`, but `timerfd_settime()` only accepts
-  `TFD_TIMER_ABSTIME`
+- `timerfd`: the patch exposes `TFD_TIMER_CANCEL_ON_SET`; relative timers are now converted to
+  absolute in userspace via `P3-timerfd-relative.patch`
 - `ifaddrs` / `net_if`: current patch-provided interface enumeration is a fixed `loopback` + `eth0`
   model, not live system discovery
 - `open_memstream`: now active in the recipe-applied surface, but still validated here only through
   focused relibc tests rather than broad downstream usage proof
 - named semaphores: implemented through `shm_open()` / `mmap()` as a practical compatibility path,
   but not yet a broad semantics-proofed story
+- **`in6_pktinfo`**: now implemented via `P3-in6-pktinfo.patch` — adds `struct in6_pktinfo`,
+  `IPV6_PKTINFO` (50), and `IPV6_RECVPKTINFO` (49) — unblocks `QtNetwork` IPv6 socket support
 
 ### Still-missing areas
 
@@ -319,3 +315,20 @@ story.
 It is a **partially upstream, materially patch-applied compatibility surface** that already covers
 important desktop-facing APIs, but still has real completeness gaps, bounded semantics, and a larger
 patch-chain dependency than older docs admitted.
+
+## Implementation roadmap
+
+For detailed engineering plans targeting specific gaps, see
+`local/docs/RELIBC-IMPLEMENTATION-PLAN.md`. That document supersedes the R0–R6 phase structure
+here for gap-specific work, while this document remains the canonical quality and evidence model
+reference.
+
+Current implementation priorities from `RELIBC-IMPLEMENTATION-PLAN.md`:
+
+| Gap | Status | Phase |
+|-----|--------|-------|
+| `in6_pktinfo` + `IPV6_PKTINFO` | ✅ Implemented (`P3-in6-pktinfo.patch`) | I1 |
+| `getrlimit`/`setrlimit` advisory impl | ✅ Implemented — `setrlimit` returns `Ok`, added `RLIMIT_NPROC`/`NICE`/`RTPRIO`/`MSGQUEUE` defaults (`P3-getrlimit-getdtablesize.patch`) | I2 |
+| `timerfd` relative time | ✅ Implemented (`P3-timerfd-relative.patch`) -- `TFD_TIMER_CANCEL_ON_SET` still pending | I3 |
+| `ifaddrs` live discovery | Improved synthetic: 3 entries (loopback, eth0, wlan0) via `P3-ifaddrs-net_if.patch`; scheme-based enumeration deferred | I4 |
+| Plain-source TODO headers | Partially completed: `spawn.h` (posix_spawn via `P3-spawn.patch`), `threads.h` (C11 types via `P3-threads.patch`); `mqueue.h`, `iconv.h`, `wordexp.h` deferred | I5 |

@@ -67,6 +67,7 @@ find_package(Qt6WaylandClientPrivate REQUIRED)
 find_package(Qt6WaylandClientPrivate REQUIRED)
 find_package(Qt6WaylandClientPrivate REQUIRED)
 find_package(Qt6WaylandClientPrivate REQUIRED)
+find_package(Qt6WaylandClientPrivate REQUIRED)
 set_package_properties(Wayland PROPERTIES
                        TYPE REQUIRED
                       )

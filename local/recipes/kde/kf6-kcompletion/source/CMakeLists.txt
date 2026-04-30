@@ -57,6 +57,7 @@ find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
+find_package(Qt6GuiPrivate ${REQUIRED_QT_VERSION} REQUIRED)
 
 find_package(KF6Codecs ${KF_DEP_VERSION} REQUIRED)
 find_package(KF6Config ${KF_DEP_VERSION} REQUIRED)

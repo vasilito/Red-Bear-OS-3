@@ -1,0 +1,1 @@
+packages = ["libwayland", "mesa", "qtbase", "relibc"]

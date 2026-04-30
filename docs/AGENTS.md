@@ -16,7 +16,6 @@ For current Red Bear OS status, also read:
 - `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path
 - `local/docs/QT6-PORT-STATUS.md` — current Qt/KF6 package-level status
 - `local/docs/AMD-FIRST-INTEGRATION.md` — deeper AMD/graphics technical roadmap, useful detail but not the canonical desktop plan
-- `local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership status
 - `local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — current script guarantees and non-guarantees
 
 ## STRUCTURE
@@ -39,9 +38,9 @@ docs/
 | How do drivers access hardware? | 01 | §3 Driver Model, §6 Build System |
 | What is the canonical current implementation plan? | 07 | Entire document |
 | Which docs are current vs historical? | README | Document Status Matrix |
-| What is the current WIP ownership policy? | local/docs/WIP-MIGRATION-LEDGER.md | Entire document |
+| What is the current WIP ownership policy? | `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` | Phase R1 |
 | What do the main sync/fetch/apply/build scripts actually guarantee? | local/docs/SCRIPT-BEHAVIOR-MATRIX.md | Entire document |
-| What is the current Wi-Fi architecture and validation path? | local/docs/WIFI-IMPLEMENTATION-PLAN.md / local/docs/WIFI-VALIDATION-RUNBOOK.md | Entire document |
+| What is the current Wi-Fi architecture and validation path? | local/docs/WIFI-IMPLEMENTATION-PLAN.md | Entire document |
 | What is the current desktop-stack truth? | local/docs/DESKTOP-STACK-CURRENT-STATUS.md | Entire document |
 | What is the current Qt/KF6 status? | local/docs/QT6-PORT-STATUS.md | Entire document |
 | What's missing for Wayland? | local/docs/WAYLAND-IMPLEMENTATION-PLAN.md | Entire document |
@@ -55,6 +54,7 @@ docs/
 | How to port KDE Plasma? | 05 | Phase KDE-C (KWin, Plasma Shell, session config) |
 | How to set up the build? | 06 | Prerequisites per distro, build commands |
 | What is the current work ordering? | 07 | Workstream Order + Blocker chain |
+| How to fix POSIX gaps in relibc? | local/docs/RELIBC-IMPLEMENTATION-PLAN.md | Gap inventory + implementation phases |
 
 ## READING RULE
 

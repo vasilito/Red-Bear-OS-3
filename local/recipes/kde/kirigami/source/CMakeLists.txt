@@ -31,9 +31,9 @@ endif()
 
 include(FeatureSummary)
 include(KDEInstallDirs)
-find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE COMPONENTS Core Gui Concurrent Qml Quick Qml Quick Qml Quick)
+find_package(Qt6 ${REQUIRED_QT_VERSION} REQUIRED NO_MODULE COMPONENTS Core Gui Concurrent)
 if (BUILD_TESTING)
-    find_package(Qt6QuickTest ${REQUIRED_QT_VERSION} CONFIG QUIET)
+# find_package(Qt6QuickTest disabled for Redox core-only build)
 endif()
 get_target_property(QtGui_Enabled_Features Qt6::Gui QT_ENABLED_PUBLIC_FEATURES)
 if(QtGui_Enabled_Features MATCHES "opengl")
@@ -135,7 +135,7 @@ endif()
 
 add_subdirectory(src)
 if (NOT ANDROID)
-    add_subdirectory(templates)
+# add_subdirectory(templates) # disabled for Redox core-only build
 endif()
 
 if (BUILD_EXAMPLES)
@@ -143,7 +143,7 @@ if (BUILD_EXAMPLES)
 endif()
 
 if (BUILD_TESTING)
-    add_subdirectory(autotests)
+# add_subdirectory(autotests) # disabled for Redox core-only build
 endif()
 
 configure_package_config_file(

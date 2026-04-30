@@ -37,4 +37,4 @@ cp -v test_signalfd_wayland test_timerfd_qt6 test_eventfd_qt6 test_shm_open_qt6 
 """
 
 [package]
-dependencies = ["gcc13"]
+dependencies = []

@@ -6,13 +6,13 @@ Production recipe for Zsh 5.9 on Red Bear OS / Redox.
 
 - **Builds:** yes
 - **Runtime:** basic shell works; `times` builtin is a no-op stub
-- **Blockers:** `times()` and `getrusage()` not yet in relibc
+- **Blockers:** `times()` not yet in relibc; `getrusage()` present but returns zeroed data (microkernel design)
 
 ## Patch Summary
 
 | File | Change | Reason |
 |------|--------|--------|
-| `configure.ac` | Remove `getrusage` from `AC_CHECK_FUNCS` | Avoids configure-time detection of missing function |
+| `configure.ac` | Remove `getrusage` from `AC_CHECK_FUNCS` | Historical: relibc now has getrusage (returns zeroed data) |
 | `Src/builtin.c` | Stub `bin_times()` | `times()` unavailable in relibc |
 | `Src/Builtins/rlimits.c` | Disable `set_resinfo()` / `free_resinfo()` | These depend on `getrusage()` |
 
@@ -60,6 +60,6 @@ The recipe installs Manjaro-inspired system-wide zsh configuration:
 ## Future Work
 
 - Re-enable `times` builtin when relibc gains `times()` support
-- Re-enable resource-limit info when relibc gains `getrusage()` support
+- Re-enable resource-limit info getrusage is now available (returns zeroed data)
 - Evaluate enabling `gdbm`, `pcre`, or `cap` if those libraries are ported
 - Package `zsh-syntax-highlighting` and `zsh-autosuggestions` plugins

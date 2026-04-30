@@ -35,9 +35,7 @@
 #include <KNotification>
 #endif
 #include <KLocalizedString>
-#if KWIN_BUILD_QTQUICK
 #include <QQuickWindow>
-#endif
 
 namespace KWin
 {
@@ -213,14 +211,10 @@ void WaylandCompositor::start()
         case NoCompositing:
             break;
         case OpenGLCompositing:
-#if KWIN_BUILD_QTQUICK
             QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
-#endif
             break;
         case QPainterCompositing:
-#if KWIN_BUILD_QTQUICK
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-#endif
             break;
         }
     }

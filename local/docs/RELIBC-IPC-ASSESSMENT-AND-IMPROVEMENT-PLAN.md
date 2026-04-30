@@ -26,13 +26,13 @@ Do not collapse those into one generic "implemented" label.
 |---|---|---|---|
 | `shm_open()` / `shm_unlink()` | yes | yes | provided through `sys_mman` in the live source tree |
 | named POSIX semaphores | no | yes | added by `P3-semaphore-fixes.patch` on top of `shm_open()` / `mmap()` |
-| `eventfd` | no | yes | added by `P3-eventfd.patch` through `/scheme/event/eventfd/...` |
+| `eventfd` | no | yes | added by `P3-eventfd-mod.patch` through `/scheme/event/eventfd/...` |
 | `signalfd` | no | yes | added by `P3-signalfd.patch` through `/scheme/event` plus signal-mask handling |
-| `timerfd` | no | yes | added by `P3-timerfd.patch` through `/scheme/time/{clockid}` |
+| `timerfd` | no | yes | added by `P3-timerfd-relative.patch` through `/scheme/time/{clockid}` |
 | `waitid()` | no | yes | added by `P3-waitid.patch` |
 | `ifaddrs` / `net_if` support used by IPC-adjacent consumers | no | yes | added by `P3-ifaddrs-net_if.patch`; currently synthetic |
-| SysV shm (`sys/shm.h`) | no | no | bounded carriers exist locally, but they are not part of the active concrete-wave recipe surface |
-| SysV sem (`sys/sem.h`) | no | no | bounded carriers exist locally, but they are not part of the active concrete-wave recipe surface |
+| SysV shm (`sys/shm.h`) | no | yes | activated via `P3-sysv-shm-impl.patch` in recipe (2026-04-29) |
+| SysV sem (`sys/sem.h`) | no | yes | activated via `P3-sysv-sem-impl.patch` in recipe (2026-04-29) |
 | POSIX message queues (`mqueue.h`) | no | no | still TODO in the live source tree |
 | SysV message queues (`sys/msg.h`) | no | no | still TODO in the live source tree |
 
@@ -59,9 +59,7 @@ consumer/runtime proof is recorded.
 
 ### Deferred SysV shm/sem work
 
-Bounded SysV shm/sem carriers still exist under `local/patches/relibc/`, but they were not wired
-into the active concrete-wave recipe surface implemented in this pass. They should therefore be
-treated as deferred follow-up work, not as active build behavior.
+SysV shm/sem carriers were activated in recipe (2026-04-29). Message queues remain deferred follow-up work.
 
 ### Interface enumeration used by networking-adjacent consumers
 
@@ -110,8 +108,7 @@ This pass revalidated the active concrete-wave IPC-facing surface through the re
 - `semaphore/unnamed`
 
 These are bounded relibc-target proofs. They improve confidence in the active fd-event and named
-semaphore surface, but they do not change the deferred status of broader SysV shm/sem or message
-queues.
+semaphore surface. SysV shm/sem are now active in the recipe (2026-04-29); message queues remain deferred.
 
 ## Improvement plan
 

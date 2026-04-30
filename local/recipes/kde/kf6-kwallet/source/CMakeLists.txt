@@ -44,8 +44,8 @@ set(EXCLUDE_DEPRECATED_BEFORE_AND_AT 0 CACHE STRING "Control the range of deprec
 
 find_package(KF6CoreAddons ${KF_DEP_VERSION} REQUIRED)
 find_package(KF6Config ${KF_DEP_VERSION} REQUIRED)
-find_package(KF6WindowSystem ${KF_DEP_VERSION} REQUIRED)
-find_package(KF6I18n ${KF_DEP_VERSION} REQUIRED)
+# find_package(KF6WindowSystem disabled for Redox API-only build)
+# find_package(KF6I18n disabled for Redox API-only build)
 find_package(KF6DocTools ${KF_DEP_VERSION})
 
 ecm_set_disabled_deprecation_versions(
@@ -54,7 +54,7 @@ ecm_set_disabled_deprecation_versions(
 )
 
 add_definitions(-DTRANSLATION_DOMAIN=\"kwalletd6\")
-ki18n_install(po)
+#ki18n_install(po)
 add_subdirectory(src)
 if (BUILD_TESTING)
     add_subdirectory(autotests)

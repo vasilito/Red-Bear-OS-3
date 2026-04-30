@@ -54,24 +54,21 @@ current local subsystem plan.
 | 05 | [KDE Plasma on Redox](05-KDE-PLASMA-ON-REDOX.md) | Historical KDE implementation path plus deeper KDE-specific rationale |
 | 06 | [Build System Setup](06-BUILD-SYSTEM-SETUP.md) | How to build Redox from this repository |
 | 07 | [Red Bear OS Implementation Plan](07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md) | Canonical public implementation plan focused on profiles, packaging, validation, and staged hardware enablement |
-| 08 | [Firmware in Red Bear OS](firmware.md) | Canonical firmware packaging, licensing, and runtime-loading policy |
 
 ## Related Red Bear-local current-state plans
 
 - `../local/docs/USB-IMPLEMENTATION-PLAN.md` — current USB completeness and rollout plan
 - `../local/docs/WIFI-IMPLEMENTATION-PLAN.md` — current Wi-Fi architecture and rollout plan
-- `../local/docs/WIFI-VALIDATION-RUNBOOK.md` — canonical operator path for bare-metal/VFIO Wi-Fi validation and evidence capture
-- `../local/docs/WIFICTL-SCHEME-REFERENCE.md` — bounded `/scheme/wifictl` interface reference for the current Wi-Fi control surface
 - `../local/recipes/system/redbear-netctl-console/source/` — Redox-native ncurses terminal client for the bounded Wi-Fi profile flow
 - `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — guarantees and non-guarantees for the main Wi-Fi and Bluetooth validation helpers plus core repo scripts
 - `../local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md` — current Bluetooth architecture and rollout plan
-- `../local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` — canonical operator path for the bounded Bluetooth Battery Level QEMU validation slice
 - `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
 - `../local/docs/ACPI-IMPROVEMENT-PLAN.md` — current ACPI ownership, robustness, and validation plan
 - `../local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — canonical current plan for PCI/IRQ quality, low-level controller robustness, MSI/MSI-X follow-up, and controller runtime-proof sequencing
 - `../local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — current DRM-focused execution plan beneath the canonical desktop path, with equal Intel/AMD evidence bars
 - `../local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
 - `../local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md` — canonical relibc quality/completeness/robustness assessment and improvement plan
+- `../local/docs/RELIBC-IMPLEMENTATION-PLAN.md` — implementation roadmap for closing relibc POSIX gaps
 - `../local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — IPC-focused companion plan for the active relibc compatibility surface
 - `../local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan for the Red Bear-native login boundary on `redbear-full`
 - PCI vendor/device names in Red Bear runtime tools now come from the shipped `pciids` database; PCI quirk policy still lives in `../local/docs/QUIRKS-SYSTEM.md`
@@ -92,9 +89,7 @@ Do not flatten those into one “supported” claim in public summaries.
 
 ## Related Red Bear-local governance docs
 
-- `../local/docs/WIP-MIGRATION-LEDGER.md` — current WIP ownership and upstream-vs-local migration ledger
 - `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
-- `../local/docs/EXTERNAL-TOOLCHAIN.md` — how to export a relocatable external `x86_64-unknown-redox-gcc` toolchain from the built prefix
 
 ## Current State Summary (as of 2026-04-18)
 

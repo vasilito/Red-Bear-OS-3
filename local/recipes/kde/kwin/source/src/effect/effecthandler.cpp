@@ -21,9 +21,8 @@
 #include "core/renderviewport.h"
 #include "decorations/decorationbridge.h"
 #include "effect/effectloader.h"
-#if KWIN_BUILD_QTQUICK
 #include "effect/offscreenquickview.h"
-#endif
+#include "effectsadaptor.h"
 #include "input.h"
 #include "input_event.h"
 #include "inputmethod.h"
@@ -60,10 +59,8 @@
 #include <KDecoration3/Decoration>
 #include <KDecoration3/DecorationSettings>
 
-#include <QDBusConnection>
 #include <QFontMetrics>
 #include <QMatrix4x4>
-#include <QMetaProperty>
 #include <QPainter>
 #include <QPixmap>
 #include <QTimeLine>
@@ -140,6 +137,9 @@ EffectsHandler::EffectsHandler(Compositor *compositor, WorkspaceScene *scene)
         effectsChanged();
     });
     m_effectLoader->setConfig(kwinApp()->config());
+    new EffectsAdaptor(this);
+    QDBusConnection dbus = QDBusConnection::sessionBus();
+    dbus.registerObject(QStringLiteral("/Effects"), this);
 
     connect(options, &Options::animationSpeedChanged, this, &EffectsHandler::reconfigureEffects);
 
@@ -1509,12 +1509,6 @@ Effect *EffectsHandler::findEffect(const QString &name) const
 
 void EffectsHandler::renderOffscreenQuickView(const RenderTarget &renderTarget, const RenderViewport &viewport, OffscreenQuickView *w) const
 {
-#if !KWIN_BUILD_QTQUICK
-    Q_UNUSED(renderTarget)
-    Q_UNUSED(viewport)
-    Q_UNUSED(w)
-    return;
-#else
     if (!w->isVisible()) {
         return;
     }
@@ -1566,7 +1560,6 @@ void EffectsHandler::renderOffscreenQuickView(const RenderTarget &renderTarget, 
         painter->drawImage(w->geometry(), buffer);
         painter->restore();
     }
-#endif
 }
 
 SessionState EffectsHandler::sessionState() const
@@ -1633,11 +1626,7 @@ bool EffectsHandler::isInputPanelOverlay() const
 
 QQmlEngine *EffectsHandler::qmlEngine() const
 {
-#if !KWIN_BUILD_QTQUICK
-    return nullptr;
-#else
     return Scripting::self()->qmlEngine();
-#endif
 }
 
 EffectsHandler *effects = nullptr;

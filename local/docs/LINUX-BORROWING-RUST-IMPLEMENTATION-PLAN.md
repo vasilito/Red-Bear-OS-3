@@ -127,7 +127,6 @@ This document should therefore be read as:
 - `local/docs/USB-IMPLEMENTATION-PLAN.md`
 - `local/docs/USB-VALIDATION-RUNBOOK.md`
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`
-- `local/docs/WIFI-VALIDATION-RUNBOOK.md`
 - `local/docs/QUIRKS-SYSTEM.md`
 - `local/docs/IOMMU-SPEC-REFERENCE.md`
 - `local/docs/DBUS-INTEGRATION-PLAN.md`

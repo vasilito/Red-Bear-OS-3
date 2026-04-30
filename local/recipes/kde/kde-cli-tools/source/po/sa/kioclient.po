@@ -1,0 +1,341 @@
+# Sanskrit translations for kde-cli-tools package.
+# Copyright (C) 2024 This file is copyright:
+# This file is distributed under the same license as the kde-cli-tools package.
+# Kali <EMAIL@ADDRESS>, 2024.
+#
+# SPDX-FileCopyrightText: 2024 kali <skkalwar999@gmail.com>
+msgid ""
+msgstr ""
+"Project-Id-Version: kde-cli-tools\n"
+"Report-Msgid-Bugs-To: https://bugs.kde.org\n"
+"POT-Creation-Date: 2024-10-31 00:41+0000\n"
+"PO-Revision-Date: 2024-12-24 20:39+0530\n"
+"Last-Translator: kali <shreekantkalwar@gmail.com>\n"
+"Language-Team: Sanskrit <kde-i18n-doc@kde.org>\n"
+"Language: sa\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n>2);\n"
+"X-Generator: Lokalize 24.08.2\n"
+
+#, kde-format
+msgctxt "NAME OF TRANSLATORS"
+msgid "Your names"
+msgstr "श्रीकान्त् कलवार्"
+
+#, kde-format
+msgctxt "EMAIL OF TRANSLATORS"
+msgid "Your emails"
+msgstr "skkalwar999@gmail.com"
+
+#: kioclient.cpp:55
+#, kde-format
+msgid ""
+"\n"
+"Syntax:\n"
+msgstr ""
+"\n"
+"वाक्य रचना : १.\n"
+
+#: kioclient.cpp:57
+#, kde-format
+msgctxt "The argument is the command \"kioclient openProperties\""
+msgid ""
+"  %1 'url'\n"
+"            # Opens a properties dialog of 'url'\n"
+"\n"
+msgstr ""
+"  %1 'url'.\n"
+"            # 'url' इत्यस्य गुणसंवादं उद्घाटयति ।\n"
+"\n"
+
+#: kioclient.cpp:64
+#, kde-format
+msgctxt "The argument is the command \"kioclient exec\""
+msgid ""
+"  %1 'url' ['mimetype']\n"
+"            # Tries to open the document pointed to by 'url', in the "
+"application\n"
+"            # associated with it in KDE. You may omit 'mimetype'.\n"
+"            # In that case the mimetype is determined automatically.\n"
+"            # 'url' can be the URL of a document, a *.desktop file,\n"
+"            # or an executable.\n"
+msgstr ""
+"  %1 'url' ['mimetype'] ।\n"
+"            # 'url' द्वारा सूचितं दस्तावेजं उद्घाटयितुं प्रयतते, अनुप्रयोगे\n"
+"            # KDE मध्ये तया सह सम्बद्धम् । भवन्तः 'mimetype' इति परित्यक्तुं शक्नुवन्ति "
+"।\n"
+"            # तस्मिन् सति अनुकरणप्रकारः स्वयमेव निर्धारितः भवति ।\n"
+"            # 'url' दस्तावेजस्य URL, *.desktop सञ्चिका, .\n"
+"            # अथवा कार्यान्वयनीयः ।\n"
+
+#: kioclient.cpp:75
+#, kde-format
+msgctxt "The argument is the command \"kioclient move\""
+msgid ""
+"  %1 'src' 'dest'\n"
+"            # Moves the URL 'src' to 'dest'.\n"
+"            #   'src' may be a list of URLs.\n"
+"            #   'dest' may be \"trash:/\" to move the files to the trash.\n"
+"            #   The short version 'kioclient mv' is also available.\n"
+"\n"
+msgstr ""
+"  %1 'src' 'dest'.\n"
+"            # URL 'src' 'dest' मध्ये स्थानान्तरयति ।\n"
+"            # 'src' URL-सूची भवितुम् अर्हति ।\n"
+"            # 'dest' सञ्चिकाः कचरे स्थानान्तरयितुं \"trash:/\" भवितुम् अर्हति ।\n"
+"            # 'kioclient mv' इति लघुसंस्करणम् अपि उपलभ्यते ।\n"
+"\n"
+
+#: kioclient.cpp:85
+#, kde-format
+msgctxt "The argument is the command \"kioclient download\""
+msgid ""
+"  %1 ['src']\n"
+"            # Copies the URL 'src' to a user-specified location.\n"
+"            #   'src' may be a list of URLs, if not present then\n"
+"            #   a URL will be requested.\n"
+"\n"
+msgstr ""
+"  %1 ['src'] ।\n"
+"            # URL 'src' इत्यस्य प्रतिलिपिं उपयोक्तृनिर्दिष्टस्थाने करोति ।\n"
+"            # 'src' URL-सूची भवितुम् अर्हति, यदि तदा उपस्थिता नास्ति\n"
+"            # एकं URL अनुरोधितं भविष्यति।\n"
+"\n"
+
+#: kioclient.cpp:94
+#, kde-format
+msgctxt "The argument is the command \"kioclient copy\""
+msgid ""
+"  %1 'src' 'dest'\n"
+"            # Copies the URL 'src' to 'dest'.\n"
+"            #   'src' may be a list of URLs.\n"
+"            #   The short version 'kioclient cp' is also available.\n"
+"\n"
+msgstr ""
+"  %1 'src' 'dest'.\n"
+"            # URL 'src' 'dest' इति प्रतिलिपिं करोति ।\n"
+"            # 'src' URL-सूची भवितुम् अर्हति ।\n"
+"            # 'kioclient cp' इति लघुसंस्करणम् अपि उपलभ्यते ।\n"
+"\n"
+
+#: kioclient.cpp:103
+#, kde-format
+msgctxt "The argument is the command \"kioclient cat\""
+msgid ""
+"  %1 'url'\n"
+"            # Prints the contents of the file 'url' to the standard output\n"
+"\n"
+msgstr ""
+"  %1 'url'.\n"
+"            # 'url' सञ्चिकायाः सामग्रीं मानकनिर्गमं प्रति मुद्रयति\n"
+"\n"
+
+#: kioclient.cpp:110
+#, kde-format
+msgctxt "The argument is the command \"kioclient ls\""
+msgid ""
+"  %1 'url'\n"
+"            # Lists the contents of the directory 'url' to stdout\n"
+"\n"
+msgstr ""
+"  %1 'url'.\n"
+"            # 'url' इति निर्देशिकायाः सामग्रीं stdout मध्ये सूचीबद्धं करोति\n"
+"\n"
+
+#: kioclient.cpp:117
+#, kde-format
+msgctxt "The argument is the command \"kioclient remove\""
+msgid ""
+"  %1 'url'\n"
+"            # Removes the URL\n"
+"            #   'url' may be a list of URLs.\n"
+"            #   The short version 'kioclient rm' is also available.\n"
+"\n"
+msgstr ""
+"  %1 'url'.\n"
+"            # URL निष्कासयति\n"
+"            # 'url' URL-सूची भवितुम् अर्हति ।\n"
+"            # 'kioclient rm' इति लघुसंस्करणम् अपि उपलभ्यते ।\n"
+"\n"
+
+#: kioclient.cpp:126
+#, kde-format
+msgctxt "The argument is the command \"kioclient stat\""
+msgid ""
+"  %1 'url'\n"
+"            # Shows all of the available information for 'url'\n"
+"\n"
+msgstr ""
+"  %1 'url'.\n"
+"            # 'url' कृते उपलब्धानि सर्वाणि सूचनानि दर्शयति।\n"
+"\n"
+
+#: kioclient.cpp:133
+#, kde-format
+msgctxt "The argument is the command \"kioclient appmenu\""
+msgid ""
+"  %1\n"
+"            # Opens a basic application launcher\n"
+"\n"
+msgstr ""
+"  %1\n"
+"            # एकं मूलभूतं अनुप्रयोगप्रक्षेपकं उद्घाटयति\n"
+"\n"
+
+#: kioclient.cpp:139
+#, kde-format
+msgid "*** Examples:\n"
+msgstr "*** उदाहरणानि : १.\n"
+
+#: kioclient.cpp:140
+#, kde-format
+msgid ""
+"  kioclient exec file:/home/weis/data/test.html\n"
+"             // Opens the file with the default application associated\n"
+"             // with this MimeType\n"
+"\n"
+msgstr ""
+"  kioclient exec सञ्चिका:/home/weis/data/test.html\n"
+"             // सम्बद्धेन पूर्वनिर्धारित-अनुप्रयोगेन सह सञ्चिकां उद्घाटयति\n"
+"             // अस्मिन् MimeType इत्यनेन सह\n"
+"\n"
+
+#: kioclient.cpp:145
+#, kde-format
+msgid ""
+"  kioclient exec ftp://localhost/\n"
+"             // Opens URL with the default handler for ftp:// scheme\n"
+"\n"
+msgstr ""
+"  kioclient exec ftp://स्थानीयमेजबान/\n"
+"             // ftp:// योजनायाः पूर्वनिर्धारित-हन्डलर-सहितं URL उद्घाटयति\n"
+"\n"
+
+#: kioclient.cpp:149
+#, kde-format
+msgid ""
+"  kioclient exec file:/root/Desktop/emacs.desktop\n"
+"             // Starts emacs\n"
+"\n"
+msgstr ""
+"  kioclient exec सञ्चिका:/मूल/डेस्कटॉप/emacs.desktop\n"
+"             // emacs आरभते\n"
+"\n"
+
+#: kioclient.cpp:153
+#, kde-format
+msgid ""
+"  kioclient exec .\n"
+"             // Opens the current directory in the default\n"
+"             // file manager. Very convenient.\n"
+"\n"
+msgstr ""
+"  kioclient exec .\n"
+"             // पूर्वनिर्धारितरूपेण वर्तमाननिर्देशिकां उद्घाटयति\n"
+"             // सञ्चिकाप्रबन्धकः। अतीव सुविधाजनकम्।\n"
+"\n"
+
+#: kioclient.cpp:172
+#, kde-format
+msgid "KIO Client"
+msgstr "KIO Client"
+
+#: kioclient.cpp:173
+#, kde-format
+msgid "Command-line tool for network-transparent operations"
+msgstr "जाल-पारदर्शक-सञ्चालनानां कृते आदेश-पङ्क्ति-उपकरणम्"
+
+#: kioclient.cpp:180
+#, kde-format
+msgid "Use message boxes and other native notifications"
+msgstr "सन्देशपेटिकाः अन्ये च देशीसूचनाः उपयुज्यताम्"
+
+#: kioclient.cpp:183
+#, kde-format
+msgid ""
+"Non-interactive use: no message boxes. If you don't want a graphical "
+"connection, use --platform offscreen"
+msgstr ""
+"अ-अन्तरक्रियाशीलः उपयोगः : सन्देशपेटिकाः नास्ति । यदि भवान् चित्रात्मकं संयोजनं न इच्छति "
+"तर्हि --platform offscreen इत्यस्य उपयोगं कुर्वन्तु"
+
+#: kioclient.cpp:187
+#, kde-format
+msgid "Overwrite destination if it exists (for copy and move)"
+msgstr "गन्तव्यं यदि अस्ति तर्हि अधिलेखयन्तु (प्रतिलिपिं चालयितुं च)"
+
+#: kioclient.cpp:191
+#, kde-format
+msgid "file or URL"
+msgstr "सञ्चिका अथवा URL"
+
+#: kioclient.cpp:191 kioclient.cpp:193 kioclient.cpp:196 kioclient.cpp:201
+#, kde-format
+msgid "urls..."
+msgstr "urls..."
+
+#: kioclient.cpp:193 kioclient.cpp:196
+#, kde-format
+msgid "Source URL or URLs"
+msgstr "स्रोतः URL अथवा URLs"
+
+#: kioclient.cpp:194 kioclient.cpp:197
+#, kde-format
+msgid "Destination URL"
+msgstr "गन्तव्यस्थानस्य URL"
+
+#: kioclient.cpp:194 kioclient.cpp:197
+#, kde-format
+msgid "url"
+msgstr "url"
+
+#: kioclient.cpp:199
+#, kde-format
+msgid "Show available commands"
+msgstr "उपलब्धानि आदेशानि दर्शयन्तु"
+
+#: kioclient.cpp:200
+#, kde-format
+msgid "Command (see --commands)"
+msgstr "आदेशः (द्रष्टव्यम् --आदेशाः)"
+
+#: kioclient.cpp:200
+#, kde-format
+msgid "command"
+msgstr "आदेश"
+
+#: kioclient.cpp:201
+#, kde-format
+msgid "Arguments for command"
+msgstr "आज्ञार्थं तर्काः"
+
+#: kioclient.cpp:225
+#, kde-format
+msgctxt "@info:shell"
+msgid "%1: Syntax error, not enough arguments\n"
+msgstr "%1: वाक्यविन्यासदोषः, पर्याप्ताः तर्काः नास्ति\n"
+
+#: kioclient.cpp:229
+#, kde-format
+msgctxt "@info:shell"
+msgid "%1: Syntax error, too many arguments\n"
+msgstr "%1: वाक्यविन्यासदोषः, अत्यधिकाः तर्काः\n"
+
+#: kioclient.cpp:443
+#, kde-format
+msgid "Destination where to download the files"
+msgstr "गन्तव्यं यत्र सञ्चिकाः अवतरणं कर्तव्यम्"
+
+#: kioclient.cpp:485
+#, kde-format
+msgctxt "@info:shell"
+msgid "%1: Syntax error, unknown command '%2'\n"
+msgstr "%1: वाक्यविन्यासदोषः, अज्ञातः आदेशः '%2' ।\n"
+
+#: kioclient.cpp:501
+#, kde-format
+msgctxt "@info:shell"
+msgid "%1: %2\n"
+msgstr "%1: %2\n"

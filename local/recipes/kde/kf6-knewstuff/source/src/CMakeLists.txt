@@ -3,10 +3,10 @@
 
 add_subdirectory(core)
 
-add_subdirectory(qtquick)
-add_subdirectory(tools)
+# add_subdirectory(qtquick) # disabled for Redox core-only build
+# add_subdirectory(tools) # disabled for Redox core-only build
 
-add_subdirectory(widgets)
+# add_subdirectory(widgets) # disabled for Redox core-only build
 ecm_qt_install_logging_categories(
     EXPORT KNEWSTUFF
     FILE knewstuff.categories

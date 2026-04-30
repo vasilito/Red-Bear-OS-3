@@ -1,5 +1,5 @@
 diff --git a/src/header/ifaddrs/mod.rs b/src/header/ifaddrs/mod.rs
-index bddb69b8..598beba3 100644
+index bddb69b..e77a69c 100644
 --- a/src/header/ifaddrs/mod.rs
 +++ b/src/header/ifaddrs/mod.rs
 @@ -3,7 +3,13 @@
@@ -101,7 +101,7 @@ index bddb69b8..598beba3 100644
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn freeifaddrs(mut ifa: *mut ifaddrs) {
      while !ifa.is_null() {
-@@ -38,7 +106,31 @@ pub unsafe extern "C" fn freeifaddrs(mut ifa: *mut ifaddrs) {
+@@ -38,7 +121,31 @@ pub unsafe extern "C" fn freeifaddrs(mut ifa: *mut ifaddrs) {
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn getifaddrs(ifap: *mut *mut ifaddrs) -> c_int {
@@ -137,10 +137,19 @@ index bddb69b8..598beba3 100644
 +    0
  }
 diff --git a/src/header/net_if/mod.rs b/src/header/net_if/mod.rs
-index edbfedec..bd07e2c9 100644
+index edbfede..9ae1b02 100644
 --- a/src/header/net_if/mod.rs
 +++ b/src/header/net_if/mod.rs
-@@ -21,21 +21,51 @@ pub struct if_nameindex {
+@@ -4,6 +4,8 @@
+ 
+ use core::ptr::null;
+ 
++extern crate alloc;
++
+ use crate::{
+     c_str::CStr,
+     platform::{
+@@ -21,15 +23,56 @@ pub struct if_nameindex {
      if_name: *const c_char,
  }
  
@@ -157,8 +166,8 @@ index edbfedec..bd07e2c9 100644
  pub const IF_NAMESIZE: usize = 16;
  
 -const IF_STUB_INTERFACE: *const c_char = (c"stub").as_ptr();
-+pub(crate) fn interface_entries() -> [InterfaceEntry; 2] {
-+    [
++pub(crate) fn interface_entries() -> alloc::vec::Vec<InterfaceEntry> {
++    alloc::vec![
 +        InterfaceEntry {
 +            index: 1,
 +            name: c"loopback".into(),
@@ -170,6 +179,13 @@ index edbfedec..bd07e2c9 100644
 +            index: 2,
 +            name: c"eth0".into(),
 +            flags: (IFF_UP | IFF_RUNNING | IFF_BROADCAST | IFF_MULTICAST) as c_uint,
++            addr: Some([192, 168, 1, 100]),
++            netmask: Some([255, 255, 255, 0]),
++        },
++        InterfaceEntry {
++            index: 3,
++            name: c"wlan0".into(),
++            flags: (IFF_UP | IFF_BROADCAST | IFF_MULTICAST) as c_uint,
 +            addr: None,
 +            netmask: None,
 +        },
@@ -177,18 +193,10 @@ index edbfedec..bd07e2c9 100644
 +}
  
 -const INTERFACES: &[if_nameindex] = &[
--    if_nameindex {
--        if_index: 1,
++const INTERFACES: [if_nameindex; 4] = [
+     if_nameindex {
+         if_index: 1,
 -        if_name: IF_STUB_INTERFACE,
--    },
--    if_nameindex {
--        if_index: 0,
--        if_name: null::<c_char>(),
--    },
--];
-+const INTERFACES: [if_nameindex; 3] = [
-+    if_nameindex {
-+        if_index: 1,
 +        if_name: (c"loopback").as_ptr(),
 +    },
 +    if_nameindex {
@@ -196,14 +204,12 @@ index edbfedec..bd07e2c9 100644
 +        if_name: (c"eth0").as_ptr(),
 +    },
 +    if_nameindex {
-+        if_index: 0,
-+        if_name: null::<c_char>(),
-+    },
-+];
- 
- /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/if_freenameindex.html>.
- ///
-@@ -52,8 +85,21 @@ pub unsafe extern "C" fn if_freenameindex(s: *mut if_nameindex) {}
++        if_index: 3,
++        if_name: (c"wlan0").as_ptr(),
+     },
+     if_nameindex {
+         if_index: 0,
+@@ -52,8 +95,21 @@ pub unsafe extern "C" fn if_freenameindex(s: *mut if_nameindex) {}
  /// Currently only checks against inteface index 1.
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn if_indextoname(idx: c_uint, buf: *mut c_char) -> *const c_char {
@@ -227,8 +233,7 @@ index edbfedec..bd07e2c9 100644
      }
      ERRNO.set(ENXIO);
      null::<c_char>()
-@@ -78,9 +136,12 @@ pub unsafe extern "C" fn if_nametoindex(name: *const c_char) -> c_uint {
-     if name.is_null() {
+@@ -80,8 +136,11 @@ pub unsafe extern "C" fn if_nametoindex(name: *const c_char) -> c_uint {
          return 0;
      }
      let name = unsafe { CStr::from_ptr(name).to_str().unwrap_or("") };
@@ -242,60 +247,3 @@ index edbfedec..bd07e2c9 100644
      }
      0
  }
-diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
---- a/tests/Makefile.tests.mk
-+++ b/tests/Makefile.tests.mk
-@@ -63,6 +63,7 @@ VARIED_NAMES=\
-	features \
-	fnmatch \
-	glob \
-+	ifaddrs/getifaddrs \
-	iso646 \
-	libgen \
-	locale/duplocale \
-diff --git a/tests/ifaddrs/getifaddrs.c b/tests/ifaddrs/getifaddrs.c
-new file mode 100644
---- /dev/null
-+++ b/tests/ifaddrs/getifaddrs.c
-@@ -0,0 +1,41 @@
-+#include <assert.h>
-+#include <ifaddrs.h>
-+#include <net/if.h>
-+#include <stdio.h>
-+#include <string.h>
-+
-+int main(void) {
-+    struct ifaddrs *list = NULL;
-+    struct ifaddrs *it;
-+    const struct if_nameindex *names;
-+    char name[IF_NAMESIZE] = {0};
-+    int saw_loopback = 0;
-+    int saw_eth0 = 0;
-+
-+    assert(getifaddrs(&list) == 0);
-+    for (it = list; it != NULL; it = it->ifa_next) {
-+        assert(it->ifa_name != NULL);
-+        if (strcmp(it->ifa_name, "loopback") == 0) {
-+            saw_loopback = 1;
-+            assert((it->ifa_flags & IFF_LOOPBACK) != 0);
-+        } else if (strcmp(it->ifa_name, "eth0") == 0) {
-+            saw_eth0 = 1;
-+            assert(if_nametoindex("eth0") == 2);
-+            assert(if_indextoname(2, name) == name);
-+            assert(strcmp(name, "eth0") == 0);
-+        }
-+    }
-+
-+    names = if_nameindex();
-+    assert(names != NULL);
-+    assert(names[0].if_index == 1 && strcmp(names[0].if_name, "loopback") == 0);
-+    assert(names[1].if_index == 2 && strcmp(names[1].if_name, "eth0") == 0);
-+    assert(names[2].if_index == 0 && names[2].if_name == NULL);
-+
-+    assert(saw_loopback != 0);
-+    assert(saw_eth0 != 0);
-+    if_freenameindex((struct if_nameindex *)names);
-+    freeifaddrs(list);
-+    puts("getifaddrs ok");
-+    return 0;
-+}

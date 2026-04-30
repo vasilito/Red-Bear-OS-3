@@ -9,10 +9,10 @@ git -C "${COOKBOOK_SOURCE}" archive --format=tar HEAD | tar -xf -
 rsync -av "${COOKBOOK_SOURCE}/openlibm/" ./openlibm/
 
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/redox.patch"
-patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-eventfd.patch"
+patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-eventfd-mod.patch"
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-signalfd.patch"
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-signalfd-header.patch"
-patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-timerfd.patch"
+patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-timerfd-relative.patch"
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-waitid.patch"
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-semaphore-fixes.patch"
 patch -N -p1 < "${COOKBOOK_ROOT}/local/patches/relibc/P3-socket-cred.patch"

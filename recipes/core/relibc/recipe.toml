@@ -5,7 +5,7 @@ patches = [
     "../../../local/patches/relibc/P0-strtold-cpp-linkage-and-compat.patch",
     "../../../local/patches/relibc/P3-signalfd.patch",
     "../../../local/patches/relibc/P3-signalfd-header.patch",
-    "../../../local/patches/relibc/P3-timerfd.patch",
+    "../../../local/patches/relibc/P3-timerfd-relative.patch",
 
     "../../../local/patches/relibc/P3-waitid.patch",
     "../../../local/patches/relibc/P3-semaphore-fixes.patch",
@@ -14,6 +14,7 @@ patches = [
     "../../../local/patches/relibc/P3-open-memstream.patch",
     "../../../local/patches/relibc/P3-ifaddrs-net_if.patch",
     "../../../local/patches/relibc/P3-fd-event-tests.patch",
+    "../../../local/patches/relibc/P3-fcntl-dupfd-cloexec.patch",
 
     "../../../local/patches/relibc/P3-netdb-lookup-retry-fix.patch",
     "../../../local/patches/relibc/P3-exec-root-bypass.patch",
@@ -31,7 +32,15 @@ patches = [
     "../../../local/patches/relibc/P3-inet6-pton-ntop.patch",
     "../../../local/patches/relibc/P3-tcp-sockopt-forward.patch",
     "../../../local/patches/relibc/P3-dns-aaaa-getaddrinfo-ipv6.patch",
+    "../../../local/patches/relibc/P3-dns-resolver-hardening.patch",
     "../../../local/patches/relibc/P3-getrlimit-getdtablesize.patch",
+    "../../../local/patches/relibc/P3-in6-pktinfo.patch",
+    "../../../local/patches/relibc/P3-header-mod-spawn-threads.patch",
+    "../../../local/patches/relibc/P3-spawn.patch",
+    "../../../local/patches/relibc/P3-threads.patch",
+    "../../../local/patches/relibc/P3-sysv-ipc.patch",
+    "../../../local/patches/relibc/P3-sysv-sem-impl.patch",
+    "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
 ]
 
 [build]

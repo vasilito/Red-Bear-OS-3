@@ -1,6 +1,6 @@
 add_subdirectory(core)
 if (TARGET Qt6::Qml)
-#    add_subdirectory(qml)
+##    add_subdirectory(qml)
 endif()
 
 ecm_qt_install_logging_categories(

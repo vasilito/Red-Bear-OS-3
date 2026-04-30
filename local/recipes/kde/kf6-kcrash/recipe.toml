@@ -49,6 +49,9 @@ QString glRenderer()\
     return QString();\
 }' "${KCRASH_SRC}"
 
+# Stub out setgroups() call - Redox kernel lacks credential syscalls
+sed -i 's/setgroups(0, nullptr);/\/\/ setgroups not available on Redox/' "${KCRASH_SRC}"
+
 if ! grep -q "<grp.h>" "${COOKBOOK_SOURCE}/src/kcrash.cpp"; then
     printf "%s\n" "#include <grp.h>" "#include <sys/resource.h>" "#include <sys/wait.h>" > /tmp/wait_h.txt
     sed -i "\\/<sys.resource.h>/{

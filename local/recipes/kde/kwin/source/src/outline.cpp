@@ -18,13 +18,11 @@
 #include <KConfigGroup>
 // Qt
 #include <QDebug>
-#if KWIN_BUILD_QTQUICK
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QStandardPaths>
-#endif
 
 namespace KWin
 {
@@ -143,10 +141,8 @@ OutlineVisual::~OutlineVisual()
 
 CompositedOutlineVisual::CompositedOutlineVisual(Outline *outline)
     : OutlineVisual(outline)
-#if KWIN_BUILD_QTQUICK
     , m_qmlContext()
     , m_qmlComponent()
-#endif
     , m_mainItem()
 {
 }
@@ -157,17 +153,14 @@ CompositedOutlineVisual::~CompositedOutlineVisual()
 
 void CompositedOutlineVisual::hide()
 {
-#if KWIN_BUILD_QTQUICK
     if (QQuickWindow *w = qobject_cast<QQuickWindow *>(m_mainItem.get())) {
         w->hide();
         w->destroy();
     }
-#endif
 }
 
 void CompositedOutlineVisual::show()
 {
-#if KWIN_BUILD_QTQUICK
     if (!m_qmlContext) {
         m_qmlContext = std::make_unique<QQmlContext>(Scripting::self()->qmlEngine());
         m_qmlContext->setContextProperty(QStringLiteral("outline"), m_outline);
@@ -190,7 +183,6 @@ void CompositedOutlineVisual::show()
             w->setProperty("__kwin_outline", true);
         }
     }
-#endif
 }
 
 } // namespace

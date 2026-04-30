@@ -137,8 +137,6 @@ make export-toolchain TARGET=x86_64-unknown-redox \
   TOOLCHAIN_EXPORT_DIR=/opt/redbear/toolchains/x86_64-unknown-redox
 ```
 
-For the full layout and rationale, see `local/docs/EXTERNAL-TOOLCHAIN.md`.
-
 ### Build with Specific Config
 
 ```bash

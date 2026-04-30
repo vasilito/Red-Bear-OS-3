@@ -18,12 +18,12 @@ set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 include(KDEInstallDirs)
 include(KDECMakeSettings)
 
-include(ECMQmlModule)
+# include(ECMQmlModule) # disabled for Redox core-only build
 include(ECMQtDeclareLoggingCategory)
 include(KDEFrameworkCompilerSettings NO_POLICY_SCOPE)
 
 set(REQUIRED_QT_VERSION 6.6.0)
-find_package(Qt6 ${REQUIRED_QT_VERSION} NO_MODULE REQUIRED COMPONENTS Gui Widgets Xml Qml Quick QuickWidgets)
+find_package(Qt6 ${REQUIRED_QT_VERSION} NO_MODULE REQUIRED COMPONENTS Gui Xml)
 find_package(KF6Archive ${KF_DEP_VERSION} REQUIRED)
 find_package(KF6Config ${KF_DEP_VERSION} REQUIRED)
 find_package(KF6CoreAddons ${KF_DEP_VERSION} REQUIRED)
@@ -40,13 +40,13 @@ include(KDEClangFormat)
 include(KDEGitCommitHooks)
 include(CMakeDependentOption)
 
-find_package(KF6Attica ${KF_DEP_VERSION} CONFIG REQUIRED)
+# find_package(KF6Attica disabled - KF6Attica not yet available)
 set_package_properties(KF6Attica PROPERTIES DESCRIPTION "A Qt library that implements the Open Collaboration Services API"
                        PURPOSE "Support for Get Hot New Stuff in KNewStuff"
                        URL "https://commits.kde.org/attica"
                        TYPE REQUIRED
                       )
-find_package(KF6Kirigami2 2.12.0)
+# find_package(KF6Kirigami2 disabled for Redox core-only build)
 set_package_properties(KF6Kirigami2 PROPERTIES
     DESCRIPTION "KDE's lightweight user interface framework for mobile and convergent applications"
     URL "https://techbase.kde.org/Kirigami"
@@ -86,7 +86,7 @@ ecm_set_disabled_deprecation_versions(
     KF 6.8.0
 )
 
-ki18n_install(po)
+#ki18n_install(po)
 add_subdirectory(src)
 if (BUILD_TESTING)
     add_subdirectory(autotests)

@@ -154,7 +154,7 @@ Plus: QML debug plugins, QtQuick/QML modules staged.
 
 | Module | Status | Blocker | Re-enable Path |
 |--------|--------|---------|----------------|
-| QtNetwork | ❌ Disabled | relibc networking runtime semantics still incomplete (DNS resolver, IPv6 multicast) | Validate QtNetwork against the updated relibc networking surface |
+| QtNetwork | ✅ Re-enabled (2026-04-29) | DNS resolver hardened: use-after-free fix, FD leak fix, transaction ID validation, RCODE/TC handling | Recipe updated: `-DFEATURE_network=ON`, network subdirectory restored |
 | QtSql | ❌ Disabled | User-agreed scope exclusion | Add sqlite/odbc recipe → enable QtSql |
 | QtPrintSupport | ❌ Disabled | User-agreed scope exclusion, no printing subsystem on Redox | Port cups/filters → enable QtPrintSupport |
 

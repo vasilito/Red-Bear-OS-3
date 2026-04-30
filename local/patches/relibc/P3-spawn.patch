@@ -1,0 +1,132 @@
+diff --git a/src/header/spawn/cbindgen.toml b/src/header/spawn/cbindgen.toml
+new file mode 100644
+index 0000000..1db55cd
+--- /dev/null
++++ b/src/header/spawn/cbindgen.toml
+@@ -0,0 +1,15 @@
++sys_includes = ["stddef.h", "sys/types.h", "sched.h", "signal.h"]
++include_guard = "_RELIBC_SPAWN_H"
++language = "C"
++style = "Type"
++no_includes = true
++cpp_compat = true
++
++[export]
++include = [
++  "posix_spawnattr_t",
++  "posix_spawn_file_actions_t",
++]
++
++[enum]
++prefix_with_name = true
+diff --git a/src/header/spawn/mod.rs b/src/header/spawn/mod.rs
+new file mode 100644
+index 0000000..84ce717
+--- /dev/null
++++ b/src/header/spawn/mod.rs
+@@ -0,0 +1,105 @@
++//! `spawn.h` implementation. See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/spawn.h.html>.
++
++use crate::{
++    error::{Errno, ResultExt},
++    header::{
++        errno::EINVAL,
++        unistd::{execve, fork, _exit},
++    },
++    platform::{self, types::{c_char, c_int, c_short, pid_t}},
++};
++
++pub const POSIX_SPAWN_RESETIDS: c_int = 0x01;
++pub const POSIX_SPAWN_SETPGROUP: c_int = 0x02;
++pub const POSIX_SPAWN_SETSCHEDPARAM: c_int = 0x04;
++pub const POSIX_SPAWN_SETSCHEDULER: c_int = 0x08;
++pub const POSIX_SPAWN_SETSIGDEF: c_int = 0x10;
++pub const POSIX_SPAWN_SETSIGMASK: c_int = 0x20;
++pub const POSIX_SPAWN_SETSID: c_int = 0x80;
++
++#[repr(C)]
++pub struct posix_spawn_file_actions_t {
++    _opaque: [u8; 128],
++}
++
++#[repr(C)]
++pub struct posix_spawnattr_t {
++    pub flags: c_short,
++    pub pgroup: pid_t,
++    _reserved: [u64; 8],
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_init(
++    file_actions: *mut posix_spawn_file_actions_t,
++) -> c_int {
++    if file_actions.is_null() {
++        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
++    }
++    unsafe { core::ptr::write_bytes(file_actions, 0, 1) };
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_destroy(
++    _file_actions: *mut posix_spawn_file_actions_t,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_addopen(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int, _path: *const c_char, _oflag: c_int, _mode: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_addclose(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_adddup2(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int, _newfildes: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnattr_init(attr: *mut posix_spawnattr_t) -> c_int {
++    if attr.is_null() { return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno(); }
++    unsafe { core::ptr::write_bytes(attr, 0, 1) };
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnattr_destroy(_attr: *mut posix_spawnattr_t) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnp(
++    pid: *mut pid_t, file: *const c_char,
++    file_actions: *const posix_spawn_file_actions_t,
++    attrp: *const posix_spawnattr_t,
++    argv: *const *mut c_char, envp: *const *mut c_char,
++) -> c_int {
++    unsafe { posix_spawn(pid, file, file_actions, attrp, argv, envp) }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn(
++    pid: *mut pid_t, file: *const c_char,
++    _file_actions: *const posix_spawn_file_actions_t,
++    _attrp: *const posix_spawnattr_t,
++    argv: *const *mut c_char, envp: *const *mut c_char,
++) -> c_int {
++    if pid.is_null() || file.is_null() || argv.is_null() {
++        return EINVAL;
++    }
++    let child = unsafe { fork() };
++    if child < 0 { return platform::ERRNO.get(); }
++    if child == 0 {
++        unsafe { execve(file, argv, envp); }
++        _exit(127);
++    }
++    unsafe { *pid = child };
++    0
++}
++

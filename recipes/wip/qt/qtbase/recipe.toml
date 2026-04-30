@@ -94,6 +94,16 @@ if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
             cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_USR_INCLUDE}/${header}"
         fi
     done
+    for header in arpa/inet.h net/if.h netdb.h netinet/in.h sys/ioctl.h sys/socket.h; do
+        if [ -f "${RELIBC_STAGE_INCLUDE}/${header}" ] && [ -d "${TOOLCHAIN_TARGET_INCLUDE}" ]; then
+            mkdir -p "${TOOLCHAIN_TARGET_INCLUDE}/$(dirname "${header}")"
+            cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_INCLUDE}/${header}"
+        fi
+        if [ -f "${RELIBC_STAGE_INCLUDE}/${header}" ] && [ -d "${TOOLCHAIN_TARGET_USR_INCLUDE}" ]; then
+            mkdir -p "${TOOLCHAIN_TARGET_USR_INCLUDE}/$(dirname "${header}")"
+            cp -f "${RELIBC_STAGE_INCLUDE}/${header}" "${TOOLCHAIN_TARGET_USR_INCLUDE}/${header}"
+        fi
+    done
     for header_path in "${TOOLCHAIN_TARGET_INCLUDE}/elf.h" "${TOOLCHAIN_TARGET_USR_INCLUDE}/elf.h"; do
         if [ -f "$header_path" ]; then
             sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "$header_path"
@@ -168,7 +178,7 @@ if [ -d "${HOST_BUILD}" ] && { [ ! -f "${HOST_STAMP}" ] || [ "$(cat "${HOST_STAM
     rm -rf "${HOST_BUILD}"
     rm -rf "${HOST_QTBASE_BUILD}"
 fi
-if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
+if [ ! -f "${HOST_BUILD}/libexec/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
     echo "=== Building Qt host tools ==="
     mkdir -p "${HOST_BUILD}"
     rm -rf "${HOST_QTBASE_BUILD}"
@@ -191,7 +201,7 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
         -DFEATURE_gui=ON \
         -DFEATURE_widgets=OFF \
         -DFEATURE_opengl=OFF \
-    -DFEATURE_network=OFF \
+    -DFEATURE_network=ON \
         -DFEATURE_dbus=ON \
     -DFEATURE_openssl=OFF \
     -DFEATURE_sql=OFF \
@@ -200,14 +210,20 @@ if [ ! -f "${HOST_BUILD}/bin/moc" ] || [ ! -f "${HOST_STAMP}" ]; then
         -DFEATURE_wayland=ON \
         -DFEATURE_qtwaylandscanner=ON \
         -Wno-dev
-    env -i \
-        HOME="${HOME}" \
-        PATH="${HOST_PATH}" \
-        cmake --build "${HOST_QTBASE_BUILD}" -j"${COOKBOOK_MAKE_JOBS}"
-    env -i \
-        HOME="${HOME}" \
-        PATH="${HOST_PATH}" \
-        cmake --install "${HOST_QTBASE_BUILD}" --prefix "${HOST_BUILD}"
+    (
+        cd "${HOST_QTBASE_BUILD}"
+        env -i \
+            HOME="${HOME}" \
+            PATH="${HOST_PATH}" \
+            cmake --build . -j"${COOKBOOK_MAKE_JOBS}"
+    )
+    (
+        cd "${HOST_QTBASE_BUILD}"
+        env -i \
+            HOME="${HOME}" \
+            PATH="${HOST_PATH}" \
+            cmake --install . --prefix "${HOST_BUILD}"
+    )
     printf '%s\n' "${HOST_PROFILE}" > "${HOST_STAMP}"
 fi
 
@@ -271,14 +287,106 @@ found_linux && /^)$/ {
 ' "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt" > "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp"
 mv "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt"
 
-# Disable QtNetwork — relibc now provides a minimal resolv.h and bounded interface view,
-# but broader networking/runtime compatibility (for example `in6_pktinfo`, richer interface
-# semantics, and full downstream validation) is still incomplete.
-sed -i 's/^    add_subdirectory(network)/    # add_subdirectory(network) # disabled for Redox/' \
+# Enable QtNetwork — relibc DNS resolver hardened (2026-04-29: use-after-free fix, FD leak fix,
+# transaction ID validation, RCODE/TC handling, typed error mapping).
+# QtNetwork was previously disabled. Now re-enabled for full KDE desktop path.
+sed -i 's/^# add_subdirectory(network)/    add_subdirectory(network)/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
-# Disable TUIO touch plugin — depends on QtNetwork which is disabled
-sed -i 's/^    add_subdirectory(tuiotouch)/    # add_subdirectory(tuiotouch) # disabled for Redox (needs Network)/' \
+# Also re-enable TUIO touch plugin which depends on QtNetwork
+sed -i 's/^# add_subdirectory(tuiotouch)/    add_subdirectory(tuiotouch)/' \
     "${COOKBOOK_SOURCE}/src/plugins/generic/CMakeLists.txt"
+python - <<'PY'
+import os
+from pathlib import Path
+
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/network/socket/qnet_unix_p.h"
+text = path.read_text()
+text = text.replace(
+    '''#include <sys/socket.h>
+''',
+    '''#include <sys/socket.h>
+#include <sys/ioctl.h>
+''',
+    1,
+)
+old = '''#if defined(Q_OS_VXWORKS)
+#  include <hostLib.h>
+#else
+#  include <resolv.h>
+#endif
+'''
+new = '''#if defined(Q_OS_VXWORKS)
+#  include <hostLib.h>
+#elif !defined(Q_OS_REDOX)
+#  include <resolv.h>
+#endif
+'''
+text = text.replace(old, new)
+path.write_text(text)
+PY
+python - <<'PY'
+import os
+from pathlib import Path
+
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/network/socket/qnativesocketengine_unix.cpp"
+text = path.read_text()
+text = text.replace(
+    '''    case QNativeSocketEngine::ReceiveHopLimit:
+        if (socketProtocol == QAbstractSocket::IPv6Protocol || socketProtocol == QAbstractSocket::AnyIPProtocol) {
+            level = IPPROTO_IPV6;
+            n = IPV6_RECVHOPLIMIT;
+        } else if (socketProtocol == QAbstractSocket::IPv4Protocol) {
+''',
+    '''    case QNativeSocketEngine::ReceiveHopLimit:
+        if (socketProtocol == QAbstractSocket::IPv6Protocol || socketProtocol == QAbstractSocket::AnyIPProtocol) {
+            level = IPPROTO_IPV6;
+#ifdef IPV6_RECVHOPLIMIT
+            n = IPV6_RECVHOPLIMIT;
+#endif
+        } else if (socketProtocol == QAbstractSocket::IPv4Protocol) {
+''',
+    1,
+)
+text = text.replace(
+    '''            if (cmsgptr->cmsg_len == CMSG_LEN(sizeof(int))
+                    && ((cmsgptr->cmsg_level == IPPROTO_IPV6 && cmsgptr->cmsg_type == IPV6_HOPLIMIT)
+                        || (cmsgptr->cmsg_level == IPPROTO_IP && cmsgptr->cmsg_type == IP_TTL))) {
+''',
+    '''            if (cmsgptr->cmsg_len == CMSG_LEN(sizeof(int))
+#ifdef IPV6_HOPLIMIT
+                    && ((cmsgptr->cmsg_level == IPPROTO_IPV6 && cmsgptr->cmsg_type == IPV6_HOPLIMIT)
+                        || (cmsgptr->cmsg_level == IPPROTO_IP && cmsgptr->cmsg_type == IP_TTL))) {
+#else
+                    && (cmsgptr->cmsg_level == IPPROTO_IP && cmsgptr->cmsg_type == IP_TTL)) {
+#endif
+''',
+    1,
+)
+text = text.replace(
+    '''        if (header.hopLimit != -1) {
+            msg.msg_controllen += CMSG_SPACE(sizeof(int));
+            cmsgptr->cmsg_len = CMSG_LEN(sizeof(int));
+            cmsgptr->cmsg_level = IPPROTO_IPV6;
+            cmsgptr->cmsg_type = IPV6_HOPLIMIT;
+            memcpy(CMSG_DATA(cmsgptr), &header.hopLimit, sizeof(int));
+            cmsgptr = reinterpret_cast<cmsghdr *>(reinterpret_cast<char *>(cmsgptr) + CMSG_SPACE(sizeof(int)));
+        }
+''',
+    '''#ifdef IPV6_HOPLIMIT
+        if (header.hopLimit != -1) {
+            msg.msg_controllen += CMSG_SPACE(sizeof(int));
+            cmsgptr->cmsg_len = CMSG_LEN(sizeof(int));
+            cmsgptr->cmsg_level = IPPROTO_IPV6;
+            cmsgptr->cmsg_type = IPV6_HOPLIMIT;
+            memcpy(CMSG_DATA(cmsgptr), &header.hopLimit, sizeof(int));
+            cmsgptr = reinterpret_cast<cmsghdr *>(reinterpret_cast<char *>(cmsgptr) + CMSG_SPACE(sizeof(int)));
+        }
+#endif
+''',
+    1,
+)
+path.write_text(text)
+PY
 # Disable Wayland shm-emulation-server on Redox.
 # Clean rebuilds still do not expose QSharedMemory::lock/unlock strongly enough for this path,
 # so keep the bounded software compositor path honest until QtCore runtime support is proven.
@@ -520,8 +628,10 @@ cmake "${COOKBOOK_SOURCE}" \
     -DQT_BUILD_EXAMPLES=OFF \
     -DQT_BUILD_TESTS=OFF \
     -DFEATURE_androiddeployqt=OFF \
+    -DFEATURE_glib=OFF \
     -DFEATURE_gui=ON \
     -DFEATURE_widgets=ON \
+    -DFEATURE_networkinterface=OFF \
     -DFEATURE_opengl=ON \
     -DINPUT_opengl=es2 \
     -DFEATURE_qmake=OFF \

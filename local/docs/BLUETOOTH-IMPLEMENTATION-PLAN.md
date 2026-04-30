@@ -99,8 +99,6 @@ one more driver.” The feasible first target is a deliberately small subsystem 
   profile-scoped and evidence-backed
 - `local/docs/PROFILE-MATRIX.md` defines the validation-language model a future Bluetooth path must
   use
-- `local/docs/BLUETOOTH-VALIDATION-RUNBOOK.md` now records the canonical QEMU operator path for the
-  current bounded Battery Level slice
 - `local/docs/INPUT-SCHEME-ENHANCEMENT.md` shows the direction of travel for per-device, hotplug,
   named input sources, which is relevant to later Bluetooth HID support
 - `config/redbear-kde.toml` and related profile wiring already show D-Bus and desktop-session

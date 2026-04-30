@@ -1,0 +1,60 @@
+diff --git a/src/header/threads/cbindgen.toml b/src/header/threads/cbindgen.toml
+new file mode 100644
+index 0000000..3f90606
+--- /dev/null
++++ b/src/header/threads/cbindgen.toml
+@@ -0,0 +1,17 @@
++sys_includes = ["stddef.h", "pthread.h", "time.h"]
++include_guard = "_RELIBC_THREADS_H"
++language = "C"
++style = "Type"
++no_includes = true
++cpp_compat = true
++
++[export]
++include = [
++  "thrd_t",
++  "mtx_t",
++  "cnd_t",
++  "thrd_start_t",
++]
++
++[enum]
++prefix_with_name = true
+diff --git a/src/header/threads/mod.rs b/src/header/threads/mod.rs
+new file mode 100644
+index 0000000..9ab9496
+--- /dev/null
++++ b/src/header/threads/mod.rs
+@@ -0,0 +1,31 @@
++//! `threads.h` implementation — C11 threads type definitions and constants.
++//!
++//! Full C11 threads API (thrd_create, mtx_lock, cnd_wait, etc.) requires
++//! a deeper pthread integration layer; this module provides the type
++//! definitions and constants for C11 header compatibility.
++
++use crate::platform::types::c_int;
++
++pub type thrd_start_t = Option<unsafe extern "C" fn(*mut core::ffi::c_void) -> c_int>;
++
++pub const thrd_success: c_int = 0;
++pub const thrd_nomem: c_int = -1;
++pub const thrd_timedout: c_int = -2;
++pub const thrd_busy: c_int = -3;
++pub const thrd_error: c_int = -4;
++
++pub const mtx_plain: c_int = 0;
++pub const mtx_timed: c_int = 1;
++
++// Opaque types; sizes match relibc's pthread backing types
++// (pthread_t = *mut c_void = 8 bytes, pthread_mutex_t = 12 bytes,
++//  pthread_cond_t = 8 bytes)
++#[repr(C)]
++pub struct thrd_t { _priv: *mut core::ffi::c_void }
++#[repr(C)]
++pub struct mtx_t { _priv: [u8; 12] }
++#[repr(C)]
++pub struct cnd_t { _priv: [u8; 8] }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn thrd_yield() {}

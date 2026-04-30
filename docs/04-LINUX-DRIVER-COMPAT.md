@@ -58,8 +58,7 @@ Concrete repo entry points for that current bounded Wi‑Fi path are:
 - `local/recipes/system/redbear-netctl/` — profile-manager orchestration and post-association handoff
 - `local/recipes/system/redbear-info/` — runtime-reporting surface for Wi‑Fi lifecycle state
 - `local/recipes/system/redbear-hwutils/` — packaged Wi‑Fi validation, capture, and analysis tools
-- `local/docs/WIFI-IMPLEMENTATION-PLAN.md` and `local/docs/WIFI-VALIDATION-RUNBOOK.md` — current
-  architecture and operator validation path
+- `local/docs/WIFI-IMPLEMENTATION-PLAN.md` — current architecture and rollout plan
 
 The validation claim here should also be read narrowly: the repo now has a clean host-side
 `linux-kpi` test suite (93 tests pass), passing comprehensive PCIe transport tests in the

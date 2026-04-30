@@ -263,9 +263,6 @@ Packaged validators (inside target runtime):
 
 ## Related Documents
 
-- `local/docs/WIFI-VALIDATION-RUNBOOK.md` — canonical operator runbook for bare-metal and VFIO validation
-- `local/docs/WIFI-VALIDATION-ISSUE-TEMPLATE.md` — issue template for validation failures
-- `local/docs/WIFICTL-SCHEME-REFERENCE.md` — `/scheme/wifictl` protocol reference
 - `docs/04-LINUX-DRIVER-COMPAT.md` — linux-kpi and redox-driver-sys architecture
 
 ## Summary

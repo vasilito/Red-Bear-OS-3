@@ -50,31 +50,23 @@ option(KWIN_BUILD_KCMS "Enable building of KWin configuration modules." ON)
 option(KWIN_BUILD_NOTIFICATIONS "Enable building of KWin with knotifications support" ON)
 option(KWIN_BUILD_SCREENLOCKER "Enable building of KWin lockscreen functionality" ON)
 option(KWIN_BUILD_TABBOX "Enable building of KWin Tabbox functionality" ON)
-option(KWIN_BUILD_X11 "Enable building X11 common code and Xwayland support" OFF)
-option(KWIN_BUILD_X11_BACKEND "Enable building kwin_x11" OFF)
+option(KWIN_BUILD_X11 "Enable building X11 common code and Xwayland support" ON)
+option(KWIN_BUILD_X11_BACKEND "Enable building kwin_x11" ON)
 option(KWIN_BUILD_GLOBALSHORTCUTS "Enable building of KWin with global shortcuts support" ON)
 option(KWIN_BUILD_RUNNERS "Enable building of KWin with krunner support" ON)
-option(KWIN_BUILD_EFFECTS "Enable building of KWin effect plugins" ON)
-option(BUILD_WITH_QML "Enable QtQuick-powered functionality in KWin" ON)
-
-if (BUILD_WITH_QML)
-    set(KWIN_BUILD_QTQUICK ON)
-else()
-    set(KWIN_BUILD_QTQUICK OFF)
-endif()
 
 find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS
     Concurrent
     Core
+    Core5Compat
+    DBus
+    Quick
+    UiTools
     WaylandClient
     Widgets
+    Sensors
     Svg
- )
-find_package(Qt6DBus ${QT_MIN_VERSION} CONFIG)
-
-if (KWIN_BUILD_QTQUICK)
-    find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS Quick)
-endif()
+)
 
 find_package(Qt6Test ${QT_MIN_VERSION} CONFIG QUIET)
 set_package_properties(Qt6Test PROPERTIES
@@ -98,16 +90,17 @@ find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
     ConfigWidgets
     CoreAddons
     Crash
+    DBusAddons
     GlobalAccel
     GuiAddons
     I18n
     IdleTime
     Package
     Service
+    Svg
     WidgetsAddons
     WindowSystem
- )
-find_package(KF6DBusAddons ${KF6_MIN_VERSION} CONFIG)
+)
 # required frameworks by config modules
 if(KWIN_BUILD_KCMS)
     find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
@@ -193,7 +186,7 @@ find_package(epoxy 1.3)
 set_package_properties(epoxy PROPERTIES
     DESCRIPTION "libepoxy"
     URL "https://github.com/anholt/libepoxy"
-    TYPE OPTIONAL
+    TYPE REQUIRED
     PURPOSE "OpenGL dispatch library"
 )
 
@@ -246,9 +239,7 @@ else()
     set(HAVE_XKBCOMMON_NO_SECURE_GETENV 0)
 endif()
 
-if (KWIN_BUILD_EFFECTS)
-    find_package(Canberra REQUIRED)
-endif()
+find_package(Canberra REQUIRED)
 
 if (KWIN_BUILD_X11)
     pkg_check_modules(XKBX11 IMPORTED_TARGET xkbcommon-x11 REQUIRED)
@@ -332,7 +323,7 @@ find_package(UDev)
 set_package_properties(UDev PROPERTIES
     URL "https://www.freedesktop.org/wiki/Software/systemd/"
     DESCRIPTION "Linux device library."
-    TYPE OPTIONAL
+    TYPE REQUIRED
     PURPOSE "Required for input handling on Wayland."
 )
 
@@ -352,7 +343,7 @@ else()
     set(HAVE_GBM_BO_CREATE_WITH_MODIFIERS2 0)
 endif()
 
-pkg_check_modules(Libxcvt IMPORTED_TARGET libxcvt>=0.1.1)
+pkg_check_modules(Libxcvt IMPORTED_TARGET libxcvt>=0.1.1 REQUIRED)
 add_feature_info(Libxcvt Libxcvt_FOUND "Required for generating modes in the drm backend")
 
 add_feature_info("XInput" X11_Xi_FOUND "Required for poll-free mouse cursor updates")
@@ -362,7 +353,7 @@ find_package(lcms2)
 set_package_properties(lcms2 PROPERTIES
     DESCRIPTION "Small-footprint color management engine"
     URL "http://www.littlecms.com"
-    TYPE OPTIONAL
+    TYPE REQUIRED
     PURPOSE "Required for the color management system"
 )
 
@@ -370,12 +361,12 @@ find_package(Freetype)
 set_package_properties(Freetype PROPERTIES
     DESCRIPTION "A font rendering engine"
     URL "https://www.freetype.org"
-    TYPE OPTIONAL
+    TYPE REQUIRED
     PURPOSE "Needed for KWin's QPA plugin."
 )
 find_package(Fontconfig)
 set_package_properties(Fontconfig PROPERTIES
-    TYPE OPTIONAL
+    TYPE REQUIRED
     PURPOSE "Needed for KWin's QPA plugin."
 )
 
@@ -409,7 +400,7 @@ if(KWIN_BUILD_GLOBALSHORTCUTS)
     find_package(KGlobalAccelD REQUIRED)
 endif()
 
-pkg_check_modules(libdisplayinfo IMPORTED_TARGET libdisplay-info>=0.2.0)
+pkg_check_modules(libdisplayinfo REQUIRED IMPORTED_TARGET libdisplay-info>=0.2.0)
 add_feature_info(libdisplayinfo libdisplayinfo_FOUND "EDID and DisplayID library: https://gitlab.freedesktop.org/emersion/libdisplay-info")
 
 pkg_check_modules(PipeWire IMPORTED_TARGET libpipewire-0.3>=1.0.9)
@@ -427,36 +418,17 @@ if (KWIN_BUILD_SCREENLOCKER)
     )
 endif()
 
-if (KWIN_BUILD_QTQUICK)
-    ecm_find_qmlmodule(QtQuick 2.3)
-    ecm_find_qmlmodule(QtQuick.Controls 2.15)
-    ecm_find_qmlmodule(QtQuick.Layouts 1.3)
-    ecm_find_qmlmodule(QtQuick.Window 2.1)
-    ecm_find_qmlmodule(QtMultimedia 5.0)
-    ecm_find_qmlmodule(org.kde.kquickcontrolsaddons 2.0)
-    ecm_find_qmlmodule(org.kde.plasma.core 2.0)
-    ecm_find_qmlmodule(org.kde.plasma.components 2.0)
-endif()
+ecm_find_qmlmodule(QtQuick 2.3)
+ecm_find_qmlmodule(QtQuick.Controls 2.15)
+ecm_find_qmlmodule(QtQuick.Layouts 1.3)
+ecm_find_qmlmodule(QtQuick.Window 2.1)
+ecm_find_qmlmodule(QtMultimedia 5.0)
+ecm_find_qmlmodule(org.kde.kquickcontrolsaddons 2.0)
+ecm_find_qmlmodule(org.kde.plasma.core 2.0)
+ecm_find_qmlmodule(org.kde.plasma.components 2.0)
 
 cmake_dependent_option(KWIN_BUILD_ACTIVITIES "Enable building of KWin with kactivities support" ON "PlasmaActivities_FOUND" OFF)
 cmake_dependent_option(KWIN_BUILD_EIS "Enable building KWin with libeis support" ON "Libeis-1.0_FOUND" OFF)
-
-# --- Redox fallback targets for deps still using reduced compatibility paths ---
-if(NOT TARGET epoxy::epoxy)
-    add_library(epoxy::epoxy INTERFACE IMPORTED)
-endif()
-if(NOT TARGET lcms2::lcms2)
-    add_library(lcms2::lcms2 INTERFACE IMPORTED)
-endif()
-if(NOT TARGET PkgConfig::Libxcvt)
-    add_library(PkgConfig::Libxcvt INTERFACE IMPORTED)
-endif()
-if(NOT TARGET Qt::GuiPrivate)
-    add_library(Qt::GuiPrivate INTERFACE IMPORTED)
-endif()
-if(NOT TARGET Qt::CorePrivate)
-    add_library(Qt::CorePrivate INTERFACE IMPORTED)
-endif()
 
 include_directories(BEFORE
     ${CMAKE_CURRENT_BINARY_DIR}/src/wayland
@@ -553,7 +525,7 @@ file(GLOB_RECURSE ALL_CLANG_FORMAT_SOURCE_FILES *.cpp *.h)
 kde_clang_format(${ALL_CLANG_FORMAT_SOURCE_FILES})
 kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
 
-feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES)
+feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)
 
 set(CMAKECONFIG_INSTALL_DIR "${KDE_INSTALL_CMAKEPACKAGEDIR}/KWinDBusInterface")
 configure_package_config_file(KWinDBusInterfaceConfig.cmake.in
@@ -571,4 +543,4 @@ if (KWIN_BUILD_X11_BACKEND)
 endif()
 
 
-#ki18n_install(po)
+ki18n_install(po)

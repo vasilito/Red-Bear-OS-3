@@ -15,9 +15,7 @@
 #include "effect/effecthandler.h"
 #include "plugin.h"
 #include "scripting/scriptedeffect.h"
-#if KWIN_BUILD_QTQUICK
 #include "scripting/scriptedquicksceneeffect.h"
-#endif
 #include "scripting/scripting.h"
 #include "utils/common.h"
 // KDE
@@ -132,14 +130,8 @@ bool ScriptedEffectLoader::loadEffect(const KPluginMetaData &effect, LoadEffectF
     const QString api = effect.value(QStringLiteral("X-Plasma-API"));
     if (api == QLatin1String("javascript")) {
         return loadJavascriptEffect(effect);
-#if KWIN_BUILD_QTQUICK
     } else if (api == QLatin1String("declarativescript")) {
         return loadDeclarativeEffect(effect);
-#else
-    } else if (api == QLatin1String("declarativescript")) {
-        qCWarning(KWIN_CORE) << "Declarative scripted effects are disabled because QtQuick support is unavailable:" << name;
-        return false;
-#endif
     } else {
         qCWarning(KWIN_CORE, "Failed to load %s effect: invalid X-Plasma-API field: %s. "
                              "Available options are javascript, and declarativescript", qPrintable(name), qPrintable(api));
@@ -173,10 +165,6 @@ bool ScriptedEffectLoader::loadJavascriptEffect(const KPluginMetaData &effect)
 
 bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata)
 {
-#if !KWIN_BUILD_QTQUICK
-    Q_UNUSED(metadata)
-    return false;
-#else
     const QString name = metadata.pluginId();
     const QString scriptFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation,
                                                       QLatin1String("kwin/effects/") + name + QLatin1String("/contents/ui/main.qml"));
@@ -211,7 +199,6 @@ bool ScriptedEffectLoader::loadDeclarativeEffect(const KPluginMetaData &metadata
     Q_EMIT effectLoaded(effect, name);
     m_loadedEffects << name;
     return true;
-#endif
 }
 
 void ScriptedEffectLoader::queryAndLoadAll()

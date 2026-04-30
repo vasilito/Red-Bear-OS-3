@@ -1,5 +1,6 @@
+diff -uNr wayland-1.24.0/meson.build source/meson.build
 --- clean-wayland/meson.build	2025-07-06 13:11:26.000000000 +0100
-+++ patched-wayland/meson.build	2026-04-28 12:23:06.295526487 +0100
++++ patched-wayland/meson.build	2026-04-29 18:06:17.250269176 +0100
 @@ -80,8 +80,8 @@
  	ffi_dep = dependency('libffi')
  
@@ -11,21 +12,31 @@
  		{ 'header': 'time.h', 'symbol': 'CLOCK_MONOTONIC' },
  	]
  
---- clean-wayland/src/meson.build	2025-07-06 13:11:26.000000000 +0100
-+++ patched-wayland/src/meson.build	2026-04-28 12:23:06.295602980 +0100
-@@ -81,8 +81,7 @@
- endif
+diff -uNr wayland-1.24.0/src/connection.c source/src/connection.c
+--- clean-wayland/src/connection.c	2025-07-06 13:11:26.000000000 +0100
++++ patched-wayland/src/connection.c	2026-04-29 18:06:00.540467363 +0100
+@@ -40,6 +40,17 @@
+ #include <time.h>
+ #include <ffi.h>
  
- if meson.is_cross_build() or not get_option('scanner')
--	scanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
--	wayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
-+wayland_scanner_for_build = find_program('wayland-scanner', native: true)
- else
- 	wayland_scanner_for_build = wayland_scanner
- endif
++#ifndef MSG_NOSIGNAL
++#define MSG_NOSIGNAL 0
++#endif
++#include <stdio.h>
++#include <stdlib.h>
++#ifndef _RELIBC_STDIO_H
++static FILE *open_memstream(char **bufp, size_t *sizep) {
++    *bufp = NULL; *sizep = 0; return NULL;
++}
++#endif
++
+ #include "wayland-util.h"
+ #include "wayland-private.h"
+ #include "wayland-os.h"
+diff -uNr wayland-1.24.0/src/event-loop.c source/src/event-loop.c
 --- clean-wayland/src/event-loop.c	2025-07-06 13:11:26.000000000 +0100
-+++ patched-wayland/src/event-loop.c	2026-04-28 12:24:35.434111143 +0100
-@@ -35,9 +35,56 @@
++++ patched-wayland/src/event-loop.c	2026-04-29 18:05:40.684702870 +0100
+@@ -35,9 +35,58 @@
  #include <sys/socket.h>
  #include <sys/un.h>
  #include <sys/epoll.h>
@@ -51,7 +62,9 @@
 +#define TFD_TIMER_ABSTIME 0x1
 +#endif
 +
++#ifndef _RELIBC_SIGNAL_H
 +struct signalfd_siginfo { uint8_t pad[128]; };
++#endif
 +static int signalfd_impl(int fd, const sigset_t *mask, uintptr_t masksize, int flags) {
 +    int oflag = O_RDWR;
 +    if (flags & SFD_CLOEXEC) oflag |= O_CLOEXEC;
@@ -84,26 +97,22 @@
  #include "timespec-util.h"
  #include "wayland-util.h"
  #include "wayland-private.h"
---- clean-wayland/src/connection.c	2025-07-06 13:11:26.000000000 +0100
-+++ patched-wayland/src/connection.c	2026-04-28 12:23:06.295797924 +0100
-@@ -40,6 +40,15 @@
- #include <time.h>
- #include <ffi.h>
+diff -uNr wayland-1.24.0/src/meson.build source/src/meson.build
+--- clean-wayland/src/meson.build	2025-07-06 13:11:26.000000000 +0100
++++ patched-wayland/src/meson.build	2026-04-29 18:06:30.380113462 +0100
+@@ -81,8 +81,7 @@
+ endif
  
-+#ifndef MSG_NOSIGNAL
-+#define MSG_NOSIGNAL 0
-+#endif
-+#include <stdio.h>
-+#include <stdlib.h>
-+static FILE *open_memstream(char **bufp, size_t *sizep) {
-+    *bufp = NULL; *sizep = 0; return NULL;
-+}
-+
- #include "wayland-util.h"
- #include "wayland-private.h"
- #include "wayland-os.h"
+ if meson.is_cross_build() or not get_option('scanner')
+-	scanner_dep = dependency('wayland-scanner', native: true, version: meson.project_version())
+-	wayland_scanner_for_build = find_program(scanner_dep.get_variable(pkgconfig: 'wayland_scanner'))
++wayland_scanner_for_build = find_program('wayland-scanner', native: true)
+ else
+ 	wayland_scanner_for_build = wayland_scanner
+ endif
+diff -uNr wayland-1.24.0/src/wayland-server.c source/src/wayland-server.c
 --- clean-wayland/src/wayland-server.c	2025-07-06 13:11:26.000000000 +0100
-+++ patched-wayland/src/wayland-server.c	2026-04-28 12:23:06.295982588 +0100
++++ patched-wayland/src/wayland-server.c	2026-04-29 18:06:46.390923573 +0100
 @@ -39,7 +39,24 @@
  #include <dlfcn.h>
  #include <sys/time.h>

@@ -12,23 +12,17 @@
 #include "scripting.h"
 // own
 #include "dbuscall.h"
-#if KWIN_BUILD_QTQUICK
 #include "desktopbackgrounditem.h"
 #include "effect/quickeffect.h"
-#endif
 #include "gesturehandler.h"
 #include "screenedgehandler.h"
-#if KWIN_BUILD_QTQUICK
 #include "scriptedquicksceneeffect.h"
-#endif
 #include "scripting_logging.h"
 #include "scriptingutils.h"
 #include "shortcuthandler.h"
 #include "virtualdesktopmodel.h"
 #include "windowmodel.h"
-#if KWIN_BUILD_QTQUICK
 #include "windowthumbnailitem.h"
-#endif
 #include "workspace_wrapper.h"
 
 #include "core/output.h"
@@ -41,26 +35,26 @@
 #include "workspace.h"
 // KDE
 #include <KConfigGroup>
-#if KWIN_BUILD_QTQUICK
-#include <KDeclarative/KConfigPropertyMap>
-#endif
+#include <KConfigPropertyMap>
 #include <KGlobalAccel>
 #include <KLocalizedContext>
+#include <KLocalizedQmlContext>
 #include <KPackage/PackageLoader>
 // Qt
 #include <QDBusConnection>
 #include <QDBusPendingCallWatcher>
 #include <QDebug>
-#include <QFile>
 #include <QFutureWatcher>
 #include <QMenu>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlExpression>
+#include <QQuickWindow>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QtConcurrentRun>
 
+#include "scriptadaptor.h"
 
 static QRect scriptValueToRect(const QJSValue &value)
 {
@@ -113,6 +107,8 @@ KWin::AbstractScript::AbstractScript(int id, QString scriptName, QString pluginN
         m_pluginName = scriptName;
     }
 
+    new ScriptAdaptor(this);
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/Scripting/Script") + QString::number(scriptId()), this, QDBusConnection::ExportAdaptors);
 }
 
 KWin::AbstractScript::~AbstractScript()
@@ -565,7 +561,6 @@ QAction *KWin::Script::createMenu(const QString &title, const QJSValue &items, Q
     return menu->menuAction();
 }
 
-#if KWIN_BUILD_QTQUICK
 KWin::DeclarativeScript::DeclarativeScript(int id, QString scriptName, QString pluginName, QObject *parent)
     : AbstractScript(id, scriptName, pluginName, parent)
     , m_context(new QQmlContext(Scripting::self()->declarativeScriptSharedContext(), this))
@@ -603,9 +598,8 @@ void KWin::DeclarativeScript::createComponent()
     }
     setRunning(true);
 }
-#endif
 
-KWin::JSEngineGlobalMethodsWrapper::JSEngineGlobalMethodsWrapper(KWin::AbstractScript *parent)
+KWin::JSEngineGlobalMethodsWrapper::JSEngineGlobalMethodsWrapper(KWin::DeclarativeScript *parent)
     : QObject(parent)
     , m_script(parent)
 {
@@ -637,9 +631,7 @@ KWin::Scripting::Scripting(QObject *parent)
     , m_workspaceWrapper(new QtScriptWorkspaceWrapper(this))
 {
     m_qmlEngine->setProperty("_kirigamiTheme", QStringLiteral("KirigamiPlasmaStyle"));
-#if KWIN_BUILD_QTQUICK
-    m_qmlEngine->rootContext()->setContextObject(new KLocalizedContext(m_qmlEngine));
-#endif
+    m_qmlEngine->rootContext()->setContextObject(new KLocalizedQmlContext(m_qmlEngine));
     init();
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/Scripting"), this, QDBusConnection::ExportScriptableContents | QDBusConnection::ExportScriptableInvokables);
     connect(Workspace::self(), &Workspace::configChanged, this, &Scripting::start);
@@ -652,6 +644,8 @@ void KWin::Scripting::init()
     qRegisterMetaType<QList<KWin::Window *>>();
     qRegisterMetaType<QList<KWin::VirtualDesktop *>>();
 
+    qmlRegisterType<DesktopBackgroundItem>("org.kde.kwin", 3, 0, "DesktopBackground");
+    qmlRegisterType<WindowThumbnailItem>("org.kde.kwin", 3, 0, "WindowThumbnail");
     qmlRegisterType<DBusCall>("org.kde.kwin", 3, 0, "DBusCall");
     qmlRegisterType<ScreenEdgeHandler>("org.kde.kwin", 3, 0, "ScreenEdgeHandler");
     qmlRegisterType<ShortcutHandler>("org.kde.kwin", 3, 0, "ShortcutHandler");
@@ -660,22 +654,15 @@ void KWin::Scripting::init()
     qmlRegisterType<WindowModel>("org.kde.kwin", 3, 0, "WindowModel");
     qmlRegisterType<WindowFilterModel>("org.kde.kwin", 3, 0, "WindowFilterModel");
     qmlRegisterType<VirtualDesktopModel>("org.kde.kwin", 3, 0, "VirtualDesktopModel");
-
-#if KWIN_BUILD_QTQUICK
-    qmlRegisterType<DesktopBackgroundItem>("org.kde.kwin", 3, 0, "DesktopBackground");
-    qmlRegisterType<WindowThumbnailItem>("org.kde.kwin", 3, 0, "WindowThumbnail");
     qmlRegisterUncreatableType<KWin::QuickSceneView>("org.kde.kwin", 3, 0, "SceneView", QStringLiteral("Can't instantiate an object of type SceneView"));
     qmlRegisterType<ScriptedQuickSceneEffect>("org.kde.kwin", 3, 0, "SceneEffect");
-#endif
 
     qmlRegisterSingletonType<DeclarativeScriptWorkspaceWrapper>("org.kde.kwin", 3, 0, "Workspace", [](QQmlEngine *qmlEngine, QJSEngine *jsEngine) {
         return new DeclarativeScriptWorkspaceWrapper();
     });
     qmlRegisterSingletonInstance("org.kde.kwin", 3, 0, "Options", options);
 
-#if KWIN_BUILD_QTQUICK
     qmlRegisterAnonymousType<KConfigPropertyMap>("org.kde.kwin", 3);
-#endif
     qmlRegisterAnonymousType<KWin::Output>("org.kde.kwin", 3);
     qmlRegisterAnonymousType<KWin::Window>("org.kde.kwin", 3);
     qmlRegisterAnonymousType<KWin::VirtualDesktop>("org.kde.kwin", 3);
@@ -702,9 +689,7 @@ void KWin::Scripting::start()
         if (it->first) {
             loadScript(it->second.first, it->second.second);
         } else {
-#if KWIN_BUILD_QTQUICK
             loadDeclarativeScript(it->second.first, it->second.second);
-#endif
         }
     }
 
@@ -771,9 +756,7 @@ void KWin::Scripting::slotScriptsQueried()
         if (it->first) {
             loadScript(it->second.first, it->second.second);
         } else {
-#if KWIN_BUILD_QTQUICK
             loadDeclarativeScript(it->second.first, it->second.second);
-#endif
         }
     }
 
@@ -836,7 +819,6 @@ int KWin::Scripting::loadScript(const QString &filePath, const QString &pluginNa
     return id;
 }
 
-#if KWIN_BUILD_QTQUICK
 int KWin::Scripting::loadDeclarativeScript(const QString &filePath, const QString &pluginName)
 {
     QMutexLocker locker(m_scriptsLock.get());
@@ -849,7 +831,6 @@ int KWin::Scripting::loadDeclarativeScript(const QString &filePath, const QStrin
     scripts.append(script);
     return id;
 }
-#endif
 
 KWin::Scripting::~Scripting()
 {

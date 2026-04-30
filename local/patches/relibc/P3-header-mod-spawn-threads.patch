@@ -1,0 +1,44 @@
+diff --git a/src/header/mod.rs b/src/header/mod.rs
+index 4bdb6b1..9d1da43 100644
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -76,7 +76,7 @@ pub mod setjmp;
+ pub mod sgtty;
+ pub mod shadow;
+ pub mod signal;
+-// TODO: spawn.h
++pub mod spawn;
+ // TODO: stdalign.h (likely C implementation)
+ // stdarg.h implemented in C
+ // stdatomic.h implemented in C
+@@ -93,20 +93,17 @@ pub mod sys_auxv;
+ pub mod sys_epoll;
+ pub mod sys_file;
+ pub mod sys_ioctl;
+-// TODO: sys/ipc.h
+ pub mod sys_mman;
+-// TODO: sys/msg.h
+ pub mod sys_ptrace;
+ pub mod sys_resource;
+ pub mod sys_select;
+-// TODO: sys/sem.h
+-// TODO: sys/shm.h
+ pub mod sys_socket;
+ pub mod sys_stat;
+ pub mod sys_statvfs;
+ #[allow(non_upper_case_globals)]
+ pub mod sys_syscall;
+ pub mod sys_time;
++pub mod sys_timerfd;
+ #[deprecated]
+ pub mod sys_timeb;
+ //pub mod sys_times;
+@@ -128,7 +125,7 @@ pub mod tar;
+ // TODO: term.h (deprecated)
+ pub mod termios;
+ // TODO: tgmath.h (likely C implementation)
+-// TODO: threads.h
++pub mod threads;
+ pub mod time;
+ // TODO: uchar.h
+ // TODO: ucontext.h (deprecated)

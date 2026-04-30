@@ -53,9 +53,7 @@
 #include <KLocalizedString>
 // Qt
 #include <QCommandLineParser>
-#if KWIN_BUILD_QTQUICK
 #include <QQuickWindow>
-#endif
 #if KWIN_BUILD_X11
 #include <private/qtx11extras_p.h>
 #endif
@@ -246,10 +244,8 @@ void Application::setupLocalizedString()
 
 void Application::createWorkspace()
 {
-#if KWIN_BUILD_QTQUICK
     // we want all QQuickWindows with an alpha buffer, do here as Workspace might create QQuickWindows
     QQuickWindow::setDefaultAlphaBuffer(true);
-#endif
 
     // This tries to detect compositing options and can use GLX. GLX problems
     // (X errors) shouldn't cause kwin to abort, so this is out of the
@@ -361,13 +357,9 @@ std::unique_ptr<Cursor> Application::createPlatformCursor()
 
 std::unique_ptr<OutlineVisual> Application::createOutline(Outline *outline)
 {
-#if KWIN_BUILD_QTQUICK
     if (Compositor::compositing()) {
         return std::make_unique<CompositedOutlineVisual>(outline);
     }
-#else
-    Q_UNUSED(outline)
-#endif
     return nullptr;
 }
 

@@ -8,19 +8,15 @@ set(KWIN_KILLER_BIN ${CMAKE_INSTALL_FULL_LIBEXECDIR}/kwin_killer_helper)
 
 configure_file(config-kwin.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config-kwin.h)
 
-if(Qt6DBus_FOUND)
-    set(kwin_effects_dbus_xml ${CMAKE_CURRENT_SOURCE_DIR}/org.kde.kwin.Effects.xml)
-    qt_add_dbus_interface(effects_interface_SRCS ${kwin_effects_dbus_xml} kwineffects_interface)
-    add_library(KWinEffectsInterface STATIC ${effects_interface_SRCS})
-    set_property(TARGET KWinEffectsInterface PROPERTY POSITION_INDEPENDENT_CODE ON)
-    target_link_libraries(KWinEffectsInterface Qt::DBus)
-endif()
+set(kwin_effects_dbus_xml ${CMAKE_CURRENT_SOURCE_DIR}/org.kde.kwin.Effects.xml)
+qt_add_dbus_interface(effects_interface_SRCS ${kwin_effects_dbus_xml} kwineffects_interface)
+add_library(KWinEffectsInterface STATIC ${effects_interface_SRCS})
+set_property(TARGET KWinEffectsInterface PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+target_link_libraries(KWinEffectsInterface Qt::DBus)
 
 add_subdirectory(helpers)
-
-if (KWIN_BUILD_QTQUICK)
-    add_subdirectory(qml)
-endif()
+add_subdirectory(qml)
 
 if (KWIN_BUILD_KCMS)
     add_subdirectory(kcms)
@@ -81,6 +77,7 @@ target_sources(kwin PRIVATE
     cursor.cpp
     cursorsource.cpp
     dbusinterface.cpp
+    debug_console.cpp
     decorations/decoratedwindow.cpp
     decorations/decorationbridge.cpp
     decorations/decorationpalette.cpp
@@ -90,12 +87,15 @@ target_sources(kwin PRIVATE
     effect/anidata.cpp
     effect/animationeffect.cpp
     effect/effect.cpp
+    effect/effectframe.cpp
     effect/effecthandler.cpp
     effect/effectloader.cpp
     effect/effecttogglablestate.cpp
     effect/effectwindow.cpp
     effect/logging.cpp
     effect/offscreeneffect.cpp
+    effect/offscreenquickview.cpp
+    effect/quickeffect.cpp
     effect/timeline.cpp
     focuschain.cpp
     ftrace.cpp
@@ -124,6 +124,7 @@ target_sources(kwin PRIVATE
     lidswitchtracker.cpp
     main.cpp
     mousebuttons.cpp
+    onscreennotification.cpp
     opengl/abstract_opengl_context_attribute_builder.cpp
     opengl/egl_context_attribute_builder.cpp
     opengl/eglcontext.cpp
@@ -182,9 +183,11 @@ target_sources(kwin PRIVATE
     scene/workspacescene_qpainter.cpp
     screenedge.cpp
     scripting/dbuscall.cpp
+    scripting/desktopbackgrounditem.cpp
     scripting/gesturehandler.cpp
     scripting/screenedgehandler.cpp
     scripting/scriptedeffect.cpp
+    scripting/scriptedquicksceneeffect.cpp
     scripting/scripting.cpp
     scripting/scripting_logging.cpp
     scripting/scriptingutils.cpp
@@ -192,6 +195,7 @@ target_sources(kwin PRIVATE
     scripting/tilemodel.cpp
     scripting/virtualdesktopmodel.cpp
     scripting/windowmodel.cpp
+    scripting/windowthumbnailitem.cpp
     scripting/workspace_wrapper.cpp
     shadow.cpp
     sm.cpp
@@ -222,24 +226,28 @@ target_sources(kwin PRIVATE
 
 target_link_libraries(kwin
     PUBLIC
-        $<$<TARGET_EXISTS:Qt::DBus>:Qt::DBus>
+        Qt::DBus
+        Qt::Quick
         Qt::Widgets
         Wayland::Server
         KF6::ConfigCore
         KF6::CoreAddons
         KF6::WindowSystem
-        $<$<TARGET_EXISTS:epoxy::epoxy>:epoxy::epoxy>
+        epoxy::epoxy
 
     PRIVATE
         Qt::Concurrent
         Qt::GuiPrivate
+        Qt::Sensors
         Qt::Svg
 
         KF6::ColorScheme
         KF6::ConfigGui
+        KF6::ConfigQml
         KF6::Crash
         KF6::GlobalAccel
         KF6::I18n
+        KF6::I18nQml
         KF6::Package
         KF6::Service
 
@@ -249,36 +257,12 @@ target_link_libraries(kwin
         UDev::UDev
         XKB::XKB
         EGL::EGL
+        epoxy::epoxy
 
         Threads::Threads
-        $<$<TARGET_EXISTS:lcms2::lcms2>:lcms2::lcms2>
+        lcms2::lcms2
         PkgConfig::libdisplayinfo
 )
-
-target_include_directories(kwin PRIVATE
-    ${CMAKE_PREFIX_PATH}/include/KF6/KDeclarative
-    $ENV{COOKBOOK_ROOT}/recipes/wip/qt/qtbase/source/src/gui
-)
-
-if (KWIN_BUILD_QTQUICK)
-    target_sources(kwin PRIVATE
-        effect/effectframe.cpp
-        effect/offscreenquickview.cpp
-        effect/quickeffect.cpp
-        onscreennotification.cpp
-        scripting/desktopbackgrounditem.cpp
-        scripting/scriptedquicksceneeffect.cpp
-        scripting/windowthumbnailitem.cpp
-    )
-
-    target_link_libraries(kwin
-        PUBLIC
-            Qt::Quick
-
-        PRIVATE
-            Qt::Sensors
-    )
-endif()
 
 if (TARGET K::KGlobalAccelD)
     target_link_libraries(kwin PRIVATE K::KGlobalAccelD)
@@ -332,18 +316,30 @@ kconfig_add_kcfg_files(kwin
 )
 
 ki18n_wrap_ui(kwin
+    debug_console.ui
     shortcutdialog.ui
 )
 
-if(Qt6DBus_FOUND)
-    set(kwin_dbus_SRCS)
+set(kwin_dbus_SRCS)
+qt_add_dbus_adaptor(kwin_dbus_SRCS scripting/org.kde.kwin.Script.xml scripting/scripting.h KWin::AbstractScript)
+qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.xml dbusinterface.h KWin::DBusInterface)
+qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.kwin.Compositing.xml dbusinterface.h KWin::CompositorDBusInterface)
+qt_add_dbus_adaptor(kwin_dbus_SRCS ${kwin_effects_dbus_xml} effect/effecthandler.h KWin::EffectsHandler)
+qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.VirtualDesktopManager.xml dbusinterface.h KWin::VirtualDesktopManagerDBusInterface)
+qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.Session.xml sm.h KWin::SessionManager)
+qt_add_dbus_adaptor(kwin_dbus_SRCS org.kde.KWin.Plugins.xml dbusinterface.h KWin::PluginManagerDBusInterface)
+qt_add_dbus_interface(kwin_dbus_SRCS org.freedesktop.DBus.Properties.xml dbusproperties_interface)
 
-    if (KWIN_BUILD_SCREENLOCKER)
-        qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/kf6_org.freedesktop.ScreenSaver.xml screenlocker_interface)
-        qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/org.kde.screensaver.xml kscreenlocker_interface)
-    endif()
-    target_sources(kwin PRIVATE ${kwin_dbus_SRCS})
+if (KWIN_BUILD_SCREENLOCKER)
+    qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/kf6_org.freedesktop.ScreenSaver.xml screenlocker_interface)
+    qt_add_dbus_interface(kwin_dbus_SRCS ${KSCREENLOCKER_DBUS_INTERFACES_DIR}/org.kde.screensaver.xml kscreenlocker_interface)
 endif()
+
+qt_add_dbus_interface(kwin_dbus_SRCS org.kde.kappmenu.xml appmenu_interface)
+
+target_sources(kwin PRIVATE
+    ${kwin_dbus_SRCS}
+)
 
 add_subdirectory(backends)
 add_subdirectory(platformsupport)
@@ -381,10 +377,8 @@ if (KWIN_BUILD_TABBOX)
     endif()
 endif()
 
-if(Qt6DBus_FOUND)
-    qt_generate_dbus_interface(virtualkeyboard_dbus.h org.kde.kwin.VirtualKeyboard.xml OPTIONS -A)
-    qt_generate_dbus_interface(tabletmodemanager.h org.kde.KWin.TabletModeManager.xml OPTIONS -A)
-endif()
+qt_generate_dbus_interface(virtualkeyboard_dbus.h org.kde.kwin.VirtualKeyboard.xml OPTIONS -A)
+qt_generate_dbus_interface(tabletmodemanager.h org.kde.KWin.TabletModeManager.xml OPTIONS -A)
 
 generate_export_header(kwin EXPORT_FILE_NAME kwin_export.h)
 
@@ -443,6 +437,8 @@ if (HAVE_LIBCAP)
 endif()
 
 target_link_libraries(kwin_wayland
+    KWinQpaPlugin
+    KF6WindowSystemKWinPlugin
     KF6IdleTimeKWinPlugin
 )
 
@@ -450,14 +446,12 @@ if (TARGET KF6GlobalAccelKWinPlugin)
     target_link_libraries(kwin_wayland KF6GlobalAccelKWinPlugin)
 endif()
 
-if(Qt6DBus_FOUND)
-    add_custom_target(
-        KWinDBusInterfaces
-        ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/org.kde.kwin.VirtualKeyboard.xml
-                ${CMAKE_CURRENT_BINARY_DIR}/org.kde.KWin.TabletModeManager.xml
-    )
-endif()
+add_custom_target(
+    KWinDBusInterfaces
+    ALL
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/org.kde.kwin.VirtualKeyboard.xml
+            ${CMAKE_CURRENT_BINARY_DIR}/org.kde.KWin.TabletModeManager.xml
+)
 
 install(FILES kwin.kcfg DESTINATION ${KDE_INSTALL_KCFGDIR})
 if (KWIN_BUILD_NOTIFICATIONS)
@@ -492,6 +486,7 @@ install(FILES
     cursor.h
     cursorsource.h
     dbusinterface.h
+    debug_console.h
     focuschain.h
     ftrace.h
     gestures.h

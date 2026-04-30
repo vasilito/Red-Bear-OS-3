@@ -6,14 +6,11 @@
 */
 #include "osd.h"
 #include "main.h"
-#if KWIN_BUILD_QTQUICK
 #include "onscreennotification.h"
 #include "scripting/scripting.h"
 #include "workspace.h"
 
 #include <QQmlEngine>
-#include <QTimer>
-#endif
 #include <QThread>
 
 namespace KWin
@@ -21,7 +18,6 @@ namespace KWin
 namespace OSD
 {
 
-#if KWIN_BUILD_QTQUICK
 static OnScreenNotification *create()
 {
     auto osd = new OnScreenNotification(workspace());
@@ -35,7 +31,6 @@ static OnScreenNotification *osd()
     static OnScreenNotification *s_osd = create();
     return s_osd;
 }
-#endif
 
 void show(const QString &message, const QString &iconName, int timeout)
 {
@@ -44,14 +39,6 @@ void show(const QString &message, const QString &iconName, int timeout)
         return;
     }
 
-#if !KWIN_BUILD_QTQUICK
-    Q_UNUSED(message)
-    Q_UNUSED(iconName)
-    Q_UNUSED(timeout)
-    return;
-#endif
-
-#if KWIN_BUILD_QTQUICK
     if (QThread::currentThread() != qGuiApp->thread()) {
         QTimer::singleShot(0, QCoreApplication::instance(), [message, iconName, timeout] {
             show(message, iconName, timeout);
@@ -64,7 +51,6 @@ void show(const QString &message, const QString &iconName, int timeout)
     notification->setMessage(message);
     notification->setTimeout(timeout);
     notification->setVisible(true);
-#endif
 }
 
 void show(const QString &message, int timeout)
@@ -83,16 +69,8 @@ void hide(HideFlags flags)
         // FIXME: only supported on Wayland
         return;
     }
-
-#if !KWIN_BUILD_QTQUICK
-    Q_UNUSED(flags)
-    return;
-#endif
-
-#if KWIN_BUILD_QTQUICK
     osd()->setSkipCloseAnimation(flags.testFlag(HideFlag::SkipCloseAnimation));
     osd()->setVisible(false);
-#endif
 }
 
 }
