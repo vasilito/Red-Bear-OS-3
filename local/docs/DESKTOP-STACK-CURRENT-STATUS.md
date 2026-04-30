@@ -120,7 +120,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | Category | Count | Detail |
 |----------|-------|--------|
 | **Building + in repo** | 13 | PKGAR artifacts: attica, ECM, karchive, kauth, kconfig, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, ki18n, kwidgetsaddons, kwindowsystem, kwin |
-| **Building (stage only)** | 23 | kdecoration, kwallet + 21 other KF6 frameworks — compiled during cook, need full make all to push to repo |
+| **Building (stage only) | 7 | 7 KF6 packages compiled but not yet pushed to repo
 | **Attica (new)** | — | Minimal core library build, KF6::Attica cmake target (counted in Building+repo above) |
 | **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
 | **Blocked: compilation** | 1 | breeze — upstream source incompatibility with Redox toolchain |
@@ -128,7 +128,7 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 | **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
 | **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
 
-**Total: 48 recipes. 36 build (29 in repo + 7 stage-only). 12 blocked (documented).**
+**Total: 48 recipes. 36 build (26 in repo + 10 stage-only). 12 blocked (documented).**
 
 Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
 | KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
@@ -329,7 +329,7 @@ Init service configuration has been streamlined:
 ## Bottom Line
 
 The Red Bear desktop stack has crossed major build-side gates and one important bounded runtime gate:
-- All Qt6 core modules, 37 KDE recipes (29 KF6 + kdecoration + kwin + kglobalacceld), Mesa EGL/GBM/GLES2, and D-Bus build — 36 KDE packages enabled in config (29 in repo with .pkgar, 7 stage-only)
+- All Qt6 core modules, 37 KDE recipes (29 KF6 + kdecoration + kwin + kglobalacceld), Mesa EGL/GBM/GLES2, and D-Bus build — 36 KDE packages enabled in config (26 in repo with .pkgar, 10 stage-only)
 - Three supported compile targets exist, with desktop/graphics on `redbear-full`
 - the Red Bear-native greeter/login path now has a bounded passing QEMU proof (`GREETER_HELLO=ok`, `GREETER_INVALID=ok`, `GREETER_VALID=ok`) — but the greeter service is currently **disabled** in config (runs `/usr/bin/true` instead of `redbear-greeterd`)
 - relibc compatibility is materially stronger than before
