@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeSet, BTreeMap, VecDeque},
     convert::TryInto,
     fs,
     path::{Path, PathBuf},
@@ -363,7 +363,11 @@ impl CookRecipe {
             }
         }
 
-        Ok(recipes)
+        // Topological sort: ensure dependencies come before dependents.
+        // Without this, the flat BFS list has dependents before their deps,
+        // causing stage.pkgar "Not Found" failures when cooking in list order.
+        let sorted = topological_sort(recipes)?;
+        Ok(sorted)
     }
 
     pub fn get_build_deps_recursive(
@@ -519,6 +523,57 @@ impl CookRecipe {
         }
         None
     }
+}
+
+/// Topologically sort a list of CookRecipes so that dependencies always
+/// appear before the recipes that depend on them. Uses Kahn's algorithm.
+/// Falls back to original order on cycles.
+fn topological_sort(recipes: Vec<CookRecipe>) -> Result<Vec<CookRecipe>, PackageError> {
+    if recipes.len() <= 1 {
+        return Ok(recipes);
+    }
+
+    let name_to_idx: BTreeMap<PackageName, usize> = recipes
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.name.clone(), i))
+        .collect();
+
+    let mut dep_counts: Vec<usize> = vec![0; recipes.len()];
+    let mut reverse_deps: Vec<Vec<usize>> = vec![Vec::new(); recipes.len()];
+
+    for (i, recipe) in recipes.iter().enumerate() {
+        for dep in &recipe.recipe.build.dependencies {
+            if let Some(&dep_idx) = name_to_idx.get(dep) {
+                dep_counts[i] = dep_counts[i].saturating_add(1);
+                reverse_deps[dep_idx].push(i);
+            }
+        }
+    }
+
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    for (i, &count) in dep_counts.iter().enumerate() {
+        if count == 0 {
+            queue.push_back(i);
+        }
+    }
+
+    let mut sorted = Vec::with_capacity(recipes.len());
+    while let Some(idx) = queue.pop_front() {
+        sorted.push(recipes[idx].clone());
+        for &dep_idx in &reverse_deps[idx] {
+            dep_counts[dep_idx] = dep_counts[dep_idx].saturating_sub(1);
+            if dep_counts[dep_idx] == 0 {
+                queue.push_back(dep_idx);
+            }
+        }
+    }
+
+    if sorted.len() != recipes.len() {
+        return Ok(recipes);
+    }
+
+    Ok(sorted)
 }
 
 // TODO: Wrap these vectors in a struct
