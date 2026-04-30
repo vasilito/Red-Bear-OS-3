@@ -50,6 +50,15 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
+# workerinterface.cpp calls KIO::HostInfo::lookupHost which needs
+# hostinfo.cpp — but hostinfo.cpp isn't in the cmake source list for
+# KIOCORE_ONLY. Replace the call with a direct QHostInfo::fromName.
+sed -i 's/const QHostInfo info = HostInfo::lookupHost(hostName, 1500);/const QHostInfo info = QHostInfo::fromName(hostName);/' \
+    "${COOKBOOK_SOURCE}/src/core/workerinterface.cpp" 2>/dev/null || true
+# Also remove the hostinfo.h include — no longer needed
+sed -i '/#include "hostinfo.h"/d' \
+    "${COOKBOOK_SOURCE}/src/core/workerinterface.cpp" 2>/dev/null || true
+
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
 

@@ -53,13 +53,8 @@ qt6-wayland-smoke = {}
 
 # KF6 Frameworks — explicit real-build surface in alphabetical order
 # kirigami: blocked (QML gate — QQuickWindow/QQmlEngine headers don't exist on Redox)
-# kf6-kio: blocked (linker error — undefined reference to KIO::HostInfo::lookupHost)
-kirigami = "ignore"
-# kf6-kio: blocked (compilation error — upstream source incompatibility)
-# kf6-knewstuff: blocked (empty package — cmake succeeds, produces no libs)
-kf6-kwallet = {}
-# breeze: blocked (compilation error — upstream source incompatibility)
-# kde-cli-tools: blocked (depends on kf6-kio)
+kf6-kio = {}
+kde-cli-tools = {}
 
 kdecoration = {}
 kf6-attica = {}
