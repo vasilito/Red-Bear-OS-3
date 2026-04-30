@@ -17,7 +17,7 @@
 - **KF6 surface made more honest for Phase 3/4**:
   - `kf6-kdeclarative` is enabled in `config/redbear-full.toml` (real reduced cmake build with `BUILD_WITH_QML=OFF`).
   - `kf6-kio` is enabled (HostInfo stub fix — pkgar in repo).
-- `kf6-knewstuff` and `kf6-kwallet` have real cmake builds; `kf6-kwallet` enabled, `kf6-knewstuff` blocked (empty package).
+- `kf6-knewstuff` and `kf6-kwallet` have real cmake builds; `kf6-knewstuff` remains blocked as an empty-package case, and `kf6-kwallet` exists in-tree but is not part of the current enabled `redbear-full` subset.
 - Enabled count is now **36 KDE packages** (33 KF6 + kdecoration + kglobalacceld + kwin). See Current KDE Package Status table for full breakdown.
 
 ## Recent Changes (2026-04-29, Wave 6)
@@ -59,7 +59,7 @@
 
 - **Qt Wayland shell integration**: Compositor correctly parses protocol now, but Qt6's Wayland plugin reports "Loading shell integration failed" and falls back to redox platform plugin. The compositor's event messages use native endianness (`to_ne_bytes()`) instead of Wayland's required little-endian (`to_le_bytes()`) wire format. Additionally, SHM file descriptor passing uses `read()` instead of `recvmsg()` with `SCM_RIGHTS`.
 - **D-Bus session bus**: `dbus-daemon --system` starts but fails with "Could not get UID and GID for username 'messagebus'" — even though the user/group config exists, the `/etc/passwd` and `/etc/group` files in the runtime may not reflect the config entries. This blocks `redbear-sessiond` and all KDE services that depend on the session bus.
-- **KF6 enablement**: superseded — see Current KDE Package Status table above. 36 KDE packages enabled, 12 blocked with documented reasons.
+- **KF6 enablement**: superseded — see Current KDE Package Status section above. `config/redbear-full.toml` directly enables 36 KDE-related packages, but that direct config surface must not be conflated with either the archived `.pkgar` surface or the full 48-recipe local KDE set.
 
 ## Recent Changes (2026-04-28, Wave 3)
 
@@ -119,25 +119,25 @@ greeter/auth/session-launch stack on the `redbear-full` desktop path.
 
 | Category | Count | Detail |
 |----------|-------|--------|
-| **Building + in repo** | 26 | PKGAR artifacts for 26 enabled KDE packages (attica, ECM, karchive, kauth, kbookmarks, kcodecs, kcolorscheme, kcompletion, kconfig, kconfigwidgets, kcoreaddons, kcrash, kdbusaddons, kglobalaccel, kguiaddons, ki18n, kiconthemes, kio, kitemviews, kjobwidgets, knotifications, kservice, ktextwidgets, kwidgetsaddons, kwindowsystem, kxmlgui, kwin, solid, sonnet) |
-| **Building (stage only)** | 10 | 10 KF6 packages compiled but not yet pushed to repo |
-| **Attica (new)** | — | Counted in Building+repo above |
-| **Blocked: QML gate** | 1 | kirigami — source includes QQuickWindow/QQmlEngine unconditionally |
-| **Blocked: compilation** | 1 | breeze — upstream source incompatibility with Redox toolchain |
-| **Blocked: transitive** | 3 | plasma-framework (needs kirigami), plasma-workspace (needs kf6-knewstuff payload), plasma-desktop (needs plasma-workspace) |
-| **Blocked: Qt6::Sensors** | 1 | kwin real build (current stub delegates to redbear-compositor) |
-| **Blocked: source-incompatible** | 1 | kde-cli-tools (depends on kf6-kio) |
+| **Directly enabled in `config/redbear-full.toml`** | 36 | 33 `kf6-*` packages plus `kdecoration`, `kglobalacceld`, and `kwin` are directly enabled on the tracked desktop-capable target. |
+| **KDE-related `.pkgar` artifacts currently visible in `repo/x86_64-unknown-redox/`** | 29 | Confirmed archived artifacts: `kf6-attica`, `kf6-extra-cmake-modules`, `kf6-karchive`, `kf6-kauth`, `kf6-kbookmarks`, `kf6-kcodecs`, `kf6-kcolorscheme`, `kf6-kcompletion`, `kf6-kconfig`, `kf6-kconfigwidgets`, `kf6-kcoreaddons`, `kf6-kcrash`, `kf6-kdbusaddons`, `kf6-kglobalaccel`, `kf6-kguiaddons`, `kf6-ki18n`, `kf6-kiconthemes`, `kf6-kio`, `kf6-kitemviews`, `kf6-kjobwidgets`, `kf6-knotifications`, `kf6-kservice`, `kf6-ktextwidgets`, `kf6-kwidgetsaddons`, `kf6-kwindowsystem`, `kf6-kxmlgui`, `kf6-solid`, `kf6-sonnet`, and `kwin`. |
+| **Do not collapse these two counts** | — | The direct config surface and the archived `.pkgar` surface are not the same set: some archived KDE artifacts are dependency packages not directly enabled, and some directly enabled KDE packages are not evidenced here as `.pkgar` artifacts. |
+| **Blocked: QML gate** | 1 | `kirigami` — source unconditionally includes `QQuickWindow`/`QQmlEngine`. |
+| **Blocked: compilation** | 1 | `breeze` — upstream source incompatibility with the current Redox toolchain. |
+| **Blocked: transitive / session assembly** | 3 | `plasma-framework` (needs `kirigami`), `plasma-workspace` (needs `kf6-knewstuff` payload + real `kwin`), `plasma-desktop` (needs `plasma-workspace`). |
+| **Blocked: direct repo cook** | 1 | `kde-cli-tools` — the current config comment is `# blocked: direct repo cook fails`; do not describe this as blocked by `kf6-kio`, which is enabled. |
+| **Deferred / not in the current enabled subset** | 2 | `kf6-knewstuff` remains an empty-package blocker; `kf6-kwallet` exists in-tree but is not part of the current enabled `redbear-full` subset. |
+| **KWin package form** | — | The current `kwin` package is still a stub delegating to `redbear-compositor`; a real build remains gated on Qt6Quick/QML downstream proof plus the `Qt6::Sensors` / `libinput` surface. |
+| **`plasma-workspace`** | — | Real cmake build exists, but it remains commented out in config and depends on `kf6-knewstuff` payload + real `kwin`. |
+| **`plasma-desktop`** | — | Recipe exists, remains commented out in config, and depends on `plasma-workspace`. |
 
-**Total: 48 recipes. 36 build (26 in repo + 10 stage-only). 12 blocked (documented).**
+**Current tracked truth:** the local KDE recipe set under `local/recipes/kde/` contains 48 recipes. This document must distinguish the direct 36-package config surface, the currently visible archived `.pkgar` surface, and the remaining blocked/deferred items instead of collapsing them into one count.
 
-Recipe versions: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). All versions are current upstream releases as of 2026-04-30.
-| KWin | **stub** | cmake config stub + wrapper scripts delegating to redbear-compositor; real build requires Qt6Quick/QML downstream proof |
-| plasma-workspace | **blocked (builds real)** | Real cmake build, but commented out in config; depends on kf6-knewstuff + kwin |
-| plasma-desktop | **blocked (builds real)** | Recipe exists; depends on plasma-workspace; commented out in config |
+Recipe versions tracked in this tree: KF6 frameworks v6.10.0, Plasma v6.3.4, Attica v6.10.0, KWin v6.3.4 (stub). Do not describe them as "all current upstream releases" unless that is re-verified separately.
 | Mesa EGL+GBM+GLES2 | **builds** | Software path via LLVMpipe proven in QEMU; hardware path not proven |
 | libdrm amdgpu | **builds** | Package-level success only |
 | Input stack | **builds, enumerates** | evdevd (65 tests), udev-shim, seatd present; libinput builds but suppressed in config (`libinput = "ignore"`); libevdev commented out; end-to-end compositor input path unproven |
-| D-Bus | **builds, bounded (in improvement)** | System bus wired in `redbear-full`; session bus incomplete; Phase 3/4 improvement plan active; completeness: login1.Manager ~10%, login1.Session ~47%, login1.Seat ~20%, Notifications ~80%, UPower ~60%, UDisks2 ~50%, PolicyKit1 ~50%; `StatusNotifierWatcher` is the new service being added in Phase 4 |
+| D-Bus | **builds, partial** | System bus is wired on `redbear-full`; session-bus and desktop-facing service completeness remain partial. Use `local/docs/DBUS-INTEGRATION-PLAN.md` for detailed gap tracking instead of percentage claims here. |
 | redbear-sessiond | **builds, scaffold (Phase 3/4 improvement active)** | org.freedesktop.login1 D-Bus session broker — Rust daemon (zbus 5), wired on the `redbear-full` desktop path; Phase 3 hard gate is TakeDevice FD passing plus PauseDevice/ResumeDevice signal emission; Priority 1 in Phase 3/4 improvement plan |
 | redbear-authd | **builds** | Privileged local-user auth daemon; `/etc/passwd`/`/etc/shadow`/`/etc/group` parsing, SHA-256/SHA-512 crypt verification, bounded lockout, target-side recipe build proven |
 | redbear-session-launch | **builds** | User-session bootstrap tool; runtime-dir/env setup, uid/gid handoff, dbus-run-session → `redbear-kde-session`, target-side recipe build proven |
