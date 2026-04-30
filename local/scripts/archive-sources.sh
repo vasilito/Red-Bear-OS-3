@@ -34,8 +34,13 @@ extract_version() {
     recipe_dir=$(dirname "$recipe")
     local ver=""
 
-    # Try tar URL version extraction
-    ver=$(grep -oP 'tar\s*=\s*".*?/[\w-]+-(\d+\.\d+(?:\.\d+)?)\.tar' "$recipe" 2>/dev/null | grep -oP '\d+\.\d+(?:\.\d+)?' | head -1)
+    # Try tar URL version extraction — handles formats:
+    #   pkg-1.2.3.tar.xz, pkg-v6.10.0.tar.gz, /archive/v6.10.0/pkg-v6.10.0.tar.gz
+    ver=$(grep -oP 'tar\s*=\s*".*?(?:/|-)v?(\d+\.\d+(?:\.\d+)?)\.(?:tar|tgz)' "$recipe" 2>/dev/null | grep -oP '\d+\.\d+(?:\.\d+)?' | head -1)
+    if [ -z "$ver" ]; then
+        # Fallback: KDE archive URLs like /archive/v6.10.0/pkgname-v6.10.0.tar.gz
+        ver=$(grep -oP '/archive/v(\d+\.\d+(?:\.\d+)?)/' "$recipe" 2>/dev/null | grep -oP '\d+\.\d+(?:\.\d+)?' | head -1)
+    fi
     if [ -n "$ver" ]; then
         echo "$ver"
         return
