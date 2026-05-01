@@ -136,8 +136,6 @@ git = "ignore"
 mc = "ignore"
 #curl = "ignore"  # suppressed: cascade rebuild
 #git = "ignore"  # suppressed: cascade rebuild
-konsole = {}
-kf6-pty = {}
 #konsole = {}  # WIP: recipe exists, not yet built — blocked by libiconv fetch
 #kf6-pty = {}  # WIP: recipe exists, not yet built
 
