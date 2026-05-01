@@ -1,12 +1,15 @@
 #TODO: Kirigami — build the real non-QML C++ core on Redox. Qt Quick, templates, examples, and autotests stay disabled until the Qt6 QML/Quick runtime surface is stronger.
 [source]
 tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz"
+blake3 = "d0964890aa6523f7067510bb7e6c784ba77611952d952bfdd6422a58a23664f6"
 
 [build]
 template = "custom"
 dependencies = [
     "qtbase",
     "qtdeclarative",
+    "qtsvg",
+    "qtshadertools",
     "kf6-extra-cmake-modules",
 ]
 script = """
