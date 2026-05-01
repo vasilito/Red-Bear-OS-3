@@ -243,7 +243,7 @@ if [ -z "${KWIN_DRM_DEVICES:-}" ] && [ -e /scheme/drm/card0 ]; then
     export KWIN_DRM_DEVICES=/scheme/drm/card0
 fi
 
-kwin_wayland_wrapper --drm &
+redbear-compositor --drm &
 kwin_pid=$!
 
 if ! wait_for_wayland_socket; then

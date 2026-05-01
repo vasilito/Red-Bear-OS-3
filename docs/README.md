@@ -11,9 +11,6 @@ current/canonical versus historical/reference split obvious.
 > The historical docs below (01–05) remain useful for architecture reference and implementation
 > rationale, but they should be read together with the new plan and the current local subsystem docs.
 
-> **Status note (2026-04-14):** several documents below are historical implementation plans whose
-> original "missing / not started" language is now stale. The repo already contains substantial
-> Red Bear OS work under `local/`; use each document's top-level status notes together with
 > `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0) for current state.
 
 > **Red Bear note:** newer subsystem plans can also live under `local/docs/` when they are Red Bear-

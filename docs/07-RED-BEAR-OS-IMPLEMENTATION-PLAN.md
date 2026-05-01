@@ -364,7 +364,7 @@ Current state (2026-04-29):
 
 - **Phase 1 (Runtime Substrate):** build-verified complete. Zero warnings, zero test failures, zero LSP errors. Four Phase 1 check binaries (evdev, udev, firmware, DRM) + `redbear-info --probe` + automated QEMU test harness exist. Runtime validation pending (requires QEMU/bare metal).
 - **Phase 2 (Wayland Compositor):** bounded proof scaffold exists. `redbear-compositor` (788-line Rust compositor) builds with zero warnings and self-consistent protocol dispatch (3/3 tests pass). Known limitations: SHM fd passing uses payload bytes (not Unix SCM_RIGHTS), framebuffer compositing uses private heap memory, wire encoding uses NUL-terminated strings. Phase 2 check binary + test harness exist. Not yet a real client-compatible compositor runtime proof.
-- **Phase 3 (KWin Session):** KWin recipe attempts real cmake build with QML/Quick disabled. Blocked by QML gate. Redbear-compositor provides kwin_wayland binary as separate package. Phase 3 preflight check binary + test harness exist.
+- **Phase 3 (KWin Session):** KWin recipe attempts real cmake build with QML/Quick disabled. Blocked by QML gate. Redbear-compositor serves as the Wayland compositor. Phase 3 preflight check binary + test harness exist.
 - **Phase 4 (KDE Plasma):** 36/48 KDE recipes build. 12 blocked by QML gate (kirigami → plasma-framework → plasma-workspace → plasma-desktop). Real builds gated on QML resolution. Legacy test scripts exist.
 - **Phase 5 (Hardware GPU):** redox-drm with Intel Gen8-Gen12 + AMD + virtio-gpu. Mesa builds with llvmpipe + virgl (virtio_gpu_dri.so). GPU CS ioctl protocol exists, backend pending. DRM display check binary exists. Hardware validation pending.
 
