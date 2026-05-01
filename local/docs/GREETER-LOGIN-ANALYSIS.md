@@ -22,7 +22,7 @@ redbear-authd  (privileged auth daemon, /etc/shadow verification)
 redbear-session-launch  (uid/gid drop + env bootstrap)
     │  exec's
     ↓
-dbus-run-session -- redbear-kde-session  →  kwin_wayland_wrapper --drm + plasmashell
+dbus-run-session -- redbear-kde-session  →  redbear-compositor --drm + plasmashell
 
 (redbear-sessiond on system D-Bus → org.freedesktop.login1 for KWin device access)
 ```
@@ -127,7 +127,7 @@ export WAYLAND_DISPLAY=wayland-0
 export XDG_RUNTIME_DIR=/tmp/run/user/0
 dbus-daemon --system &
 eval $(dbus-launch --sh-syntax)
-kwin_wayland_wrapper --drm &
+redbear-compositor --drm &
 sleep 2 && plasmashell &
 ```
 
@@ -231,7 +231,7 @@ shell = "/usr/bin/ion"
 | redbear-authd now in config | authd recipe in redbear-full config | Verify authd binary reaches image via build |
 | redbear-sessiond now in config | sessiond inherited from redbear-mini config | Verify sessiond binary reaches image via build |
 | greeter user account present in config | `[users.greeter]` in redbear-full config | Verify greeter user uid=101 in /etc/passwd in image after build |
-| compositor requires DRM but QEMU has none | `kwin_wayland_wrapper --drm` fails in VM | Use `--virtual` in VM; compositor script already handles this |
+| compositor requires DRM but QEMU has none | `redbear-compositor --drm` fails in VM | Use `--virtual` in VM; compositor script already handles this |
 
 ---
 

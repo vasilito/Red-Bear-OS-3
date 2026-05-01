@@ -2,9 +2,9 @@
 **Implementation status (2026-04-29):** All DBUS plan code artifacts are build-verified. Remaining items are runtime validation gates requiring QEMU.
 
 **Version:** 3.0 — 2026-04-29
-**Status:** Active plan aligned with the desktop path v3.0
+**Status:** Active plan aligned with the desktop path v4.0
 **Scope:** Full D-Bus infrastructure for KDE Plasma 6 on Wayland, tightly integrated with Redox scheme IPC
-**Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0)
+**Parent plan:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0)
 
 ---
 
@@ -614,7 +614,7 @@ APIs, which relibc provides.
 
 ## 8. Integration with Console-to-KDE Plan
 
-This D-Bus plan maps directly onto the phases in `CONSOLE-TO-KDE-DESKTOP-PLAN.md` v3.0:
+This D-Bus plan maps directly onto the phases in `CONSOLE-TO-KDE-DESKTOP-PLAN.md` v4.0:
 
 | Desktop Plan Phase | D-Bus Plan Phase | What D-Bus delivers |
 |---|---|---|

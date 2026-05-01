@@ -3,7 +3,7 @@
 
 **Version:** 1.1 — 2026-04-29
 **Status:** Active — supersedes ad-hoc boot fixes and replaces historical P0–P6 boot notes
-**Canonical plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v3.0), `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md`
+**Canonical plans:** `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0), `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md`
 **Diagnosis:** `local/docs/BOOT-PROCESS-ASSESSMENT.md` (Phase 7 kernel RAM hang + ISO organization)
 
 ---
@@ -31,7 +31,7 @@
 
 ### What does NOT work
 
-1. **No graphical login yet** — boot ordering now explicitly schedules `pcid-spawner` before the greeter, and `redbear-greeter-compositor` waits for the configured DRM path before selecting `--drm`. The remaining blocker is still runtime DRM availability: if `redox-drm` never exposes `/scheme/drm/card0`, the greeter honestly falls back to `kwin_wayland_wrapper --virtual` and the Qt6/QML greeter UI still does not render on a real KMS path.
+1. **No graphical login yet** — boot ordering now explicitly schedules `pcid-spawner` before the greeter, and `redbear-greeter-compositor` waits for the configured DRM path before selecting `--drm`. The remaining blocker is still runtime DRM availability: if `redox-drm` never exposes `/scheme/drm/card0`, the greeter honestly falls back to `redbear-compositor --virtual` and the Qt6/QML greeter UI still does not render on a real KMS path.
 2. **Kernel hangs with ≥4 GiB RAM** — On x86_64, kernel enters spin-loop before `serial::init()` completes when guest RAM ≥4 GiB. `make qemu` default 2048 MiB is unaffected.
 3. **Live ISO preload broken** — Bootloader cannot allocate 4 GiB contiguous RAM block.
 
@@ -106,10 +106,10 @@
 - [x] Successful login → session launch — session-launch binary + greeter chain wired; runtime proof requires QEMU
 - [x] `redbear-session-launch` UID/GID — binary implements correct handoff; runtime validation requires QEMU
 - [x] D-Bus session bus — sessiond + dbus wired in config; session bus start requires QEMU boot
-- [x] `kwin_wayland_wrapper --drm` — wrapper delegates to redbear-compositor; compositor start requires QEMU with DRM
+- [x] `redbear-compositor --drm` — wrapper delegates to redbear-compositor; compositor start requires QEMU with DRM
 - [x] `plasmashell` / KWin desktop surface — plasma packages enabled in config; runtime desktop proof requires QEMU + Qt6Quick
 
-**Resolved:** `redbear-kde-session` exists at `/usr/bin/redbear-kde-session` (staged by redbear-greeter recipe). Sets KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launches `kwin_wayland_wrapper` + `plasmashell`. Previously documented as `redbear-full-session`. Runtime proof requires QEMU boot.
+**Resolved:** `redbear-kde-session` exists at `/usr/bin/redbear-kde-session` (staged by redbear-greeter recipe). Sets KDE session environment variables (`XDG_CURRENT_DESKTOP=KDE`, `KDE_FULL_SESSION=true`) and launches `redbear-compositor` + `plasmashell`. Previously documented as `redbear-full-session`. Runtime proof requires QEMU boot.
 
 **Estimated effort:** Complete (build-verified; QEMU validation supplementary)
 
