@@ -81,13 +81,13 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2
     eval "$(dbus-launch --sh-syntax)"
 fi
 
-if ! command -v kwin_wayland_wrapper >/dev/null 2>&1; then
+if ! command -v redbear-compositor >/dev/null 2>&1; then
     # Fall back to redbear-compositor (simpler Rust compositor)
     if command -v /usr/bin/redbear-compositor >/dev/null 2>&1 || command -v redbear-compositor >/dev/null 2>&1; then
-        echo "redbear-greeter-compositor: kwin_wayland_wrapper not found, using redbear-compositor" >&2
+        echo "redbear-greeter-compositor: redbear-compositor not found, using redbear-compositor" >&2
         exec /usr/bin/redbear-compositor
     fi
-    echo "redbear-greeter-compositor: kwin_wayland_wrapper not found, and redbear-compositor not found either" >&2
+    echo "redbear-greeter-compositor: redbear-compositor not found, and redbear-compositor not found either" >&2
     exit 1
 fi
 
@@ -98,9 +98,9 @@ desired_drm_devices="${KWIN_DRM_DEVICES:-/scheme/drm/card0}"
 if wait_for_drm_devices "$desired_drm_devices"; then
     export KWIN_DRM_DEVICES="$desired_drm_devices"
     echo "redbear-greeter-compositor: using DRM compositor backend (KWIN_DRM_DEVICES=${KWIN_DRM_DEVICES})" >&2
-    exec kwin_wayland_wrapper --drm
+    exec redbear-compositor --drm
 else
     unset KWIN_DRM_DEVICES
     echo "redbear-greeter-compositor: DRM device not ready after wait, using virtual compositor backend" >&2
-    exec kwin_wayland_wrapper --virtual
+    exec redbear-compositor --virtual
 fi

@@ -127,7 +127,7 @@ check_optional_process() {
 
 require_binary redbear-session-launch
 require_binary redbear-kde-session
-require_binary kwin_wayland_wrapper
+require_binary redbear-compositor
 
 rm -rf "$state_dir" "$runtime_dir"
 mkdir -p "$state_dir" "$runtime_dir"
@@ -172,7 +172,7 @@ require_env_value "$env_file" XDG_CURRENT_DESKTOP KDE
 require_env_value "$env_file" KDE_FULL_SESSION true
 require_env_value "$env_file" KWIN_MODE virtual
 
-require_process_pattern '(kwin_wayland_wrapper|redbear-compositor)' COMPOSITOR
+require_process_pattern '(redbear-compositor|redbear-compositor)' COMPOSITOR
 check_optional_process kded6 'kded6' KDED6
 check_optional_process plasmashell 'plasmashell' PLASMASHELL
 

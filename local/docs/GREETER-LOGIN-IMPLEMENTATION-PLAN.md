@@ -18,7 +18,7 @@ What exists today:
 - `dbus-daemon` on the system bus
 - `redbear-sessiond` exposing a minimal `org.freedesktop.login1` subset for KWin
 - `seatd` as the seat/libseat backend
-- a direct session launcher (`redbear-kde-session`) that now starts `kwin_wayland_wrapper --drm`
+- a direct session launcher (`redbear-kde-session`) that now starts `redbear-compositor --drm`
 - fallback text `getty` surfaces on VT2 and `/scheme/debug/no-preserve`
 
 What does **not** exist today:
@@ -115,7 +115,7 @@ Rules:
 | display VT activation | `29_activate_console.service` in desktop configs | ✅ usable (bounded) | `inputd -A 3` activates desktop VT |
 | fallback text login | `30_console.service` | ✅ boots | `getty 2` on VT2 |
 | debug console | `31_debug_console.service` | ✅ boots | `getty /scheme/debug/no-preserve -J` |
-| direct KDE session launcher | `/usr/bin/redbear-kde-session` | ✅ builds, experimental | Starts session bus if needed, then `exec kwin_wayland_wrapper --drm` |
+| direct KDE session launcher | `/usr/bin/redbear-kde-session` | ✅ builds, experimental | Starts session bus if needed, then `exec redbear-compositor --drm` |
 | authentication daemon | `local/recipes/system/redbear-authd/` | ✅ builds, experimental | Local-user auth boundary with `/etc/passwd` / `/etc/shadow` / `/etc/group` parsing plus SHA-crypt and Argon2 verification |
 | session launcher boundary | `local/recipes/system/redbear-session-launch/` | ✅ builds, experimental | User-session bootstrap with bounded environment/runtime-dir setup |
 | greeter daemon scaffold | `local/recipes/system/redbear-greeter/` | ✅ builds, experimental | Root-owned greeter orchestrator, socket protocol, bounded restart policy |

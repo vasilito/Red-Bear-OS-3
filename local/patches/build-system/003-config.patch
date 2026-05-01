@@ -2278,7 +2278,7 @@ index 1bf8d30..a91f005 100644
 +    export KWIN_DRM_DEVICES=/scheme/drm/card0
 +fi
 +
-+kwin_wayland_wrapper --drm &
++redbear-compositor --drm &
 +kwin_pid=$!
 +
 +if ! wait_for_wayland_socket; then

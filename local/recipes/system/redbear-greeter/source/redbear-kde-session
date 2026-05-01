@@ -228,11 +228,11 @@ else
     kwin_args+=(--virtual)
 fi
 
-kwin_wayland_wrapper "${kwin_args[@]}" &
+redbear-compositor "${kwin_args[@]}" &
 kwin_pid=$!
 
 if ! wait_for_wayland_socket; then
-    printf '%s\n' "redbear-kde-session: kwin_wayland_wrapper failed to expose $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" >&2
+    printf '%s\n' "redbear-kde-session: redbear-compositor failed to expose $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" >&2
     exit 1
 fi
 

@@ -273,7 +273,7 @@ Session launch (redbear-kde-session):
   4. dbus-daemon --system already running
   5. eval $(dbus-launch --sh-syntax)  →  session bus started
   6. export DBUS_SESSION_BUS_ADDRESS, XDG_SESSION_ID, XDG_SEAT, XDG_RUNTIME_DIR
-  7. kwin_wayland_wrapper --drm  →  launches KWin on the session bus and owns the Wayland socket lifecycle for the current Red Bear session path
+  7. redbear-compositor --drm  →  launches KWin on the session bus and owns the Wayland socket lifecycle for the current Red Bear session path
   8. [later] plasmashell  →  registers org.kde.plasmashell on session bus
 ```
 
