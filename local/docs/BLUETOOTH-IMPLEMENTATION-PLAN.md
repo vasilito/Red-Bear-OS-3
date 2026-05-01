@@ -101,7 +101,7 @@ one more driver.” The feasible first target is a deliberately small subsystem 
   use
 - `local/docs/INPUT-SCHEME-ENHANCEMENT.md` shows the direction of travel for per-device, hotplug,
   named input sources, which is relevant to later Bluetooth HID support
-- `config/redbear-kde.toml` and related profile wiring already show D-Bus and desktop-session
+- `config/redbear-full.toml` and related profile wiring already show D-Bus and desktop-session
   plumbing that later Bluetooth desktop integration might rely on
 
 ## Feasibility Constraints

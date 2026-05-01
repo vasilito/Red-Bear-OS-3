@@ -829,7 +829,7 @@ ext4d's `ext4_error()` is simpler and more robust.
 | Included in `redbear-desktop.toml` | ✅ | Via include chain |
 | Included in `redbear-full.toml` | ✅ | Via include chain |
 | Included in `redbear-minimal.toml` | ✅ | Via include chain |
-| Included in `redbear-kde.toml` | ✅ | Via include chain |
+| Included in `redbear-full.toml` | ✅ | Via include chain |
 | Included in `redbear-wayland.toml` | ❌ | Does NOT include `redbear-device-services.toml` |
 | `cargo check` passes | ✅ | All crates check clean |
 | `cargo build --release` (tools) | ✅ | fat-mkfs, fat-label, fat-check build on Linux |

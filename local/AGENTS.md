@@ -611,10 +611,11 @@ Instead, **implement the missing functionality properly**:
 | `getgroups` returns only egid | Redox kernel had no group table concept | ✅ RESOLVED |
 | `setuid/setgid/getuid/getgid` | No credential syscalls in kernel | ✅ Already worked via `posix_setresugid` (proc scheme) |
 | `getrlimit`/`setrlimit` | ENOSYS | ✅ RESOLVED — userspace stubs with defaults |
-| **CONFIG: KWin is a stub** | KWin recipe downloads real v6.3.4 source but build script never compiles it — only creates wrapper scripts + fake cmake configs | **KWin RECIPE WORK**: Convert from custom stub to real cmake build, or document as permanent stub |
-| **CONFIG: 22 KF6 recipes not enabled** | 47 KF6/Plasma/KWin recipes exist in local/recipes/kde/ with real cmake builds, but only 9 KF6 + kwin (stub) are in the built image — the rest are commented out in config | **CONFIG WORK**: Enable buildable KF6 packages in redbear-full.toml |
-| **CONFIG: Plasma packages blocked** | plasma-framework, plasma-workspace, plasma-desktop have real cmake builds but are commented out as BLOCKED in redbear-full.toml | **CONFIG WORK**: Resolve blockers (kwin stub → real, kf6-knewstuff → QtNetwork) then enable |
-| **CONFIG: Greeter service disabled** | 20_greeter.service runs `/usr/bin/true` instead of `redbear-greeterd` ("disabled for Phase 2 compositor proof") | **CONFIG WORK**: Wire redbear-greeterd as the active greeter service |
+| **CONFIG: KWin is a stub** | KWin recipe attempts real cmake build with QML/Quick disabled. Blocked by QML gate. Previously had wrapper stubs — removed 2026-04-30. | ✅ RESOLVED: honest recipe, fails on QML gate |
+| **CONFIG: 36/48 KDE packages enabled** | 12 blocked by QML gate (kirigami → plasma-framework → plasma-workspace → plasma-desktop). See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for breakdown. | **BLOCKED**: QML gate requires Qt6Quick/QML engineering |
+| **CONFIG: Plasma packages blocked** | plasma-framework, plasma-workspace, plasma-desktop depend on kirigami (QML gate). Documented in plan. | **BLOCKED**: QML gate |
+| **CONFIG: Greeter service** | 20_greeter.service wired. Greeter QEMU proof passes (GREETER_HELLO=ok, GREETER_VALID=ok). | ✅ RESOLVED |
+| **RUNTIME: Greeter UI** | Qt Wayland integration: redbear-compositor handles Wayland protocol. Qt6's Wayland plugin reports loading issues due to endianness in compositor wire format. | **DOCUMENTED** in plan |
 | **RUNTIME: Greeter UI crash** | Qt Wayland integration fails (`wl-shell` deprecated, `xdg-shell` not working) | Fix Qt platform plugin initialization for Wayland |
 | **RUNTIME: D-Bus user lookup** | `root` and `messagebus` users not found in passwd database → ✅ RESOLVED: user/group config exists in redbear-full.toml; runtime files generated in build | Verify in QEMU runtime |
 | **RUNTIME: seatd missing** | `seatd` binary not in image despite being in config → ✅ RESOLVED: seatd builds and is in image | Verify in QEMU runtime |

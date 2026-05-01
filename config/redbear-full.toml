@@ -39,16 +39,15 @@ redox-drm = {}
 mesa = {}
 libdrm = {}
 
-# Wayland protocol
 libwayland = {}
 wayland-protocols = {}
-redbear-compositor = {}
+# redbear-compositor = {}
 
 # Keyboard/input
 # libxkbcommon = {}  # build needed
 # xkeyboard-config = {}  # build needed
 libevdev = {}
-libinput = {}
+# libinput = {}  # WIP: missing libepoll-shim recipe dependency
 
 # Qt6 stack
 qtbase = {}
@@ -98,15 +97,13 @@ kf6-solid = {}
 kf6-sonnet = {}
 kglobalacceld = {}
 
-# KWin Wayland compositor (stub — delegates to redbear-compositor; real build needs Qt6::Sensors + libinput)
 kwin = {}
 
-# Plasma + app packages — blocked
-plasma-framework = {}
-plasma-workspace = {}
-plasma-desktop = {}
+# Plasma + app packages — blocked on kirigami (QML gate)
+# plasma-framework = {}
+# plasma-workspace = {}
+# plasma-desktop = {}
 
-# Greeter/login stack
 redbear-authd = {}
 redbear-session-launch = {}
 seatd = {}
@@ -405,5 +402,7 @@ vendor = 0x1af4
 subclass = 0x00
 command = ["redox-drm"]
 """
+
+[packages]
 konsole = {}
 kf6-pty = {}

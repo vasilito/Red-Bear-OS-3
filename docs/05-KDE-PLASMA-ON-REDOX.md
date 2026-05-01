@@ -1,7 +1,7 @@
 # 05 — KDE Plasma on Redox: Concrete Implementation Path
 
 > **Status note (2026-04-14):** This file mixes current status with older forward-looking porting
-> instructions. `config/redbear-kde.toml` already exists, the Qt6 stack is built, many KF6 recipes
+> instructions. `config/redbear-full.toml` already exists, the Qt6 stack is built, many KF6 recipes
 > exist under `local/recipes/kde/`, and the current gap is no longer "start KDE from scratch".
 > The real frontier is distinguishing true builds from shimmed/stubbed packages and then closing
 > the KWin / Plasma runtime path.
@@ -25,7 +25,7 @@
 |---|---|
 | Qt6 | Built in-tree (`qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland`) |
 | KF6 | All 32/32 built (some still shimmed or stubbed) |
-| `config/redbear-kde.toml` | Present with KDE session launcher |
+| `config/redbear-full.toml` | Present with KDE session launcher |
 | `kwin`, `plasma-workspace`, `plasma-desktop` | Recipes exist; build/runtime trust is still incomplete and some recipe/source TODO markers remain |
 | `kirigami` | Stub-only package for dependency resolution |
 | `kf6-kio` | Heavy shim-based build recipe |
@@ -82,7 +82,7 @@ kf6-kcmutils (widget-only), kirigami (stub-only).
 ### Historical Phase KDE-C: KDE Plasma Assembly path
 
 Recipes created: kwin, plasma-workspace, plasma-desktop
-Config: config/redbear-kde.toml
+Config: config/redbear-full.toml
 Blocked on: KWin shimmed/stubbed deps resolution, KWin runtime integration, Plasma session assembly
 
 **Goal**: A Qt application displays a window on the Redox Wayland compositor.
@@ -481,7 +481,7 @@ dbus-daemon --system &
 eval $(dbus-launch --sh-syntax)
 
 # Start KWin (Wayland compositor + window manager)
-kwin_wayland_wrapper --drm &
+redbear-compositor --drm &
 
 # Start Plasma Shell
 sleep 2
