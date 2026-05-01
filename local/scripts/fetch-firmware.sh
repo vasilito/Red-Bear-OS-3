@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fetch bounded GPU firmware blobs from linux-firmware repository.
-# AMD remains the larger set; Intel support here is intentionally limited to
-# display-critical DMC blobs for the current bounded startup manifest.
+# Fetch bounded firmware blobs from linux-firmware repository.
+# AMD support remains GPU-focused; Intel support now includes display, Wi-Fi,
+# and Bluetooth subsets for current Red Bear bring-up milestones.
 
 set -euo pipefail
 
@@ -10,27 +10,36 @@ LINUX_FIRMWARE_REPO="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/li
 TEMP_DIR=$(mktemp -d)
 VENDOR="amd"
 SUBSET="all"
+COPIED_COUNT=0
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--vendor amd|intel] [--subset all|rdna|dmc]
+Usage: $(basename "$0") [--vendor amd|intel] [--subset all|rdna|dmc|wifi|bluetooth]
 
-Fetch bounded GPU firmware blobs from linux-firmware.
+Fetch bounded firmware blobs from linux-firmware.
 
 Options:
   --vendor amd      Fetch AMD GPU firmware (default)
-  --vendor intel    Fetch bounded Intel display-critical DMC firmware set
+  --vendor intel    Fetch bounded Intel firmware subsets
   --subset all      Fetch the full AMD amdgpu firmware set (default for AMD)
   --subset rdna     Fetch only RDNA2/RDNA3-oriented AMD firmware blobs
   --subset dmc      Fetch bounded Intel DMC display firmware set (default for Intel)
+  --subset wifi     Fetch Intel iwlwifi .ucode and .pnvm blobs
+  --subset bluetooth Fetch Intel Bluetooth ibt .sfi and .ddc blobs
   -h, --help        Show this help text
 EOF
 }
 
 set_firmware_dir() {
     case "$VENDOR" in
-        amd) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/amdgpu" ;;
-        intel) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/i915" ;;
+    amd) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/amdgpu" ;;
+        intel)
+            case "$SUBSET" in
+                wifi) FIRMWARE_DIR="$SCRIPT_DIR/../firmware" ;;
+                bluetooth) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/intel" ;;
+                *) FIRMWARE_DIR="$SCRIPT_DIR/../firmware/i915" ;;
+            esac
+            ;;
     esac
 }
 
@@ -88,7 +97,7 @@ case "$VENDOR" in
             SUBSET="dmc"
         fi
         case "$SUBSET" in
-            dmc) ;;
+            dmc|wifi|bluetooth) ;;
             *)
                 echo "ERROR: Unsupported Intel subset: $SUBSET"
                 usage
@@ -105,7 +114,7 @@ esac
 
 set_firmware_dir
 
-echo "=== GPU Firmware Fetcher ==="
+echo "=== Firmware Fetcher ==="
 echo "Vendor: $VENDOR"
 echo "Target: $FIRMWARE_DIR"
 echo "Subset: $SUBSET"
@@ -144,7 +153,8 @@ if [ -d "$TEMP_DIR/linux-firmware/amdgpu" ]; then
 
     rm -f "$FIRMWARE_DIR"/*.bin
     cp -v "${selected_blobs[@]}" "$FIRMWARE_DIR/"
-    echo "Copied $(ls "$FIRMWARE_DIR/"*.bin 2>/dev/null | wc -l) firmware blobs"
+    COPIED_COUNT=${#selected_blobs[@]}
+    echo "Copied $COPIED_COUNT firmware blobs"
 
     echo "=== Verifying firmware selection ==="
     if [ "$SUBSET" = "rdna" ]; then
@@ -222,60 +232,84 @@ copy_intel_dmc_firmware() {
 
     rm -f "$FIRMWARE_DIR"/*.bin
     cp -v "${selected_blobs[@]}" "$FIRMWARE_DIR/"
+    COPIED_COUNT=${#selected_blobs[@]}
+    echo "Copied $COPIED_COUNT Intel DMC firmware blobs"
+}
 
-    cat > "$FIRMWARE_DIR/MANIFEST.txt" <<'MANIFEST'
-# Intel GPU Firmware for Red Bear OS (bounded startup slice)
-# Source: linux-firmware (https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)
-# Scope: display-critical DMC blobs only
-#
-# This subset is intentionally bounded to startup/display proof for current Intel DRM work.
-# It does NOT include GuC/HuC/GSC runtime/render/media firmware.
-#
-# Current bounded candidates:
-#   - adlp_dmc.bin / adlp_dmc_ver2_16.bin
-#   - tgl_dmc.bin / tgl_dmc_ver2_12.bin
-#   - dg2_dmc.bin / dg2_dmc_ver2_06.bin
-#   - mtl_dmc.bin
-MANIFEST
+copy_intel_wifi_firmware() {
+    echo "Copying Intel Wi-Fi firmware blobs..."
 
-    echo "Copied ${#selected_blobs[@]} Intel DMC firmware blobs"
+    shopt -s nullglob
+    local ucode_blobs=("$TEMP_DIR/linux-firmware/"iwlwifi-*.ucode)
+    local pnvm_blobs=("$TEMP_DIR/linux-firmware/"iwlwifi-*.pnvm)
+    local selected_blobs=("${ucode_blobs[@]}" "${pnvm_blobs[@]}")
+
+    if [ "${#ucode_blobs[@]}" -eq 0 ]; then
+        echo "ERROR: No Intel Wi-Fi .ucode blobs were found"
+        exit 1
+    fi
+    if [ "${#pnvm_blobs[@]}" -eq 0 ]; then
+        echo "ERROR: No Intel Wi-Fi .pnvm blobs were found"
+        exit 1
+    fi
+
+    rm -f "$FIRMWARE_DIR"/iwlwifi-*.ucode "$FIRMWARE_DIR"/iwlwifi-*.pnvm
+    cp -v "${selected_blobs[@]}" "$FIRMWARE_DIR/"
+    COPIED_COUNT=${#selected_blobs[@]}
+    echo "Copied $COPIED_COUNT Intel Wi-Fi firmware blobs"
+    shopt -u nullglob
+}
+
+copy_intel_bluetooth_firmware() {
+    echo "Copying Intel Bluetooth firmware blobs..."
+
+    if [ ! -d "$TEMP_DIR/linux-firmware/intel" ]; then
+        echo "ERROR: intel firmware directory not found in linux-firmware"
+        exit 1
+    fi
+
+    shopt -s nullglob
+    local sfi_blobs=("$TEMP_DIR/linux-firmware/intel/"ibt-*.sfi)
+    local ddc_blobs=("$TEMP_DIR/linux-firmware/intel/"ibt-*.ddc)
+    local selected_blobs=("${sfi_blobs[@]}" "${ddc_blobs[@]}")
+
+    if [ "${#sfi_blobs[@]}" -eq 0 ]; then
+        echo "ERROR: No Intel Bluetooth .sfi blobs were found"
+        exit 1
+    fi
+    if [ "${#ddc_blobs[@]}" -eq 0 ]; then
+        echo "ERROR: No Intel Bluetooth .ddc blobs were found"
+        exit 1
+    fi
+
+    rm -f "$FIRMWARE_DIR"/ibt-*.sfi "$FIRMWARE_DIR"/ibt-*.ddc
+    cp -v "${selected_blobs[@]}" "$FIRMWARE_DIR/"
+    COPIED_COUNT=${#selected_blobs[@]}
+    echo "Copied $COPIED_COUNT Intel Bluetooth firmware blobs"
+    shopt -u nullglob
 }
 
 case "$VENDOR" in
     amd)
         copy_amd_firmware
-        echo "=== Creating firmware manifest ==="
-        cat > "$FIRMWARE_DIR/MANIFEST.txt" << 'MANIFEST'
-# AMD GPU Firmware for Red Bear OS
-# Source: linux-firmware (https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)
-# License: Various — see linux-firmware WHENCE file for details
-#
-# Required for: RDNA2 (gfx10.3), RDNA3 (gfx11)
-# Minimum set for basic display output:
-#   - PSP SOS + TA (security processor)
-#   - GC ME/PFP/CE/MEC (graphics/compute)
-#   - SDMA (DMA engine)
-#   - DMCUB (Display Microcontroller)
-#
-# Key files for RDNA2 (Navi 21/22/23/24, gfx10.3):
-#   psp_13_0_*_sos.bin, gc_10_3_*.bin, sdma_5_*.bin, dcn_3_*.bin
-#
-# Key files for RDNA3 (Navi 31/32/33, gfx11):
-#   psp_13_*_sos.bin, gc_11_0_*.bin, sdma_6_*.bin, dcn_3_1_*.bin
-MANIFEST
-        echo "$FIRMWARE_DIR/MANIFEST.txt created"
         ;;
     intel)
-        copy_intel_dmc_firmware
+        case "$SUBSET" in
+            dmc) copy_intel_dmc_firmware ;;
+            wifi) copy_intel_wifi_firmware ;;
+            bluetooth) copy_intel_bluetooth_firmware ;;
+        esac
         ;;
 esac
+
+echo "NOTE: MANIFEST.txt is now generated by firmware-loader (--generate-manifest or daemon startup)."
 
 # Summary
 echo ""
 echo "=== Firmware blobs installed ==="
 ls -la "$FIRMWARE_DIR/" | head -20
 echo "..."
-echo "Total: $(ls "$FIRMWARE_DIR/"*.bin 2>/dev/null | wc -l) blobs"
+echo "Copied: $COPIED_COUNT files"
 echo ""
 echo "WARNING: These firmware blobs are third-party upstream firmware."
 echo "They are NOT open source. Verify your license compliance."

@@ -328,3 +328,19 @@ pub fn build_control_transfer(
 
     Some(setup_td_phys)
 }
+
+pub fn build_bulk_transfer(data_phys: u64, data_len: usize, dir_in: bool, tds: &mut [TransferDescriptor], td_phys: u64) -> u32 {
+    let pid = if dir_in { TD_PID_IN } else { TD_PID_OUT };
+    tds[0] = TransferDescriptor { next_qtd: 0, alt_qtd: 0, token: TD_ACTIVE | pid | ((data_len as u32 & 0x7FFF) << 16), buffers: [0; 5] };
+    tds[0].buffers[0] = data_phys as u32;
+    let next = (td_phys as u32 + size_of::<TransferDescriptor>() as u32) & !0x1F;
+    tds[0].next_qtd = next;
+    tds[1] = TransferDescriptor { next_qtd: TD_TERMINATE, alt_qtd: TD_TERMINATE, token: TD_ACTIVE | (1 << 15) | 0x8000_0000 /* IOC */, buffers: [0; 5] };
+    td_phys as u32
+}
+
+pub fn build_intr_td(data_phys: u64, data_len: usize, _td_phys: u64) -> TransferDescriptor {
+    let mut td = TransferDescriptor { next_qtd: TD_TERMINATE, alt_qtd: TD_TERMINATE, token: TD_ACTIVE | TD_PID_IN | ((data_len as u32 & 0x7FFF) << 16), buffers: [0; 5] };
+    td.buffers[0] = data_phys as u32;
+    td
+}

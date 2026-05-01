@@ -40,7 +40,6 @@ requires_weak = ["29_activate_console.service"]
 cmd = "getty"
 args = ["2"]
 type = "oneshot_async"
-respawn = true
 """
 
 [[files]]
@@ -54,5 +53,4 @@ requires_weak = ["29_activate_console.service"]
 cmd = "getty"
 args = ["/scheme/debug/no-preserve", "-J"]
 type = "oneshot_async"
-respawn = true
 """

@@ -166,19 +166,29 @@ fn main() {
             }
         };
         for entry in entries {
+            let Some(file_name) = entry.file_name().and_then(|n| n.to_str()) else {
+                eprintln!("init: skipping entry with invalid filename: {}", entry.display());
+                continue;
+            };
             scheduler.schedule_start_and_report_errors(
                 &mut unit_store,
-                UnitId(entry.file_name().unwrap().to_str().unwrap().to_owned()),
+                UnitId(file_name.to_owned()),
             );
         }
     };
 
     scheduler.step(&mut unit_store, &mut init_config);
 
-    libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
+    if let Err(err) = libredox::call::setrens(0, 0) {
+        eprintln!("init: failed to enter null namespace: {}", err);
+        return;
+    }
 
     loop {
         let mut status = 0;
-        libredox::call::waitpid(0, &mut status, 0).unwrap();
+        match libredox::call::waitpid(0, &mut status, 0) {
+            Ok(()) => {}
+            Err(err) => eprintln!("init: waitpid error: {}", err),
+        }
     }
 }

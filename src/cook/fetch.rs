@@ -797,6 +797,14 @@ pub(crate) fn fetch_cargo(
         source_dir = source_dir.join(cargopath);
     }
 
+    // Canonicalize source_dir so that relative path dependencies in Cargo.toml
+    // resolve correctly when the recipe directory is a symlink (e.g. recipes/system/foo -> local/recipes/system/foo).
+    // Without canonicalization, cargo resolves relative paths from the symlink location,
+    // which may have a different depth than the real path, causing path resolution failures.
+    if let Ok(canonical) = source_dir.canonicalize() {
+        source_dir = canonical;
+    }
+
     let local_redoxer = Path::new("target/release/cookbook_redbear_redoxer");
     let mut command = if is_redox() && !local_redoxer.is_file() {
         Command::new("cookbook_redbear_redoxer")

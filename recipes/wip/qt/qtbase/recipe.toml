@@ -133,7 +133,7 @@ EOF
     -o "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so"
 mkdir -p "${COOKBOOK_STAGE}/usr/lib"
 cp -f "${COOKBOOK_SYSROOT}/lib/libredbear-qt-strtold-compat.so" "${COOKBOOK_STAGE}/usr/lib/"
-export LDFLAGS="${LDFLAGS} -Wl,--no-as-needed -L${COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat -lc"
+export LDFLAGS="${LDFLAGS} -Wl,--no-as-needed -L${COOKBOOK_SYSROOT}/lib -lredbear-qt-strtold-compat -lffi -lc"
 
 export CFLAGS="${CFLAGS} -fcf-protection=none"
 export CXXFLAGS="${CXXFLAGS} -fcf-protection=none"
@@ -154,7 +154,36 @@ GLES3_EOF
     fi
 done
 
-# ============================================================
+mkdir -p "${COOKBOOK_SYSROOT}/include/netinet"
+if [ ! -f "${COOKBOOK_SYSROOT}/include/netinet/in6_pktinfo_compat.h" ]; then
+    cat > "${COOKBOOK_SYSROOT}/include/netinet/in6_pktinfo_compat.h" <<'PKTINFO_EOF'
+#ifndef REDBEAR_IN6_PKTINFO_COMPAT_H
+#define REDBEAR_IN6_PKTINFO_COMPAT_H
+#include <netinet/in.h>
+#ifndef IPV6_RECVPKTINFO
+#define IPV6_RECVPKTINFO 46
+#endif
+#ifndef IPV6_PKTINFO
+#define IPV6_PKTINFO 50
+#endif
+#ifndef in6_pktinfo
+struct in6_pktinfo {
+    struct in6_addr ipi6_addr;
+    unsigned int ipi6_ifindex;
+};
+#endif
+#endif
+PKTINFO_EOF
+fi
+python - <<'PY'
+import os
+from pathlib import Path
+path = Path(os.environ["COOKBOOK_SOURCE"]) / "src/network/socket/qnativesocketengine_unix.cpp"
+text = path.read_text()
+if 'in6_pktinfo_compat' not in text:
+    text = '#include <netinet/in6_pktinfo_compat.h>\\n' + text
+    path.write_text(text)
+PY
 # Step 1: Build Qt host tools (moc, rcc, uic) on the host
 # These are needed for cross-compilation — Qt6 generates code
 # with these tools during the target build.
@@ -618,8 +647,10 @@ PY
 cmake "${COOKBOOK_SOURCE}" \
     -GNinja \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-lc" \
-    -DCMAKE_EXE_LINKER_FLAGS="-lc" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-lc -lffi" \
+    -DCMAKE_EXE_LINKER_FLAGS="-lc -lffi" \
+    -DCMAKE_C_STANDARD_LIBRARIES="-lffi" \
+    -DCMAKE_CXX_STANDARD_LIBRARIES="-lffi" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \

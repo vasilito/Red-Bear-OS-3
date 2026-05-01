@@ -5,9 +5,16 @@ patches = [
     "P0-daemon-fix-init-notify-unwrap.patch",
     "P0-workspace-add-bootstrap.patch",
     "P0-bootstrap-workspace-fix.patch",
+    "P2-daemon-ready-graceful.patch",
     "P2-i2c-gpio-ucsi-drivers.patch",
     "P3-pcid-bind-scheme.patch",
+    "P3-pcid-aer-scheme.patch",
+    "P3-pcid-uevent-format-fix.patch",
     "P3-acpi-wave12-hardening.patch",
+    "P3-acpi-power-dmi.patch",
+    "P3-xhci-device-hardening.patch",
+    "P5-init-supervisor-restart.patch",
+    "P5-init-daemon-panic-hardening.patch",
 ]
 
 [build]

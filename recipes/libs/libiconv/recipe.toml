@@ -85,6 +85,7 @@ do
 done
 
 export CPP="${GNU_TARGET}-gcc -E"
+export CFLAGS+=" -fPIC"
 
 # Force cross mode in the shipped top-level configure and keep the rest of the
 # generated shell structure intact.

@@ -1,0 +1,8 @@
+[source]
+path = "../../source/drivers/pcid-spawner"
+
+[build]
+template = "cargo"
+
+[package]
+dependencies = ["base"]

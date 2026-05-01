@@ -4,14 +4,13 @@
 #                  base.toml's 00_sudo.service). ipcd and ptyd are started by
 #                  00_ipcd.service and 00_ptyd.service from the base recipe.
 # 00_drivers / 10_net: no longer overridden — the legacy scripts were removed
-#             from base.toml. pcid-spawner is started by 00_pcid-spawner.service
-#             from the base recipe; smolnetd/dhcpd have their own .service files.
-# 00_pcid-spawner.service: overridden to oneshot_async. The base recipe uses
-#          type="oneshot" which blocks init until pcid-spawner exits. On real
-#          hardware (and QEMU), pcid-spawner can hang waiting for a PCI device
-#          driver that never responds, blocking the entire rootfs phase including
-#          getty/login. Using oneshot_async lets init proceed to start console
-#          services while drivers spawn in the background.
+#             from base.toml. The retained 00_pcid-spawner.service unit name now
+#             launches driver-manager so existing init ordering remains stable.
+# 00_pcid-spawner.service: compatibility wrapper for driver-manager. The base
+#          recipe uses type="oneshot" which blocks init until pcid-spawner exits.
+#          Running driver-manager here with oneshot_async keeps the historic unit
+#          name for downstream `requires_weak` consumers while moving PCI driver
+#          spawning to the manager that performs bind/channel handoff.
 
 [packages]
 zsh = {}
@@ -44,9 +43,9 @@ type = "oneshot_async"
 path = "/etc/init.d/00_pcid-spawner.service"
 data = """
 [unit]
-description = "PCI driver spawner (non-blocking)"
+description = "PCI driver spawner"
 
 [service]
 cmd = "pcid-spawner"
-type = "oneshot_async"
+type = "oneshot"
 """

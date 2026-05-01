@@ -36,12 +36,18 @@ sed -i 's/^    add_subdirectory(localedata-qml)/#    add_subdirectory(localedata
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
+export LDFLAGS+=" -liconv"
+
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DCMAKE_C_STANDARD_LIBRARIES="-liconv" \
+    -DCMAKE_CXX_STANDARD_LIBRARIES="-liconv" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-liconv" \
+    -DCMAKE_EXE_LINKER_FLAGS="-liconv" \
     -DBUILD_TESTING=OFF \
     -DBUILD_QCH=OFF \
     -DBUILD_WITH_QML=OFF \

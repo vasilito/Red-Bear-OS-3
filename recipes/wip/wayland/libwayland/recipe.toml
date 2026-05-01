@@ -14,8 +14,25 @@ dependencies = [
     "libxml2",
 ]
 script = """
-DYNAMIC_INIT
-cookbook_meson -Ddocumentation=false -Dtests=false -Ddtd_validation=false -Dc_args=-Wno-error
+COOKBOOK_CONFIGURE_FLAGS=(
+    --host="${GNU_TARGET}"
+    --prefix="/usr"
+    --disable-shared
+    --enable-static
+)
+COOKBOOK_MESON_FLAGS=(
+    --buildtype release
+    --wrap-mode nofallback
+    -Ddefault_library=static
+    -Dprefix=/usr
+)
+cookbook_meson -Ddocumentation=false -Dtests=false -Ddtd_validation=false -Dscanner=false -Dc_args=-Wno-error
+
+for pc in "${COOKBOOK_STAGE}/usr/lib/pkgconfig/wayland-client.pc" "${COOKBOOK_STAGE}/usr/lib/pkgconfig/wayland-server.pc"; do
+    if [ -f "$pc" ]; then
+        sed -i 's/^Libs: /Libs: -lffi /' "$pc"
+    fi
+done
 """
 
 [package]

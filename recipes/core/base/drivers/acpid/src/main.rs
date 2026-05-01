@@ -28,9 +28,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     log::info!("acpid start");
 
-    let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
-        .expect("acpid: failed to read `/scheme/kernel.acpi/rxsdt`")
-        .into();
+    let rxsdt_raw_data: Arc<[u8]> = match std::fs::read("/scheme/kernel.acpi/rxsdt") {
+        Ok(data) => data.into(),
+        Err(err) => {
+            log::error!("acpid: failed to read `/scheme/kernel.acpi/rxsdt`: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     if rxsdt_raw_data.is_empty() {
         log::info!("System doesn't use ACPI");
@@ -38,7 +42,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
         std::process::exit(0);
     }
 
-    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).expect("acpid: failed to parse [RX]SDT");
+    let sdt = match self::acpi::Sdt::new(rxsdt_raw_data) {
+        Ok(sdt) => sdt,
+        Err(err) => {
+            log::error!("acpid: failed to parse [RX]SDT: {:?}", err);
+            std::process::exit(1);
+        }
+    };
 
     let mut thirty_two_bit;
     let mut sixty_four_bit;
@@ -64,7 +74,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
             &mut sixty_four_bit as &mut dyn Iterator<Item = u64>
         }
-        _ => panic!("acpid: expected [RX]SDT from kernel to be either of those"),
+        _ => {
+            log::error!("acpid: expected [RX]SDT from kernel to be RSDT or XSDT");
+            std::process::exit(1);
+        }
     };
 
     let region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler + 'static>)> = vec![
@@ -75,49 +88,84 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     // TODO: I/O permission bitmap?
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    common::acquire_port_io_rights().expect("acpid: failed to set I/O privilege level to Ring 3");
+    if let Err(err) = common::acquire_port_io_rights() {
+        log::error!("acpid: failed to set I/O privilege level to Ring 3: {:?}", err);
+        std::process::exit(1);
+    }
 
-    let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop")
-        .expect("acpid: failed to open `/scheme/kernel.acpi/kstop`");
+    let shutdown_pipe = match File::open("/scheme/kernel.acpi/kstop") {
+        Ok(f) => f,
+        Err(err) => {
+            log::error!("acpid: failed to open `/scheme/kernel.acpi/kstop`: {}", err);
+            std::process::exit(1);
+        }
+    };
 
-    let mut event_queue = RawEventQueue::new().expect("acpid: failed to create event queue");
-    let socket = Socket::nonblock().expect("acpid: failed to create disk scheme");
+    let mut event_queue = match RawEventQueue::new() {
+        Ok(q) => q,
+        Err(err) => {
+            log::error!("acpid: failed to create event queue: {:?}", err);
+            std::process::exit(1);
+        }
+    };
+    let socket = match Socket::nonblock() {
+        Ok(s) => s,
+        Err(err) => {
+            log::error!("acpid: failed to create scheme socket: {:?}", err);
+            std::process::exit(1);
+        }
+    };
 
     let mut scheme = self::scheme::AcpiScheme::new(&acpi_context, &socket);
     let mut handler = Blocking::new(&socket, 16);
 
-    event_queue
+    if let Err(err) = event_queue
         .subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
-        .expect("acpid: failed to register shutdown pipe for event queue");
-    event_queue
+    {
+        log::error!("acpid: failed to register shutdown pipe for event queue: {:?}", err);
+        std::process::exit(1);
+    }
+    if let Err(err) = event_queue
         .subscribe(socket.inner().raw(), 1, EventFlags::READ)
-        .expect("acpid: failed to register scheme socket for event queue");
+    {
+        log::error!("acpid: failed to register scheme socket for event queue: {:?}", err);
+        std::process::exit(1);
+    }
 
-    register_sync_scheme(&socket, "acpi", &mut scheme)
-        .expect("acpid: failed to register acpi scheme to namespace");
+    if let Err(err) = register_sync_scheme(&socket, "acpi", &mut scheme) {
+        log::error!("acpid: failed to register acpi scheme to namespace: {:?}", err);
+        std::process::exit(1);
+    }
 
     daemon.ready();
 
-    libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
+    if let Err(err) = libredox::call::setrens(0, 0) {
+        log::error!("acpid: failed to enter null namespace: {}", err);
+        std::process::exit(1);
+    }
 
     let mut mounted = true;
     while mounted {
-        let Some(event) = event_queue
-            .next()
-            .transpose()
-            .expect("acpid: failed to read event file")
-        else {
-            break;
+        let event = match event_queue.next().transpose() {
+            Ok(Some(ev)) => ev,
+            Ok(None) => break,
+            Err(err) => {
+                log::error!("acpid: failed to read event file: {:?}", err);
+                break;
+            }
         };
 
         if event.fd == socket.inner().raw() {
             loop {
-                match handler
-                    .process_requests_nonblocking(&mut scheme)
-                    .expect("acpid: failed to process requests")
-                {
-                    ControlFlow::Continue(()) => {}
-                    ControlFlow::Break(()) => break,
+                match handler.process_requests_nonblocking(&mut scheme) {
+                    Ok(flow) => match flow {
+                        ControlFlow::Continue(()) => {}
+                        ControlFlow::Break(()) => break,
+                    },
+                    Err(err) => {
+                        log::error!("acpid: failed to process requests: {:?}", err);
+                        break;
+                    }
                 }
             }
         } else if event.fd == shutdown_pipe.as_raw_fd() as usize {

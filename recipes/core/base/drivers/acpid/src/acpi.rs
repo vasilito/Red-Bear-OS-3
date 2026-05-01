@@ -136,9 +136,10 @@ impl Sdt {
         let header = match plain::from_bytes::<SdtHeader>(&slice) {
             Ok(header) => header,
             Err(plain::Error::TooShort) => return Err(InvalidSdtError::InvalidSize),
-            Err(plain::Error::BadAlignment) => panic!(
-                "plain::from_bytes failed due to alignment, but SdtHeader is #[repr(packed)]!"
-            ),
+            Err(plain::Error::BadAlignment) => {
+                log::error!("acpid: plain::from_bytes failed due to alignment, but SdtHeader is #[repr(packed)] - internal inconsistency");
+                return Err(InvalidSdtError::InvalidSize);
+            }
         };
 
         if header.length() != slice.len() {

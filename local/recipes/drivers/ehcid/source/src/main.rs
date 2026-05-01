@@ -112,6 +112,7 @@ enum HandleKind {
     Status { port: usize },
     Descriptor { port: usize },
     Control { port: usize },
+    Config { port: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +134,7 @@ struct EhciController {
     n_ports: u8,
     frame_list: DmaBuffer,
     async_qh: DmaBuffer,
+    periodic_qh: DmaBuffer,
     dma_segment: u32,
     has_64bit: bool,
     next_address: u8,
@@ -140,6 +142,10 @@ struct EhciController {
 }
 
 impl EhciController {
+    fn find_port_by_address(&self, addr: u8) -> Option<usize> {
+        self.ports.iter().position(|r| r.device.as_ref().map_or(false, |d| d.address == addr))
+    }
+
     fn new(device_path: &str, channel_fd: usize) -> Result<Self, String> {
         info!("EHCI USB 2.0 at {} (fd={})", device_path, channel_fd);
 
@@ -185,12 +191,15 @@ impl EhciController {
 
         let async_qh = DmaBuffer::allocate(size_of::<QueueHead>(), 64)
             .map_err(|err| format!("failed to allocate async queue head: {err}"))?;
+        let periodic_qh = DmaBuffer::allocate(size_of::<QueueHead>(), 64)
+            .map_err(|err| format!("failed to allocate periodic queue head: {err}"))?;
 
         let dma_segment = ensure_dma_segment(
             has_64bit,
             &[
                 frame_list.physical_address() as u64,
                 async_qh.physical_address() as u64,
+                periodic_qh.physical_address() as u64,
             ],
         )?;
 
@@ -201,6 +210,7 @@ impl EhciController {
             n_ports,
             frame_list,
             async_qh,
+            periodic_qh,
             dma_segment,
             has_64bit,
             next_address: 1,
@@ -336,12 +346,12 @@ impl EhciController {
         }
     }
 
-    fn prepare_async_qh(&mut self, device_address: u8, max_packet_size: u16, first_td_phys: u32) {
+    fn prepare_async_qh(&mut self, device_address: u8, endpoint: u8, max_packet_size: u16, first_td_phys: u32) {
         let qh_ptr = self.async_qh.as_mut_ptr() as *mut QueueHead;
         unsafe {
             let qh = &mut *qh_ptr;
             qh.horiz_link = qh_link_pointer(self.async_qh.physical_address() as u64);
-            qh.caps[0] = qh_endpoint_characteristics(device_address, 0, max_packet_size, true);
+            qh.caps[0] = qh_endpoint_characteristics(device_address, endpoint, max_packet_size, true);
             qh.caps[1] = qh_endpoint_capabilities();
             qh.current_qtd = 0;
             qh.overlay[0] = first_td_phys & !0x1F;
@@ -369,6 +379,30 @@ impl EhciController {
             qh.overlay[6] = 0;
             qh.overlay[7] = 0;
         }
+    }
+
+    fn arm_periodic_qh(&mut self, device_address: u8, max_packet: u16, endpoint: u8, td_phys: u64) {
+        let fl = self.frame_list.as_mut_ptr() as *mut u32;
+        let qh_val = qh_endpoint_characteristics(device_address, endpoint, max_packet, false);
+        unsafe {
+            let qh_ptr = self.periodic_qh.as_mut_ptr() as *mut QueueHead;
+            let qh = &mut *qh_ptr;
+            qh.horiz_link = qh_link_pointer(self.periodic_qh.physical_address() as u64);
+            qh.caps[0] = qh_val;
+            qh.caps[1] = qh_endpoint_capabilities();
+            qh.current_qtd = 0;
+            qh.overlay[0] = (td_phys as u32) & !0x1F;
+            qh.overlay[1] = TD_TERMINATE;
+            qh.overlay[2] = 0; qh.overlay[3] = 0;
+            qh.overlay[4] = 0; qh.overlay[5] = 0;
+            qh.overlay[6] = 0; qh.overlay[7] = 0;
+            *fl = (self.periodic_qh.physical_address() as u32) | 2;
+        }
+    }
+
+    fn disarm_periodic_qh(&mut self) {
+        let fl = self.frame_list.as_mut_ptr() as *mut u32;
+        unsafe { *fl = TD_TERMINATE; }
     }
 
     fn ensure_controller_running(&mut self) {
@@ -775,7 +809,7 @@ impl EhciController {
         )
         .ok_or(UsbError::IoError)?;
 
-        self.prepare_async_qh(device_address, max_packet_size, first_td_phys);
+        self.prepare_async_qh(device_address, 0, max_packet_size, first_td_phys);
         self.clear_interrupt_status();
         fence(Ordering::SeqCst);
 
@@ -958,21 +992,72 @@ impl UsbHostController for EhciController {
 
     fn bulk_transfer(
         &mut self,
-        _device_address: u8,
-        _endpoint: u8,
-        _data: &mut [u8],
-        _direction: TransferDirection,
+        device_address: u8,
+        endpoint: u8,
+        data: &mut [u8],
+        direction: TransferDirection,
     ) -> Result<usize, UsbError> {
-        Err(UsbError::Unsupported)
+        let port = self.find_port_by_address(device_address).ok_or(UsbError::NoDevice)?;
+        let max_packet = self.ports[port].device.as_ref().map(|d| d.max_packet_size0).unwrap_or(512);
+        self.ensure_controller_running();
+        if data.len() > 0x7FFF { return Err(UsbError::Unsupported); }
+        let mut data_dma = if data.is_empty() { None }
+            else { Some(DmaBuffer::allocate(data.len(), 4096).map_err(|_| UsbError::IoError)?) };
+        if let Some(buf) = data_dma.as_mut() {
+            self.ensure_dma_segment_matches(buf.physical_address() as u64, "bulk_data")?;
+            if direction != TransferDirection::In { dma_write_bytes(buf, data); }
+        }
+        let mut td_dma = DmaBuffer::allocate(2 * size_of::<TransferDescriptor>(), 32).map_err(|_| UsbError::IoError)?;
+        self.ensure_dma_segment_matches(td_dma.physical_address() as u64, "bulk_td")?;
+        let tds = unsafe { std::slice::from_raw_parts_mut(td_dma.as_mut_ptr() as *mut TransferDescriptor, 2) };
+        let dma_phys = data_dma.as_ref().map(|b| b.physical_address() as u64).unwrap_or(0);
+        let first = build_bulk_transfer(dma_phys, data.len(), direction == TransferDirection::In, tds, td_dma.physical_address() as u64);
+        self.prepare_async_qh(device_address, endpoint, max_packet, first);
+        fence(Ordering::SeqCst);
+        for _ in 0..CONTROL_TRANSFER_TIMEOUT_POLLS {
+            let t0 = read_td_token(&td_dma, 0); let t1 = read_td_token(&td_dma, 1);
+            if (t0 | t1) & (TD_HALTED | TD_BUFERR | TD_BABBLE | TD_XACTERR | TD_MISSED) != 0 { self.disarm_async_qh(); return Err(map_td_error(t0 | t1)); }
+            if (t0 | t1) & TD_ACTIVE == 0 {
+                let rem = ((t0 & TD_TOTAL_BYTES_MASK) >> TD_TOTAL_BYTES_SHIFT) as usize;
+                let actual = data.len().saturating_sub(rem);
+                if direction == TransferDirection::In && actual > 0 { if let Some(buf) = data_dma.as_ref() { dma_read_bytes(buf, &mut data[..actual]); } }
+                self.disarm_async_qh(); return Ok(actual);
+            }
+            thread::sleep(WAIT_STEP);
+        }
+        self.disarm_async_qh(); Err(UsbError::Timeout)
     }
 
     fn interrupt_transfer(
         &mut self,
-        _device_address: u8,
-        _endpoint: u8,
-        _data: &mut [u8],
+        device_address: u8,
+        endpoint: u8,
+        data: &mut [u8],
     ) -> Result<usize, UsbError> {
-        Err(UsbError::Unsupported)
+        let port = self.find_port_by_address(device_address).ok_or(UsbError::NoDevice)?;
+        let max_packet = self.ports[port].device.as_ref().map(|d| d.max_packet_size0).unwrap_or(64);
+        self.ensure_controller_running();
+        if data.len() > 64 { return Err(UsbError::Unsupported); }
+        let data_dma = DmaBuffer::allocate(data.len(), 64).map_err(|_| UsbError::IoError)?;
+        self.ensure_dma_segment_matches(data_dma.physical_address() as u64, "intr_data")?;
+        let mut td_dma = DmaBuffer::allocate(size_of::<TransferDescriptor>(), 32).map_err(|_| UsbError::IoError)?;
+        self.ensure_dma_segment_matches(td_dma.physical_address() as u64, "intr_td")?;
+        let td = unsafe { &mut *(td_dma.as_mut_ptr() as *mut TransferDescriptor) };
+        *td = build_intr_td(data_dma.physical_address() as u64, data.len(), td_dma.physical_address() as u64);
+        self.arm_periodic_qh(device_address, max_packet, endpoint, td_dma.physical_address() as u64);
+        fence(Ordering::SeqCst);
+        for _ in 0..(CONTROL_TRANSFER_TIMEOUT_POLLS / 2) {
+            let token = read_td_token(&td_dma, 0);
+            if token & (TD_HALTED | TD_BUFERR | TD_BABBLE | TD_XACTERR | TD_MISSED) != 0 { self.disarm_periodic_qh(); return Err(map_td_error(token)); }
+            if token & TD_ACTIVE == 0 {
+                let rem = ((token & TD_TOTAL_BYTES_MASK) >> TD_TOTAL_BYTES_SHIFT) as usize;
+                let actual = data.len().saturating_sub(rem);
+                if actual > 0 { dma_read_bytes(&data_dma, &mut data[..actual]); }
+                self.disarm_periodic_qh(); return Ok(actual);
+            }
+            thread::sleep(WAIT_STEP);
+        }
+        self.disarm_periodic_qh(); Err(UsbError::Timeout)
     }
 
     fn set_address(&mut self, device_address: u8) -> bool {
@@ -1043,6 +1128,7 @@ impl EhciScheme {
             (Some("status"), None) => Ok(HandleKind::Status { port }),
             (Some("descriptor"), None) => Ok(HandleKind::Descriptor { port }),
             (Some("control"), None) => Ok(HandleKind::Control { port }),
+            (Some("config"), None) => Ok(HandleKind::Config { port }),
             _ => Err(SysError::new(ENOENT)),
         }
     }
@@ -1052,6 +1138,7 @@ impl EhciScheme {
             "status" => Ok(HandleKind::Status { port }),
             "descriptor" => Ok(HandleKind::Descriptor { port }),
             "control" => Ok(HandleKind::Control { port }),
+            "config" => Ok(HandleKind::Config { port }),
             _ => Err(SysError::new(ENOENT)),
         }
     }
@@ -1063,6 +1150,18 @@ impl EhciScheme {
             let _ = writeln!(&mut listing, "port{}", port + 1);
         }
         listing.into_bytes()
+    }
+
+    fn config_bytes(&self, port: usize) -> SysResult<Vec<u8>> {
+        let ctrl = self.controller.lock().map_err(|_| SysError::new(syscall::EIO))?;
+        let record = ctrl.ports.get(port).ok_or(SysError::new(syscall::ENOENT))?;
+        if let Some(ref dev) = record.device {
+            Ok(format!("class={:02x} subclass={:02x} vendor={:04x} device={:04x}\n",
+                dev.device_class, dev.device_subclass, dev.vendor_id, dev.product_id,
+            ).into_bytes())
+        } else {
+            Ok(b"no device\n".to_vec())
+        }
     }
 
     fn status_bytes(&self, port: usize) -> SysResult<Vec<u8>> {
@@ -1158,10 +1257,11 @@ impl EhciScheme {
 
         let handle = self.handle(id)?;
         match &handle.kind {
-            HandleKind::PortDir { .. } => Ok(b"status\ndescriptor\ncontrol\n".to_vec()),
+            HandleKind::PortDir { .. } => Ok(b"status\ndescriptor\ncontrol\nconfig\n".to_vec()),
             HandleKind::Status { port } => self.status_bytes(*port),
             HandleKind::Descriptor { port } => self.descriptor_bytes(*port),
             HandleKind::Control { .. } => Ok(handle.response.clone()),
+            HandleKind::Config { port } => self.config_bytes(*port),
         }
     }
 
@@ -1178,6 +1278,7 @@ impl EhciScheme {
                 format!("{SCHEME_NAME}:/port{}/descriptor", port + 1)
             }
             HandleKind::Control { port } => format!("{SCHEME_NAME}:/port{}/control", port + 1),
+            HandleKind::Config { port } => format!("{SCHEME_NAME}:/port{}/config", port + 1),
         };
         Ok(path)
     }
@@ -1277,7 +1378,7 @@ impl SchemeSync for EhciScheme {
             match self.handle(id)?.kind {
                 HandleKind::PortDir { .. } => MODE_DIR | 0o755,
                 HandleKind::Status { .. } | HandleKind::Descriptor { .. } => MODE_FILE | 0o444,
-                HandleKind::Control { .. } => MODE_FILE | 0o644,
+                HandleKind::Control { .. } | HandleKind::Config { .. } => MODE_FILE | 0o644,
             }
         };
 

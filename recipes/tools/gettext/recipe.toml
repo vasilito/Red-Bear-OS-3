@@ -23,7 +23,13 @@ dependencies = [
     "libiconv"
 ]
 script = """
-DYNAMIC_STATIC_INIT
+COOKBOOK_CONFIGURE_FLAGS=(
+    --host="${GNU_TARGET}"
+    --prefix="/usr"
+    --disable-shared
+    --enable-static
+)
+export CFLAGS+=" -fPIC"
 COOKBOOK_CONFIGURE_FLAGS+=(
     ac_cv_have_decl_program_invocation_name=no
     gt_cv_locale_fr=false

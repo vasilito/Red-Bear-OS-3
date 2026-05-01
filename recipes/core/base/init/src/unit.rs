@@ -125,6 +125,25 @@ pub struct UnitInfo {
     pub condition_architecture: Option<Vec<String>>,
     // FIXME replace this with hwd reading from the devicetree
     pub condition_board: Option<Vec<String>>,
+    /// Restart policy for the service (only applies to Service units)
+    #[serde(default)]
+    pub restart: RestartPolicy,
+    /// Maximum time in seconds to wait for dependencies before failing (0 = no timeout)
+    #[serde(default)]
+    pub dependency_timeout_secs: u64,
+}
+
+/// Restart policy for managed services
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum RestartPolicy {
+    /// Never restart the service (default)
+    #[default]
+    No,
+    /// Restart on failure (non-zero exit or crash)
+    OnFailure,
+    /// Always restart (on any exit)
+    Always,
 }
 
 fn true_bool() -> bool {
@@ -190,6 +209,8 @@ impl Unit {
                     requires_weak: script.1,
                     condition_architecture: None,
                     condition_board: None,
+                    restart: RestartPolicy::No,
+                    dependency_timeout_secs: 0,
                 },
                 kind: UnitKind::LegacyScript { script: script.0 },
             });

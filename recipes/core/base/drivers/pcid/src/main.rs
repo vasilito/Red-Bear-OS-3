@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use pci_types::capability::PciCapability;
 use pci_types::{
     Bar as TyBar, CommandRegister, EndpointHeader, HeaderType, PciAddress,
@@ -259,17 +259,25 @@ fn daemon(daemon: daemon::Daemon) -> ! {
             Ok(register_pci) => {
                 let access_id = scheme.access();
 
-                let access_fd = socket
+                let access_fd = match socket
                     .create_this_scheme_fd(0, access_id, syscall::O_RDWR, 0)
-                    .expect("failed to issue this resource");
-                let access_bytes = access_fd.to_ne_bytes();
-                let _ = register_pci
-                    .call_wo(
+                {
+                    Ok(fd) => Some(fd),
+                    Err(err) => {
+                        warn!("pcid: failed to issue acpi resource fd: {:?}", err);
+                        None
+                    }
+                };
+                if let Some(access_fd) = access_fd {
+                    let access_bytes = access_fd.to_ne_bytes();
+                    if let Err(err) = register_pci.call_wo(
                         &access_bytes,
                         syscall::CallFlags::WRITE | syscall::CallFlags::FD,
                         &[],
-                    )
-                    .expect("failed to send pci_fd to acpid");
+                    ) {
+                        warn!("pcid: failed to send pci_fd to acpid: {:?}", err);
+                    }
+                }
             }
             Err(err) => {
                 if err.errno() == libredox::errno::ENODEV {
@@ -304,14 +312,17 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     }
     debug!("Enumeration complete, now starting pci scheme");
 
-    register_sync_scheme(&socket, "pci", &mut scheme)
-        .expect("failed to register pci scheme to namespace");
+    if let Err(err) = register_sync_scheme(&socket, "pci", &mut scheme) {
+        error!("pcid: failed to register pci scheme to namespace: {:?}", err);
+        std::process::exit(1);
+    }
 
     let _ = daemon.ready();
 
-    handler
-        .process_requests_blocking(scheme)
-        .expect("pcid: failed to process requests");
+    handler.process_requests_blocking(scheme).unwrap_or_else(|err| {
+        error!("pcid: failed to process requests: {:?}", err);
+        std::process::exit(1);
+    });
 }
 
 fn scan_device(

@@ -9,7 +9,7 @@
 # - all non-graphics, non-firmware packages from the full profile
 # - no linux-firmware payload, no firmware-loader, no GPU/display drivers
 
-include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml"]
+include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml", "redbear-device-services.toml"]
 
 [general]
 filesystem_size = 1536
@@ -26,6 +26,13 @@ shell = "/usr/bin/ion"
 redbear-release = {}
 redbear-hwutils = {}
 redbear-quirks = {}
+
+# Device driver infrastructure (pcid-spawner is the stable driver spawner;
+# driver-manager requires driver config migration and is not yet ready)
+ehcid = {}
+ohcid = {}
+uhcid = {}
+pcid-spawner = "ignore"
 
 # Redox-native netctl tooling.
 redbear-netctl = {}
@@ -44,8 +51,15 @@ redbear-info = {}
 
 # Keep package builder utility in live environment.
 cub = {}
+cpufreqd = {}
+thermald = {}
+hwrngd = {}
+redbear-acmd = {}
+redbear-ecmd = {}
+redbear-usbaudiod = {}
+driver-params = {}
 
-# ── PCI device database (critical for pcid-spawner driver matching) ──
+# ── PCI device database (critical for PCI driver matching) ──
 pciids = {}
 
 # ── Filesystem support ──
@@ -83,7 +97,7 @@ htop = {}
 #mc = {}  # suppressed: C99 format warning errors in compilation
 
 # ── Build / packaging utilities ──
-patchelf = {}
+# patchelf = {}  # requires strtold which is missing in relibc
 shared-mime-info = {}
 
 # VT/getty/login chain: initfs starts inputd + vesad + fbcond in phase 1,

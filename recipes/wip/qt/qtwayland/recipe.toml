@@ -13,6 +13,8 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+export LDFLAGS="${LDFLAGS} -lffi"
+
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 
 # Clean stale CMake cache
@@ -81,7 +83,10 @@ cmake "${COOKBOOK_SOURCE}" \
     -DFEATURE_wayland_client=ON \
     -DFEATURE_wayland_compositor=OFF \
     -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
-    -DCMAKE_TRY_COMPILE_OUTPUT_SIZE=64000 \
+    -DCMAKE_SHARED_LINKER_FLAGS="-lc -lffi" \
+    -DCMAKE_EXE_LINKER_FLAGS="-lc -lffi" \
+    -DCMAKE_C_STANDARD_LIBRARIES="-lffi" \
+    -DCMAKE_CXX_STANDARD_LIBRARIES="-lffi" \
     -Wno-dev
 
 cmake --build . -j"${COOKBOOK_MAKE_JOBS}"

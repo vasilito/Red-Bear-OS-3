@@ -57,7 +57,7 @@ add_subdirectory(src)
 
 # Enable unit testing
 if (BUILD_TESTING)
-#    add_subdirectory(autotests)
+##    add_subdirectory(autotests)
     add_subdirectory(tests)
 endif ()
 

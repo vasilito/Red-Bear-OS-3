@@ -41,12 +41,16 @@ sed -i '/^find_package(Wayland 1.15/a find_package(Qt6WaylandClientPrivate REQUI
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
+export LDFLAGS+=" -lffi"
+
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-lffi" \
+    -DCMAKE_EXE_LINKER_FLAGS="-lffi" \
     -DWaylandScanner_EXECUTABLE=/usr/bin/wayland-scanner \
     -DWaylandProtocols_DATADIR="${COOKBOOK_SYSROOT}/share/wayland-protocols" \
     -DPLASMA_WAYLAND_PROTOCOLS_DIR="${COOKBOOK_SYSROOT}/share/plasma-wayland-protocols" \

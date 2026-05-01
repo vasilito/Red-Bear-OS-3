@@ -17,7 +17,7 @@ use syscall::flag::{EventFlags, MODE_DIR, MODE_FILE, O_ACCMODE, O_RDONLY};
 use syscall::schemev2::NewFdFlags;
 use syscall::Stat;
 
-const SCHEME_NAME: &str = "sys/driver";
+const SCHEME_NAME: &str = "driver-params";
 const SCHEME_ROOT_ID: usize = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -563,7 +563,8 @@ fn notify_scheme_ready(
         syscall::CallFlags::FD,
         &[],
     )
-    .map_err(|err| format!("driver-params: failed to notify init that scheme is ready: {err}"))
+    .map_err(|err| format!("driver-params: failed to notify init that scheme is ready: {err}"))?;
+    Ok(())
 }
 
 #[cfg(target_os = "redox")]
