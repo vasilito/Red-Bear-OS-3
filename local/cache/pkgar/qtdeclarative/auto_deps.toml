@@ -1,1 +1,0 @@
-packages = ["libffi", "mesa", "qtbase", "relibc"]

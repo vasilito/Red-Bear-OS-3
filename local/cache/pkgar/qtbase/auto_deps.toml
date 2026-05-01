@@ -1,1 +1,0 @@
-packages = ["dbus", "libdrm", "libwayland", "mesa", "relibc", "zlib", "zstd"]

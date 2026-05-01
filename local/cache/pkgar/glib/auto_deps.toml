@@ -1,1 +1,0 @@
-packages = ["gettext", "libffi", "libiconv", "pcre2", "zlib"]
