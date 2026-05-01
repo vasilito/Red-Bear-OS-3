@@ -1,2 +1,0 @@
-add_subdirectory(killer)
-add_subdirectory(wayland_wrapper)
