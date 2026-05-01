@@ -85,3 +85,4 @@ Packages/redbear-firmware.pkgar
 packages/
 sources/
 local/linux-kernel-cache/
+local/recipes/kde/kwin/source/
