@@ -6,6 +6,7 @@ patches = [
     "../../../local/patches/relibc/P3-signalfd.patch",
     "../../../local/patches/relibc/P3-signalfd-header.patch",
     "../../../local/patches/relibc/P3-timerfd-relative.patch",
+    "../../../local/patches/relibc/P3-timerfd-cbindgen-fix.patch",
 
     "../../../local/patches/relibc/P3-waitid.patch",
     "../../../local/patches/relibc/P3-semaphore-fixes.patch",
@@ -38,6 +39,7 @@ patches = [
     "../../../local/patches/relibc/P3-in6-pktinfo.patch",
     "../../../local/patches/relibc/P3-header-mod-spawn-threads.patch",
     "../../../local/patches/relibc/P3-spawn.patch",
+    "../../../local/patches/relibc/P3-spawn-cbindgen-fix.patch",
     "../../../local/patches/relibc/P3-threads.patch",
     "../../../local/patches/relibc/P3-pthread-signal-races.patch",
     "../../../local/patches/relibc/P3-sysv-ipc.patch",
@@ -45,12 +47,17 @@ patches = [
     "../../../local/patches/relibc/P3-sysv-shm-impl.patch",
     "../../../local/patches/relibc/P4-setgroups-getgroups.patch",
     "../../../local/patches/relibc/P5-robust-mutexes.patch",
+    "../../../local/patches/relibc/P5-robust-mutex-enotrec-fix.patch",
     "../../../local/patches/relibc/P5-sched-api.patch",
     "../../../local/patches/relibc/P5-pthread-sigmask-race.patch",
+    "../../../local/patches/relibc/P5-signal-handler-panic-hardening.patch",
+    "../../../local/patches/relibc/P5-startup-init-panic-hardening.patch",
+    "../../../local/patches/relibc/P5-fatal-handler-diagnostics.patch",
     "../../../local/patches/relibc/P4-setgroups-unsafe-fix.patch",
     "../../../local/patches/relibc/P7-setpriority.patch",
     "../../../local/patches/relibc/P7-pthread-affinity.patch",
     "../../../local/patches/relibc/P7-pthread-setname.patch",
+    "../../../local/patches/relibc/P3-pthread-nulstr-sched-stdint.patch",
     "../../../local/patches/relibc/P9-spin-and-barrier.patch",
 ]
 

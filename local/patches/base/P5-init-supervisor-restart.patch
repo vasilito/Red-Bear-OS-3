@@ -1,0 +1,633 @@
+diff --git a/drivers/acpid/src/acpi.rs b/drivers/acpid/src/acpi.rs
+index 94a1eb17e..3521bfc7b 100644
+--- a/drivers/acpid/src/acpi.rs
++++ b/drivers/acpid/src/acpi.rs
+@@ -136,9 +136,10 @@ impl Sdt {
+         let header = match plain::from_bytes::<SdtHeader>(&slice) {
+             Ok(header) => header,
+             Err(plain::Error::TooShort) => return Err(InvalidSdtError::InvalidSize),
+-            Err(plain::Error::BadAlignment) => panic!(
+-                "plain::from_bytes failed due to alignment, but SdtHeader is #[repr(packed)]!"
+-            ),
++            Err(plain::Error::BadAlignment) => {
++                log::error!("acpid: plain::from_bytes failed due to alignment, but SdtHeader is #[repr(packed)] - internal inconsistency");
++                return Err(InvalidSdtError::InvalidSize);
++            }
+         };
+ 
+         if header.length() != slice.len() {
+diff --git a/drivers/acpid/src/main.rs b/drivers/acpid/src/main.rs
+index 059254b3e..8f99f2ea9 100644
+--- a/drivers/acpid/src/main.rs
++++ b/drivers/acpid/src/main.rs
+@@ -28,9 +28,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     log::info!("acpid start");
+ 
+-    let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
+-        .expect("acpid: failed to read `/scheme/kernel.acpi/rxsdt`")
+-        .into();
++    let rxsdt_raw_data: Arc<[u8]> = match std::fs::read("/scheme/kernel.acpi/rxsdt") {
++        Ok(data) => data.into(),
++        Err(err) => {
++            log::error!("acpid: failed to read `/scheme/kernel.acpi/rxsdt`: {}", err);
++            std::process::exit(1);
++        }
++    };
+ 
+     if rxsdt_raw_data.is_empty() {
+         log::info!("System doesn't use ACPI");
+@@ -38,7 +42,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         std::process::exit(0);
+     }
+ 
+-    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).expect("acpid: failed to parse [RX]SDT");
++    let sdt = match self::acpi::Sdt::new(rxsdt_raw_data) {
++        Ok(sdt) => sdt,
++        Err(err) => {
++            log::error!("acpid: failed to parse [RX]SDT: {:?}", err);
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut thirty_two_bit;
+     let mut sixty_four_bit;
+@@ -64,7 +74,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+             &mut sixty_four_bit as &mut dyn Iterator<Item = u64>
+         }
+-        _ => panic!("acpid: expected [RX]SDT from kernel to be either of those"),
++        _ => {
++            log::error!("acpid: expected [RX]SDT from kernel to be RSDT or XSDT");
++            std::process::exit(1);
++        }
+     };
+ 
+     let region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler + 'static>)> = vec![
+@@ -75,49 +88,84 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     // TODO: I/O permission bitmap?
+     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-    common::acquire_port_io_rights().expect("acpid: failed to set I/O privilege level to Ring 3");
++    if let Err(err) = common::acquire_port_io_rights() {
++        log::error!("acpid: failed to set I/O privilege level to Ring 3: {:?}", err);
++        std::process::exit(1);
++    }
+ 
+-    let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop")
+-        .expect("acpid: failed to open `/scheme/kernel.acpi/kstop`");
++    let shutdown_pipe = match File::open("/scheme/kernel.acpi/kstop") {
++        Ok(f) => f,
++        Err(err) => {
++            log::error!("acpid: failed to open `/scheme/kernel.acpi/kstop`: {}", err);
++            std::process::exit(1);
++        }
++    };
+ 
+-    let mut event_queue = RawEventQueue::new().expect("acpid: failed to create event queue");
+-    let socket = Socket::nonblock().expect("acpid: failed to create disk scheme");
++    let mut event_queue = match RawEventQueue::new() {
++        Ok(q) => q,
++        Err(err) => {
++            log::error!("acpid: failed to create event queue: {:?}", err);
++            std::process::exit(1);
++        }
++    };
++    let socket = match Socket::nonblock() {
++        Ok(s) => s,
++        Err(err) => {
++            log::error!("acpid: failed to create scheme socket: {:?}", err);
++            std::process::exit(1);
++        }
++    };
+ 
+     let mut scheme = self::scheme::AcpiScheme::new(&acpi_context, &socket);
+     let mut handler = Blocking::new(&socket, 16);
+ 
+-    event_queue
++    if let Err(err) = event_queue
+         .subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
+-        .expect("acpid: failed to register shutdown pipe for event queue");
+-    event_queue
++    {
++        log::error!("acpid: failed to register shutdown pipe for event queue: {:?}", err);
++        std::process::exit(1);
++    }
++    if let Err(err) = event_queue
+         .subscribe(socket.inner().raw(), 1, EventFlags::READ)
+-        .expect("acpid: failed to register scheme socket for event queue");
++    {
++        log::error!("acpid: failed to register scheme socket for event queue: {:?}", err);
++        std::process::exit(1);
++    }
+ 
+-    register_sync_scheme(&socket, "acpi", &mut scheme)
+-        .expect("acpid: failed to register acpi scheme to namespace");
++    if let Err(err) = register_sync_scheme(&socket, "acpi", &mut scheme) {
++        log::error!("acpid: failed to register acpi scheme to namespace: {:?}", err);
++        std::process::exit(1);
++    }
+ 
+     daemon.ready();
+ 
+-    libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        log::error!("acpid: failed to enter null namespace: {}", err);
++        std::process::exit(1);
++    }
+ 
+     let mut mounted = true;
+     while mounted {
+-        let Some(event) = event_queue
+-            .next()
+-            .transpose()
+-            .expect("acpid: failed to read event file")
+-        else {
+-            break;
++        let event = match event_queue.next().transpose() {
++            Ok(Some(ev)) => ev,
++            Ok(None) => break,
++            Err(err) => {
++                log::error!("acpid: failed to read event file: {:?}", err);
++                break;
++            }
+         };
+ 
+         if event.fd == socket.inner().raw() {
+             loop {
+-                match handler
+-                    .process_requests_nonblocking(&mut scheme)
+-                    .expect("acpid: failed to process requests")
+-                {
+-                    ControlFlow::Continue(()) => {}
+-                    ControlFlow::Break(()) => break,
++                match handler.process_requests_nonblocking(&mut scheme) {
++                    Ok(flow) => match flow {
++                        ControlFlow::Continue(()) => {}
++                        ControlFlow::Break(()) => break,
++                    },
++                    Err(err) => {
++                        log::error!("acpid: failed to process requests: {:?}", err);
++                        break;
++                    }
+                 }
+             }
+         } else if event.fd == shutdown_pipe.as_raw_fd() as usize {
+diff --git a/drivers/pcid/src/main.rs b/drivers/pcid/src/main.rs
+index 61cd9a787..cad33114b 100644
+--- a/drivers/pcid/src/main.rs
++++ b/drivers/pcid/src/main.rs
+@@ -4,7 +4,7 @@
+ 
+ use std::collections::BTreeMap;
+ 
+-use log::{debug, info, trace, warn};
++use log::{debug, error, info, trace, warn};
+ use pci_types::capability::PciCapability;
+ use pci_types::{
+     Bar as TyBar, CommandRegister, EndpointHeader, HeaderType, PciAddress,
+@@ -259,17 +259,25 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+             Ok(register_pci) => {
+                 let access_id = scheme.access();
+ 
+-                let access_fd = socket
++                let access_fd = match socket
+                     .create_this_scheme_fd(0, access_id, syscall::O_RDWR, 0)
+-                    .expect("failed to issue this resource");
+-                let access_bytes = access_fd.to_ne_bytes();
+-                let _ = register_pci
+-                    .call_wo(
++                {
++                    Ok(fd) => Some(fd),
++                    Err(err) => {
++                        warn!("pcid: failed to issue acpi resource fd: {:?}", err);
++                        None
++                    }
++                };
++                if let Some(access_fd) = access_fd {
++                    let access_bytes = access_fd.to_ne_bytes();
++                    if let Err(err) = register_pci.call_wo(
+                         &access_bytes,
+                         syscall::CallFlags::WRITE | syscall::CallFlags::FD,
+                         &[],
+-                    )
+-                    .expect("failed to send pci_fd to acpid");
++                    ) {
++                        warn!("pcid: failed to send pci_fd to acpid: {:?}", err);
++                    }
++                }
+             }
+             Err(err) => {
+                 if err.errno() == libredox::errno::ENODEV {
+@@ -304,14 +312,17 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     }
+     debug!("Enumeration complete, now starting pci scheme");
+ 
+-    register_sync_scheme(&socket, "pci", &mut scheme)
+-        .expect("failed to register pci scheme to namespace");
++    if let Err(err) = register_sync_scheme(&socket, "pci", &mut scheme) {
++        error!("pcid: failed to register pci scheme to namespace: {:?}", err);
++        std::process::exit(1);
++    }
+ 
+     let _ = daemon.ready();
+ 
+-    handler
+-        .process_requests_blocking(scheme)
+-        .expect("pcid: failed to process requests");
++    handler.process_requests_blocking(scheme).unwrap_or_else(|err| {
++        error!("pcid: failed to process requests: {:?}", err);
++        std::process::exit(1);
++    });
+ }
+ 
+ fn scan_device(
+diff --git a/init/src/main.rs b/init/src/main.rs
+index 5682cf445..72c97f53c 100644
+--- a/init/src/main.rs
++++ b/init/src/main.rs
+@@ -166,19 +166,29 @@ fn main() {
+             }
+         };
+         for entry in entries {
++            let Some(file_name) = entry.file_name().and_then(|n| n.to_str()) else {
++                eprintln!("init: skipping entry with invalid filename: {}", entry.display());
++                continue;
++            };
+             scheduler.schedule_start_and_report_errors(
+                 &mut unit_store,
+-                UnitId(entry.file_name().unwrap().to_str().unwrap().to_owned()),
++                UnitId(file_name.to_owned()),
+             );
+         }
+     };
+ 
+     scheduler.step(&mut unit_store, &mut init_config);
+ 
+-    libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("init: failed to enter null namespace: {}", err);
++        return;
++    }
+ 
+     loop {
+         let mut status = 0;
+-        libredox::call::waitpid(0, &mut status, 0).unwrap();
++        match libredox::call::waitpid(0, &mut status, 0) {
++            Ok(()) => {}
++            Err(err) => eprintln!("init: waitpid error: {}", err),
++        }
+     }
+ }
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+index d42a4e570..333e0e20e 100644
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -1,7 +1,16 @@
+ use std::collections::VecDeque;
++use std::io::Read;
++use std::os::fd::AsRawFd;
++use std::os::unix::process::CommandExt;
++use std::process::Command;
++use std::time::Duration;
++use std::{env, io};
+ 
+ use crate::InitConfig;
+-use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
++use crate::service::ServiceType;
++use crate::unit::{RestartPolicy, UnitId, UnitKind, UnitStore};
++
++const MAX_DEPENDENCY_WAIT_RETRIES: u32 = 1000;
+ 
+ pub struct Scheduler {
+     pending: VecDeque<Job>,
+@@ -10,10 +19,12 @@ pub struct Scheduler {
+ struct Job {
+     unit: UnitId,
+     kind: JobKind,
++    dep_retries: u32,
+ }
+ 
+ enum JobKind {
+     Start,
++    Restart { backoff: Duration },
+ }
+ 
+ impl Scheduler {
+@@ -50,37 +61,97 @@ impl Scheduler {
+             self.pending.push_back(Job {
+                 unit: unit_id,
+                 kind: JobKind::Start,
++                dep_retries: 0,
+             });
+         }
+     }
+ 
+     pub fn step(&mut self, unit_store: &mut UnitStore, init_config: &mut InitConfig) {
+         'a: loop {
+-            let Some(job) = self.pending.pop_front() else {
++            let Some(mut job) = self.pending.pop_front() else {
+                 return;
+             };
+ 
+             match job.kind {
+                 JobKind::Start => {
+-                    let unit = unit_store.unit_mut(&job.unit);
++                    let unit = unit_store.unit(&job.unit);
+ 
++                    let timeout_secs = unit.info.dependency_timeout_secs;
++                    let mut deps_pending = false;
+                     for dep in &unit.info.requires_weak {
+                         for pending_job in &self.pending {
+                             if &pending_job.unit == dep {
+-                                self.pending.push_back(job);
+-                                continue 'a;
++                                deps_pending = true;
++                                break;
+                             }
+                         }
++                        if deps_pending {
++                            break;
++                        }
+                     }
+ 
+-                    run(unit, init_config);
++                    if deps_pending {
++                        if timeout_secs > 0 {
++                            job.dep_retries += 1;
++                            let max_retries = timeout_secs * 100; // ~10ms per retry
++                            if job.dep_retries > max_retries as u32 {
++                                eprintln!(
++                                    "init: {}: dependency timeout after {}s, failing",
++                                    job.unit.0, timeout_secs
++                                );
++                                continue;
++                            }
++                        } else if job.dep_retries >= MAX_DEPENDENCY_WAIT_RETRIES {
++                            eprintln!(
++                                "init: {}: dependency wait exceeded {} retries, failing",
++                                job.unit.0, MAX_DEPENDENCY_WAIT_RETRIES
++                            );
++                            continue;
++                        }
++                        job.dep_retries += 1;
++                        self.pending.push_back(job);
++                        continue 'a;
++                    }
++
++                    if let Err(restart) = run(unit_store, &job.unit, init_config) {
++                        if let Some(backoff) = restart {
++                            self.pending.push_back(Job {
++                                unit: job.unit.clone(),
++                                kind: JobKind::Restart { backoff },
++                                dep_retries: 0,
++                            });
++                        }
++                    }
++                }
++                JobKind::Restart { backoff } => {
++                    std::thread::sleep(backoff);
++                    let next_backoff = (backoff * 2).min(Duration::from_secs(60));
++                    if let Err(restart) = run(unit_store, &job.unit, init_config) {
++                        if let Some(_next) = restart {
++                            self.pending.push_back(Job {
++                                unit: job.unit,
++                                kind: JobKind::Restart {
++                                    backoff: next_backoff,
++                                },
++                                dep_retries: 0,
++                            });
++                        }
++                    }
+                 }
+             }
+         }
+     }
+ }
+ 
+-fn run(unit: &mut Unit, config: &mut InitConfig) {
++fn run(
++    unit_store: &UnitStore,
++    unit_id: &UnitId,
++    config: &mut InitConfig,
++) -> Result<(), Option<Duration>> {
++    let unit = unit_store.unit(unit_id);
++
++    let restart_policy = unit.info.restart;
++
+     match &unit.kind {
+         UnitKind::LegacyScript { script } => {
+             for cmd in script.clone() {
+@@ -89,11 +160,12 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+                 }
+                 cmd.run(config);
+             }
++            Ok(())
+         }
+         UnitKind::Service { service } => {
+             if config.skip_cmd.contains(&service.cmd) {
+                 eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
+-                return;
++                return Ok(());
+             }
+             if config.log_debug {
+                 eprintln!(
+@@ -102,7 +174,44 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+                     service.cmd,
+                 );
+             }
+-            service.spawn(&config.envs);
++
++            let mut command = Command::new(&service.cmd);
++            command.args(&service.args);
++            command.env_clear();
++            for env in &service.inherit_envs {
++                if let Some(value) = env::var_os(env) {
++                    command.env(env, value);
++                }
++            }
++            command.envs(config.envs.iter().map(|(k, v)| (k.as_str(), v.as_os_str())));
++
++            let (read_pipe, write_pipe) = match io::pipe() {
++                Ok(p) => p,
++                Err(err) => {
++                    eprintln!("init: pipe failed for {}: {}", service.cmd, err);
++                    return Err(restart_signal(restart_policy));
++                }
++            };
++
++            let write_fd: std::os::fd::OwnedFd = write_pipe.into();
++            unsafe {
++                command.env("INIT_NOTIFY", format!("{}", write_fd.as_raw_fd()));
++                command.pre_exec(move || {
++                    if unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFD, 0) } == -1 {
++                        Err(io::Error::last_os_error())
++                    } else {
++                        Ok(())
++                    }
++                });
++            }
++
++            let status = service_spawn_status(read_pipe, command, &service.type_, &service.cmd);
++
++            match status {
++                SpawnStatus::Success => Ok(()),
++                SpawnStatus::Failed => Err(restart_signal(restart_policy)),
++                SpawnStatus::Async => Ok(()),
++            }
+         }
+         UnitKind::Target {} => {
+             if config.log_debug {
+@@ -111,6 +220,113 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
+                     unit.info.description.as_ref().unwrap_or(&unit.id.0),
+                 );
+             }
++            Ok(())
++        }
++    }
++}
++
++enum SpawnStatus {
++    Success,
++    Failed,
++    Async,
++}
++
++fn restart_signal(policy: RestartPolicy) -> Option<Duration> {
++    match policy {
++        RestartPolicy::No => None,
++        RestartPolicy::OnFailure | RestartPolicy::Always => Some(Duration::from_secs(1)),
++    }
++}
++
++fn service_spawn_status(
++    mut read_pipe: impl Read + AsRawFd,
++    mut command: Command,
++    service_type: &ServiceType,
++    cmd: &str,
++) -> SpawnStatus {
++    let mut child = match command.spawn() {
++        Ok(child) => child,
++        Err(err) => {
++            eprintln!("init: failed to execute {}: {}", cmd, err);
++            return SpawnStatus::Failed;
++        }
++    };
++
++    match service_type {
++        ServiceType::Notify => match read_pipe.read_exact(&mut [0]) {
++            Ok(()) => SpawnStatus::Success,
++            Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
++                eprintln!("init: {cmd} exited without notifying readiness");
++                SpawnStatus::Failed
++            }
++            Err(err) => {
++                eprintln!("init: failed to wait for {cmd}: {err}");
++                SpawnStatus::Failed
++            }
++        },
++        ServiceType::Scheme(scheme) => {
++            let scheme = scheme.clone();
++            let mut new_fd = usize::MAX;
++            let res = loop {
++                match syscall::call_ro(
++                    read_pipe.as_raw_fd() as usize,
++                    unsafe { plain::as_mut_bytes(&mut new_fd) },
++                    syscall::CallFlags::FD | syscall::CallFlags::FD_UPPER,
++                    &[],
++                ) {
++                    Err(syscall::Error {
++                        errno: syscall::EINTR,
++                    }) => continue,
++                    Ok(0) => break SpawnStatus::Failed,
++                    Ok(1) => break SpawnStatus::Success,
++                    Ok(n) => {
++                        eprintln!("init: incorrect amount of fds {n} returned from {cmd}");
++                        break SpawnStatus::Failed;
++                    }
++                    Err(err) => {
++                        eprintln!("init: failed to wait for {cmd}: {err}");
++                        break SpawnStatus::Failed;
++                    }
++                }
++            };
++
++            if matches!(res, SpawnStatus::Success) {
++                match libredox::call::getns() {
++                    Ok(current_namespace_fd) => {
++                        if let Err(err) = libredox::call::register_scheme_to_ns(
++                            current_namespace_fd,
++                            &scheme,
++                            new_fd,
++                        ) {
++                            eprintln!("init: scheme registration failed for {cmd}: {err}");
++                            return SpawnStatus::Failed;
++                        }
++                    }
++                    Err(err) => {
++                        eprintln!("init: getns failed for {cmd}: {err}");
++                        return SpawnStatus::Failed;
++                    }
++                }
++            }
++            res
++        }
++        ServiceType::Oneshot => {
++            drop(read_pipe);
++            match child.wait() {
++                Ok(exit_status) => {
++                    if !exit_status.success() {
++                        eprintln!("init: {cmd} failed with {exit_status}");
++                        SpawnStatus::Failed
++                    } else {
++                        SpawnStatus::Success
++                    }
++                }
++                Err(err) => {
++                    eprintln!("init: failed to wait for {cmd}: {err}");
++                    SpawnStatus::Failed
++                }
++            }
+         }
++        ServiceType::OneshotAsync => SpawnStatus::Async,
+     }
+ }
+diff --git a/init/src/unit.rs b/init/src/unit.rs
+index 98053cb2d..414b92d17 100644
+--- a/init/src/unit.rs
++++ b/init/src/unit.rs
+@@ -125,6 +125,25 @@ pub struct UnitInfo {
+     pub condition_architecture: Option<Vec<String>>,
+     // FIXME replace this with hwd reading from the devicetree
+     pub condition_board: Option<Vec<String>>,
++    /// Restart policy for the service (only applies to Service units)
++    #[serde(default)]
++    pub restart: RestartPolicy,
++    /// Maximum time in seconds to wait for dependencies before failing (0 = no timeout)
++    #[serde(default)]
++    pub dependency_timeout_secs: u64,
++}
++
++/// Restart policy for managed services
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
++#[serde(rename_all = "kebab-case")]
++pub enum RestartPolicy {
++    /// Never restart the service (default)
++    #[default]
++    No,
++    /// Restart on failure (non-zero exit or crash)
++    OnFailure,
++    /// Always restart (on any exit)
++    Always,
+ }
+ 
+ fn true_bool() -> bool {
+@@ -190,6 +209,8 @@ impl Unit {
+                     requires_weak: script.1,
+                     condition_architecture: None,
+                     condition_board: None,
++                    restart: RestartPolicy::No,
++                    dependency_timeout_secs: 0,
+                 },
+                 kind: UnitKind::LegacyScript { script: script.0 },
+             });
