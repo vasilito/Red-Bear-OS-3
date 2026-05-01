@@ -3,7 +3,7 @@
 > **Status note (2026-04-14):** This file mixes current status with older forward-looking porting
 > instructions. `config/redbear-full.toml` already exists, the Qt6 stack is built, many KF6 recipes
 > exist under `local/recipes/kde/`, and the current gap is no longer "start KDE from scratch".
-> The real frontier is distinguishing true builds from shimmed/stubbed packages and then closing
+> The real frontier is distinguishing true builds from blocked by QML gatemed/stubbed packages and then closing
 > the KWin / Plasma runtime path.
 >
 > For the current build/runtime truth summary of the desktop stack, use
@@ -24,11 +24,11 @@
 | Area | Current repo state |
 |---|---|
 | Qt6 | Built in-tree (`qtbase`, `qtdeclarative`, `qtsvg`, `qtwayland`) |
-| KF6 | All 32/32 built (some still shimmed or stubbed) |
+| KF6 | All 32/32 built (some still blocked by QML gate) |
 | `config/redbear-full.toml` | Present with KDE session launcher |
 | `kwin`, `plasma-workspace`, `plasma-desktop` | Recipes exist; build/runtime trust is still incomplete and some recipe/source TODO markers remain |
 | `kirigami` | Stub-only package for dependency resolution |
-| `kf6-kio` | Heavy shim-based build recipe |
+| `kf6-kio` | Heavy blocked by QML gate-based build recipe |
 | `kf6-kcmutils` | Stripped widget-only build recipe |
 | `libxcvt` | Now builds as a real package; no longer needs to stay in the KWin stub bucket |
 
@@ -68,7 +68,7 @@ Qt6 core stack fully built for x86_64-unknown-redox:
 | qtsvg | 6.11.0 | ✅ | Svg, SvgWidgets |
 | qtwayland | 6.11.0 | ✅ | WaylandClient (compositor disabled) |
 
-### Historical Phase KDE-B: KF6 Frameworks build milestone (32/32 built, some shimmed/stubbed)
+### Historical Phase KDE-B: KF6 Frameworks build milestone (32/32 built, some blocked by QML gatemed/stubbed)
 
 All 32 KF6 frameworks built: ecm, kcoreaddons, kwidgetsaddons, kconfig, ki18n, kcodecs,
 kcolorscheme, kauth, kwindowsystem, knotifications, kjobwidgets, kconfigwidgets,
@@ -77,13 +77,13 @@ kservice, kpackage, ktextwidgets, kiconthemes, kglobalaccel, kdeclarative, kxmlg
 kbookmarks, kidletime, kio, kcmutils.
 
 Additional KDE-facing packages: kdecoration, plasma-wayland-protocols, kf6-kwayland,
-kf6-kcmutils (widget-only), kirigami (stub-only).
+kf6-kcmutils (widget-only), kirigami (blocked by QML gate).
 
 ### Historical Phase KDE-C: KDE Plasma Assembly path
 
 Recipes created: kwin, plasma-workspace, plasma-desktop
 Config: config/redbear-full.toml
-Blocked on: KWin shimmed/stubbed deps resolution, KWin runtime integration, Plasma session assembly
+Blocked on: KWin blocked by QML gatemed/stubbed deps resolution, KWin runtime integration, Plasma session assembly
 
 **Goal**: A Qt application displays a window on the Redox Wayland compositor.
 
@@ -376,7 +376,7 @@ cmake --install . --prefix ${COOKBOOK_STAGE}/usr
 
 5. **udev**: KWin uses udev for device enumeration
    ```
-   src/udev.h/cpp — redirect to our udev-shim
+   src/udev.h/cpp — redirect to our udev-blocked by QML gate
    ```
 
 **Estimated KWin patches**: ~1000-1500 lines.
@@ -525,7 +525,7 @@ It should not be framed as an alternate-windowing-primary integration surface.
 KDE expects PulseAudio or PipeWire for audio. Redox has its own `scheme:audio`.
 
 **Option A**: Port PipeWire to Redox (large effort)
-**Option B**: Write a PulseAudio compatibility shim that translates to Redox audio scheme
+**Option B**: Write a PulseAudio compatibility blocked by QML gate that translates to Redox audio scheme
 **Option C**: Use KDE without audio initially (just disable audio notifications)
 
 ### Service Management: D-Bus Service Files
@@ -539,7 +539,7 @@ Need a translation layer that:
 KDE uses NetworkManager for network configuration. Redox has `smolnetd`.
 
 **Option A**: Port NetworkManager (massive effort, needs systemd)
-**Option B**: Write a NetworkManager D-Bus shim that talks to smolnetd
+**Option B**: Write a NetworkManager D-Bus blocked by QML gate that talks to smolnetd
 **Option C**: Skip network configuration UI initially
 
 ---

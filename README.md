@@ -98,7 +98,7 @@ with the subsystem plans listed above.
 | P3 POSIX + input | 🚧 In progress | relibc now has strict Redox-target runtime proof for `signalfd` / `timerfd` / `eventfd` through the repaired test runner; broader desktop/runtime hardening still continues |
 | P4 Wayland runtime | 🚧 In progress | bounded Wayland runtime validation builds to a bootable image and reaches its packaged runtime entrypoint in QEMU/UEFI |
 | P5 desktop/network plumbing | 🚧 In progress | `redbear-full` now carries the native VirtIO networking path plus D-Bus system-bus plumbing as a broader integration slice, and the guest-side runtime check reaches `DBUS_SYSTEM_BUS=present` |
-| P6 KDE Plasma | 🚧 In progress | Mix of real builds, shims, and stubs |
+| P6 KDE Plasma | 🚧 In progress | Mix of real builds, blocked by QML gates, and stubs |
 
 There is no distinct first-class **P7** artifact in this older historical numbering. The canonical
 current execution plan uses the newer phased/workstream ordering documented in `docs/07`.
