@@ -21,12 +21,12 @@ for qtdir in plugins mkspecs metatypes modules; do
 done
 
 # Full QML/Quick build — qtdeclarative provides Qt6Qml/Qt6Quick with qml_jit=OFF
-# (line 23 was previously stripping QML/Quick components)
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_FLAGS="-I${COOKBOOK_SYSROOT}/usr/include/QtQml -I${COOKBOOK_SYSROOT}/usr/include/QtQuick" \
     -DCMAKE_PREFIX_PATH="${COOKBOOK_SYSROOT}:${COOKBOOK_STAGE}/usr/lib/cmake" \
     -DBUILD_TESTING=OFF \
     -DBUILD_QCH=OFF \
