@@ -15,7 +15,7 @@ kernel guidance in other docs.
 
 | Document | Relationship |
 |----------|-------------|
-| `COMPREHENSIVE-OS-ASSESSMENT.md` | Parent: this plan extends §2 (Kernel & Core Infrastructure) |
+| `CONSOLE-TO-KDE-DESKTOP-PLAN.md` | Parent: CONSOLE-TO-KDE v4.0 (Kernel & Core Infrastructure) |
 | `IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` | Sibling: IRQ/PCI/MSI-X — not duplicated here |
 | `RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` | Companion: relibc IPC surface — this plan covers kernel side |
 | `ACPI-IMPROVEMENT-PLAN.md` | Sibling: ACPI power/shutdown — relevant for §4 (shutdown robustness) |
@@ -735,7 +735,7 @@ local/scripts/test-credential-syscalls-guest.sh   # In-guest checker
 
 ## 9. References
 
-- `local/docs/COMPREHENSIVE-OS-ASSESSMENT.md` — Parent assessment, §2 kernel gaps
+- `local/docs/COMPREHENSIVE-OS-ASSESSMENT.md` — Canonical comprehensive plan
 - `docs/01-REDOX-ARCHITECTURE.md` — Architecture reference
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — IRQ/PCI plan (sibling)
 - `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — IPC surface plan (companion)

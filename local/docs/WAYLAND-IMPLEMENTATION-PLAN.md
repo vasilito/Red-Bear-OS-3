@@ -19,7 +19,7 @@ current Wayland story into one document that answers four questions clearly:
 
 This plan is subordinate to the canonical desktop path in
 `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` and to the current build/runtime truth in
-`local/docs/DESKTOP-STACK-CURRENT-STATUS.md`, but it is the canonical subsystem plan for the
+`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`, but it is the canonical subsystem plan for the
 Wayland layer beneath that desktop path.
 
 ## Truth Statement
@@ -68,10 +68,10 @@ Out of scope:
 Use the doc set in this order:
 
 1. `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — top-level desktop sequencing authority
-2. `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` — current desktop/Wayland truth
+2. `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — current desktop/Wayland truth
 3. `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — Wayland subsystem plan beneath the desktop path
 4. `local/docs/DRM-MODERNIZATION-EXECUTION-PLAN.md` — GPU/DRM execution detail
-5. `local/docs/QT6-PORT-STATUS.md` — Qt/KF6/KWin package-level build status
+5. `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — Qt/KF6/KWin package-level build status
 
 The following are historical or reference-only after this plan:
 

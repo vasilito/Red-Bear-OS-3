@@ -7,7 +7,7 @@
 > the KWin / Plasma runtime path.
 >
 > For the current build/runtime truth summary of the desktop stack, use
-> `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` together with
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` together with
 > `local/docs/QT6-PORT-STATUS.md`. This file should now be read primarily as implementation history
 > plus deeper KDE-specific rationale and porting notes.
 >
@@ -16,7 +16,7 @@
 >
 > For the current greeter/login boundary specifically, use
 > `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` together with
-> `local/docs/DESKTOP-STACK-CURRENT-STATUS.md` rather than the launch snippets or phase language in
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` rather than the launch snippets or phase language in
 > this historical document.
 
 ## Current State Snapshot
