@@ -593,7 +593,7 @@ mod tests {
     #[cfg(target_os = "redox")]
     #[test]
     fn detect_compositor_process_matches_kwin_wrapper_line() {
-        let output = "123 kwin_wayland_wrapper --virtual\n";
+        let output = "123 redbear-compositor --virtual\n";
         assert_eq!(detect_compositor_process(output), Some("kwin_wayland"));
     }
 

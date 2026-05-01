@@ -336,7 +336,7 @@ fn check_kf6_library_versions() -> Check {
 fn check_plasma_binaries() -> Check {
     let required = [
         "/usr/bin/redbear-kde-session",
-        "/usr/bin/kwin_wayland_wrapper",
+        "/usr/bin/redbear-compositor",
         "/usr/bin/plasmashell",
         "/usr/bin/kded6",
     ];

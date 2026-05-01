@@ -460,7 +460,7 @@ fn check_binaries() -> Result<(), Vec<String>> {
         "/usr/bin/redbear-greeterd",
         "/usr/bin/redbear-greeter-ui",
         "/usr/bin/redbear-authd",
-        "/usr/bin/kwin_wayland_wrapper",
+        "/usr/bin/redbear-compositor",
     ] {
         if !std::path::Path::new(bin).exists() {
             missing.push(bin.to_string());
