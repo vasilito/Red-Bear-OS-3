@@ -1,0 +1,23 @@
+# USB class drivers
+
+[[driver]]
+name = "redbear-acmd"
+description = "USB CDC ACM serial driver"
+priority = 70
+command = ["/usr/bin/redbear-acmd"]
+
+[[driver]]
+name = "redbear-ecmd"
+description = "USB CDC ECM/NCM ethernet driver"
+priority = 70
+command = ["/usr/bin/redbear-ecmd"]
+
+[[driver]]
+name = "redbear-usbaudiod"
+description = "USB Audio Class driver"
+priority = 70
+command = ["/usr/bin/redbear-usbaudiod"]
+
+# USB class drivers are spawned by the USB host controller (xhcid/ehcid)
+# when matching USB devices are detected, not by PCI bus scanning.
+# Match entries below use USB interface class codes for host-controller-side matching.

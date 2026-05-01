@@ -1,0 +1,219 @@
+diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
+index 4dc2388..f472c08 100644
+--- a/src/acpi/madt/arch/x86.rs
++++ b/src/acpi/madt/arch/x86.rs
+@@ -20,0 +21 @@ use super::{Madt, MadtEntry};
++const AP_SPIN_LIMIT: u32 = 1_000_000;
+@@ -45,7 +46,11 @@ pub(super) fn init(madt: Madt) {
+-        let result = mapper
+-            .map_phys(
+-                trampoline_page.start_address(),
+-                trampoline_frame.base(),
+-                PageFlags::new().execute(true).write(true),
+-            )
+-            .expect("failed to map trampoline");
++        let result = match mapper.map_phys(
++            trampoline_page.start_address(),
++            trampoline_frame.base(),
++            PageFlags::new().execute(true).write(true),
++        ) {
++            Some(result) => result,
++            None => {
++                println!("KERNEL AP: failed to map trampoline page, AP bring-up disabled");
++                return;
++            }
++        };
+@@ -75,2 +79,0 @@ pub(super) fn init(madt: Madt) {
+-                let cpu_id = LogicalCpuId::next();
+-
+@@ -78,6 +81,8 @@ pub(super) fn init(madt: Madt) {
+-                let stack_start = RmmA::phys_to_virt(
+-                    allocate_p2frame(4)
+-                        .expect("no more frames in acpi stack_start")
+-                        .base(),
+-                )
+-                .data();
++                let alloc = match allocate_p2frame(4) {
++                    Some(frame) => frame,
++                    None => {
++                        println!("KERNEL AP: CPU {} no memory for stack, skipping", ap_local_apic.id);
++                        continue;
++                    }
++                };
++                let stack_start = RmmA::phys_to_virt(alloc.base()).data();
+@@ -85,0 +91,10 @@ pub(super) fn init(madt: Madt) {
++                let next_cpu = crate::CPU_COUNT.load(Ordering::Relaxed);
++                if next_cpu >= crate::cpu_set::MAX_CPU_COUNT {
++                    println!(
++                        "KERNEL AP: CPU {} exceeds logical CPU limit, skipping",
++                        ap_local_apic.id
++                    );
++                    continue;
++                }
++                let cpu_id = LogicalCpuId::new(next_cpu);
++
+@@ -140,2 +155,7 @@ pub(super) fn init(madt: Madt) {
+-                // Wait for trampoline ready
+-                while unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } == 0 {
++                // Wait for trampoline ready with timeout
++                let mut trampoline_ready = false;
++                for _ in 0..AP_SPIN_LIMIT {
++                    if unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } != 0 {
++                        trampoline_ready = true;
++                        break;
++                    }
+@@ -144 +164,11 @@ pub(super) fn init(madt: Madt) {
+-                while !AP_READY.load(Ordering::SeqCst) {
++                if !trampoline_ready {
++                    println!("KERNEL AP: CPU {} trampoline timeout, skipping", ap_local_apic.id);
++                    continue;
++                }
++
++                let mut kernel_ready = false;
++                for _ in 0..AP_SPIN_LIMIT {
++                    if AP_READY.load(Ordering::SeqCst) {
++                        kernel_ready = true;
++                        break;
++                    }
+@@ -146,0 +177,6 @@ pub(super) fn init(madt: Madt) {
++                if !kernel_ready {
++                    println!("KERNEL AP: CPU {} AP_READY timeout, skipping", ap_local_apic.id);
++                    continue;
++                }
++
++                crate::CPU_COUNT.fetch_add(1, Ordering::Relaxed);
+@@ -154 +190 @@ pub(super) fn init(madt: Madt) {
+-    let (_frame, _, flush) = unsafe {
++    if let Some((_frame, _, flush)) = unsafe {
+@@ -157,3 +193,5 @@ pub(super) fn init(madt: Madt) {
+-            .expect("failed to unmap trampoline page")
+-    };
+-    flush.flush();
++    } {
++        flush.flush();
++    } else {
++        println!("KERNEL AP: failed to unmap trampoline page (non-fatal)");
++    }
+diff --git a/src/allocator/mod.rs b/src/allocator/mod.rs
+index 4fdb0ba..aaa7196 100644
+--- a/src/allocator/mod.rs
++++ b/src/allocator/mod.rs
+@@ -9,0 +10,9 @@ const KERNEL_HEAP_SIZE: usize = ::rmm::MEGABYTE;
++#[cold]
++fn halt_kernel_heap_init(message: &str) -> ! {
++    print!("{message}");
++    println!("Kernel heap initialization cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+@@ -16,4 +25,6 @@ unsafe fn map_heap(mapper: &mut KernelMapper<true>, offset: usize, size: usize)
+-        let phys = mapper
+-            .allocator_mut()
+-            .allocate_one()
+-            .expect("failed to allocate kernel heap");
++        let phys = match mapper.allocator_mut().allocate_one() {
++            Some(phys) => phys,
++            None => halt_kernel_heap_init(
++                "FATAL: failed to allocate physical frame for kernel heap\n",
++            ),
++        };
+@@ -21,9 +32,12 @@ unsafe fn map_heap(mapper: &mut KernelMapper<true>, offset: usize, size: usize)
+-            mapper
+-                .map_phys(
+-                    page.start_address(),
+-                    phys,
+-                    PageFlags::new()
+-                        .write(true)
+-                        .global(cfg!(not(feature = "pti"))),
+-                )
+-                .expect("failed to map kernel heap")
++            match mapper.map_phys(
++                page.start_address(),
++                phys,
++                PageFlags::new()
++                    .write(true)
++                    .global(cfg!(not(feature = "pti"))),
++            ) {
++                Some(flush) => flush,
++                None => halt_kernel_heap_init(
++                    "FATAL: failed to map kernel heap virtual page\n",
++                ),
++            }
+diff --git a/src/arch/x86_shared/gdt.rs b/src/arch/x86_shared/gdt.rs
+index cad344f..f7acae3 100644
+--- a/src/arch/x86_shared/gdt.rs
++++ b/src/arch/x86_shared/gdt.rs
+@@ -194,0 +195,9 @@ impl ProcessorControlRegion {
++#[cold]
++fn halt_pcr_init() -> ! {
++    println!("FATAL: failed to allocate physical memory for Processor Control Region");
++    println!("Processor startup cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+@@ -378 +387,4 @@ pub fn allocate_and_init_pcr(
+-    let pcr_frame = crate::memory::allocate_p2frame(alloc_order).expect("failed to allocate PCR");
++    let pcr_frame = match crate::memory::allocate_p2frame(alloc_order) {
++        Some(frame) => frame,
++        None => halt_pcr_init(),
++    };
+diff --git a/src/arch/x86_shared/idt.rs b/src/arch/x86_shared/idt.rs
+index 5006458..47f692f 100644
+--- a/src/arch/x86_shared/idt.rs
++++ b/src/arch/x86_shared/idt.rs
+@@ -80,0 +81,9 @@ pub(crate) static IDTS: RwLock<HashMap<LogicalCpuId, &'static mut Idt>> =
++#[cold]
++fn halt_idt_init() -> ! {
++    println!("FATAL: failed to allocate physical pages for backup interrupt stack");
++    println!("Interrupt setup cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+@@ -164,2 +173,4 @@ pub fn allocate_and_init_idt(cpu_id: LogicalCpuId) -> *mut Idt {
+-    let frames = crate::memory::allocate_p2frame(4)
+-        .expect("failed to allocate pages for backup interrupt stack");
++    let frames = match crate::memory::allocate_p2frame(4) {
++        Some(frames) => frames,
++        None => halt_idt_init(),
++    };
+diff --git a/src/startup/memory.rs b/src/startup/memory.rs
+index 26922dd..f271200 100644
+--- a/src/startup/memory.rs
++++ b/src/startup/memory.rs
+@@ -326 +326,10 @@ unsafe fn map_memory<A: Arch>(areas: &[MemoryArea], mut bump_allocator: &mut Bum
+-        let kernel_area = (*MEMORY_MAP.get()).kernel().unwrap();
++        let kernel_area = match (*MEMORY_MAP.get()).kernel() {
++            Some(area) => area,
++            None => {
++                println!("FATAL: kernel memory area not found in boot memory map");
++                println!("Cannot determine kernel base address. Halting.");
++                loop {
++                    core::hint::spin_loop();
++                }
++            }
++        };
+diff --git a/src/startup/mod.rs b/src/startup/mod.rs
+index 8ad3cdf..86aabc2 100644
+--- a/src/startup/mod.rs
++++ b/src/startup/mod.rs
+@@ -151,0 +152,9 @@ static BSP_READY: AtomicBool = AtomicBool::new(false);
++#[cold]
++fn halt_boot(message: &str) -> ! {
++    print!("{message}");
++    println!("Kernel boot cannot continue. Halting.");
++    loop {
++        hint::spin_loop();
++    }
++}
++
+@@ -183,3 +192 @@ pub(crate) fn kmain(bootstrap: Bootstrap) -> ! {
+-        Err(err) => {
+-            panic!("failed to spawn userspace_init: {:?}", err);
+-        }
++        Err(_err) => halt_boot("FATAL: failed to spawn first userspace process userspace_init\n"),

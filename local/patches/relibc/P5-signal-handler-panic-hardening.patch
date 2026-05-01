@@ -1,0 +1,112 @@
+diff --git a/redox-rt/src/signal.rs b/redox-rt/src/signal.rs
+index 022f873..ab96dea 100644
+--- a/redox-rt/src/signal.rs
++++ b/redox-rt/src/signal.rs
+@@ -1,4 +1,10 @@
+-use core::{ffi::c_int, ptr::NonNull, sync::atomic::Ordering};
++use core::{
++    ffi::c_int,
++    hint::unreachable_unchecked,
++    panic::AssertUnwindSafe,
++    ptr::NonNull,
++    sync::atomic::Ordering,
++};
+ 
+ use syscall::{
+     CallFlags, EAGAIN, EINTR, EINVAL, ENOMEM, EPERM, Error, RawAction, Result, SenderInfo,
+@@ -103,6 +109,47 @@ pub struct SiginfoAbi {
+     pub si_value: usize, // sigval
+ }
+ 
++fn invoke_signal_handler<F: FnOnce()>(f: AssertUnwindSafe<F>) -> bool {
++    fn do_call<F: FnOnce()>(data: *mut u8) {
++        let callback = unsafe { &mut *data.cast::<Option<AssertUnwindSafe<F>>>() };
++        if let Some(callback) = callback.take() {
++            callback.0();
++        }
++    }
++
++    fn do_catch<F: FnOnce()>(_data: *mut u8, _payload: *mut u8) {}
++
++    let mut callback = Some(f);
++    unsafe {
++        core::intrinsics::catch_unwind(
++            do_call::<F>,
++            (&mut callback as *mut Option<AssertUnwindSafe<F>>).cast(),
++            do_catch::<F>,
++        ) != 0
++    }
++}
++
++#[inline(always)]
++unsafe fn return_ignored_signal(
++    os: &RtTcb,
++    stack: &SigStack,
++    signals_were_disabled: bool,
++) {
++    unsafe {
++        (*os.arch.get()).last_sig_was_restart = true;
++        (*os.arch.get()).last_sigstack = NonNull::new(stack.link);
++    }
++
++    if !signals_were_disabled {
++        core::sync::atomic::compiler_fence(Ordering::Release);
++        let control_flags = &os.control.control_flags;
++        control_flags.store(
++            control_flags.load(Ordering::Relaxed) & !SigcontrolFlags::INHIBIT_DELIVERY.bits(),
++            Ordering::Relaxed,
++        );
++    }
++}
++
+ #[inline(always)]
+ unsafe fn inner(stack: &mut SigStack) {
+     let os = unsafe { &Tcb::current().unwrap().os_specific };
+@@ -168,7 +215,10 @@ unsafe fn inner(stack: &mut SigStack) {
+         // and reaching this code. If so, we do already know whether the signal is IGNORED *now*,
+         // and so we should return early ideally without even temporarily touching the signal mask.
+         SigactionKind::Ignore => {
+-            panic!("ctl {:#x?} signal {}", os.control, stack.sig_num)
++            unsafe {
++                return_ignored_signal(os, stack, signals_were_disabled);
++            }
++            return;
+         }
+         // this case should be treated equally as the one above
+         //
+@@ -183,7 +233,9 @@ unsafe fn inner(stack: &mut SigStack) {
+                 CallFlags::empty(),
+                 &[ProcCall::Exit as u64, u64::from(sig) << 8],
+             );
+-            panic!()
++            // SAFETY: ProcCall::Exit terminates the current process when it succeeds, so reaching
++            // this point would violate the proc manager exit contract.
++            unsafe { unreachable_unchecked() }
+         }
+         SigactionKind::Handled { handler } => handler,
+     };
+@@ -224,15 +276,21 @@ unsafe fn inner(stack: &mut SigStack) {
+             si_uid: sender_uid as i32,
+             si_value: stack.sival,
+         };
+-        unsafe {
++        if invoke_signal_handler(AssertUnwindSafe(|| unsafe {
+             sigaction(
+                 stack.sig_num as c_int,
+                 core::ptr::addr_of!(info).cast(),
+                 stack as *mut SigStack as *mut (),
+             )
+-        };
++        })) {
++            let _ = syscall::write(2, b"redox-rt: sa_siginfo handler panicked; continuing\n");
++        }
+     } else if let Some(handler) = unsafe { handler.handler } {
+-        handler(stack.sig_num as c_int);
++        if invoke_signal_handler(AssertUnwindSafe(|| {
++            handler(stack.sig_num as c_int);
++        })) {
++            let _ = syscall::write(2, b"redox-rt: sa_handler panicked; continuing\n");
++        }
+     }
+ 
+     // Disable signals while we modify the sigmask again

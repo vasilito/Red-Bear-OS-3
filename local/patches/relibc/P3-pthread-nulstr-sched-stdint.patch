@@ -1,0 +1,359 @@
+diff --git a/src/header/pthread/mod.rs b/src/header/pthread/mod.rs
+index c742a42..03c4043 100644
+--- a/src/header/pthread/mod.rs
++++ b/src/header/pthread/mod.rs
+@@ -3,15 +3,26 @@
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/pthread.h.html>.
+ 
+ use alloc::collections::LinkedList;
+-use core::{cell::Cell, ptr::NonNull};
++use core::{cell::Cell, mem::size_of, ptr::NonNull};
++
++#[cfg(target_os = "redox")]
++use redox_rt::proc::FdGuard;
++#[cfg(target_os = "linux")]
++use sc::syscall;
++#[cfg(target_os = "redox")]
++use syscall;
+ 
+ use crate::{
+     error::Errno,
+-    header::{bits_timespec::timespec, sched::*},
++    header::{
++        bits_timespec::timespec,
++        errno::{EINVAL, ERANGE},
++        sched::*,
++    },
+     platform::{
+         Pal, Sys,
+         types::{
+-            c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
++            c_char, c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
+             pthread_barrierattr_t, pthread_cond_t, pthread_condattr_t, pthread_key_t,
+             pthread_mutex_t, pthread_mutexattr_t, pthread_once_t, pthread_rwlock_t,
+             pthread_rwlockattr_t, pthread_spinlock_t, pthread_t, size_t,
+@@ -20,6 +31,9 @@ use crate::{
+     pthread,
+ };
+ 
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
+ pub fn e(result: Result<(), Errno>) -> i32 {
+     match result {
+         Ok(()) => 0,
+@@ -27,6 +41,96 @@ pub fn e(result: Result<(), Errno>) -> i32 {
+     }
+ }
+ 
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
+ #[derive(Clone)]
+ pub(crate) struct RlctAttr {
+     pub detachstate: c_uchar,
+@@ -186,6 +290,43 @@ pub unsafe extern "C" fn pthread_getcpuclockid(
+     }
+ }
+ 
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread)
++                .and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_getschedparam.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_getschedparam(
+@@ -235,6 +376,43 @@ pub unsafe extern "C" fn pthread_self() -> pthread_t {
+     core::ptr::from_ref(unsafe { pthread::current_thread().unwrap_unchecked() }) as *mut _
+ }
+ 
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset)
++                .and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_setcancelstate.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_setcancelstate(state: c_int, oldstate: *mut c_int) -> c_int {
+@@ -307,6 +485,13 @@ pub unsafe extern "C" fn pthread_testcancel() {
+     unsafe { pthread::testcancel() };
+ }
+ 
++/// <https://man7.org/linux/man-pages/man3/pthread_yield.3.html>
++///
++/// Non-standard GNU extension. Prefer `sched_yield()` instead.
++pub extern "C" fn pthread_yield() {
++    let _ = Sys::sched_yield();
++}
++
+ // Must be the same struct as defined in the pthread_cleanup_push macro.
+ #[repr(C)]
+ pub(crate) struct CleanupLinkedListEntry {
+@@ -350,3 +535,84 @@ pub(crate) unsafe fn run_destructor_stack() {
+         (entry.routine)(entry.arg);
+     }
+ }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setname_np(thread: pthread_t, name: *const c_char) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++
++    let cstr = unsafe { core::ffi::CStr::from_ptr(name) };
++    let name_bytes = cstr.to_bytes();
++    let len = name_bytes.len().min(31);
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name\0", os_tid.thread_fd);
++        let path_cstr = core::ffi::CStr::from_bytes_with_nul(path.as_bytes()).unwrap();
++        let fd = match Sys::open(path_cstr.into(), crate::header::fcntl::O_WRONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let result = match Sys::write(fd, &name_bytes[..len]) {
++            Ok(written) if written == len => 0,
++            Ok(_) => crate::header::errno::EIO,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getname_np(
++    thread: pthread_t,
++    name: *mut c_char,
++    len: size_t,
++) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++    if len == 0 {
++        return ERANGE;
++    }
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name\0", os_tid.thread_fd);
++        let path_cstr = core::ffi::CStr::from_bytes_with_nul(path.as_bytes()).unwrap();
++        let fd = match Sys::open(path_cstr.into(), crate::header::fcntl::O_RDONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let mut buf = [0u8; 31];
++        let result = match Sys::read(fd, &mut buf) {
++            Ok(read) if read < len => {
++                unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), name.cast(), read) };
++                unsafe { *name.add(read) = 0 };
++                0
++            }
++            Ok(_) => ERANGE,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        unsafe { *name = 0 };
++        0
++    }
++}
+diff --git a/src/header/sched/cbindgen.toml b/src/header/sched/cbindgen.toml
+index b361fa4..d6d959d 100644
+--- a/src/header/sched/cbindgen.toml
++++ b/src/header/sched/cbindgen.toml
+@@ -5,7 +5,7 @@
+ # - "[SS|TSP] The <sched.h> header shall define the time_t type as described in <sys/types.h>."
+ # - "The <sched.h> header shall define the timespec structure as described in <time.h>."
+ # - "Inclusion of the <sched.h> header may make visible all symbols from the <time.h> header."
+-sys_includes = ["sys/types.h"]
++sys_includes = ["sys/types.h", "stdint.h"]
+ include_guard = "_RELIBC_SCHED_H"
+ after_includes = """
+ #include <bits/timespec.h> // for timespec
+@@ -20,3 +20,17 @@ prefix_with_name = true
+ 
+ [export.rename]
+ "timespec" = "struct timespec"
++
++[export]
++include = [
++    "sched_param",
++    "cpu_set_t",
++    "sched_get_priority_max",
++    "sched_get_priority_min",
++    "sched_getparam",
++    "sched_getscheduler",
++    "sched_rr_get_interval",
++    "sched_setparam",
++    "sched_setscheduler",
++    "sched_yield",
++]

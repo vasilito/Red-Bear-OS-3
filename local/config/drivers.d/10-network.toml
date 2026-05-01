@@ -1,0 +1,52 @@
+# Network drivers
+
+[[driver]]
+name = "e1000d"
+description = "Intel Gigabit Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/e1000d"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 2
+
+[[driver]]
+name = "rtl8168d"
+description = "Realtek 8168/8125 Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/rtl8168d"]
+
+[[driver.match]]
+vendor = 0x10EC
+class = 2
+
+[[driver]]
+name = "rtl8139d"
+description = "Realtek 8139 Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/rtl8139d"]
+
+[[driver.match]]
+vendor = 0x10EC
+device = 0x8139
+
+[[driver]]
+name = "ixgbed"
+description = "Intel 10 Gigabit Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/ixgbed"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 2
+subclass = 0
+
+[[driver]]
+name = "virtio-netd"
+description = "VirtIO network driver"
+priority = 50
+command = ["/usr/lib/drivers/virtio-netd"]
+
+[[driver.match]]
+vendor = 0x1AF4
+class = 2

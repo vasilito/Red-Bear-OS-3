@@ -1,0 +1,14 @@
+# Intel Wi-Fi firmware fallback chains
+# If a specific ucode version is not found, try earlier API versions
+
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-83.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-77.ucode"]
+
+[[fallback]]
+pattern = "iwlwifi-ty-a0-gf-a0-92.ucode"
+chain = ["iwlwifi-ty-a0-gf-a0-83.ucode", "iwlwifi-ty-a0-gf-a0-77.ucode"]

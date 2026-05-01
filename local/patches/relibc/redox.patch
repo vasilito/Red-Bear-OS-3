@@ -21,3 +21,107 @@ diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
 +        }
 +        return new_fd;
 +    }
+
+diff --git a/src/pthread/mod.rs b/src/pthread/mod.rs
+--- a/src/pthread/mod.rs
++++ b/src/pthread/mod.rs
+@@ -2,6 +2,7 @@
+ 
+ use core::{
+     cell::UnsafeCell,
++    panic::AssertUnwindSafe,
+     ptr,
+     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+ };
+@@ -208,13 +209,41 @@ pub(crate) unsafe fn create(
+ }
+ 
+ /// A shim to wrap thread entry points in logic to set up TLS, for example
++fn catch_unwind<F: FnOnce()>(f: AssertUnwindSafe<F>) -> Result<(), ()> {
++    fn do_call<F: FnOnce()>(data: *mut u8) {
++        let callback = unsafe { &mut *data.cast::<Option<AssertUnwindSafe<F>>>() };
++        if let Some(callback) = callback.take() {
++            callback.0();
++        }
++    }
++
++    fn do_catch<F: FnOnce()>(_data: *mut u8, _payload: *mut u8) {}
++
++    let mut callback = Some(f);
++    let panicked = unsafe {
++        core::intrinsics::catch_unwind(
++            do_call::<F>,
++            (&mut callback as *mut Option<AssertUnwindSafe<F>>).cast(),
++            do_catch::<F>,
++        ) != 0
++    };
++
++    if panicked { Err(()) } else { Ok(()) }
++}
++
+ unsafe extern "C" fn new_thread_shim(
+     tcb: *mut Tcb,
+     synchronization_mutex: *const Mutex<u64>,
+ ) -> ! {
+-    let tcb = unsafe { tcb.as_mut() }.expect_notls("non-null TLS is required");
++    let tcb = match unsafe { tcb.as_mut() } {
++        Some(tcb) => tcb,
++        None => {
++            log::error!("pthread: child thread started without a TCB");
++            unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++        }
++    };
+ 
+     #[cfg(not(target_os = "redox"))]
+     {
+@@ -227,12 +256,23 @@ unsafe extern "C" fn new_thread_shim(
+         unsafe {
+             tcb.activate(None);
+         }
+-        redox_rt::signal::setup_sighandler(&tcb.os_specific, false);
++        match catch_unwind(AssertUnwindSafe(|| {
++            redox_rt::signal::setup_sighandler(&tcb.os_specific, false)
++        })) {
++            Ok(()) => {}
++            Err(()) => {
++                log::error!("pthread: failed to set up child thread signal handler");
++                unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++            }
++        }
+     }
+ 
+     let procmask = unsafe { (&*synchronization_mutex).as_ptr().read() };
+ 
+-    unsafe { tcb.copy_masters() }.unwrap();
++    if let Err(err) = unsafe { tcb.copy_masters() } {
++        log::error!("pthread: failed to copy TLS masters for child thread: {err:?}");
++        unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++    }
+ 
+     unsafe { (*tcb).pthread.os_tid.get().write(Sys::current_os_tid()) };
+ 
+@@ -240,11 +280,21 @@ unsafe extern "C" fn new_thread_shim(
+ 
+     #[cfg(target_os = "redox")]
+     {
+-        redox_rt::signal::set_sigmask(Some(procmask), None)
+-            .expect("failed to set procmask in child thread");
++        if let Err(err) = redox_rt::signal::set_sigmask(Some(procmask), None) {
++            log::error!("pthread: failed to set child thread signal mask: {err:?}");
++        }
+     }
+ 
+-    let retval = unsafe { entry_point(arg) };
++    let mut retval = ptr::null_mut();
++    match catch_unwind(AssertUnwindSafe(|| {
++        retval = unsafe { entry_point(arg) };
++    })) {
++        Ok(()) => {}
++        Err(()) => {
++            log::error!("pthread: child thread entry point panicked");
++            unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++        }
++    }
+ 
+     unsafe { exit_current_thread(Retval(retval)) }
+ }

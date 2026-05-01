@@ -1,0 +1,55 @@
+# Storage drivers — highest priority (needed for boot)
+
+[[driver]]
+name = "nvmed"
+description = "NVMe storage driver"
+priority = 100
+command = ["/usr/lib/drivers/nvmed"]
+
+[[driver.match]]
+class = 1
+subclass = 8
+
+[[driver]]
+name = "ahcid"
+description = "AHCI SATA driver"
+priority = 100
+command = ["/usr/lib/drivers/ahcid"]
+
+[[driver.match]]
+class = 1
+subclass = 6
+
+[[driver]]
+name = "ided"
+description = "PATA IDE driver"
+priority = 100
+command = ["/usr/lib/drivers/ided"]
+
+[[driver.match]]
+class = 1
+subclass = 1
+
+[[driver]]
+name = "virtio-blkd"
+description = "VirtIO block device driver"
+priority = 100
+command = ["/usr/lib/drivers/virtio-blkd"]
+
+[[driver.match]]
+vendor = 0x1AF4
+device = 0x1001
+class = 1
+subclass = 0
+
+[[driver]]
+name = "usbscsid"
+description = "USB SCSI storage driver"
+priority = 80
+command = ["/usr/lib/drivers/usbscsid"]
+# Spawned by USB class matching, not direct PCI match
+
+# Dependency DAG: drivers can declare what schemes/drivers they need
+# Example: nvmed depends on pci scheme being available
+# [[driver.depends]]
+# scheme = "pci"

@@ -1,0 +1,53 @@
+# Graphics and display drivers
+
+[[driver]]
+name = "vesad"
+description = "VESA BIOS display driver"
+priority = 60
+command = ["/usr/lib/drivers/vesad"]
+
+[[driver.match]]
+class = 0x03
+
+[[driver]]
+name = "redox-drm"
+description = "DRM/KMS display driver (AMD + Intel + VirtIO)"
+priority = 60
+command = ["/usr/bin/redox-drm"]
+
+[[driver.match]]
+class = 0x03
+
+[[driver]]
+name = "virtio-gpud"
+description = "VirtIO GPU driver"
+priority = 60
+command = ["/usr/lib/drivers/virtio-gpud"]
+
+[[driver.match]]
+vendor = 0x1AF4
+class = 0x03
+
+# Intel GPU — matched specifically for the display class
+[[driver]]
+name = "redox-drm"
+description = "Intel GPU display driver"
+priority = 61
+command = ["/usr/bin/redox-drm"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 0x03
+subclass = 0x00
+
+# AMD GPU — matched specifically for the display class
+[[driver]]
+name = "redox-drm"
+description = "AMD GPU display driver"
+priority = 61
+command = ["/usr/bin/redox-drm"]
+
+[[driver.match]]
+vendor = 0x1002
+class = 0x03
+subclass = 0x00

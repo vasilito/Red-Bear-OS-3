@@ -1,0 +1,913 @@
+diff --git a/src/context/file.rs b/src/context/file.rs
+index 2d3790f..150f483 100644
+--- a/src/context/file.rs
++++ b/src/context/file.rs
+@@ -4,7 +4,7 @@ use crate::{
+     event,
+     scheme::{self, SchemeId},
+     sync::{CleanLockToken, RwLock, L6},
+-    syscall::error::Result,
++    syscall::error::{Error, Result, ESTALE},
+ };
+ use alloc::sync::Arc;
+ use syscall::{schemev2::NewFdFlags, RwFlags, O_APPEND, O_NONBLOCK};
+@@ -18,6 +18,7 @@ pub struct FileDescription {
+     pub offset: u64,
+     /// The scheme that this file refers to
+     pub scheme: SchemeId,
++    pub scheme_generation: Option<u64>,
+     /// The number the scheme uses to refer to this file
+     pub number: usize,
+     /// The flags passed to open or fcntl(SETFL)
+@@ -32,6 +33,52 @@ bitflags! {
+     }
+ }
+ impl FileDescription {
++    pub fn with_generation(
++        scheme: SchemeId,
++        scheme_generation: Option<u64>,
++        number: usize,
++        offset: u64,
++        flags: u32,
++        internal_flags: InternalFlags,
++    ) -> Self {
++        Self {
++            offset,
++            scheme,
++            scheme_generation,
++            number,
++            flags,
++            internal_flags,
++        }
++    }
++
++    pub fn new(
++        scheme: SchemeId,
++        number: usize,
++        offset: u64,
++        flags: u32,
++        internal_flags: InternalFlags,
++        token: &mut CleanLockToken,
++    ) -> Self {
++        Self::with_generation(
++            scheme,
++            Some(scheme::current_scheme_generation(token.token(), scheme)),
++            number,
++            offset,
++            flags,
++            internal_flags,
++        )
++    }
++
++    pub fn get_scheme(&self, token: &mut CleanLockToken) -> Result<scheme::KernelSchemes> {
++        if let Some(expected_generation) = self.scheme_generation
++            && expected_generation != scheme::current_scheme_generation(token.token(), self.scheme)
++        {
++            return Err(Error::new(ESTALE));
++        }
++
++        scheme::get_scheme(token.token(), self.scheme)
++    }
++
+     pub fn rw_flags(&self, rw: RwFlags) -> u32 {
+         let mut ret = self.flags & !(O_NONBLOCK | O_APPEND) as u32;
+         if rw.contains(RwFlags::APPEND) {
+@@ -76,7 +123,7 @@ impl FileDescription {
+     pub fn try_close(self, token: &mut CleanLockToken) -> Result<()> {
+         event::unregister_file(self.scheme, self.number, token);
+ 
+-        let scheme = scheme::get_scheme(token.token(), self.scheme)?;
++        let scheme = self.get_scheme(token)?;
+ 
+         scheme.close(self.number, token)
+     }
+@@ -85,12 +132,12 @@ impl FileDescription {
+ impl FileDescriptor {
+     pub fn close(self, token: &mut CleanLockToken) -> Result<()> {
+         {
+-            let (scheme_id, number, internal_flags) = {
++            let (desc, number, internal_flags) = {
+                 let desc = self.description.read(token.token());
+-                (desc.scheme, desc.number, desc.internal_flags)
++                (*desc, desc.number, desc.internal_flags)
+             };
+             if internal_flags.contains(InternalFlags::NOTIFY_ON_NEXT_DETACH) {
+-                let scheme = scheme::get_scheme(token.token(), scheme_id)?;
++                let scheme = desc.get_scheme(token)?;
+                 scheme.detach(number, token)?;
+             }
+         }
+diff --git a/src/context/memory.rs b/src/context/memory.rs
+index 93446ba..a862b35 100644
+--- a/src/context/memory.rs
++++ b/src/context/memory.rs
+@@ -64,14 +64,13 @@ impl UnmapResult {
+             return Ok(());
+         };
+ 
+-        let (scheme_id, number) = {
+-            let desc = description.write(token.token());
+-            (desc.scheme, desc.number)
++        let (scheme, number) = {
++            let desc = *description.read(token.token());
++            (desc.get_scheme(token)?, desc.number)
+         };
+ 
+-        let scheme_opt = scheme::get_scheme(token.token(), scheme_id);
+-        let funmap_result = scheme_opt
+-            .and_then(|scheme| scheme.kfunmap(number, base_offset, self.size, self.flags, token));
++        let funmap_result = scheme
++            .kfunmap(number, base_offset, self.size, self.flags, token);
+ 
+         if let Ok(fd) = Arc::try_unwrap(description) {
+             fd.into_inner().try_close(token)?;
+@@ -2687,20 +2686,13 @@ fn correct_inner<'l>(
+             // XXX: This is cheating, but guaranteed we won't deadlock because we've dropped addr_space_guard
+             let mut token = unsafe { CleanLockToken::new() };
+ 
+-            let (scheme_id, scheme_number) = {
+-                let desc = &file_ref.description.read(token.token());
+-                (desc.scheme, desc.number)
++            let desc = *file_ref.description.read(token.token());
++            let scheme = desc.get_scheme(&mut token).map_err(|_| PfError::Segv)?;
++            let scheme_number = desc.number;
++            let user_inner = match scheme {
++                KernelSchemes::User(user) => user.inner,
++                _ => return Err(PfError::Segv),
+             };
+-            let user_inner = scheme::get_scheme(token.token(), scheme_id)
+-                .ok()
+-                .and_then(|s| {
+-                    if let KernelSchemes::User(user) = s {
+-                        Some(user.inner)
+-                    } else {
+-                        None
+-                    }
+-                })
+-                .ok_or(PfError::Segv)?;
+ 
+             let offset = file_ref.base_offset as u64 + (pages_from_grant_start * PAGE_SIZE) as u64;
+             user_inner
+diff --git a/src/scheme/mod.rs b/src/scheme/mod.rs
+index d30272c..765e547 100644
+--- a/src/scheme/mod.rs
++++ b/src/scheme/mod.rs
+@@ -14,7 +14,7 @@ use alloc::{
+ };
+ use core::{
+     str,
+-    sync::atomic::{AtomicUsize, Ordering},
++    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+ };
+ use hashbrown::hash_map::{self, DefaultHashBuilder, HashMap};
+ use spin::Once;
+@@ -169,6 +169,7 @@ enum Handle {
+ 
+ /// Schemes list
+ static HANDLES: Once<RwLock<L1, HashMap<SchemeId, Handle>>> = Once::new();
++static SCHEME_GENERATIONS: Once<RwLock<L1, HashMap<SchemeId, AtomicU64>>> = Once::new();
+ static SCHEME_LIST_NEXT_ID: AtomicUsize = AtomicUsize::new(MAX_GLOBAL_SCHEMES);
+ static SCHEME_LIST_ID: AtomicUsize = AtomicUsize::new(0);
+ 
+@@ -204,6 +205,10 @@ fn init_schemes() -> RwLock<L1, HashMap<SchemeId, Handle>> {
+     RwLock::new(handles)
+ }
+ 
++fn init_scheme_generations() -> RwLock<L1, HashMap<SchemeId, AtomicU64>> {
++    RwLock::new(HashMap::new())
++}
++
+ /// Get a handle to a scheme.
+ pub fn get_scheme(token: LockToken<'_, L0>, scheme_id: SchemeId) -> Result<KernelSchemes> {
+     match handles().read(token).get(&scheme_id) {
+@@ -212,10 +217,33 @@ pub fn get_scheme(token: LockToken<'_, L0>, scheme_id: SchemeId) -> Result<Kerne
+     }
+ }
+ 
++pub fn current_scheme_generation(token: LockToken<'_, L0>, scheme_id: SchemeId) -> u64 {
++    scheme_generations()
++        .read(token)
++        .get(&scheme_id)
++        .map(|generation| generation.load(Ordering::Acquire))
++        .unwrap_or(0)
++}
++
+ fn handles<'a>() -> &'a RwLock<L1, HashMap<SchemeId, Handle>> {
+     HANDLES.call_once(init_schemes)
+ }
+ 
++fn scheme_generations<'a>() -> &'a RwLock<L1, HashMap<SchemeId, AtomicU64>> {
++    SCHEME_GENERATIONS.call_once(init_scheme_generations)
++}
++
++fn increment_scheme_generation(scheme_id: SchemeId, token: &mut CleanLockToken) {
++    match scheme_generations().write(token.token()).entry(scheme_id) {
++        hash_map::Entry::Occupied(entry) => {
++            entry.get().fetch_add(1, Ordering::AcqRel);
++        }
++        hash_map::Entry::Vacant(entry) => {
++            entry.insert(AtomicU64::new(1));
++        }
++    }
++}
++
+ /// Scheme list type
+ pub struct SchemeList;
+ 
+@@ -260,9 +288,14 @@ impl SchemeList {
+ 
+     /// Remove a scheme
+     fn remove(&self, id: usize, token: &mut CleanLockToken) {
+-        let scheme = handles().write(token.token()).remove(&SchemeId(id));
++        let scheme_id = SchemeId(id);
++        let scheme = handles().write(token.token()).remove(&scheme_id);
+ 
+         assert!(scheme.is_some());
++        if let Some(Handle::Scheme(KernelSchemes::User(user))) = scheme.as_ref() {
++            user.inner.fail_pending_calls(token);
++        }
++        increment_scheme_generation(scheme_id, token);
+         if let Some(Handle::Scheme(KernelSchemes::User(user))) = scheme
+             && let Some(user) = Arc::into_inner(user.inner)
+         {
+@@ -287,32 +320,32 @@ impl KernelScheme for SchemeList {
+         token: &mut CleanLockToken,
+     ) -> Result<OpenResult> {
+         let scheme_id = SchemeId(scheme_id);
+-        match handles()
+-            .read(token.token())
+-            .get(&scheme_id)
+-            .ok_or(Error::new(EBADF))?
+-        {
+-            Handle::Scheme(KernelSchemes::User(UserScheme { inner })) => {
+-                let inner = inner.clone();
+-                assert!(scheme_id == inner.scheme_id);
+-                let scheme = scheme_id;
+-                let params = unsafe { user_buf.read_exact::<NewFdParams>()? };
+-
+-                return Ok(OpenResult::External(Arc::new(RwLock::new(
+-                    FileDescription {
+-                        scheme,
+-                        number: params.number,
+-                        offset: params.offset,
+-                        flags: params.flags as u32,
+-                        internal_flags: InternalFlags::from_extra0(params.internal_flags)
+-                            .ok_or(Error::new(EINVAL))?,
+-                    },
+-                ))));
++        let maybe_inner = {
++            let handles = handles().read(token.token());
++            match handles.get(&scheme_id).ok_or(Error::new(EBADF))? {
++                Handle::Scheme(KernelSchemes::User(UserScheme { inner })) => Some(inner.clone()),
++                Handle::SchemeCreationCapability => None,
++                _ => return Err(Error::new(EBADF)),
+             }
+-            Handle::SchemeCreationCapability => (),
+-            _ => return Err(Error::new(EBADF)),
+         };
+ 
++        if let Some(inner) = maybe_inner {
++            assert!(scheme_id == inner.scheme_id);
++            let params = unsafe { user_buf.read_exact::<NewFdParams>()? };
++
++            return Ok(OpenResult::External(Arc::new(RwLock::new(
++                FileDescription::new(
++                    scheme_id,
++                    params.number,
++                    params.offset,
++                    params.flags as u32,
++                    InternalFlags::from_extra0(params.internal_flags)
++                        .ok_or(Error::new(EINVAL))?,
++                    token,
++                ),
++            ))));
++        }
++
+         const EXPECTED: &[u8] = b"create-scheme";
+         let mut buf = [0u8; EXPECTED.len()];
+ 
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+index 47588e1..1bdd6cc 100644
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -849,17 +873,17 @@ impl KernelScheme for ProcScheme {
+     }
+ }
+ fn extract_scheme_number(fd: usize, token: &mut CleanLockToken) -> Result<(KernelSchemes, usize)> {
+-    let (scheme_id, number) = {
++    let desc = {
+         let current_lock = context::current();
+         let mut current = current_lock.read(token.token());
+-        let (context, mut token) = current.token_split();
++        let (context, mut context_token) = current.token_split();
+         let file_descriptor = context
+-            .get_file(FileHandle::from(fd), &mut token)
++            .get_file(FileHandle::from(fd), &mut context_token)
+             .ok_or(Error::new(EBADF))?;
+-        let desc = file_descriptor.description.read(token.token());
+-        (desc.scheme, desc.number)
++        *file_descriptor.description.read(context_token.token())
+     };
+-    let scheme = scheme::get_scheme(token.token(), scheme_id)?;
++    let scheme = desc.get_scheme(token)?;
++    let number = desc.number;
+ 
+     Ok((scheme, number))
+ }
+diff --git a/src/scheme/user.rs b/src/scheme/user.rs
+index b901302..dfbf66b 100644
+--- a/src/scheme/user.rs
++++ b/src/scheme/user.rs
+@@ -80,6 +80,7 @@ const ONE: NonZeroUsize = match NonZeroUsize::new(1) {
+     Some(one) => one,
+     None => unreachable!(),
+ };
++const MAX_SPURIOUS_WAKEUPS: usize = 100;
+ 
+ enum ParsedCqe {
+     TriggerFevent {
+@@ -209,6 +210,8 @@ impl UserInner {
+         caller_responsible: &mut PageSpan,
+         token: &mut CleanLockToken,
+     ) -> Result<Response> {
++        let mut remaining_spurious_wakeups = MAX_SPURIOUS_WAKEUPS;
++
+         {
+             // Disable preemption to avoid context switches between setting the
+             // process state and sending the scheme request. The process is made
+@@ -261,7 +264,10 @@ impl UserInner {
+                     };
+ 
+                 let states = self.states.lock(token.token());
+-                let (mut states, mut token) = states.into_split();
++                let (mut states, mut state_token) = states.into_split();
++                let mut timed_out_descriptions = None;
++                let mut remove_state = false;
++                let mut timed_out = false;
+                 match states.get_mut(sqe.tag as usize) {
+                     // invalid state
+                     None => return Err(Error::new(EBADFD)),
+@@ -274,24 +280,35 @@ impl UserInner {
+                             fds,
+                         } => {
+                             let maybe_eintr =
+-                                eintr_if_sigkill(&mut callee_responsible, &mut token.token());
+-                            *o = State::Waiting {
+-                                canceling: true,
+-                                callee_responsible,
+-                                context,
+-                                fds,
+-                            };
++                                eintr_if_sigkill(&mut callee_responsible, &mut state_token.token());
+ 
+-                            maybe_eintr?;
++                            if maybe_eintr.is_ok() {
++                                remaining_spurious_wakeups =
++                                    remaining_spurious_wakeups.saturating_sub(1);
++                            }
++
++                            if maybe_eintr.is_ok() && remaining_spurious_wakeups == 0 {
++                                timed_out_descriptions = Some(Self::collect_descriptions_to_close(fds));
++                                remove_state = true;
++                            } else {
++                                *o = State::Waiting {
++                                    canceling: true,
++                                    callee_responsible,
++                                    context,
++                                    fds,
++                                };
++                            }
+ 
+-                            context::current()
+-                                .write(token.token())
+-                                .block("UserInner::call (woken up after cancelation request)");
++                            maybe_eintr?;
+ 
+-                            // We do not want to drop the lock before blocking
+-                            // as if we get preempted in between we might miss a
+-                            // wakeup.
+-                            drop(states);
++                            if remove_state {
++                                states.remove(sqe.tag as usize);
++                                timed_out = true;
++                            } else {
++                                context::current()
++                                    .write(state_token.token())
++                                    .block("UserInner::call (woken up after cancelation request)");
++                            }
+                         }
+                         // spurious wakeup
+                         State::Waiting {
+@@ -300,60 +317,76 @@ impl UserInner {
+                             context,
+                             mut callee_responsible,
+                         } => {
+-                            let maybe_eintr = eintr_if_sigkill(&mut callee_responsible, &mut token);
+                             let current_context = context::current();
++                            let maybe_eintr =
++                                eintr_if_sigkill(&mut callee_responsible, &mut state_token);
++
++                            if maybe_eintr.is_ok() {
++                                remaining_spurious_wakeups =
++                                    remaining_spurious_wakeups.saturating_sub(1);
++                            }
+ 
+-                            *o = State::Waiting {
+-                                // Currently we treat all spurious wakeups to have the same behavior
+-                                // as signals (i.e., we send a cancellation request). It is not something
+-                                // that should happen, but it certainly can happen, for example if a context
+-                                // is awoken through its thread handle without setting any sig bits, or if the
+-                                // caller clears its own sig bits. If it actually is a signal, then it is the
+-                                // intended behavior.
+-                                canceling: true,
+-                                fds,
+-                                context,
+-                                callee_responsible,
+-                            };
++                            if maybe_eintr.is_ok() && remaining_spurious_wakeups == 0 {
++                                timed_out_descriptions = Some(Self::collect_descriptions_to_close(fds));
++                                remove_state = true;
++                            } else {
++                                *o = State::Waiting {
++                                    // Currently we treat all spurious wakeups to have the same behavior
++                                    // as signals (i.e., we send a cancellation request). It is not something
++                                    // that should happen, but it certainly can happen, for example if a context
++                                    // is awoken through its thread handle without setting any sig bits, or if the
++                                    // caller clears its own sig bits. If it actually is a signal, then it is the
++                                    // intended behavior.
++                                    canceling: true,
++                                    fds,
++                                    context,
++                                    callee_responsible,
++                                };
++                            }
+ 
+                             maybe_eintr?;
+ 
+-                            // We do not want to preempt between sending the
+-                            // cancellation and blocking again where we might
+-                            // miss a wakeup.
+-                            let mut preempt = PreemptGuardL1::new(&current_context, &mut token);
+-                            let token = preempt.token();
+-
+-                            self.todo.send_locked(
+-                                Sqe {
+-                                    opcode: Opcode::Cancel as u8,
+-                                    sqe_flags: SqeFlags::ONEWAY,
+-                                    tag: sqe.tag,
+-                                    ..Default::default()
+-                                },
+-                                token.token(),
+-                            );
+-                            event::trigger_locked(
+-                                self.root_id,
+-                                self.scheme_id.get(),
+-                                EVENT_READ,
+-                                token.token(),
+-                            );
+-
+-                            // 1. If cancellation was requested and arrived
+-                            // before the scheme processed the request, an
+-                            // acknowledgement will be sent back after the
+-                            // cancellation is processed and we will be woken up
+-                            // again. State will be State::Responded then.
+-                            //
+-                            // 2. If cancellation was requested but the scheme
+-                            // already processed the request, we will receive
+-                            // the actual response next and woken up again.
+-                            // State will be State::Responded then.
+-                            context::current()
+-                                .write(token.token())
+-                                .block("UserInner::call (spurious wakeup)");
+-                            drop(states);
++                            if remove_state {
++                                states.remove(sqe.tag as usize);
++                                timed_out = true;
++                            } else {
++                                // We do not want to preempt between sending the
++                                // cancellation and blocking again where we might
++                                // miss a wakeup.
++                                let mut preempt =
++                                    PreemptGuardL1::new(&current_context, &mut state_token);
++                                let token = preempt.token();
++
++                                self.todo.send_locked(
++                                    Sqe {
++                                        opcode: Opcode::Cancel as u8,
++                                        sqe_flags: SqeFlags::ONEWAY,
++                                        tag: sqe.tag,
++                                        ..Default::default()
++                                    },
++                                    token.token(),
++                                );
++                                event::trigger_locked(
++                                    self.root_id,
++                                    self.scheme_id.get(),
++                                    EVENT_READ,
++                                    token.token(),
++                                );
++
++                                // 1. If cancellation was requested and arrived
++                                // before the scheme processed the request, an
++                                // acknowledgement will be sent back after the
++                                // cancellation is processed and we will be woken up
++                                // again. State will be State::Responded then.
++                                //
++                                // 2. If cancellation was requested but the scheme
++                                // already processed the request, we will receive
++                                // the actual response next and woken up again.
++                                // State will be State::Responded then.
++                                context::current()
++                                    .write(token.token())
++                                    .block("UserInner::call (spurious wakeup)");
++                            }
+                         }
+ 
+                         // invalid state
+@@ -368,7 +401,67 @@ impl UserInner {
+                         }
+                     },
+                 }
++
++                if let Some(descriptions) = timed_out_descriptions {
++                    drop(states);
++                    for desc in descriptions {
++                        let _ = desc.try_close(token);
++                    }
++                }
++
++                if timed_out {
++                    return Err(Error::new(ETIMEDOUT));
++                }
++            }
++        }
++    }
++
++    fn collect_descriptions_to_close(
++        fds: Vec<Arc<LockedFileDescription>>,
++    ) -> Vec<FileDescription> {
++        fds.into_iter()
++            .filter_map(|fd| Arc::try_unwrap(fd).ok())
++            .map(RwLock::into_inner)
++            .collect()
++    }
++
++    pub fn fail_pending_calls(&self, token: &mut CleanLockToken) {
++        let descriptions_to_close = {
++            let mut states_lock = self.states.lock(token.token());
++            let (states, mut lock_token) = states_lock.token_split();
++            let mut descriptions_to_close = Vec::new();
++            let mut states_to_remove = Vec::new();
++
++            for (id, state) in states.iter_mut() {
++                match mem::replace(state, State::Placeholder) {
++                    State::Waiting { context, fds, .. } => {
++                        descriptions_to_close.extend(Self::collect_descriptions_to_close(fds));
++
++                        match context.upgrade() {
++                            Some(context) => {
++                                *state = State::Responded(Response::Regular(
++                                    Err(Error::new(ENODEV)),
++                                    0,
++                                    false,
++                                ));
++                                context.write(lock_token.token()).unblock();
++                            }
++                            None => states_to_remove.push(id),
++                        }
++                    }
++                    old_state => *state = old_state,
++                }
++            }
++
++            for id in states_to_remove {
++                states.remove(id);
++            }
++
++            descriptions_to_close
++        };
++
++        for desc in descriptions_to_close {
++            let _ = desc.try_close(token);
++        }
+             }
+         }
+     }
+@@ -1283,6 +1376,7 @@ impl UserInner {
+     }
+ 
+     pub fn into_drop(self, token: &mut CleanLockToken) {
++        self.fail_pending_calls(token);
+         self.todo.condition.into_drop(token);
+     }
+ }
+diff --git a/src/syscall/fs.rs b/src/syscall/fs.rs
+index bf98464..10c6a92 100644
+--- a/src/syscall/fs.rs
++++ b/src/syscall/fs.rs
+@@ -12,7 +12,7 @@ use crate::{
+         memory::{AddrSpace, GenericFlusher, Grant, PageSpan, TlbShootdownActions},
+     },
+     memory::{Page, VirtualAddress, PAGE_SIZE},
+-    scheme::{self, FileHandle, KernelScheme, OpenResult, StrOrBytes},
++    scheme::{FileHandle, KernelScheme, OpenResult, StrOrBytes},
+     sync::{CleanLockToken, RwLock},
+     syscall::{data::Stat, error::*, flag::*},
+ };
+@@ -45,7 +45,7 @@ pub fn file_op_generic_ext<T>(
+         (file, desc)
+     };
+ 
+-    let scheme = scheme::get_scheme(token.token(), desc.scheme)?;
++    let scheme = desc.get_scheme(token)?;
+ 
+     op(&*scheme, file.description, desc, token)
+ }
+@@ -73,14 +73,18 @@ pub fn openat(
+ ) -> Result<FileHandle> {
+     let path_buf = copy_path_to_buf(raw_path, PATH_MAX)?;
+ 
+-    let (scheme_id, number) = {
++    let desc = {
+         let current_lock = context::current();
+         let mut current = current_lock.read(token.token());
+-        let (context, mut token) = current.token_split();
+-        let pipe = context.get_file(fh, &mut token).ok_or(Error::new(EBADF))?;
+-        let desc = pipe.description.read(token.token());
+-        (desc.scheme, desc.number)
++        let (context, mut context_token) = current.token_split();
++        let pipe = context
++            .get_file(fh, &mut context_token)
++            .ok_or(Error::new(EBADF))?;
++        *pipe.description.read(context_token.token())
+     };
++    let scheme = desc.get_scheme(token)?;
++    let number = desc.number;
++    let scheme_id = desc.scheme;
+ 
+     let caller_ctx = context::current()
+         .read(token.token())
+@@ -88,8 +92,6 @@ pub fn openat(
+         .filter_uid_gid(euid, egid);
+ 
+     let new_description = {
+-        let scheme = scheme::get_scheme(token.token(), scheme_id)?;
+-
+         let res = scheme.kopenat(
+             number,
+             StrOrBytes::from_str(&path_buf),
+@@ -101,13 +103,14 @@ pub fn openat(
+ 
+         match res? {
+             OpenResult::SchemeLocal(number, internal_flags) => {
+-                Arc::new(RwLock::new(FileDescription {
+-                    offset: 0,
+-                    internal_flags,
+-                    scheme: scheme_id,
++                Arc::new(RwLock::new(FileDescription::new(
++                    scheme_id,
+                     number,
+-                    flags: (flags & !O_CLOEXEC) as u32,
+-                }))
++                    0,
++                    (flags & !O_CLOEXEC) as u32,
++                    internal_flags,
++                    token,
++                )))
+             }
+             OpenResult::External(desc) => desc,
+         }
+@@ -137,16 +140,17 @@ pub fn unlinkat(
+ ) -> Result<()> {
+     let path_buf = copy_path_to_buf(raw_path, PATH_MAX)?;
+ 
+-    let (number, scheme_id) = {
++    let desc = {
+         let current_lock = context::current();
+         let mut current = current_lock.read(token.token());
+-        let (context, mut token) = current.token_split();
+-        let pipe = context.get_file(fh, &mut token).ok_or(Error::new(EBADF))?;
+-        let desc = pipe.description.read(token.token());
+-        (desc.number, desc.scheme)
++        let (context, mut context_token) = current.token_split();
++        let pipe = context
++            .get_file(fh, &mut context_token)
++            .ok_or(Error::new(EBADF))?;
++        *pipe.description.read(context_token.token())
+     };
+-
+-    let scheme = scheme::get_scheme(token.token(), scheme_id)?;
++    let number = desc.number;
++    let scheme = desc.get_scheme(token)?;
+ 
+     let caller_ctx = context::current()
+         .read(token.token())
+@@ -199,17 +203,18 @@ fn duplicate_file(
+         let description = { *file.description.read(token.token()) };
+ 
+         let new_description = {
+-            let scheme = scheme::get_scheme(token.token(), description.scheme)?;
++            let scheme = description.get_scheme(token)?;
+ 
+             match scheme.kdup(description.number, user_buf, caller_ctx, token)? {
+                 OpenResult::SchemeLocal(number, internal_flags) => {
+-                    Arc::new(RwLock::new(FileDescription {
+-                        offset: 0,
+-                        internal_flags,
+-                        scheme: description.scheme,
++                    Arc::new(RwLock::new(FileDescription::new(
++                        description.scheme,
+                         number,
+-                        flags: description.flags,
+-                    }))
++                        0,
++                        description.flags,
++                        internal_flags,
++                        token,
++                    )))
+                 }
+                 OpenResult::External(desc) => desc,
+             }
+@@ -296,11 +301,10 @@ fn call_normal(
+     }
+     .ok_or(Error::new(EBADF))?;
+ 
+-    let (scheme_id, number) = {
+-        let desc = file.description.read(token.token());
+-        (desc.scheme, desc.number)
++    let (scheme, number) = {
++        let desc = *file.description.read(token.token());
++        (desc.get_scheme(token)?, desc.number)
+     };
+-    let scheme = scheme::get_scheme(token.token(), scheme_id)?;
+ 
+     if flags.contains(CallFlags::STD_FS) {
+         scheme.translate_std_fs_call(number, file.description, payload, flags, metadata, token)
+@@ -341,28 +345,28 @@ fn fdwrite_inner(
+ ) -> Result<usize> {
+     // TODO: Ensure deadlocks can't happen
+     let (scheme, number, descs_to_send) = {
+-        let (scheme, number) = {
++        let desc = {
+             let current_lock = context::current();
+             let mut current = current_lock.read(token.token());
+-            let (context, mut token) = current.token_split();
++            let (context, mut context_token) = current.token_split();
+             let file_descriptor = context
+-                .get_file(socket, &mut token)
++                .get_file(socket, &mut context_token)
+                 .ok_or(Error::new(EBADF))?;
+-            let desc = &file_descriptor.description.read(token.token());
+-            (desc.scheme, desc.number)
++            *file_descriptor.description.read(context_token.token())
+         };
+-        let scheme = scheme::get_scheme(token.token(), scheme)?;
++        let scheme = desc.get_scheme(token)?;
++        let number = desc.number;
+ 
+         let current_lock = context::current();
+         let mut current = current_lock.read(token.token());
+-        let (context, mut token) = current.token_split();
++        let (context, mut context_token) = current.token_split();
+         (
+             scheme,
+             number,
+             if flags.contains(CallFlags::FD_CLONE) {
+-                context.bulk_get_files(&target_fds, &mut token)
++                context.bulk_get_files(&target_fds, &mut context_token)
+             } else {
+-                context.bulk_remove_files(&target_fds, &mut token)
++                context.bulk_remove_files(&target_fds, &mut context_token)
+             }?
+             .into_iter()
+             .map(|f| f.description)
+@@ -395,18 +399,22 @@ fn call_fdread(
+     metadata: &[u64],
+     token: &mut CleanLockToken,
+ ) -> Result<usize> {
++    let desc = {
++        let current_lock = context::current();
++        let mut current = current_lock.read(token.token());
++        let (context, mut context_token) = current.token_split();
++        let file_descriptor = context
++            .get_file(fd, &mut context_token)
++            .ok_or(Error::new(EBADF))?;
++        *file_descriptor.description.read(context_token.token())
++    };
+     let (scheme, number) = {
+-        let (scheme, number) = {
+-            let current_lock = context::current();
+-            let mut current = current_lock.read(token.token());
+-            let (context, mut token) = current.token_split();
+-            let file_descriptor = context.get_file(fd, &mut token).ok_or(Error::new(EBADF))?;
+-            let desc = file_descriptor.description.read(token.token());
+-            (desc.scheme, desc.number)
+-        };
+-        let scheme = scheme::get_scheme(token.token(), scheme)?;
+-
+-        (scheme, number)
++        let scheme = desc.get_scheme(token)?;
++        let number = desc.number;
++        (
++            scheme,
++            number,
++        )
+     };
+ 
+     scheme.kfdread(number, payload, flags, metadata, token)
+@@ -440,9 +448,9 @@ pub fn fcntl(fd: FileHandle, cmd: usize, arg: usize, token: &mut CleanLockToken)
+     }
+     .ok_or(Error::new(EBADF))?;
+ 
+-    let (scheme_id, number, flags) = {
+-        let desc = file.description.write(token.token());
+-        (desc.scheme, desc.number, desc.flags)
++    let (number, flags, desc) = {
++        let desc = *file.description.read(token.token());
++        (desc.number, desc.flags, desc)
+     };
+ 
+     if cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC {
+@@ -460,7 +468,7 @@ pub fn fcntl(fd: FileHandle, cmd: usize, arg: usize, token: &mut CleanLockToken)
+ 
+     // Communicate fcntl with scheme
+     if cmd != F_GETFD && cmd != F_SETFD {
+-        let scheme = scheme::get_scheme(token.token(), scheme_id)?;
++        let scheme = desc.get_scheme(token)?;
+ 
+         scheme.fcntl(number, cmd, arg, token)?;
+     };
+@@ -518,13 +526,11 @@ pub fn flink(fd: FileHandle, raw_path: UserSliceRo, token: &mut CleanLockToken)
+     let path = RedoxPath::from_absolute(&path_buf).ok_or(Error::new(EINVAL))?;
+     let (_, reference) = path.as_parts().ok_or(Error::new(EINVAL))?;
+ 
+-    let (number, scheme_id) = {
+-        let desc = file.description.read(token.token());
+-        (desc.number, desc.scheme)
++    let (number, scheme) = {
++        let desc = *file.description.read(token.token());
++        (desc.number, desc.get_scheme(token)?)
+     };
+ 
+-    let scheme = scheme::get_scheme(token.token(), scheme_id)?;
+-
+     // TODO: Check EXDEV.
+     /*
+     if scheme_id != description.scheme {
+@@ -554,13 +560,11 @@ pub fn frename(fd: FileHandle, raw_path: UserSliceRo, token: &mut CleanLockToken
+     let path = RedoxPath::from_absolute(&path_buf).ok_or(Error::new(EINVAL))?;
+     let (_, reference) = path.as_parts().ok_or(Error::new(EINVAL))?;
+ 
+-    let (number, scheme_id) = {
+-        let desc = file.description.read(token.token());
+-        (desc.number, desc.scheme)
++    let (number, scheme) = {
++        let desc = *file.description.read(token.token());
++        (desc.number, desc.get_scheme(token)?)
+     };
+ 
+-    let scheme = scheme::get_scheme(token.token(), scheme_id)?;
+-
+     // TODO: Check EXDEV.
+     /*
+     if scheme_id != description.scheme {
+diff --git a/src/syscall/process.rs b/src/syscall/process.rs
+index e83da42..78eed9d 100644
+--- a/src/syscall/process.rs
++++ b/src/syscall/process.rs
+@@ -271,23 +274,26 @@ unsafe fn bootstrap_mem(bootstrap: &crate::startup::Bootstrap) -> &'static [u8]
+ }
+ 
+ fn insert_fd(scheme: SchemeId, number: usize, cloexec: bool, token: &mut CleanLockToken) -> usize {
++    let description = Arc::new(RwLock::new(FileDescription::new(
++        scheme,
++        number,
++        0,
++        (O_CREAT | O_RDWR) as u32,
++        InternalFlags::empty(),
++        token,
++    )));
++
+     let current_lock = context::current();
+     let mut current = current_lock.read(token.token());
+-    let (context, mut token) = current.token_split();
++    let (context, mut context_token) = current.token_split();
+     context
+         .add_file_min(
+             FileDescriptor {
+-                description: Arc::new(RwLock::new(FileDescription {
+-                    scheme,
+-                    number,
+-                    offset: 0,
+-                    flags: (O_CREAT | O_RDWR) as u32,
+-                    internal_flags: InternalFlags::empty(),
+-                })),
++                description,
+                 cloexec,
+             },
+             syscall::flag::UPPER_FDTBL_TAG + scheme.get(),
+-            &mut token,
++            &mut context_token,
+         )
+         .expect("failed to insert fd to current context")
+         .get()

@@ -1,0 +1,27 @@
+# Audio device drivers
+
+[[driver]]
+name = "ihdad"
+description = "Intel HD Audio driver"
+priority = 40
+command = ["/usr/lib/drivers/ihdad"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 0x04
+
+[[driver]]
+name = "ac97d"
+description = "AC'97 audio codec driver"
+priority = 40
+command = ["/usr/lib/drivers/ac97d"]
+
+[[driver.match]]
+class = 0x04
+subclass = 0x01
+
+[[driver]]
+name = "sb16d"
+description = "Sound Blaster 16 driver"
+priority = 40
+command = ["/usr/lib/drivers/sb16d"]

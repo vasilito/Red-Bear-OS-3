@@ -1,0 +1,35 @@
+Fix sys/timerfd.h cbindgen.toml to generate proper C headers instead of C++.
+
+The empty cbindgen.toml from P3-timerfd-relative.patch caused cbindgen to
+generate C++ output (cstdarg, constexpr, etc.) in the installed
+sys/timerfd.h. C compilers including this header would fail with
+"cstdarg: No such file or directory". Add language="C", after_includes
+for bits/timespec.h, and explicit export list for the timerfd constants.
+
+diff --git a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
+--- a/src/header/sys_timerfd/cbindgen.toml
++++ b/src/header/sys_timerfd/cbindgen.toml
+@@ -1,12 +1,23 @@
+ sys_includes = ["time.h"]
++after_includes = """
++#include <bits/timespec.h> // for itimerspec
++"""
+ include_guard = "_SYS_TIMERFD_H"
+ language = "C"
+ style = "Tag"
+ no_includes = true
+ cpp_compat = true
+ 
+ [enum]
+ prefix_with_name = true
+ 
++[export]
++include = [
++    "TFD_CLOEXEC",
++    "TFD_NONBLOCK",
++    "TFD_TIMER_ABSTIME",
++    "TFD_TIMER_CANCEL_ON_SET",
++]
++
+ [export.rename]
+ "itimerspec" = "struct itimerspec"

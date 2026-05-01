@@ -1,0 +1,9 @@
+# Intel GPU DMC display firmware fallback chains
+
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+
+[[fallback]]
+pattern = "i915/tgl_dmc_ver2_12.bin"
+chain = ["i915/tgl_dmc_ver2_10.bin", "i915/tgl_dmc_ver2_08.bin"]

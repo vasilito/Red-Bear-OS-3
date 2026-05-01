@@ -1,20 +1,23 @@
 # P2-daemon-ready-graceful.patch
 #
 # Replace unwrap() in Daemon::ready() with graceful error handling.
-# When hwd spawns pcid fire-and-forget (dropping the pipe's read end
-# before pcid signals readiness), the unwrap() causes a BrokenPipe panic
-# that kills pcid and cascades into total boot failure.
+# When hwd or pcid-spawner spawns a daemon fire-and-forget (dropping the
+# pipe's read end before the child signals readiness), the unwrap() causes
+# a BrokenPipe panic that kills the child and cascades into boot failures.
 #
-# Also adds the log crate to daemon's dependencies for the debug message.
-#
-diff --git a/daemon/Cargo.toml b/daemon/Cargo.toml
---- a/daemon/Cargo.toml
-+++ b/daemon/Cargo.toml
-@@ -7,6 +7,7 @@ edition = "2024"
- [dependencies]
- libc.workspace = true
- libredox.workspace = true
-+log.workspace = true
- redox-scheme.workspace = true
- redox_syscall.workspace = true
+# The write may fail because init already closed the read end (service
+# timeout, duplicate start, or oneshot completion). In all cases the
+# daemon should continue running rather than panic.
+
+diff --git a/daemon/src/lib.rs b/daemon/src/lib.rs
+--- a/daemon/src/lib.rs
++++ b/daemon/src/lib.rs
+@@ -51,7 +51,7 @@ impl Daemon {
  
+     /// Notify the process that the daemon is ready to accept requests.
+     pub fn ready(mut self) {
+-        self.write_pipe.write_all(&[0]).unwrap();
++        let _ = self.write_pipe.write_all(&[0]);
+     }
+ 
+     /// Executes `Command` as a child process.

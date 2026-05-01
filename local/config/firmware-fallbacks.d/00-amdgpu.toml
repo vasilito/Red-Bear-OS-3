@@ -1,0 +1,14 @@
+# AMD GPU firmware fallback chains
+# If a specific DMCUB firmware is not found, try earlier versions
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/gc_11_0_0_mes_2.bin"
+chain = ["amdgpu/gc_10_3_0_mes_2.bin"]

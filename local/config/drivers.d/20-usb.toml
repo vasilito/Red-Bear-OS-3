@@ -1,0 +1,74 @@
+# USB host controller drivers
+
+# xHCI (USB 3.x)
+[[driver]]
+name = "xhcid"
+description = "xHCI USB host controller"
+priority = 80
+command = ["/usr/lib/drivers/xhcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x30
+
+# EHCI (USB 2.0)
+[[driver]]
+name = "ehcid"
+description = "EHCI USB 2.0 host controller"
+priority = 80
+command = ["/usr/lib/drivers/ehcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x20
+
+# OHCI (USB 1.1 — non-Intel chipsets)
+[[driver]]
+name = "ohcid"
+description = "OHCI USB 1.1 host controller"
+priority = 80
+command = ["/usr/lib/drivers/ohcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x10
+
+# UHCI (USB 1.1 — Intel chipsets)
+[[driver]]
+name = "uhcid"
+description = "UHCI USB 1.1 host controller (Intel)"
+priority = 80
+command = ["/usr/lib/drivers/uhcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x00
+
+# USB class drivers
+
+[[driver]]
+name = "usbhubd"
+description = "USB Hub driver"
+priority = 75
+command = ["/usr/lib/drivers/usbhubd"]
+# Spawned by xhcid when hubs are detected
+
+[[driver]]
+name = "usbctl"
+description = "USB control daemon"
+priority = 70
+command = ["/usr/lib/drivers/usbctl"]
+
+[[driver]]
+name = "ucsid"
+description = "USB-C UCSI topology detector"
+priority = 60
+command = ["/usr/lib/drivers/ucsid"]
+
+# Example: xhcid depends on pci scheme being available
+# [driver.depends_on]
+# scheme = "pci"

@@ -1,0 +1,49 @@
+# GPIO and I2C controller drivers
+
+[[driver]]
+name = "i2cd"
+description = "I2C host adapter registry"
+priority = 85
+command = ["/usr/lib/drivers/i2cd"]
+
+[[driver]]
+name = "gpiod"
+description = "GPIO controller registry"
+priority = 85
+command = ["/usr/lib/drivers/gpiod"]
+
+[[driver]]
+name = "dw-acpi-i2cd"
+description = "DesignWare ACPI I2C controller"
+priority = 80
+command = ["/usr/lib/drivers/dw-acpi-i2cd"]
+
+[[driver]]
+name = "intel-gpiod"
+description = "Intel ACPI GPIO registrar"
+priority = 80
+command = ["/usr/lib/drivers/intel-gpiod"]
+
+[[driver]]
+name = "amd-mp2-i2cd"
+description = "AMD MP2 I2C controller"
+priority = 80
+command = ["/usr/lib/drivers/amd-mp2-i2cd"]
+
+[[driver]]
+name = "intel-lpss-i2cd"
+description = "Intel LPSS I2C controller"
+priority = 80
+command = ["/usr/lib/drivers/intel-lpss-i2cd"]
+
+[[driver]]
+name = "i2c-gpio-expanderd"
+description = "I2C GPIO expander companion bridge"
+priority = 75
+command = ["/usr/lib/drivers/i2c-gpio-expanderd"]
+
+[[driver]]
+name = "intel-thc-hidd"
+description = "Intel THC QuickI2C HID transport"
+priority = 75
+command = ["/usr/lib/drivers/intel-thc-hidd"]

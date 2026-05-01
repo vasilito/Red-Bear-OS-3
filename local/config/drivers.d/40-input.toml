@@ -1,0 +1,20 @@
+# Input device drivers
+
+[[driver]]
+name = "ps2d"
+description = "PS/2 keyboard and mouse driver"
+priority = 90
+command = ["/usr/lib/drivers/ps2d"]
+
+[[driver]]
+name = "usbhidd"
+description = "USB HID input driver"
+priority = 75
+command = ["/usr/lib/drivers/usbhidd"]
+# Spawned by USB class matching
+
+[[driver]]
+name = "i2c-hidd"
+description = "I2C HID touchscreen/trackpad driver"
+priority = 75
+command = ["/usr/lib/drivers/i2c-hidd"]
