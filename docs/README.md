@@ -107,7 +107,7 @@ This summary is only a quick orientation layer. For canonical current-state deta
 - **Wayland**: libwayland + wayland-protocols built. A bounded greeter/compositor-backed login proof now passes, but broader compositor/runtime stability remains incomplete.
 - **Qt6**: qtbase 6.11.0 (Core+Gui+Widgets+DBus+Wayland), qtdeclarative, qtsvg, qtwayland ALL BUILT
 - **D-Bus**: 1.16.2 built for Redox. Qt6DBus enabled.
-- **KF6 Frameworks**: all 32/32 built. Some packages remain shimmed or stubbed (kirigami stub-only, kf6-kio heavy shim).
+- **KF6 Frameworks**: 36/48 built, 12 blocked by QML gate. See `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for full breakdown.
 - **Mesa**: software-rendered path is present; full GBM / hardware-validated Wayland path is still incomplete.
 - **GPU drivers**: redox-drm scheme daemon exists; Intel build-oriented path exists; AMD currently has a bounded retained compile path (`redox-drm` + Red Bear glue) while the imported Linux AMD DC/TTM/core trees remain builds and included in redbear-full (2026-04-29). Hardware validation is still pending.
 - **Input**: evdevd compiled, libevdev built, libinput 1.30.2 built

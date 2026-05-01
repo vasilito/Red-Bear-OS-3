@@ -79,7 +79,7 @@ if cmake "${COOKBOOK_SOURCE}" \
     cmake --install . --prefix "${STAGE}" 2>&1
 fi
 
-# cmake config stubs for downstream KDE recipes (needed by plasma-*)
+# Downstream cmake configs for KF6WindowSystem/KF6Config (needed by plasma-framework, plasma-workspace, plasma-desktop — not KWin itself)
 mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
 cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
