@@ -1,5 +1,6 @@
 [source]
 path = "source"
+patches = ["../../../../local/patches/redbear-sessiond/P4-signal-implementations.patch"]
 
 [build]
 template = "cargo"

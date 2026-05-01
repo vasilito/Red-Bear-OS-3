@@ -1,0 +1,42 @@
+diff --git a/local/recipes/system/redbear-sessiond/source/src/session.rs b/local/recipes/system/redbear-sessiond/source/src/session.rs
+index fbf3245fc..d793c90f5 100644
+--- a/local/recipes/system/redbear-sessiond/source/src/session.rs
++++ b/local/recipes/system/redbear-sessiond/source/src/session.rs
+@@ -322,7 +322,10 @@ impl LoginSession {
+         major: u32,
+         minor: u32,
+         kind: String,
+-    ) -> zbus::Result<()>;
++    ) -> zbus::Result<()> {
++        eprintln!("redbear-sessiond: PauseDevice signal emitted ({major}, {minor}, {kind})");
++        Ok(())
++    }
+ 
+     #[zbus(signal, name = "ResumeDevice")]
+     async fn resume_device(
+@@ -330,13 +333,22 @@ impl LoginSession {
+         major: u32,
+         minor: u32,
+         fd: Fd<'_>,
+-    ) -> zbus::Result<()>;
++    ) -> zbus::Result<()> {
++        eprintln!("redbear-sessiond: ResumeDevice signal emitted ({major}, {minor})");
++        Ok(())
++    }
+ 
+     #[zbus(signal, name = "Lock")]
+-    async fn lock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
++    async fn lock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
++        eprintln!("redbear-sessiond: Lock signal emitted");
++        Ok(())
++    }
+ 
+     #[zbus(signal, name = "Unlock")]
+-    async fn unlock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
++    async fn unlock(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
++        eprintln!("redbear-sessiond: Unlock signal emitted");
++        Ok(())
++    }
+ }
+ 
+ #[cfg(test)]
