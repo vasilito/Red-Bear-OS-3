@@ -3,7 +3,7 @@
 **Date:** 2026-04-30
 **Scope:** Kernel architecture, IPC infrastructure, credential syscalls, process isolation
 **Implementation status:** Phases K1-K2, K4 ✅ complete. Phases K3, K5 deferred.
-**Status:** This document is the canonical kernel + IPC plan, extending `local/docs/COMPREHENSIVE-OS-ASSESSMENT.md`
+**Status:** This document is the canonical kernel + IPC plan, extending `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`
 
 ## 1. Purpose
 
@@ -735,7 +735,7 @@ local/scripts/test-credential-syscalls-guest.sh   # In-guest checker
 
 ## 9. References
 
-- `local/docs/COMPREHENSIVE-OS-ASSESSMENT.md` — Canonical comprehensive plan
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — Canonical comprehensive plan
 - `docs/01-REDOX-ARCHITECTURE.md` — Architecture reference
 - `local/docs/IRQ-AND-LOWLEVEL-CONTROLLERS-ENHANCEMENT-PLAN.md` — IRQ/PCI plan (sibling)
 - `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md` — IPC surface plan (companion)

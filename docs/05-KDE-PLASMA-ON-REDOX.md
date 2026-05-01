@@ -8,7 +8,7 @@
 >
 > For the current build/runtime truth summary of the desktop stack, use
 > `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` together with
-> `local/docs/QT6-PORT-STATUS.md`. This file should now be read primarily as implementation history
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`. This file should now be read primarily as implementation history
 > plus deeper KDE-specific rationale and porting notes.
 >
 > The phase and step labels below are retained for historical structure. They are not the current

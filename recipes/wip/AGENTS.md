@@ -87,7 +87,7 @@ recipes/wip/
 ## KDE STATUS
 
 - Older WIP KDE app notes here are stale relative to `local/recipes/kde/` and `config/redbear-full.toml`
-- See `docs/05-KDE-PLASMA-ON-REDOX.md` top-level status note plus `local/docs/QT6-PORT-STATUS.md` for current state
+- See `docs/05-KDE-PLASMA-ON-REDOX.md` top-level status note plus `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for current state
 
 ## CONVENTIONS
 

@@ -3,7 +3,7 @@
 ## Purpose
 
 This document is the IPC-focused companion to
-`local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`.
+`local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md`.
 
 Its job is to describe the current IPC-facing relibc surface honestly, especially where the active
 Red Bear build depends on recipe-applied compatibility layers rather than plain-source upstream
