@@ -1,5 +1,5 @@
 diff --git a/local/recipes/gpu/redox-drm/source/src/main.rs b/local/recipes/gpu/redox-drm/source/src/main.rs
-index 612a64e0f..f4abdc7bb 100644
+index 612a64e0f..7af80bd75 100644
 --- a/local/recipes/gpu/redox-drm/source/src/main.rs
 +++ b/local/recipes/gpu/redox-drm/source/src/main.rs
 @@ -168,9 +168,9 @@ fn select_gpu_from_args() -> Result<PciDeviceInfo> {
@@ -14,3 +14,12 @@ index 612a64e0f..f4abdc7bb 100644
          })?;
      let mut pci = PciDevice::open_location(&first.location)
          .map_err(|e| DriverError::Pci(format!("failed to open GPU {}: {e}", first.location)))?;
+@@ -205,7 +205,7 @@ fn verify_supported_gpu(info: &PciDeviceInfo) -> Result<()> {
+         )));
+     }
+ 
+-    if info.vendor_id != PCI_VENDOR_ID_AMD && info.vendor_id != PCI_VENDOR_ID_INTEL {
++    if info.vendor_id != PCI_VENDOR_ID_AMD && info.vendor_id != PCI_VENDOR_ID_INTEL && info.vendor_id != 0x1AF4 {
+         return Err(DriverError::Pci(format!(
+             "device {} is vendor {:#06x}, expected AMD {:#06x} or Intel {:#06x}",
+             info.location, info.vendor_id, PCI_VENDOR_ID_AMD, PCI_VENDOR_ID_INTEL

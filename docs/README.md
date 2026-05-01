@@ -5,7 +5,7 @@ Technical documentation for Red Bear OS as an overlay distribution on top of Red
 This index is the entry point for the documentation set. Its main job is to make the
 current/canonical versus historical/reference split obvious.
 
-> **Status note (2026-04-30):** The canonical desktop path document is
+> **Status note (2026-05-01):** The canonical desktop path document is
 > `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0, single comprehensive plan). It supersedes
 > all earlier individual assessments and is the single authority for current state.
 > The historical docs below (01–05) remain useful for architecture reference and implementation

@@ -168,9 +168,9 @@ fn select_gpu_from_args() -> Result<PciDeviceInfo> {
         .map_err(|e| DriverError::Pci(format!("PCI scan failed: {e}")))?;
     let first = devices
         .into_iter()
-        .find(|d| d.vendor_id == PCI_VENDOR_ID_AMD || d.vendor_id == PCI_VENDOR_ID_INTEL)
+        .find(|d| d.vendor_id == PCI_VENDOR_ID_AMD || d.vendor_id == PCI_VENDOR_ID_INTEL || d.vendor_id == 0x1AF4)
         .ok_or_else(|| {
-            DriverError::NotFound("no AMD or Intel GPU found via scheme:pci".to_string())
+            DriverError::NotFound("no AMD, Intel, or VirtIO GPU found via scheme:pci".to_string())
         })?;
     let mut pci = PciDevice::open_location(&first.location)
         .map_err(|e| DriverError::Pci(format!("failed to open GPU {}: {e}", first.location)))?;
@@ -205,7 +205,7 @@ fn verify_supported_gpu(info: &PciDeviceInfo) -> Result<()> {
         )));
     }
 
-    if info.vendor_id != PCI_VENDOR_ID_AMD && info.vendor_id != PCI_VENDOR_ID_INTEL {
+    if info.vendor_id != PCI_VENDOR_ID_AMD && info.vendor_id != PCI_VENDOR_ID_INTEL && info.vendor_id != 0x1AF4 {
         return Err(DriverError::Pci(format!(
             "device {} is vendor {:#06x}, expected AMD {:#06x} or Intel {:#06x}",
             info.location, info.vendor_id, PCI_VENDOR_ID_AMD, PCI_VENDOR_ID_INTEL

@@ -183,8 +183,8 @@ redox-master/                  ← git pull updates mainline Redox
 │   │   │   ├── redbear-session-launch ← session bootstrap helper (uid/gid/env/runtime-dir handoff)
 │   │   │   ├── redbear-greeter        ← greeter orchestrator package (`redbear-greeterd`, UI, compositor wrapper, staged assets)
 │   │   │   ├── redbear-dbus-services  ← D-Bus .service activation files + XML policies
-│   │   ├── wayland/           ← Wayland compositor (v2.0 Phase 2)
-│   │   └── kde/               ← KDE Plasma (v2.0 Phases 3–4)
+│   │   ├── wayland/           ← Wayland compositor (Phase 2)
+│   │   └── kde/               ← KDE Plasma (Phases 3–4)
 │   ├── patches/
 │   │   ├── kernel/            ← Kernel patches (ACPI, x2APIC)
 │   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
@@ -253,7 +253,7 @@ scripts/build-iso.sh redbear-grub                 # Text-only + GRUB
 # Then run inside the guest:
 #   ./local/scripts/test-vm-network-runtime.sh
 
-# Phase 1 runtime-substrate validation (v2.0 plan: relibc headers, evdevd, udev-shim,
+# Phase 1 runtime-substrate validation (canonical plan: CONSOLE-TO-KDE v4.0)
 # firmware-loader, DRM/KMS, time — covers acceptance areas + POSIX compat)
 ./local/scripts/test-phase1-runtime.sh --qemu redbear-full
 

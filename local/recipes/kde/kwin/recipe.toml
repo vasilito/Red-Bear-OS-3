@@ -77,18 +77,18 @@ if cmake "${COOKBOOK_SOURCE}" \
     -Wno-dev 2>&1; then
     cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1
     cmake --install . --prefix "${STAGE}" 2>&1
-fi
 
-# Downstream cmake configs for KF6WindowSystem/KF6Config (needed by plasma-framework, plasma-workspace, plasma-desktop — not KWin itself)
-mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
-cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
+    # Downstream cmake configs for KF6WindowSystem/KF6Config (needed by plasma-framework, plasma-workspace, plasma-desktop — not KWin itself)
+    mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
+    cat > "${STAGE}/lib/cmake/KF6WindowSystem/KF6WindowSystemConfig.cmake" << 'EOFCMAKE'
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 set(KF6WindowSystem_LIBRARIES Qt6::Gui)
 EOFCMAKE
-cat > "${STAGE}/lib/cmake/KF6Config/KF6ConfigConfig.cmake" << 'EOFCMAKE'
+    cat > "${STAGE}/lib/cmake/KF6Config/KF6ConfigConfig.cmake" << 'EOFCMAKE'
 find_package(Qt6 REQUIRED COMPONENTS Core)
 set(KF6Config_LIBRARIES Qt6::Core)
 EOFCMAKE
+fi
 """
 
 [package]
