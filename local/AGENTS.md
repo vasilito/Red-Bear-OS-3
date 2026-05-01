@@ -370,8 +370,8 @@ When mainline updates affect our work:
 ## PLANNING NOTES
 
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` is the canonical public execution plan.
-- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0) is the canonical desktop path plan from console to
-  hardware-accelerated KDE Plasma on Wayland, using a three-track Phase 1–5 model.
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0) is the canonical comprehensive plan —
+  supersedes all individual subsystem docs. See it for current state, blockers, and roadmap.
 - `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` is the canonical Wayland subsystem plan beneath the
   desktop path. Use it for Wayland-specific stability, completeness, ownership, and runtime-proof
   sequencing.

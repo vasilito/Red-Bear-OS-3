@@ -1,0 +1,16 @@
+diff --git a/local/recipes/gpu/redox-drm/source/src/main.rs b/local/recipes/gpu/redox-drm/source/src/main.rs
+index 612a64e0f..f4abdc7bb 100644
+--- a/local/recipes/gpu/redox-drm/source/src/main.rs
++++ b/local/recipes/gpu/redox-drm/source/src/main.rs
+@@ -168,9 +168,9 @@ fn select_gpu_from_args() -> Result<PciDeviceInfo> {
+         .map_err(|e| DriverError::Pci(format!("PCI scan failed: {e}")))?;
+     let first = devices
+         .into_iter()
+-        .find(|d| d.vendor_id == PCI_VENDOR_ID_AMD || d.vendor_id == PCI_VENDOR_ID_INTEL)
++        .find(|d| d.vendor_id == PCI_VENDOR_ID_AMD || d.vendor_id == PCI_VENDOR_ID_INTEL || d.vendor_id == 0x1AF4)
+         .ok_or_else(|| {
+-            DriverError::NotFound("no AMD or Intel GPU found via scheme:pci".to_string())
++            DriverError::NotFound("no AMD, Intel, or VirtIO GPU found via scheme:pci".to_string())
+         })?;
+     let mut pci = PciDevice::open_location(&first.location)
+         .map_err(|e| DriverError::Pci(format!("failed to open GPU {}: {e}", first.location)))?;

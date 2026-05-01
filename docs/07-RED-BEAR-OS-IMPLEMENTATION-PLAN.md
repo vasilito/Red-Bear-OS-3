@@ -410,8 +410,7 @@ The current subsystem plans to treat as first-class are:
 - `local/docs/USB-IMPLEMENTATION-PLAN.md`
 - `local/docs/WIFI-IMPLEMENTATION-PLAN.md`
 - `local/docs/BLUETOOTH-IMPLEMENTATION-PLAN.md`
-- `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`
-- `local/docs/RELIBC-IMPLEMENTATION-PLAN.md` — implementation roadmap for relibc POSIX gaps
+- `local/docs/KERNEL-IPC-CREDENTIAL-PLAN.md` — implemented credential syscalls + kernel robustness
 - `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md`
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — **canonical comprehensive plan**
 

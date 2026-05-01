@@ -51,10 +51,10 @@ done
 
 # Attempt real cmake build with Redox-viable feature set
 sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null
 sed -i 's/^ki18n_install(po)/#ki18n_install(po)/' \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null
+sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles

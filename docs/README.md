@@ -5,9 +5,9 @@ Technical documentation for Red Bear OS as an overlay distribution on top of Red
 This index is the entry point for the documentation set. Its main job is to make the
 current/canonical versus historical/reference split obvious.
 
-> **Status note (2026-04-16):** The canonical desktop path document is now
-> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v2.0, three-track Phase 1–5 model). It consolidates
-> the Wayland, KDE, and GPU roadmap into one honest implementation plan with testable exit criteria.
+> **Status note (2026-04-30):** The canonical desktop path document is
+> `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0, single comprehensive plan). It supersedes
+> all earlier individual assessments and is the single authority for current state.
 > The historical docs below (01–05) remain useful for architecture reference and implementation
 > rationale, but they should be read together with the new plan and the current local subsystem docs.
 
@@ -92,9 +92,9 @@ Do not flatten those into one “supported” claim in public summaries.
 
 - `../local/docs/SCRIPT-BEHAVIOR-MATRIX.md` — what the main sync/fetch/apply/build scripts do and do not guarantee
 
-## Current State Summary (as of 2026-04-18)
+## Current State Summary (as of 2026-05-01)
 
-This summary is only a quick orientation layer. For canonical current-state detail, prefer:
+This summary is only a quick orientation layer. For canonical current-state detail, see `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` (v4.0).
 
 - `docs/07-RED-BEAR-OS-IMPLEMENTATION-PLAN.md` for repository-wide execution order,
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` for the canonical comprehensive plan,
