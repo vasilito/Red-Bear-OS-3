@@ -136,6 +136,8 @@ git = "ignore"
 mc = "ignore"
 #curl = "ignore"  # suppressed: cascade rebuild
 #git = "ignore"  # suppressed: cascade rebuild
+konsole = {}
+kf6-pty = {}
 
 [[files]]
 path = "/lib/firmware/amdgpu"
@@ -402,7 +404,3 @@ vendor = 0x1af4
 subclass = 0x00
 command = ["redox-drm"]
 """
-
-[packages]
-konsole = {}
-kf6-pty = {}
