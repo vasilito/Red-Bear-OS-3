@@ -6,6 +6,7 @@ tar = "https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.
 template = "custom"
 dependencies = [
     "qtbase",
+    "qtdeclarative",
     "kf6-extra-cmake-modules",
 ]
 script = """
@@ -19,18 +20,8 @@ for qtdir in plugins mkspecs metatypes modules; do
     fi
 done
 
-sed -i 's/COMPONENTS Core Gui Concurrent Qml Quick Qml Quick Qml Quick/COMPONENTS Core Gui Concurrent/' \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i 's/^    find_package(Qt6QuickTest .*/# find_package(Qt6QuickTest disabled for Redox core-only build)/' \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i 's/^    add_subdirectory(templates)/# add_subdirectory(templates) # disabled for Redox core-only build/' \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-sed -i 's/^    add_subdirectory(autotests)/# add_subdirectory(autotests) # disabled for Redox core-only build/' \
-    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
-
-rm -f CMakeCache.txt
-rm -rf CMakeFiles
-
+# Full QML/Quick build — qtdeclarative provides Qt6Qml/Qt6Quick with qml_jit=OFF
+# (line 23 was previously stripping QML/Quick components)
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \

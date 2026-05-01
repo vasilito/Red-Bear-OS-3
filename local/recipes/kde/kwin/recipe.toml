@@ -12,6 +12,7 @@ template = "custom"
 dependencies = [
     "qtbase",
     "qtdeclarative",
+    "qt5compat",
     "qt6-sensors",
     "kf6-extra-cmake-modules",
     "kf6-kcoreaddons",
