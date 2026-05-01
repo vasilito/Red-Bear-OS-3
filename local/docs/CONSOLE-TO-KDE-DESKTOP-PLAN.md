@@ -147,7 +147,7 @@ Remaining work: (1) fix `virgl_screen.c` int-conversion warnings-as-errors on Re
 | libwayland 1.24.0 | 🟢 Builds | Wayland protocol library |
 | wayland-protocols | 🟢 Builds | Protocol XML definitions |
 | redbear-compositor | 🟡 Bounded proof | 788-line Rust compositor; 3/3 tests; zero warnings |
-| kwin | 🔴 Stub | Recipe downloads real source but only creates wrappers |
+| kwin | 🔴 Blocked — cmake fails on Qt6Core5Compat; real build gated on QML/Qt6Quick resolution |
 
 **Known compositor limitations**: SHM fd passing uses payload bytes (not SCM_RIGHTS), framebuffer uses private memory (not real vesad), wire encoding uses NUL-terminated strings (not padded Wayland format).
 
