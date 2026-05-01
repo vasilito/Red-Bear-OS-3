@@ -43,7 +43,7 @@ set(CMAKE_SYSTEM_VERSION 1)
 # Redox userspace currently must not emit CET/IBT entry instructions (endbr64),
 # because they trap as invalid opcode in the current runtime stack.
 set(CMAKE_C_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h -I${COOKBOOK_SYSROOT}/usr/include/QtQml -I${COOKBOOK_SYSROOT}/usr/include/QtQuick" CACHE STRING "" FORCE)
 set(CMAKE_C_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "-fcf-protection=none -march=x86-64 -fpermissive -include strings.h" CACHE STRING "" FORCE)
 
