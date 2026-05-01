@@ -59,7 +59,7 @@ sed -i '/include(ECMQmlModule)/s/^/#/' "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/de
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
-if cmake "${COOKBOOK_SOURCE}" \
+cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
     -DQT_HOST_PATH="${HOST_BUILD}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
@@ -74,9 +74,9 @@ if cmake "${COOKBOOK_SOURCE}" \
     -DKWIN_BUILD_GLOBALSHORTCUTS=OFF \
     -DKWIN_BUILD_RUNNERS=OFF \
     -DKWIN_BUILD_NOTIFICATIONS=OFF \
-    -Wno-dev 2>&1; then
-    cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1
-    cmake --install . --prefix "${STAGE}" 2>&1
+    -Wno-dev 2>&1
+cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>&1
+cmake --install . --prefix "${STAGE}" 2>&1
 
     # Downstream cmake configs for KF6WindowSystem/KF6Config (needed by plasma-framework, plasma-workspace, plasma-desktop — not KWin itself)
     mkdir -p "${STAGE}/lib/cmake/KF6WindowSystem" "${STAGE}/lib/cmake/KF6Config"
@@ -88,7 +88,6 @@ EOFCMAKE
 find_package(Qt6 REQUIRED COMPONENTS Core)
 set(KF6Config_LIBRARIES Qt6::Core)
 EOFCMAKE
-fi
 """
 
 [package]
