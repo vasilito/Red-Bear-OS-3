@@ -373,8 +373,7 @@ Canonical references:
 - `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — canonical desktop path from console to hardware-accelerated KDE Plasma on Wayland
 - `local/docs/WAYLAND-IMPLEMENTATION-PLAN.md` — canonical Wayland subsystem plan beneath the desktop path
 - `local/docs/GREETER-LOGIN-IMPLEMENTATION-PLAN.md` — canonical greeter/login plan beneath the desktop path
-- `local/docs/QT6-PORT-STATUS.md`
-- `local/docs/DESKTOP-STACK-CURRENT-STATUS.md`
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — **canonical comprehensive plan** (supersedes other status docs)
 - `docs/05-KDE-PLASMA-ON-REDOX.md` — historical KDE implementation rationale
 
 Acceptance:
@@ -414,7 +413,7 @@ The current subsystem plans to treat as first-class are:
 - `local/docs/RELIBC-COMPLETENESS-AND-ENHANCEMENT-PLAN.md`
 - `local/docs/RELIBC-IMPLEMENTATION-PLAN.md` — implementation roadmap for relibc POSIX gaps
 - `local/docs/RELIBC-IPC-ASSESSMENT-AND-IMPROVEMENT-PLAN.md`
-- `local/docs/QT6-PORT-STATUS.md`
+- `local/docs/CONSOLE-TO-KDE-DESKTOP-PLAN.md` — **canonical comprehensive plan**
 
 The older architecture/roadmap docs under `docs/01`–`docs/05` remain useful, but they should be
 read together with status notes and the newer local subsystem docs.

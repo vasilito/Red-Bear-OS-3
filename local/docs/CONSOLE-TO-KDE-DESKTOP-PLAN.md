@@ -227,7 +227,7 @@ Remaining work: (1) fix `virgl_screen.c` int-conversion warnings-as-errors on Re
 
 | Component | Status |
 |-----------|--------|
-| kwin | 🔴 Stub — real KWin v6.3.4 source downloaded, only wrapper scripts created |
+| kwin | 🔴 Blocked — real cmake build attempted with QML disabled; QML gate prevents full build. Redbear-compositor provides the kwin_wayland binary as a separate package. |
 | kwin real build | 🔄 Attempted — gated on Qt6Quick/QML downstream proof |
 | plasma-workspace | 🔴 Blocked |
 | plasma-desktop | 🔴 Blocked (transitive) |
