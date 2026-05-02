@@ -1,6 +1,6 @@
-#TODO: Requires Redox compatibility patching for missing Linux header paths and
-# some POSIX/Linux-only flags during cross-builds.
-# redox.patch restores the Redox compatibility stubs plus Meson scanner detection.
+#TODO: Requires a narrow Redox delta for native scanner discovery during
+# cross-builds and a userspace eventfd fallback because relibc lacks sys/eventfd.h.
+# redox.patch keeps only the active scanner/eventfd compatibility surface.
 [source]
 tar = "https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz"
 patches = ["redox.patch"]
@@ -26,7 +26,12 @@ COOKBOOK_MESON_FLAGS=(
     -Ddefault_library=static
     -Dprefix=/usr
 )
-cookbook_meson -Ddocumentation=false -Dtests=false -Ddtd_validation=false -Dscanner=false -Dc_args=-Wno-error
+cookbook_meson \
+    -Ddocumentation=false \
+    -Dtests=false \
+    -Ddtd_validation=false \
+    -Dscanner=false \
+    -Dc_args="['-I${COOKBOOK_SYSROOT}/include','-Wno-error']"
 
 for pc in "${COOKBOOK_STAGE}/usr/lib/pkgconfig/wayland-client.pc" "${COOKBOOK_STAGE}/usr/lib/pkgconfig/wayland-server.pc"; do
     if [ -f "$pc" ]; then

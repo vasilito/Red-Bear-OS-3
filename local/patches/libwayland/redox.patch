@@ -1,68 +1,5 @@
---- a/b/src/connection.c	2025-07-06 13:11:26.000000000 +0100
-+++ b/src/connection.c	2026-05-01 00:15:42.778777823 +0100
-@@ -40,6 +40,12 @@
- #include <time.h>
- #include <ffi.h>
- 
-+#ifndef MSG_NOSIGNAL
-+#define MSG_NOSIGNAL 0
-+#endif
-+
-+extern FILE *open_memstream(char **bufp, size_t *sizep);
-+
- #include "wayland-util.h"
- #include "wayland-private.h"
- #include "wayland-os.h"
---- a/b/src/event-loop.c	2025-07-06 13:11:26.000000000 +0100
-+++ b/src/event-loop.c	2026-05-01 00:15:42.778845239 +0100
-@@ -35,9 +35,43 @@
- #include <sys/socket.h>
- #include <sys/un.h>
- #include <sys/epoll.h>
--#include <sys/signalfd.h>
--#include <sys/timerfd.h>
- #include <unistd.h>
-+/* Redox: relibc declares signalfd/timerfd in headers but has no implementation.
-+   Provide inline implementations via Redox schemes. */
-+#define SFD_CLOEXEC O_CLOEXEC
-+#define SFD_NONBLOCK O_NONBLOCK
-+#define TFD_CLOEXEC O_CLOEXEC
-+#define TFD_NONBLOCK O_NONBLOCK
-+#define TFD_TIMER_ABSTIME 0x1
-+struct signalfd_siginfo { uint8_t pad[128]; };
-+static int signalfd(int fd, const sigset_t *mask, int flags) {
-+    int oflag = O_RDWR;
-+    if (flags & SFD_CLOEXEC) oflag |= O_CLOEXEC;
-+    if (flags & SFD_NONBLOCK) oflag |= O_NONBLOCK;
-+    if (fd == -1) { fd = open("/scheme/event", oflag); if (fd < 0) return -1; }
-+    else { if (flags & SFD_CLOEXEC) fcntl(fd, F_SETFD, FD_CLOEXEC); }
-+    sigprocmask(SIG_BLOCK, mask, NULL);
-+    return fd;
-+}
-+static int timerfd_create(int clockid, int flags) {
-+    int oflag = O_RDWR;
-+    if (flags & TFD_CLOEXEC) oflag |= O_CLOEXEC;
-+    if (flags & TFD_NONBLOCK) oflag |= O_NONBLOCK;
-+    char path[64];
-+    snprintf(path, sizeof(path), "/scheme/time/%d", clockid);
-+    return open(path, oflag);
-+}
-+static int timerfd_settime(int fd, int flags, const struct itimerspec *new_value, struct itimerspec *old_value) {
-+    if (new_value == NULL) { errno = EFAULT; return -1; }
-+    ssize_t r = write(fd, &new_value->it_value, sizeof(struct timespec));
-+    return (r == sizeof(struct timespec)) ? 0 : -1;
-+}
-+static int timerfd_gettime(int fd, struct itimerspec *curr) {
-+    if (curr == NULL) { errno = EFAULT; return -1; }
-+    curr->it_interval = (struct timespec){0};
-+    ssize_t r = read(fd, &curr->it_value, sizeof(struct timespec));
-+    return (r == sizeof(struct timespec)) ? 0 : -1;
-+}
- #include "timespec-util.h"
- #include "wayland-util.h"
- #include "wayland-private.h"
---- a/b/src/meson.build	2025-07-06 13:11:26.000000000 +0100
-+++ b/src/meson.build	2026-05-01 00:15:42.778925799 +0100
+--- a/src/meson.build
++++ b/src/meson.build
 @@ -81,8 +81,7 @@
  endif
  
@@ -73,8 +10,8 @@
  else
  	wayland_scanner_for_build = wayland_scanner
  endif
---- a/b/src/wayland-server.c	2025-07-06 13:11:26.000000000 +0100
-+++ b/src/wayland-server.c	2026-05-01 00:15:42.779083803 +0100
+--- a/src/wayland-server.c
++++ b/src/wayland-server.c
 @@ -39,7 +39,23 @@
  #include <dlfcn.h>
  #include <sys/time.h>
