@@ -1,18 +1,3 @@
---- a/src/connection.c
-+++ b/src/connection.c
-@@ -40,6 +40,12 @@
- #include <time.h>
- #include <ffi.h>
- 
-+#ifndef MSG_NOSIGNAL
-+#define MSG_NOSIGNAL 0
-+#endif
-+
-+extern FILE *open_memstream(char **bufp, size_t *sizep);
-+
- #include "wayland-util.h"
- #include "wayland-private.h"
- #include "wayland-os.h"
 --- a/src/meson.build
 +++ b/src/meson.build
 @@ -81,8 +81,7 @@

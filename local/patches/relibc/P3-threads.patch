@@ -26,7 +26,7 @@ new file mode 100644
 index 0000000..9ab9496
 --- /dev/null
 +++ b/src/header/threads/mod.rs
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,36 @@
 +//! `threads.h` implementation — C11 threads type definitions and constants.
 +//!
 +//! Full C11 threads API (thrd_create, mtx_lock, cnd_wait, etc.) requires
@@ -58,3 +58,8 @@ index 0000000..9ab9496
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn thrd_yield() {}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn thrd_exit(_ret: *mut c_int) -> ! {
++    loop {}
++}
