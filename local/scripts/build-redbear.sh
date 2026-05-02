@@ -3,6 +3,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/lib/relibc-surface.sh"
+
+# Source .config for release mode settings (REDBEAR_RELEASE, etc.)
+if [ -f "$PROJECT_ROOT/.config" ]; then
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line=$(echo "$line" | xargs)
+        [ -z "$line" ] && continue
+        if [[ "$line" == *"?="* ]]; then
+            key="${line%%\?=*}"
+            value="${line#*\?=}"
+        elif [[ "$line" == *"="* ]]; then
+            key="${line%%=*}"
+            value="${line#*=}"
+        else
+            continue
+        fi
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        [ -z "$key" ] && continue
+        # Only set if not already set in environment
+        [ -n "${!key:-}" ] || export "$key=$value"
+    done < "$PROJECT_ROOT/.config"
+fi
 
 CONFIG="redbear-full"
 JOBS="${JOBS:-$(nproc)}"
@@ -79,7 +103,7 @@ echo ""
 
 cd "$PROJECT_ROOT"
 
-if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
+if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ] && [ -z "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Verifying overlay integrity (auto-repair)..."
     "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" --repair
     echo ""
@@ -99,32 +123,7 @@ stash_nested_repo_if_dirty() {
 
 stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
 
-ensure_relibc_desktop_surface() {
-    local relibc_target="$PROJECT_ROOT/recipes/core/relibc/target/x86_64-unknown-redox"
-    local relibc_stage_include="$relibc_target/stage/usr/include"
-    local relibc_stage_lib="$relibc_target/stage/usr/lib/libc.so"
-
-    if [ ! -f "$relibc_stage_include/sys/signalfd.h" ] || \
-       [ ! -f "$relibc_stage_include/sys/timerfd.h" ] || \
-       [ ! -f "$relibc_stage_include/sys/eventfd.h" ] || \
-       [ ! -f "$relibc_stage_lib" ] || \
-       ! readelf -Ws "$relibc_stage_lib" | grep -q '_Z7strtoldPKcPPc'; then
-        echo ">>> Refreshing relibc staged surface for full desktop target..."
-        rm -rf \
-            "$relibc_target/build" \
-            "$relibc_target/stage" \
-            "$relibc_target/stage.tmp" \
-            "$relibc_target/sysroot"
-        rm -f \
-            "$relibc_target/auto_deps.toml" \
-            "$relibc_target/stage.pkgar" \
-            "$relibc_target/stage.toml"
-        REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 ./target/release/repo cook relibc
-        echo ""
-    fi
-}
-
-if [ "$APPLY_PATCHES" = "1" ]; then
+if [ "$APPLY_PATCHES" = "1" ] && [ -z "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Applying local patches..."
 
     apply_patch_dir() {
@@ -177,12 +176,8 @@ if [ "$APPLY_PATCHES" = "1" ]; then
 
     stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
     echo ""
-fi
-
-if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
-    echo ">>> Verifying overlay integrity (strict)..."
-    "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh"
-    echo ""
+elif [ -n "${REDBEAR_RELEASE:-}" ]; then
+    echo ">>> Release mode: skipping patch application (patches pre-applied in archived sources)"
 fi
 
 if [ ! -f "target/release/repo" ]; then
@@ -191,7 +186,7 @@ if [ ! -f "target/release/repo" ]; then
 fi
 
 if [ "$CONFIG" = "redbear-full" ]; then
-    ensure_relibc_desktop_surface
+    redbear_ensure_relibc_desktop_surface
 fi
 
 FW_AMD_DIR="$PROJECT_ROOT/local/firmware/amdgpu"
@@ -209,11 +204,24 @@ fi
 
 echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
-if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
+
+if [ -n "${REDBEAR_RELEASE:-}" ]; then
+    bash "$PROJECT_ROOT/local/scripts/build-release-mode.sh" --release="$REDBEAR_RELEASE" --config="$CONFIG" --extra-package=relibc
+fi
+
+bash "$PROJECT_ROOT/local/scripts/build-preflight.sh" --config="$CONFIG" ${REDBEAR_RELEASE:+--release="$REDBEAR_RELEASE"} --extra-package=relibc
+
+if [ "${REDBEAR_ALLOW_UPSTREAM:-0}" = "1" ]; then
+    echo ">>> WARNING: Upstream fetch ENABLED (REDBEAR_ALLOW_UPSTREAM=1)"
+    REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+elif [ -n "${REDBEAR_RELEASE:-}" ]; then
+    echo ">>> Release mode: building from immutable archives (offline)"
+    REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+elif [ "$ALLOW_UPSTREAM" -eq 1 ]; then
     echo ">>> Upstream recipe refresh enabled"
     REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 else
-    echo ">>> Upstream recipe refresh disabled (pass --upstream to enable)"
+    echo ">>> Upstream recipe refresh disabled (default: offline)"
     REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 fi
 

@@ -23,67 +23,32 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+PROJECT_ROOT="${COOKBOOK_ROOT}"
+source "${COOKBOOK_ROOT}/local/scripts/lib/relibc-surface.sh"
+
 RELIBC_STAGE_INCLUDE_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/include"
 RELIBC_STAGE_INCLUDE_TMP="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/include"
 RELIBC_STAGE_LIB_STAGE="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage/usr/lib"
 RELIBC_STAGE_LIB_TMP="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/stage.tmp/usr/lib"
 RELIBC_BUILD_LIB="${COOKBOOK_ROOT}/recipes/core/relibc/target/${TARGET}/build/target/${TARGET}/release"
 
-RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_STAGE"
-if [ ! -d "$RELIBC_STAGE_INCLUDE" ] && [ -d "$RELIBC_STAGE_INCLUDE_TMP" ]; then
-    RELIBC_STAGE_INCLUDE="$RELIBC_STAGE_INCLUDE_TMP"
-fi
-
-choose_relibc_lib_stage() {
-    local candidate="$1"
-    if [ -f "$candidate/libc.so" ] && readelf -Ws "$candidate/libc.so" | grep -q '_Z7strtoldPKcPPc'; then
-        printf '%s\n' "$candidate"
-        return 0
-    fi
-    return 1
-}
-
-choose_toolchain_root() {
-    if [ -n "${COOKBOOK_HOST_SYSROOT:-}" ] && [ -d "${COOKBOOK_HOST_SYSROOT}" ]; then
-        printf '%s\n' "${COOKBOOK_HOST_SYSROOT}"
-        return 0
-    fi
-    if [ -d "${HOME}/.redoxer/x86_64-unknown-redox/toolchain" ]; then
-        printf '%s\n' "${HOME}/.redoxer/x86_64-unknown-redox/toolchain"
-        return 0
-    fi
-    printf '%s\n' "${COOKBOOK_ROOT}/prefix/x86_64-unknown-redox/sysroot"
-}
-
-if RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_STAGE")"; then
-    :
-elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_STAGE_LIB_TMP")"; then
-    :
-elif RELIBC_STAGE_LIB="$(choose_relibc_lib_stage "$RELIBC_BUILD_LIB")"; then
-    :
-elif [ -d "$RELIBC_STAGE_LIB_STAGE" ]; then
-    RELIBC_STAGE_LIB="$RELIBC_STAGE_LIB_STAGE"
-elif [ -d "$RELIBC_BUILD_LIB" ]; then
-    RELIBC_STAGE_LIB="$RELIBC_BUILD_LIB"
-else
-    RELIBC_STAGE_LIB="$RELIBC_STAGE_LIB_TMP"
-fi
+RELIBC_STAGE_INCLUDE="$(redbear_choose_relibc_stage_include)"
+RELIBC_STAGE_LIB="$(redbear_choose_relibc_stage_lib)"
 if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
-    mkdir -p "${COOKBOOK_SYSROOT}/include"
-    cp -a "${RELIBC_STAGE_INCLUDE}/." "${COOKBOOK_SYSROOT}/include/"
+    redbear_copy_relibc_surface_into_sysroot "${COOKBOOK_SYSROOT}"
     if [ -f "${COOKBOOK_SYSROOT}/include/elf.h" ]; then
         sed -i 's/typedef uint64_t Elf64_Word;/typedef uint32_t Elf64_Word;/' "${COOKBOOK_SYSROOT}/include/elf.h"
         sed -i 's/typedef int64_t Elf64_Sword;/typedef int32_t Elf64_Sword;/' "${COOKBOOK_SYSROOT}/include/elf.h"
     fi
-    export CPPFLAGS="${CPPFLAGS} -I${RELIBC_STAGE_INCLUDE}"
-    export CFLAGS="${CFLAGS} -I${RELIBC_STAGE_INCLUDE}"
-    export CXXFLAGS="${CXXFLAGS} -I${RELIBC_STAGE_INCLUDE}"
+    export CPPFLAGS="${CPPFLAGS:-} -I${RELIBC_STAGE_INCLUDE}"
+    export CFLAGS="${CFLAGS:-} -I${RELIBC_STAGE_INCLUDE}"
+    export CXXFLAGS="${CXXFLAGS:-} -I${RELIBC_STAGE_INCLUDE}"
 
     # The Redox GCC toolchain currently prefers its own bundled target elf.h
     # under .../x86_64-unknown-redox/include/ over the recipe sysroot copy.
     # Sync the freshly built relibc header into that toolchain include root so
     # Qt's ELF plugin parser sees the corrected ELF64 typedef layout.
-    TOOLCHAIN_ROOT="$(choose_toolchain_root)"
+    TOOLCHAIN_ROOT="$(redbear_choose_toolchain_root)"
     TOOLCHAIN_TARGET_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/include"
     TOOLCHAIN_TARGET_USR_INCLUDE="${TOOLCHAIN_ROOT}/x86_64-unknown-redox/usr/include"
     for header in elf.h semaphore.h unistd.h; do
@@ -112,8 +77,6 @@ if [ -d "${RELIBC_STAGE_INCLUDE}" ]; then
     done
 fi
 if [ -d "${RELIBC_STAGE_LIB}" ]; then
-    mkdir -p "${COOKBOOK_SYSROOT}/lib"
-    cp -a "${RELIBC_STAGE_LIB}/." "${COOKBOOK_SYSROOT}/lib/"
     export LDFLAGS="-L${RELIBC_STAGE_LIB} -Wl,-rpath-link,${RELIBC_STAGE_LIB} ${LDFLAGS}"
 fi
 
@@ -165,12 +128,6 @@ if [ ! -f "${COOKBOOK_SYSROOT}/include/netinet/in6_pktinfo_compat.h" ]; then
 #endif
 #ifndef IPV6_PKTINFO
 #define IPV6_PKTINFO 50
-#endif
-#ifndef in6_pktinfo
-struct in6_pktinfo {
-    struct in6_addr ipi6_addr;
-    unsigned int ipi6_ifindex;
-};
 #endif
 #endif
 PKTINFO_EOF
@@ -319,10 +276,10 @@ mv "${COOKBOOK_SOURCE}/src/corelib/CMakeLists.txt.tmp" "${COOKBOOK_SOURCE}/src/c
 # Enable QtNetwork — relibc DNS resolver hardened (2026-04-29: use-after-free fix, FD leak fix,
 # transaction ID validation, RCODE/TC handling, typed error mapping).
 # QtNetwork was previously disabled. Now re-enabled for full KDE desktop path.
-sed -i 's/^# add_subdirectory(network)/    add_subdirectory(network)/' \
+sed -i 's/^\\s*# add_subdirectory(network).*/    add_subdirectory(network)/' \
     "${COOKBOOK_SOURCE}/src/CMakeLists.txt"
 # Also re-enable TUIO touch plugin which depends on QtNetwork
-sed -i 's/^# add_subdirectory(tuiotouch)/    add_subdirectory(tuiotouch)/' \
+sed -i 's/^\\s*# add_subdirectory(tuiotouch).*/    add_subdirectory(tuiotouch)/' \
     "${COOKBOOK_SOURCE}/src/plugins/generic/CMakeLists.txt"
 python - <<'PY'
 import os
