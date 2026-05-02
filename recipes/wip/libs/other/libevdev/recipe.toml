@@ -11,5 +11,5 @@ mesonflags = [
     "-Dtools=disabled",
 ]
 dependencies = [
-    "linux-input-headers",
+    "redbear-input-headers",
 ]

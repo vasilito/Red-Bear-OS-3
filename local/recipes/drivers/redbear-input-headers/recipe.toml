@@ -1,0 +1,24 @@
+# redbear-input-headers — Linux input subsystem headers (reference implementation)
+#
+# Linux kernel source is REFERENCE ONLY — never a dependency.
+# If we need linux-input-headers, we must code redbear-input-headers.
+#
+# These headers provide Linux-compatible evdev interfaces for libevdev and libinput.
+# Source: Linux kernel UAPI headers (reference), with evdevd types as the primary
+# Red Bear source of truth for constants already defined in local/recipes/system/evdevd/.
+[source]
+path = "source"
+
+[build]
+template = "custom"
+script = """
+DYNAMIC_INIT
+
+mkdir -p "${COOKBOOK_STAGE}/usr/include/linux"
+
+# Stage all headers from source tree
+cp "${COOKBOOK_SOURCE}/include/linux/linux/input.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+cp "${COOKBOOK_SOURCE}/include/linux/linux/input-event-codes.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+cp "${COOKBOOK_SOURCE}/include/linux/linux/uinput.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+cp "${COOKBOOK_SOURCE}/include/linux/types.h" "${COOKBOOK_STAGE}/usr/include/linux/"
+"""
