@@ -10,6 +10,8 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
+
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 SHADER_HOST="${COOKBOOK_ROOT}/build/qt-shadertools-host"
 SHADER_HOST_SRC="${COOKBOOK_ROOT}/build/qt-shadertools-host-src"
@@ -232,21 +234,21 @@ for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
 done
 find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
 
-# CMake export fixup: replace build-tree paths with /usr
+# CMake export fixup and sysroot propagation for downstream Qt modules
 BUILD_DIR="${COOKBOOK_BUILD}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
-
-# Sysroot propagation for downstream Qt modules
+STAGE_USR="${COOKBOOK_STAGE}/usr"
 SYSROOT="${COOKBOOK_SYSROOT}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6ShaderTools" -name '*.cmake' -exec sed -i \
-    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
-mkdir -p "${SYSROOT}/include"
-cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
-mkdir -p "${SYSROOT}/lib/cmake/Qt6ShaderTools"
-cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6ShaderTools/"* "${SYSROOT}/lib/cmake/Qt6ShaderTools/" 2>/dev/null || true
-mkdir -p "${SYSROOT}/lib"
-cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+redbear_qt_rewrite_stage_build_paths "${STAGE_USR}" "${BUILD_DIR}"
+redbear_qt_rewrite_stage_include_paths "${STAGE_USR}/lib/cmake/Qt6ShaderTools" "${SYSROOT}"
+redbear_qt_rewrite_usr_src_metatype_paths "${STAGE_USR}/lib/cmake/Qt6ShaderTools" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_USR}/lib/cmake/Qt6ShaderTools" "${SYSROOT}"
+redbear_qt_rewrite_stage_include_paths "${STAGE_USR}/lib/cmake/Qt6ShaderToolsPrivate" "${SYSROOT}"
+redbear_qt_rewrite_usr_src_metatype_paths "${STAGE_USR}/lib/cmake/Qt6ShaderToolsPrivate" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_USR}/lib/cmake/Qt6ShaderToolsPrivate" "${SYSROOT}"
+redbear_qt_rewrite_stage_path_literal "${STAGE_USR}/lib/cmake/Qt6ShaderToolsPrivate" "/usr/src/shadertools" "${SYSROOT}/include/QtShaderTools"
+redbear_qt_copy_common_stage_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_stage_cmake_subdir_to_sysroot "${STAGE_USR}" "${SYSROOT}" "Qt6ShaderTools"
+redbear_qt_copy_stage_cmake_subdir_to_sysroot "${STAGE_USR}" "${SYSROOT}" "Qt6ShaderToolsPrivate"
 
 # Ensure qsb is staged for downstream consumers.
 if [ -f "${HOST_BUILD}/bin/qsb" ]; then
@@ -258,3 +260,4 @@ fi
 
 [source]
 tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtshadertools-everywhere-src-6.11.0.tar.xz"
+blake3 = "7d11bdaaeb7f823e0d168d0864413e76274e110ccdab499ae20479d1942198b9"

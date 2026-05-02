@@ -9,18 +9,11 @@ script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
 
-# Sysroot path fix: same as qtdeclarative — cookbook only symlinks
-# sysroot/{bin,include,lib,share} but Qt6 cmake targets reference
-# ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
+redbear_qt_link_sysroot_dirs "${COOKBOOK_SYSROOT}" plugins mkspecs metatypes modules
 
-rm -f CMakeCache.txt
-rm -rf CMakeFiles
+redbear_qt_reset_cmake_cache_dir
 
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
@@ -60,6 +53,8 @@ if [ -d "plugins" ]; then
     mkdir -p "${COOKBOOK_STAGE}/usr/plugins"
     cp -a plugins/* "${COOKBOOK_STAGE}/usr/plugins/" 2>/dev/null || true
 fi
+mkdir -p "${COOKBOOK_STAGE}/usr/metatypes"
+find . -path '*/meta_types/*.json' -type f -exec cp -an {} "${COOKBOOK_STAGE}/usr/metatypes/" \\; 2>/dev/null || true
 
 for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
     [ -f "${lib}" ] || continue
@@ -68,19 +63,24 @@ done
 find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
 
 BUILD_DIR="${COOKBOOK_BUILD}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
-
+STAGE_USR="${COOKBOOK_STAGE}/usr"
 SYSROOT="${COOKBOOK_SYSROOT}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6Svg" -name '*.cmake' -exec sed -i \
-    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
-mkdir -p "${SYSROOT}/include"
-cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
-mkdir -p "${SYSROOT}/lib/cmake/Qt6Svg"
-cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6Svg/"* "${SYSROOT}/lib/cmake/Qt6Svg/" 2>/dev/null || true
-mkdir -p "${SYSROOT}/lib"
-cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
+redbear_qt_rewrite_stage_build_paths "${STAGE_USR}" "${BUILD_DIR}"
+redbear_qt_rewrite_stage_include_paths "${STAGE_USR}/lib/cmake/Qt6Svg" "${SYSROOT}"
+redbear_qt_rewrite_usr_src_metatype_paths "${STAGE_USR}/lib/cmake/Qt6Svg" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_USR}/lib/cmake/Qt6Svg" "${SYSROOT}"
+redbear_qt_rewrite_stage_include_paths "${STAGE_USR}/lib/cmake/Qt6SvgPrivate" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_USR}/lib/cmake/Qt6SvgPrivate" "${SYSROOT}"
+redbear_qt_rewrite_usr_src_metatype_paths "${STAGE_USR}/lib/cmake/Qt6SvgWidgets" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_USR}/lib/cmake/Qt6SvgWidgets" "${SYSROOT}"
+redbear_qt_rewrite_stage_path_literal "${STAGE_USR}/lib/cmake/Qt6SvgPrivate" "/usr/src/svg" "${SYSROOT}/include/QtSvg"
+redbear_qt_copy_common_stage_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_stage_cmake_subdir_to_sysroot "${STAGE_USR}" "${SYSROOT}" "Qt6Svg"
+redbear_qt_copy_stage_cmake_subdir_to_sysroot "${STAGE_USR}" "${SYSROOT}" "Qt6SvgPrivate"
+redbear_qt_copy_stage_cmake_subdir_to_sysroot "${STAGE_USR}" "${SYSROOT}" "Qt6SvgWidgets"
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" metatypes
 """
 
 [source]
 tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtsvg-everywhere-src-6.11.0.tar.xz"
+blake3 = "b7825c7971c67c04993ac2d3bdb72e403e8848e1696cdd33fb3b5034730e491c"
