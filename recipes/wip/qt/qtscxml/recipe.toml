@@ -13,14 +13,9 @@ DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 SCXML_HOST="${COOKBOOK_ROOT}/build/qt-scxml-host"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
 
-# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} → usr/
-# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
+redbear_qt_link_sysroot_dirs "${COOKBOOK_SYSROOT}" plugins mkspecs metatypes modules
 
 if [ ! -d "${HOST_BUILD}/lib/cmake/Qt6ScxmlTools" ]; then
     rm -rf "${SCXML_HOST}"
@@ -140,32 +135,15 @@ if [ -d "${COOKBOOK_STAGE}/usr/libexec" ]; then
 fi
 
 BUILD_DIR="${COOKBOOK_BUILD}"
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
-fi
-
+STAGE_USR="${COOKBOOK_STAGE}/usr"
+STAGE_CMAKE_DIR="${STAGE_USR}/lib/cmake"
 SYSROOT="${COOKBOOK_SYSROOT}"
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
+if [ -d "${STAGE_CMAKE_DIR}" ]; then
+    redbear_qt_rewrite_stage_build_paths "${STAGE_USR}" "${BUILD_DIR}"
+    redbear_qt_rewrite_stage_include_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+    redbear_qt_copy_stage_qt6_cmake_to_sysroot "${STAGE_USR}" "${SYSROOT}"
 fi
-if [ -d "${COOKBOOK_STAGE}/usr/include" ]; then
-    mkdir -p "${SYSROOT}/include"
-    cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    mkdir -p "${SYSROOT}/lib/cmake"
-    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
-fi
-mkdir -p "${SYSROOT}/lib"
-cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
-if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
-    mkdir -p "${SYSROOT}/plugins"
-    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
-    mkdir -p "${SYSROOT}/qml"
-    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
-fi
+redbear_qt_copy_common_stage_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" plugins
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" qml
 """
