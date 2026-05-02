@@ -14,12 +14,9 @@ script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
 
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
+redbear_qt_link_sysroot_dirs "${COOKBOOK_SYSROOT}" plugins mkspecs metatypes modules
 
 sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" \
     "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true

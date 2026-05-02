@@ -13,6 +13,7 @@ script = '''
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
 
 STUB_OPENGL_DIR="${COOKBOOK_SYSROOT}/lib/cmake/Qt6OpenGL"
 mkdir -p "${STUB_OPENGL_DIR}"
@@ -25,15 +26,7 @@ set(PACKAGE_VERSION "6.6.0")
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 OPENGLEOF
 
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
-
-if [ -d "${COOKBOOK_SYSROOT}/usr/plugins" ] && [ ! -e "${COOKBOOK_SYSROOT}/plugins" ]; then
-    ln -s "usr/plugins" "${COOKBOOK_SYSROOT}/plugins"
-fi
+redbear_qt_prepare_common_sysroot "${COOKBOOK_SYSROOT}"
 
 sed -i "s/^ecm_install_po_files_as_qm/#ecm_install_po_files_as_qm/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
 sed -i "s/^ki18n_install(po)/#ki18n_install(po)/" "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true

@@ -13,6 +13,8 @@ dependencies = [
 script = """
 DYNAMIC_INIT
 
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
+
 export LDFLAGS="${LDFLAGS} -lffi"
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
@@ -64,12 +66,7 @@ FilesAnalyzed: false
 SBOMEOF
 fi
 
-# Create sysroot symlink for Qt cmake modules (if not already present)
-for d in plugins mkspecs metatypes modules; do
-    if [ ! -e "${COOKBOOK_SYSROOT}/${d}" ] && [ -d "${COOKBOOK_SYSROOT}/usr/${d}" ]; then
-        ln -sf "usr/${d}" "${COOKBOOK_SYSROOT}/${d}"
-    fi
-done
+redbear_qt_link_sysroot_dirs "${COOKBOOK_SYSROOT}" plugins mkspecs metatypes modules
 
 cmake "${COOKBOOK_SOURCE}" \
     -DCMAKE_TOOLCHAIN_FILE="${COOKBOOK_ROOT}/local/recipes/qt/redox-toolchain.cmake" \
