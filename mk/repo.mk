@@ -39,6 +39,9 @@ endif
 
 # Fetch all recipes source or binary from filesystem config
 fetch: $(FSTOOLS_TAG) FORCE
+ifneq ($(REDBEAR_RELEASE),)
+	$(error fetch is disabled in release mode (REDBEAR_RELEASE=$(REDBEAR_RELEASE)). Sources are immutable.)
+endif
 ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else

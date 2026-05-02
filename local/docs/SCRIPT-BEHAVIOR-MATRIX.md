@@ -3,7 +3,7 @@
 ## Purpose
 
 This document centralizes what the main repository scripts do and do not handle under the Red Bear
-overlay model.
+release fork model.
 
 The goal is to remove guesswork from the sync/fetch/apply/build workflow.
 
@@ -11,11 +11,11 @@ The goal is to remove guesswork from the sync/fetch/apply/build workflow.
 
 | Script | Primary role | What it handles | What it does **not** guarantee |
 |---|---|---|---|
-| `local/scripts/sync-upstream.sh` | Refresh top-level upstream repo state | fetches upstream, reports conflict risk, rebases repo commits, reapplies build-system overlays via `apply-patches.sh` | does not automatically solve every subsystem overlay conflict; does not by itself make upstream WIP recipes safe shipping inputs |
-| `local/scripts/apply-patches.sh` | Reapply durable Red Bear overlays | applies build-system patches, relinks recipe patch symlinks, relinks local recipe overlays into `recipes/` | does not fully rebase stale patch carriers; does not validate runtime behavior; does not decide WIP ownership for you |
-| `local/scripts/build-redbear.sh` | Build Red Bear profiles from upstream base + local overlay | applies overlays, builds cookbook if needed, validates profile naming, launches the actual image build; only allows upstream recipe refresh when passed `--upstream` | does not guarantee every nested upstream source tree is fresh; does not replace explicit subsystem/runtime validation |
-| `scripts/fetch-all-sources.sh` | Fetch mainline recipe source inputs for builds | downloads mainline/upstream recipe sources, reports status/preflight, and supports config-scoped fetches while leaving local overlays in place | does not mean fetched upstream WIP source is the durable shipping source of truth |
-| `local/scripts/fetch-sources.sh` | Fetch mainline recipe sources for browsing and patching | when passed `--upstream`, fetches `recipes/*` source trees so the upstream-managed side is locally available for reading, editing, and patch preparation | does not decide whether upstream should replace the local overlay |
+| `local/scripts/provision-release.sh` | Refresh top-level upstream repo state | fetches upstream, reports conflict risk, rebases repo commits, reapplies build-system release fork via `apply-patches.sh` | does not automatically solve every subsystem release fork conflict; does not by itself make upstream WIP recipes safe shipping inputs |
+| `local/scripts/apply-patches.sh` | Reapply durable Red Bear release fork | applies build-system patches, relinks recipe patch symlinks, relinks local recipe release fork into `recipes/` | does not fully rebase stale patch carriers; does not validate runtime behavior; does not decide WIP ownership for you |
+| `local/scripts/build-redbear.sh` | Build Red Bear profiles from upstream base + local release fork | applies release fork, builds cookbook if needed, validates profile naming, launches the actual image build; only allows upstream recipe immutable archived when passed `--upstream` | does not guarantee every nested upstream source tree is fresh; does not replace explicit subsystem/runtime validation |
+| `scripts/fetch-all-sources.sh` | Fetch mainline recipe source inputs for builds | downloads mainline/upstream recipe sources, reports status/preflight, and supports config-scoped fetches while leaving local release fork in place | does not mean fetched upstream WIP source is the durable shipping source of truth |
+| `local/scripts/fetch-sources.sh` | Fetch mainline recipe sources for browsing and patching | when passed `--upstream`, fetches `recipes/*` source trees so the upstream-managed side is locally available for reading, editing, and patch preparation | does not decide whether upstream should replace the local release fork |
 | `local/scripts/build-redbear-wifictl-redox.sh` | Build `redbear-wifictl` for the Redox target with the repo toolchain | prepends `prefix/x86_64-unknown-redox/sysroot/bin` to `PATH` and runs `cargo build --target x86_64-unknown-redox` in the `redbear-wifictl` crate | does not prove runtime Wi-Fi behavior; only closes the target-build environment gap for this crate |
 | `local/scripts/test-iwlwifi-driver-runtime.sh` | Exercise the bounded Intel driver lifecycle inside a target runtime | validates bounded probe/prepare/init/activate/scan/connect/disconnect/retry surfaces for `redbear-iwlwifi` on a live target runtime | does not prove real AP association, packet flow, DHCP success over Wi-Fi, or end-to-end connectivity |
 | `local/scripts/test-wifi-control-runtime.sh` | Exercise the bounded Wi-Fi control/profile lifecycle inside a target runtime | validates `/scheme/wifictl` control nodes, bounded connect/disconnect behavior, and profile-manager/runtime reporting surfaces on a live target runtime | does not prove real AP association or end-to-end connectivity |
@@ -68,8 +68,8 @@ repo already contains `prefix/x86_64-unknown-redox/sysroot/bin/x86_64-unknown-re
 
 Default Red Bear behavior is local-first:
 
-- use locally available package/source trees and overlay state for normal builds,
-- treat upstream refresh as an explicit operator action only (`--upstream`, dedicated fetch/sync),
+- use locally available package/source trees and release fork state for normal builds,
+- treat upstream immutable archived as an explicit operator action only (`--upstream`, dedicated fetch/sync),
 - do not fail policy-level expectations just because upstream network access is temporarily broken.
 
 This is required so builds and recovery workflows remain operable during upstream outages or
@@ -77,14 +77,14 @@ connectivity failures.
 
 ### Upstream sync
 
-Use `local/scripts/sync-upstream.sh` when the goal is to refresh the top-level upstream Redox base.
+Use `local/scripts/provision-release.sh` when the goal is to immutable archived the top-level upstream Redox base.
 
-This is a repository sync operation, not a guarantee that every local subsystem overlay is already
+This is a repository sync operation, not a guarantee that every local subsystem release fork is already
 rebased cleanly.
 
 ### Overlay reapplication
 
-Use `local/scripts/apply-patches.sh` when the goal is to reconstruct Red Bear’s overlay on top of a
+Use `local/scripts/apply-patches.sh` when the goal is to reconstruct Red Bear’s release fork on top of a
 fresh upstream tree.
 
 This is the core durable-state recovery path.
@@ -92,13 +92,13 @@ This is the core durable-state recovery path.
 ### Build execution
 
 Use `local/scripts/build-redbear.sh` when the goal is to build a tracked Red Bear profile from the
-current upstream base plus local overlay. Add `--upstream` only when you explicitly want Redox/upstream
-recipe sources refreshed during that build.
+current upstream base plus local release fork. Add `--upstream` only when you explicitly want Redox/upstream
+recipe sources immutable archived during that build.
 
-### Source refresh
+### Source immutable archived
 
 Use `scripts/fetch-all-sources.sh` and `local/scripts/fetch-sources.sh --upstream` when the goal is to
-refresh recipe source inputs, but do not confuse fetched upstream WIP source with a trusted shipping
+immutable archived recipe source inputs, but do not confuse fetched upstream WIP source with a trusted shipping
 source.
 
 ## WIP Rule in Script Terms
@@ -108,7 +108,7 @@ If a subsystem is still upstream WIP, the scripts should be interpreted this way
 - fetching upstream WIP source is allowed and useful through the explicit upstream fetch commands or
   `--upstream` where a wrapper requires it,
 - syncing upstream WIP source is allowed and useful through the explicit upstream sync command,
-- but shipping decisions should still prefer the local overlay until upstream promotion and reevaluation happen.
+- but shipping decisions should still prefer the local release fork until upstream promotion and reevaluation happen.
 
 That means “script fetched it successfully” is not the same as “Red Bear should now ship upstream’s
 WIP version directly.”

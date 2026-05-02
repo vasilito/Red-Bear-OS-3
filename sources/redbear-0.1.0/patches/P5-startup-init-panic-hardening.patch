@@ -1,0 +1,101 @@
+diff --git a/src/start.rs b/src/start.rs
+--- a/src/start.rs
++++ b/src/start.rs
+@@ -1,10 +1,7 @@
+ //! Startup code.
+ 
+ use alloc::{boxed::Box, vec::Vec};
+-use core::{intrinsics, ptr};
+-
+-#[cfg(target_os = "redox")]
+-use generic_rt::ExpectTlsFree;
++use core::{fmt::Write, intrinsics, panic::AssertUnwindSafe, ptr};
+ 
+ use crate::{
+     ALLOCATOR,
+@@ -143,6 +141,29 @@ fn io_init() {
+         stdio::stderr = stdio::default_stderr().get();
+     }
+ }
++
++fn catch_unwind<F: FnOnce()>(f: AssertUnwindSafe<F>) -> Result<(), ()> {
++    fn do_call<F: FnOnce()>(data: *mut u8) {
++        let callback = unsafe { &mut *data.cast::<Option<AssertUnwindSafe<F>>>() };
++        if let Some(callback) = callback.take() {
++            callback.0();
++        }
++    }
++
++    fn do_catch<F: FnOnce()>(_data: *mut u8, _payload: *mut u8) {}
++
++    let mut callback = Some(f);
++    let panicked = unsafe {
++        intrinsics::catch_unwind(
++            do_call::<F>,
++            (&mut callback as *mut Option<AssertUnwindSafe<F>>).cast(),
++            do_catch::<F>,
++        ) != 0
++    };
++
++    if panicked { Err(()) } else { Ok(()) }
++}
++
+ #[cold]
+ fn abort_startup(args: core::fmt::Arguments<'_>) -> ! {
+     let mut w = platform::FileWriter::new(2);
+@@ -164,14 +184,23 @@ pub unsafe extern "C" fn relibc_start_v1(
+     unsafe { relibc_verify_host() };
+ 
+     #[cfg(target_os = "redox")]
+-    let thr_fd = redox_rt::proc::FdGuard::new(
+-        unsafe {
+-            crate::platform::get_auxv_raw(sp.auxv().cast(), redox_rt::auxv_defs::AT_REDOX_THR_FD)
+-        }
+-        .expect_notls("no thread fd present"),
+-    )
+-    .to_upper()
+-    .expect_notls("failed to move thread fd to upper table");
++    let thr_fd = {
++        let thr_fd = match unsafe {
++            crate::platform::get_auxv_raw(sp.auxv().cast(), redox_rt::auxv_defs::AT_REDOX_THR_FD)
++        } {
++            Some(thr_fd) => thr_fd,
++            None => abort_startup(format_args!(
++                "relibc_start_v1: missing AT_REDOX_THR_FD auxv entry; no thread fd present\n"
++            )),
++        };
++
++        match redox_rt::proc::FdGuard::new(thr_fd).to_upper() {
++            Ok(thr_fd) => thr_fd,
++            Err(err) => abort_startup(format_args!(
++                "relibc_start_v1: failed to move thread fd to upper table: {err:?}\n"
++            )),
++        }
++    };
+ 
+     // Initialize TLS, if necessary
+     unsafe {
+@@ -237,7 +266,10 @@ pub unsafe extern "C" fn relibc_start_v1(
+         let mut f = unsafe { &__preinit_array_start } as *const _;
+         #[allow(clippy::op_ref)]
+         while f < &raw const __preinit_array_end {
+-            (unsafe { *f })();
++            let func = unsafe { *f };
++            if catch_unwind(AssertUnwindSafe(|| unsafe { (*f)() })).is_err() {
++                log_initializer_panic(".preinit_array", func);
++            }
+             f = unsafe { f.offset(1) };
+         }
+     }
+@@ -247,7 +279,10 @@ pub unsafe extern "C" fn relibc_start_v1(
+         let mut f = unsafe { &__init_array_start } as *const _;
+         #[allow(clippy::op_ref)]
+         while f < &raw const __init_array_end {
+-            (unsafe { *f })();
++            let func = unsafe { *f };
++            if catch_unwind(AssertUnwindSafe(|| unsafe { (*f)() })).is_err() {
++                log_initializer_panic(".init_array", func);
++            }
+             f = unsafe { f.offset(1) };
+         }
+     }

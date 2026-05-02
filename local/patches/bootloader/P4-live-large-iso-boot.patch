@@ -113,7 +113,7 @@ diff --git a/src/os/uefi/device.rs b/src/os/uefi/device.rs
 index 0b7991f..554d88e 100644
 --- a/src/os/uefi/device.rs
 +++ b/src/os/uefi/device.rs
-@@ -13,6 +13,160 @@ use uefi_std::{fs::FileSystem, loaded_image::LoadedImage, proto::Protocol};
+@@ -13,6 +13,154 @@ use uefi_std::{fs::FileSystem, loaded_image::LoadedImage, proto::Protocol};
  
  use super::disk::{DiskEfi, DiskOrFileEfi};
  

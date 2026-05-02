@@ -1,0 +1,23 @@
+diff -ruwN source-old/src/CMakeLists.txt source/src/CMakeLists.txt
+--- source-old/src/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
++++ source/src/CMakeLists.txt	2026-04-30 00:00:00.000000000 +0000
+@@ -54,5 +54,5 @@
+ endif()
+ if (QT_FEATURE_network)
+-    # add_subdirectory(network) # disabled for Redox
++    add_subdirectory(network)
+     if (ANDROID)
+         add_subdirectory(network/android/jar)
+     endif()
+diff -ruwN source-old/src/plugins/generic/CMakeLists.txt source/src/plugins/generic/CMakeLists.txt
+--- source-old/src/plugins/generic/CMakeLists.txt	2024-12-02 05:39:06.000000000 +0000
++++ source/src/plugins/generic/CMakeLists.txt	2026-04-30 00:00:00.000000000 +0000
+@@ -18,6 +18,6 @@
+     add_subdirectory(tslib)
+ endif()
+ if(QT_FEATURE_tuiotouch)
+-    # add_subdirectory(tuiotouch) # disabled for Redox (needs Network)
++    add_subdirectory(tuiotouch)
+ endif()
+ if(QT_FEATURE_libinput)
+     add_subdirectory(libinput)

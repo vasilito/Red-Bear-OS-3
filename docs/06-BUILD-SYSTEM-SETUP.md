@@ -8,19 +8,18 @@
 
 ## Repository Model Reminder
 
-Build this repository using the Red Bear overlay model:
+Build this repository using the Red Bear release fork model:
 
-- upstream-owned source trees are refreshable working copies,
+- sources are frozen, immutable release snapshots at baseline 0.1.0,
 - durable Red Bear state lives in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
   Red Bear configs,
-- upstream WIP recipes are useful inputs, but should not automatically be treated as the durable
-  shipping source of truth for Red Bear.
+- build from archived sources offline by default; provision new releases explicitly via provision-release.sh.
 
 Resilience policy for package/source inputs:
 
 - default build posture is local-first/offline-capable,
-- local copies are used continuously unless upstream refresh is explicitly requested,
-- upstream refresh is an explicit operation, not an implicit background requirement for normal
+- local copies are used continuously unless release provisioning is explicitly requested,
+- release provisioning is an explicit operation, not an implicit background requirement for normal
   builds.
 
 ## Prerequisites
@@ -210,11 +209,11 @@ sudo dd if=build/x86_64/harddrive.img of=/dev/sdX bs=4M status=progress
 ./target/release/repo cook recipes/wip/kde/kwin
 ```
 
-Under the Red Bear overlay model, remember:
+Under the Red Bear release fork model, remember:
 
-- `recipes/*/source/` is a refreshable working tree,
+- `recipes/*/source/` is an immutable archived release snapshot,
 - Red Bear-owned shipping deltas should be preserved under `local/patches/` and `local/recipes/`,
-- if a recipe is still upstream WIP, Red Bear may still choose to ship from `local/recipes/` instead.
+- sources are built offline by default; provision new releases via provision-release.sh.
 
 ### Understanding Recipe Format
 
@@ -264,7 +263,7 @@ cp target/release/myapp ${COOKBOOK_STAGE}/usr/bin/
 | `PREFIX_BINARY` | `1` | Use prebuilt toolchain (faster) |
 | `REPO_BINARY` | `0` | Use prebuilt packages (faster, no compilation) |
 | `REPO_NONSTOP` | `0` | Continue on build errors |
-| `REPO_OFFLINE` | `0` | Don't update source repos; Red Bear policy treats local-first sourcing as the normal operating mode and upstream refresh as explicit opt-in |
+| `REPO_OFFLINE` | `0` | Don't update source repos; Red Bear policy treats local-first sourcing as the normal operating mode and release provisioning as explicit opt-in |
 
 ### Environment Variables for Recipes
 

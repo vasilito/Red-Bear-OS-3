@@ -5,11 +5,11 @@ updates (`git pull` on the build system repo), this directory is untouched.
 
 ## DESIGN PRINCIPLE
 
-Red Bear OS relates to Redox OS in the same way Ubuntu relates to Debian:
-  - We track Redox OS as upstream, merging changes regularly
-  - We add custom packages, drivers, configs, and branding on top
-  - The `local/` directory is our overlay — untouched by upstream updates
+Red Bear OS is a **full fork** based on frozen Redox OS snapshots:
+  - We baseline on a specific Redox OS state and work from immutable, archived sources
+  - The `local/` directory contains our custom work — untouched by any source immutable archived
   - First-class configs use `redbear-*` naming (not `my-*`, which is gitignored)
+  - Sources are NEVER auto-immutable archived from upstream — all changes are explicit, human-initiated
 
 ## FREE/LIBRE SOFTWARE POLICY
 
@@ -25,14 +25,21 @@ Build flow:
 make all CONFIG_NAME=redbear-full
   → mk/config.mk resolves to the active desktop/graphics compile target
   → Desktop/graphics are available only on redbear-full
-  → repo cook builds all packages including our custom ones
+  → repo cook builds all packages from local sources (offline by default)
   → mk/disk.mk creates harddrive.img with Red Bear branding
+  → REDBEAR_RELEASE=0.1.0 ensures immutable, archived sources
 ```
 
-Update flow:
+Release flow:
 ```
-./local/scripts/sync-upstream.sh          # Rebase onto upstream Redox + verify symlinks
-make all CONFIG_NAME=redbear-full         # Rebuild the active desktop/graphics target
+# Sources are immutable — build from archives, never from network
+./local/scripts/build-redbear.sh redbear-full
+
+# Check for newer Redox snapshots (read-only, no side effects):
+./local/scripts/check-upstream-releases.sh
+
+# Provision a new release (explicit, human-initiated only):
+./local/scripts/provision-release.sh --ref=<redox-tag> --release=0.2.0
 ```
 
 ## ACTIVE COMPILE TARGETS
@@ -46,21 +53,44 @@ and `make live` (ISO):
 
 Desktop/graphics are available only on `redbear-full`.
 
-## TRACKING UPSTREAM (SYNC WITH REDOX OS)
+## RELEASE MODEL (FORK — NOT OVERLAY)
 
-Red Bear OS tracks the Redox OS build system as upstream. The `local/` directory
-survives upstream updates untouched.
+Red Bear OS sources are frozen at release 0.1.0. Sources are immutable and archived in
+`sources/redbear-0.1.0/`. Network access during builds is disabled by default.
+
+### How releases work:
+- **Current baseline:** 0.1.0 (snapshot of Redox at build-system commit `f55acba68`)
+- **All recipe sources are pinned** with `rev = "..."` in `recipe.toml`
+- **Archives are stored** in `sources/redbear-0.1.0/` with a manifest and BLAKE3 checksums
+- **Builds are offline by default** — `REPO_OFFLINE=1 COOKBOOK_OFFLINE=true`
+- **New releases are provisioned explicitly** via `provision-release.sh`, never automatically
+- **Old releases are NEVER deleted** — each new release is added alongside existing ones
+
+### Checking for new Redox snapshots:
+```bash
+./local/scripts/check-upstream-releases.sh    # Read-only, zero side effects
+```
+
+### Provisioning a new release:
+```bash
+./local/scripts/provision-release.sh --ref=<redox-tag> --release=0.2.0 [--dry-run]
+```
+
+### Restoring sources from archives:
+```bash
+./local/scripts/restore-sources.sh --release=0.1.0
+```
 
 ## SOURCE-OF-TRUTH RULE (VERY IMPORTANT)
 
 Treat the repository as two different layers with different durability guarantees:
 
-### 1. Upstream-owned layer — disposable, refreshable every day
+### 1. Source archive layer — immutable per release
 
 These paths are expected to be replaced, refetched, or regenerated when upstream changes:
 
 - `recipes/*/source/`
-- most of `recipes/` outside our symlinked `local/recipes/*` overlays
+- most of `recipes/` outside our symlinked `local/recipes/*` release fork
 - `config/desktop.toml`, `config/minimal.toml`, and other mainline configs
 - generated build outputs under `target/`, `build/`, `repo/`, and recipe-local `target/*`
 
@@ -68,16 +98,16 @@ For relibc specifically, **`recipes/core/relibc/source/` is upstream-owned worki
 Red Bear’s durable storage location. We may build and validate there, but we must not rely on that
 tree alone to preserve Red Bear work.
 
-### 2. Red Bear-owned layer — durable, must survive upstream refresh
+### 2. Red Bear-owned layer — durable, must survive release provisioning
 
 These paths are our actual long-term source of truth:
 
 - `local/patches/` — all durable changes to upstream-owned source trees
-- `local/recipes/` — Red Bear recipe overlays and new packages
+- `local/recipes/` — Red Bear recipe release fork and new packages
 - `local/docs/` — Red Bear planning, validation, and integration documentation
 - tracked Red Bear configs such as `config/redbear-*.toml`
 
-If we can fetch fresh upstream sources tomorrow, reapply `local/patches/*`, relink
+If we can fetch fresh upstream sources tomorrow, provision sources from `sources/redbear-<release>/`, verify
 `local/recipes/*`, and rebuild successfully, then the work is in the right place.
 
 If a change exists only inside an upstream-owned `recipes/*/source/` tree, then it is **not yet
@@ -94,7 +124,7 @@ That means:
 - if upstream lands an equivalent or better solution, prefer upstream and shrink or drop our local patch
 - do not keep a Red Bear patch just because it existed first; keep it only while it still provides unique value
 
-For relibc specifically, patch carriers should be treated as **temporary compatibility overlays**,
+For relibc specifically, patch carriers should be treated as **temporary compatibility release fork**,
 not a permanent fork strategy.
 
 When upstream Redox already provides a package, crate, or subsystem for functionality that also
@@ -117,12 +147,12 @@ For any change to upstream-owned source:
 1. make the minimal working change in the live source tree if needed for validation
 2. prove it builds/tests against the real recipe
 3. mirror that delta into `local/patches/<component>/...`
-4. update `local/docs/...` so the rebuild/reapply story is explicit
+4. update `local/docs/...` so the provisioning story is explicit
 5. assume the live upstream source tree may be thrown away and recreated at any time
 
 The success criterion is therefore:
 
-> We can pull renewed upstream sources every day, reapply Red Bear’s local overlays, and still
+> We can sources are provisioned via provision-release.sh and archived in sources/redbear-<release>/
 > build the project successfully.
 
 ### Local recipe priority vs upstream WIP
@@ -130,28 +160,14 @@ The success criterion is therefore:
 When Red Bear maintains a local recipe and upstream contains a package with the same name under
 `recipes/wip/*`, Red Bear must prefer the local recipe unconditionally.
 
-- Use the local overlay symlink in `recipes/*/<name> -> ../../local/recipes/...`
+- Use the local release fork symlink in `recipes/*/<name> -> ../../local/recipes/...`
 - Do not switch back to upstream WIP for active Red Bear builds
 - Re-evaluate only when upstream package exits WIP and becomes a normal maintained package
 
 ```bash
 # Automated sync (preferred):
-./local/scripts/sync-upstream.sh              # Fetch + rebase + check patches
-./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts before rebasing
-./local/scripts/sync-upstream.sh --no-merge   # Only check for patch conflicts
-
-# Manual sync:
-git remote add upstream-redox https://github.com/redox-os/redox.git  # First time only
-git fetch upstream-redox master
-git rebase upstream-redox/master
-
-# If rebase fails (nuclear option):
-git rebase --abort
-git reset --hard upstream-redox/master
-./local/scripts/apply-patches.sh --force     # Rebuild Red Bear OS changes from patch files
-
-# After sync:
-cargo build --release                         # Rebuild cookbook
+./local/scripts/check-upstream-releases.sh              # Check for new Redox snapshots (read-only)
+./local/scripts/provision-release.sh --ref=<tag> --release=0.2.0 --dry-run   # Preview new release
 make all CONFIG_NAME=redbear-full             # Rebuild OS
 ```
 
@@ -188,14 +204,14 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── patches/
 │   │   ├── kernel/            ← Kernel patches (ACPI, x2APIC)
 │   │   ├── base/              ← Base patches (acpid fixes, power methods, pcid /config endpoint)
-│   │   ├── relibc/            ← relibc compatibility overlays still needed beyond upstream (eventfd, signalfd, timerfd, waitid, SysV IPC)
+│   │   ├── relibc/            ← relibc compatibility release fork still needed beyond upstream (eventfd, signalfd, timerfd, waitid, SysV IPC)
 │   │   ├── bootloader/        ← Bootloader patches
 │   │   └── installer/         ← Installer patches (ext4 filesystem support + GRUB bootloader)
 │   ├── Assets/                ← Branding assets (icon, loading background)
 │   │   └── images/            ← Red Bear OS icon (1254x1254) + loading bg (1536x1024)
 │   ├── firmware/              ← GPU firmware blobs (gitignored, fetched)
 │   ├── scripts/
-│   │   ├── sync-upstream.sh   ← Sync with upstream Redox OS
+│   │   ├── provision-release.sh   ← Provision new release from Redox ref
 │   │   ├── build-redbear.sh   ← Unified Red Bear OS build script
 │   │   ├── fetch-firmware.sh  ← Download bounded AMD or Intel firmware subsets from linux-firmware
 │   │   ├── test-drm-display-runtime.sh ← Shared bounded DRM/KMS display validation harness
@@ -568,7 +584,7 @@ local/Assets/
 - **DO NOT** assume mainline recipe names won't conflict — prefix custom ones (e.g., `redox-`)
 - **DO NOT** use `my-*` naming for configs that should be tracked in git — use `redbear-*` instead
 - **DO NOT** edit config/base.toml directly — our configs include it and override via TOML merge
-- **DO NOT** forget to run sync-upstream.sh before major builds — stale upstream causes build failures
+- **DO NOT** attempt to immutable archived sources from upstream — sources are immutable; use provision-release.sh
 
 ## COMPREHENSIVE IMPLEMENTATION POLICY
 

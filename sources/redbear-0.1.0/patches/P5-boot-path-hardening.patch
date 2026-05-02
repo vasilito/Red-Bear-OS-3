@@ -1,0 +1,422 @@
+diff --git a/src/acpi/madt/arch/x86.rs b/src/acpi/madt/arch/x86.rs
+index 4dc2388..f472c08 100644
+--- a/src/acpi/madt/arch/x86.rs
++++ b/src/acpi/madt/arch/x86.rs
+@@ -18,6 +18,7 @@ use crate::{
+ 
+ use super::{Madt, MadtEntry};
+ 
++const AP_SPIN_LIMIT: u32 = 1_000_000;
+ const TRAMPOLINE: usize = 0x8000;
+ static TRAMPOLINE_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/trampoline"));
+ 
+@@ -42,13 +43,17 @@ pub(super) fn init(madt: Madt) {
+         //TODO: do not have writable and executable!
+         let mut mapper = KernelMapper::lock_rw();
+ 
+-        let result = mapper
+-            .map_phys(
+-                trampoline_page.start_address(),
+-                trampoline_frame.base(),
+-                PageFlags::new().execute(true).write(true),
+-            )
+-            .expect("failed to map trampoline");
++        let result = match mapper.map_phys(
++            trampoline_page.start_address(),
++            trampoline_frame.base(),
++            PageFlags::new().execute(true).write(true),
++        ) {
++            Some(result) => result,
++            None => {
++                println!("KERNEL AP: failed to map trampoline page, AP bring-up disabled");
++                return;
++            }
++        };
+ 
+         (result, mapper.table().phys().data())
+     };
+@@ -72,17 +77,27 @@ pub(super) fn init(madt: Madt) {
+             if u32::from(ap_local_apic.id) == me.get() {
+                 debug!("        This is my local APIC");
+             } else if ap_local_apic.flags & 1 == 1 {
+-                let cpu_id = LogicalCpuId::next();
+-
+                 // Allocate a stack
+-                let stack_start = RmmA::phys_to_virt(
+-                    allocate_p2frame(4)
+-                        .expect("no more frames in acpi stack_start")
+-                        .base(),
+-                )
+-                .data();
++                let alloc = match allocate_p2frame(4) {
++                    Some(frame) => frame,
++                    None => {
++                        println!("KERNEL AP: CPU {} no memory for stack, skipping", ap_local_apic.id);
++                        continue;
++                    }
++                };
++                let stack_start = RmmA::phys_to_virt(alloc.base()).data();
+                 let stack_end = stack_start + (PAGE_SIZE << 4);
+ 
++                let next_cpu = crate::CPU_COUNT.load(Ordering::Relaxed);
++                if next_cpu >= crate::cpu_set::MAX_CPU_COUNT {
++                    println!(
++                        "KERNEL AP: CPU {} exceeds logical CPU limit, skipping",
++                        ap_local_apic.id
++                    );
++                    continue;
++                }
++                let cpu_id = LogicalCpuId::new(next_cpu);
++
+                 let pcr_ptr = crate::arch::gdt::allocate_and_init_pcr(cpu_id, stack_end);
+ 
+                 let idt_ptr = crate::arch::idt::allocate_and_init_idt(cpu_id);
+@@ -137,13 +152,34 @@ pub(super) fn init(madt: Madt) {
+                     local_apic.set_icr(icr);
+                 }
+ 
+-                // Wait for trampoline ready
+-                while unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } == 0 {
++                // Wait for trampoline ready with timeout
++                let mut trampoline_ready = false;
++                for _ in 0..AP_SPIN_LIMIT {
++                    if unsafe { (*ap_ready.cast::<AtomicU8>()).load(Ordering::SeqCst) } != 0 {
++                        trampoline_ready = true;
++                        break;
++                    }
+                     hint::spin_loop();
+                 }
+-                while !AP_READY.load(Ordering::SeqCst) {
++                if !trampoline_ready {
++                    println!("KERNEL AP: CPU {} trampoline timeout, skipping", ap_local_apic.id);
++                    continue;
++                }
++
++                let mut kernel_ready = false;
++                for _ in 0..AP_SPIN_LIMIT {
++                    if AP_READY.load(Ordering::SeqCst) {
++                        kernel_ready = true;
++                        break;
++                    }
+                     hint::spin_loop();
+                 }
++                if !kernel_ready {
++                    println!("KERNEL AP: CPU {} AP_READY timeout, skipping", ap_local_apic.id);
++                    continue;
++                }
++
++                crate::CPU_COUNT.fetch_add(1, Ordering::Relaxed);
+ 
+                 RmmA::invalidate_all();
+             }
+@@ -151,10 +187,12 @@ pub(super) fn init(madt: Madt) {
+     }
+ 
+     // Unmap trampoline
+-    let (_frame, _, flush) = unsafe {
++    if let Some((_frame, _, flush)) = unsafe {
+         KernelMapper::lock_rw()
+             .unmap_phys(trampoline_page.start_address())
+-            .expect("failed to unmap trampoline page")
+-    };
+-    flush.flush();
++    } {
++        flush.flush();
++    } else {
++        println!("KERNEL AP: failed to unmap trampoline page (non-fatal)");
++    }
+ }
+diff --git a/src/allocator/mod.rs b/src/allocator/mod.rs
+index 4fdb0ba..aaa7196 100644
+--- a/src/allocator/mod.rs
++++ b/src/allocator/mod.rs
+@@ -7,26 +7,40 @@ mod linked_list;
+ /// Size of kernel heap
+ const KERNEL_HEAP_SIZE: usize = ::rmm::MEGABYTE;
+ 
++#[cold]
++fn halt_kernel_heap_init(message: &str) -> ! {
++    print!("{message}");
++    println!("Kernel heap initialization cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+ unsafe fn map_heap(mapper: &mut KernelMapper<true>, offset: usize, size: usize) {
+     let mut flush_all = PageFlushAll::new();
+ 
+     let heap_start_page = Page::containing_address(VirtualAddress::new(offset));
+     let heap_end_page = Page::containing_address(VirtualAddress::new(offset + size - 1));
+     for page in Page::range_inclusive(heap_start_page, heap_end_page) {
+-        let phys = mapper
+-            .allocator_mut()
+-            .allocate_one()
+-            .expect("failed to allocate kernel heap");
++        let phys = match mapper.allocator_mut().allocate_one() {
++            Some(phys) => phys,
++            None => halt_kernel_heap_init(
++                "FATAL: failed to allocate physical frame for kernel heap\n",
++            ),
++        };
+         let flush = unsafe {
+-            mapper
+-                .map_phys(
+-                    page.start_address(),
+-                    phys,
+-                    PageFlags::new()
+-                        .write(true)
+-                        .global(cfg!(not(feature = "pti"))),
+-                )
+-                .expect("failed to map kernel heap")
++            match mapper.map_phys(
++                page.start_address(),
++                phys,
++                PageFlags::new()
++                    .write(true)
++                    .global(cfg!(not(feature = "pti"))),
++            ) {
++                Some(flush) => flush,
++                None => halt_kernel_heap_init(
++                    "FATAL: failed to map kernel heap virtual page\n",
++                ),
++            }
+         };
+         flush_all.consume(flush);
+     }
+diff --git a/src/arch/x86_shared/gdt.rs b/src/arch/x86_shared/gdt.rs
+index cad344f..f7acae3 100644
+--- a/src/arch/x86_shared/gdt.rs
++++ b/src/arch/x86_shared/gdt.rs
+@@ -192,6 +192,15 @@ impl ProcessorControlRegion {
+     }
+ }
+ 
++#[cold]
++fn halt_pcr_init() -> ! {
++    println!("FATAL: failed to allocate physical memory for Processor Control Region");
++    println!("Processor startup cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+ pub unsafe fn pcr() -> *mut ProcessorControlRegion {
+     unsafe {
+         // Primitive benchmarking of RDFSBASE and RDGSBASE in userspace, appears to indicate that
+@@ -375,7 +384,10 @@ pub fn allocate_and_init_pcr(
+         .next_power_of_two()
+         .trailing_zeros();
+ 
+-    let pcr_frame = crate::memory::allocate_p2frame(alloc_order).expect("failed to allocate PCR");
++    let pcr_frame = match crate::memory::allocate_p2frame(alloc_order) {
++        Some(frame) => frame,
++        None => halt_pcr_init(),
++    };
+     let pcr_ptr = RmmA::phys_to_virt(pcr_frame.base()).data() as *mut ProcessorControlRegion;
+     unsafe { core::ptr::write(pcr_ptr, ProcessorControlRegion::new_partial_init(cpu_id)) };
+ 
+diff --git a/src/arch/x86_shared/idt.rs b/src/arch/x86_shared/idt.rs
+index 5006458..47f692f 100644
+--- a/src/arch/x86_shared/idt.rs
++++ b/src/arch/x86_shared/idt.rs
+@@ -78,6 +78,15 @@ static INIT_BSP_IDT: SyncUnsafeCell<Idt> = SyncUnsafeCell::new(Idt::new());
+ pub(crate) static IDTS: RwLock<HashMap<LogicalCpuId, &'static mut Idt>> =
+     RwLock::new(HashMap::with_hasher(DefaultHashBuilder::new()));
+ 
++#[cold]
++fn halt_idt_init() -> ! {
++    println!("FATAL: failed to allocate physical pages for backup interrupt stack");
++    println!("Interrupt setup cannot continue. Halting.");
++    loop {
++        core::hint::spin_loop();
++    }
++}
++
+ #[inline]
+ pub fn is_reserved(cpu_id: LogicalCpuId, index: u8) -> bool {
+     if cpu_id == LogicalCpuId::BSP {
+@@ -161,8 +170,10 @@ pub fn allocate_and_init_idt(cpu_id: LogicalCpuId) -> *mut Idt {
+         .or_insert_with(|| Box::leak(Box::new(Idt::new())));
+ 
+     use crate::memory::{RmmA, RmmArch};
+-    let frames = crate::memory::allocate_p2frame(4)
+-        .expect("failed to allocate pages for backup interrupt stack");
++    let frames = match crate::memory::allocate_p2frame(4) {
++        Some(frames) => frames,
++        None => halt_idt_init(),
++    };
+ 
+     // Physical pages are mapped linearly. So is the linearly mapped virtual memory.
+     let base_address = RmmA::phys_to_virt(frames.base());
+diff --git a/src/memory/mod.rs b/src/memory/mod.rs
+index 393ae7e..b4a1aa3 100644
+--- a/src/memory/mod.rs
++++ b/src/memory/mod.rs
+@@ -754,7 +754,8 @@ pub fn init_mm(allocator: BumpAllocator<RmmA>) {
+     init_sections(allocator);
+ 
+     unsafe {
+-        let the_frame = allocate_frame().expect("failed to allocate static zeroed frame");
++        let the_frame = allocate_frame()
++            .expect("KERNEL MEM: failed to allocate static zeroed frame during init_mm - physical memory exhausted");
+         let the_info = get_page_info(the_frame).expect("static zeroed frame had no PageInfo");
+         the_info
+             .refcount
+@@ -1027,9 +1028,13 @@ pub fn page_fault_handler(
+         let mut token = unsafe { CleanLockToken::new() };
+         match context::memory::try_correcting_page_tables(faulting_page, mode, &mut token) {
+             Ok(()) => return Ok(()),
+-            Err(PfError::Oom) => todo!("oom"),
++            Err(PfError::Oom) => {
++                debug!("KERNEL PF: OOM during page table correction for {:#x}", faulting_address.data());
++            }
+             Err(PfError::Segv | PfError::RecursionLimitExceeded) => (),
+-            Err(PfError::NonfatalInternalError) => todo!(),
++            Err(PfError::NonfatalInternalError) => {
++                debug!("KERNEL PF: internal error during page table correction for {:#x}", faulting_address.data());
++            }
+         }
+     }
+ 
+@@ -1038,6 +1043,17 @@ pub fn page_fault_handler(
+         return Ok(());
+     }
+ 
++    debug!(
++        "KERNEL PF: addr={:#x} ip={:#x} mode={:?} kernel={} user={} write={} instr={}",
++        faulting_address.data(),
++        stack.ip(),
++        mode,
++        caused_by_kernel,
++        caused_by_user,
++        caused_by_write,
++        caused_by_instr_fetch,
++    );
++
+     Err(Segv)
+ }
+ static THE_ZEROED_FRAME: SyncUnsafeCell<Option<(Frame, &'static PageInfo)>> =
+diff --git a/src/startup/memory.rs b/src/startup/memory.rs
+index 26922dd..f271200 100644
+--- a/src/startup/memory.rs
++++ b/src/startup/memory.rs
+@@ -323,7 +323,16 @@ unsafe fn map_memory<A: Arch>(areas: &[MemoryArea], mut bump_allocator: &mut Bum
+             }
+         }
+ 
+-        let kernel_area = (*MEMORY_MAP.get()).kernel().unwrap();
++        let kernel_area = match (*MEMORY_MAP.get()).kernel() {
++            Some(area) => area,
++            None => {
++                println!("FATAL: kernel memory area not found in boot memory map");
++                println!("Cannot determine kernel base address. Halting.");
++                loop {
++                    core::hint::spin_loop();
++                }
++            }
++        };
+         let kernel_base = kernel_area.start;
+         let kernel_size = kernel_area.end.saturating_sub(kernel_area.start);
+         // Map kernel at KERNEL_OFFSET
+diff --git a/src/startup/mod.rs b/src/startup/mod.rs
+index 8ad3cdf..86aabc2 100644
+--- a/src/startup/mod.rs
++++ b/src/startup/mod.rs
+@@ -149,6 +149,15 @@ static BOOTSTRAP: spin::Once<Bootstrap> = spin::Once::new();
+ pub(crate) static AP_READY: AtomicBool = AtomicBool::new(false);
+ static BSP_READY: AtomicBool = AtomicBool::new(false);
+ 
++#[cold]
++fn halt_boot(message: &str) -> ! {
++    print!("{message}");
++    println!("Kernel boot cannot continue. Halting.");
++    loop {
++        hint::spin_loop();
++    }
++}
++
+ /// This is the kernel entry point for the primary CPU. The arch crate is responsible for calling this
+ pub(crate) fn kmain(bootstrap: Bootstrap) -> ! {
+     let mut token = unsafe { CleanLockToken::new() };
+@@ -180,9 +189,7 @@ pub(crate) fn kmain(bootstrap: Bootstrap) -> ! {
+             context.euid = 0;
+             context.egid = 0;
+         }
+-        Err(err) => {
+-            panic!("failed to spawn userspace_init: {:?}", err);
+-        }
++        Err(_err) => halt_boot("FATAL: failed to spawn first userspace process userspace_init\n"),
+     }
+ 
+     run_userspace(&mut token)
+diff --git a/src/syscall/process.rs b/src/syscall/process.rs
+index e83da42..084b64e 100644
+--- a/src/syscall/process.rs
++++ b/src/syscall/process.rs
+@@ -33,6 +33,8 @@ pub fn exit_this_context(excp: Option<syscall::Exception>, token: &mut CleanLock
+     let mut close_files;
+     let addrspace_opt;
+ 
++    super::futex::cleanup_current_robust_futexes(token);
++
+     let context_lock = context::current();
+     {
+         let mut context = context_lock.write(token.token());
+@@ -44,6 +46,7 @@ pub fn exit_this_context(excp: Option<syscall::Exception>, token: &mut CleanLock
+         addrspace_opt = context
+             .set_addr_space(None, token.downgrade())
+             .and_then(|a| Arc::try_unwrap(a).ok());
++        context.robust_list_head = None;
+         drop(mem::replace(&mut context.syscall_head, SyscallFrame::Dummy));
+         drop(mem::replace(&mut context.syscall_tail, SyscallFrame::Dummy));
+     }
+@@ -244,7 +247,11 @@ pub unsafe fn usermode_bootstrap(bootstrap: &Bootstrap, token: &mut CleanLockTok
+         .copy_from_slice(bootstrap_slice)
+         .expect("failed to copy memory to bootstrap");
+ 
+-    let bootstrap_entry = u64::from_le_bytes(bootstrap_slice[0x1a..0x22].try_into().unwrap());
++    let bootstrap_entry = if bootstrap_slice.len() >= 0x22 {
++        u64::from_le_bytes(bootstrap_slice[0x1a..0x22].try_into().unwrap())
++    } else {
++        panic!("KERNEL BOOT: bootstrap initfs too small ({} bytes, need at least 34) - cannot determine entry point", bootstrap_slice.len());
++    };
+     debug!("Bootstrap entry point: {:X}", bootstrap_entry);
+     assert_ne!(bootstrap_entry, 0);
+ 
+@@ -271,23 +278,26 @@ unsafe fn bootstrap_mem(bootstrap: &crate::startup::Bootstrap) -> &'static [u8]
+ }
+ 
+ fn insert_fd(scheme: SchemeId, number: usize, cloexec: bool, token: &mut CleanLockToken) -> usize {
++    let description = Arc::new(RwLock::new(FileDescription::new(
++        scheme,
++        number,
++        0,
++        (O_CREAT | O_RDWR) as u32,
++        InternalFlags::empty(),
++        token,
++    )));
++
+     let current_lock = context::current();
+     let mut current = current_lock.read(token.token());
+-    let (context, mut token) = current.token_split();
++    let (context, mut context_token) = current.token_split();
+     context
+         .add_file_min(
+             FileDescriptor {
+-                description: Arc::new(RwLock::new(FileDescription {
+-                    scheme,
+-                    number,
+-                    offset: 0,
+-                    flags: (O_CREAT | O_RDWR) as u32,
+-                    internal_flags: InternalFlags::empty(),
+-                })),
++                description,
+                 cloexec,
+             },
+             syscall::flag::UPPER_FDTBL_TAG + scheme.get(),
+-            &mut token,
++            &mut context_token,
+         )
+         .expect("failed to insert fd to current context")
+         .get()

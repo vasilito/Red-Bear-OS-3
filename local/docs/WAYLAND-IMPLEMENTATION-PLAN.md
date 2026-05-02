@@ -54,7 +54,7 @@ In scope:
 - evdevd / udev-shim / libinput / seatd integration as they affect Wayland,
 - Mesa/GBM/EGL software-path proof and the Wayland-facing graphics runtime,
 - KWin as the intended production Wayland compositor path,
-- local overlay ownership decisions for Wayland components and validation harnesses.
+- local release fork ownership decisions for Wayland components and validation harnesses.
 
 Out of scope:
 
@@ -123,7 +123,7 @@ Rules:
 | Session path | seat/session proof bounded by QEMU validation; full hardware trust supplementary for KWin path |
 | Hardware graphics | no hardware-accelerated Wayland proof |
 | KWin truthfulness | reduced-feature real build exists; bounded runtime proof still requires Qt6Quick/QML downstream validation |
-| WIP ownership | upstream WIP recipes and local overlays are mixed; forward path is not always explicit |
+| WIP ownership | upstream WIP recipes and local release fork are mixed; forward path is not always explicit |
 
 ## Stability / Completeness Verdict
 

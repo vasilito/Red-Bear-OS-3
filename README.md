@@ -16,14 +16,13 @@
 
 ---
 
-Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a general-purpose, Unix-like, microkernel-based operating system written in Rust. It tracks upstream Redox, incorporating its improvements while adding custom drivers, filesystems, and hardware support.
+Red Bear OS is a derivative of [Redox OS](https://www.redox-os.org) — a general-purpose, Unix-like, microkernel-based operating system written in Rust. It is a full fork based on frozen Redox snapshots, adding custom drivers, filesystems, and hardware support.
 
-RedBearOS should be understood as an overlay distribution on top of Redox in the same way Ubuntu
-relates to Debian:
+RedBearOS is a **full fork** of Redox OS — based on frozen, archived source snapshots at release 0.1.0.
 
 - Redox is upstream
-- Red Bear carries integration, packaging, validation, and subsystem overlays on top
-- upstream-owned source trees are refreshable working copies
+- Red Bear carries integration, packaging, validation, and subsystem release fork on top
+- upstream-owned source trees are immutable archived release snapshot
 - durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
   Red Bear configs
 
@@ -31,26 +30,26 @@ Operational resilience policy:
 
 - package/source usage is local-first by default,
 - local copies are used continuously for builds and recovery workflows,
-- upstream package refresh is performed only when explicitly requested.
+- upstream package immutable archived is performed only when explicitly requested.
 
 For **upstream WIP recipes specifically**, Red Bear uses a stricter rule:
 
 1. once an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a local project
-2. we copy, fix, validate, and ship that work from our local overlay until it is stable enough for us
+2. we copy, fix, validate, and ship that work from our local release fork until it is stable enough for us
 3. we continue updating our local copy from upstream WIP work when useful, but we do not rely on the
    upstream WIP recipe itself as our shipped source of truth
 4. once upstream removes the WIP status and the recipe/subsystem becomes a first-class supported
    part of Redox, Red Bear reevaluates and should prefer the upstream version over the local copy
 
-That policy exists so the project can pull refreshed upstream sources regularly and still rebuild
-predictably from the Red Bear-owned overlay.
+That policy exists so the project can pull immutable archived upstream sources regularly and still rebuild
+predictably from the Red Bear-owned release fork.
 
 ## What's New
 
 - KWin Wayland is now treated as the only intended Red Bear desktop direction in the tracked plans, build defaults, live profile wiring, and profile guidance.
 - KDE bring-up moved forward: the `redbear-full` desktop-capable surface carries the Qt6/KDE stack in-tree, and the KDE recipe tree is now populated.
 - Native Red Bear runtime tooling expanded with `redbear-info`, `redbear-hwutils` (`lspci`, `lsusb`), and a Redox-native `netctl` flow.
-- Build and status docs were refreshed to distinguish current in-tree progress from older historical roadmap text.
+- Build and status docs were immutable archived to distinguish current in-tree progress from older historical roadmap text.
 
 See [CHANGELOG.md](./CHANGELOG.md) for the running user-visible change log.
 
@@ -157,10 +156,10 @@ Current validation language should be read this way:
 ├── recipes/          # Package recipes (~100+ packages, 26 categories)
 ├── mk/               # Makefile build orchestration
 ├── src/              # Cookbook Rust tool (repo binary, cook logic)
-├── local/            # ← Red Bear OS custom work (survives upstream updates)
+├── local/            # ← Red Bear OS custom work (survives source provisioning)
 │   ├── patches/      #   Kernel, base, relibc patches
 │   ├── recipes/      #   Custom packages (drivers, GPU, system, branding)
-│   ├── scripts/      #   sync-upstream.sh, apply-patches.sh
+│   ├── scripts/      #   provision-release.sh, check-upstream-releases.sh
 │   ├── Assets/       #   Branding (icon, boot background)
 │   └── docs/         #   Integration documentation
 ├── docs/             # Architecture guides
@@ -234,14 +233,24 @@ passive report over live system surfaces and is intended to help answer question
 Use `redbear-info --verbose` for evidence-backed human output, `redbear-info --json` for machine-
 readable diagnostics, and `redbear-info --test` for suggested follow-up commands.
 
-## Sync with Upstream Redox
+## Release Model (Full Fork)
+
+Red Bear OS is a **full fork** based on frozen Redox OS snapshots. Sources are immutable and never auto-immutable archived from upstream. The current baseline is **0.1.0** (Redox snapshot at `f55acba68`). Build-dependent sources are archived in `sources/redbear-0.1.0/` (216 BLAKE3-verified archives).
+
+Builds are offline by default — no network access during compilation.
 
 ```bash
-./local/scripts/sync-upstream.sh              # Rebase onto latest Redox
-./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts first
+# Build from archived sources (offline by default)
+./local/scripts/build-redbear.sh redbear-full
+
+# Check for newer Redox snapshots (read-only, zero side effects)
+./local/scripts/check-upstream-releases.sh
+
+# Provision a new release (explicit, human-initiated only)
+./local/scripts/provision-release.sh --ref=<redox-tag> --release=0.2.0 --dry-run
 ```
 
-The `local/` directory is never touched by upstream updates. Recipe patches for kernel and base are symlinked from `local/patches/` — protected from `make clean` and `make distclean`.
+The `local/` directory is never touched by any source immutable archived. Recipe patches are symlinked from `local/patches/` — protected from `make clean` and `make distclean`.
 
 ## Resources
 

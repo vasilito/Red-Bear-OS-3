@@ -1,0 +1,1084 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 6d4f059..e05f723 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -12,6 +12,7 @@ cc = "1.0"
+ toml = "0.8"
+ 
+ [dependencies]
++acpi_ext = { package = "acpi", git = "https://gitlab.redox-os.org/redox-os/acpi.git", branch = "redox-6.x" }
+ arrayvec = { version = "0.7.4", default-features = false }
+ bitfield = "0.13.2"
+ bitflags = "2"
+diff --git a/build.rs b/build.rs
+index 96c3ea5..751746c 100644
+--- a/build.rs
++++ b/build.rs
+@@ -77,6 +77,7 @@ fn main() {
+         }
+         "x86_64" => {
+             println!("cargo::rerun-if-changed=src/asm/x86_64/trampoline.asm");
++            println!("cargo::rerun-if-changed=src/asm/x86_64/s3_wakeup.asm");
+ 
+             let status = Command::new("nasm")
+                 .arg("-f")
+@@ -89,6 +90,18 @@ fn main() {
+             if !status.success() {
+                 panic!("nasm failed with exit status {}", status);
+             }
++
++            let status = Command::new("nasm")
++                .arg("-f")
++                .arg("bin")
++                .arg("-o")
++                .arg(format!("{}/s3_wakeup", out_dir))
++                .arg("src/asm/x86_64/s3_wakeup.asm")
++                .status()
++                .expect("failed to run nasm");
++            if !status.success() {
++                panic!("nasm failed with exit status {}", status);
++            }
+         }
+         "riscv64" => {
+             println!("cargo::rustc-cfg=dtb");
+diff --git a/src/acpi/mod.rs b/src/acpi/mod.rs
+index 59e3526..b3b80f0 100644
+--- a/src/acpi/mod.rs
++++ b/src/acpi/mod.rs
+@@ -82,6 +82,14 @@ impl Rxsdt for RxsdtEnum {
+ 
+ pub static RXSDT_ENUM: Once<RxsdtEnum> = Once::new();
+ 
++#[derive(Clone, Copy, Debug)]
++pub struct AcpiRootInfo {
++    pub revision: u8,
++    pub root_sdt_address: PhysicalAddress,
++}
++
++pub static ACPI_ROOT_INFO: Once<AcpiRootInfo> = Once::new();
++
+ /// Parse the ACPI tables to gather CPU, interrupt, and timer information
+ pub unsafe fn init(already_supplied_rsdp: Option<*const u8>) {
+     unsafe {
+@@ -94,6 +102,15 @@ pub unsafe fn init(already_supplied_rsdp: Option<*const u8>) {
+         let rsdp_opt = Rsdp::get_rsdp(already_supplied_rsdp);
+ 
+         if let Some(rsdp) = rsdp_opt {
++            let root_info = ACPI_ROOT_INFO.call_once(|| AcpiRootInfo {
++                revision: rsdp.revision(),
++                root_sdt_address: rsdp.sdt_address(),
++            });
++
++            if root_info.root_sdt_address != rsdp.sdt_address() || root_info.revision != rsdp.revision() {
++                error!("ACPI_ROOT_INFO already initialized with a different RSDP root");
++            }
++
+             debug!("SDT address: {:#x}", rsdp.sdt_address().data());
+             let rxsdt = get_sdt(rsdp.sdt_address(), &mut KernelMapper::lock_rw());
+ 
+diff --git a/src/acpi/rsdp.rs b/src/acpi/rsdp.rs
+index f10c5ac..5e93a9f 100644
+--- a/src/acpi/rsdp.rs
++++ b/src/acpi/rsdp.rs
+@@ -31,4 +31,8 @@ impl Rsdp {
+             self.rsdt_address as usize
+         })
+     }
++
++    pub fn revision(&self) -> u8 {
++        self.revision
++    }
+ }
+diff --git a/src/arch/x86_shared/mod.rs b/src/arch/x86_shared/mod.rs
+index e3c3050..11c33e9 100644
+--- a/src/arch/x86_shared/mod.rs
++++ b/src/arch/x86_shared/mod.rs
+@@ -28,6 +28,8 @@ pub mod pti;
+ /// Initialization and start function
+ pub mod start;
+ 
++pub mod sleep;
++
+ /// Stop function
+ pub mod stop;
+ 
+diff --git a/src/scheme/acpi.rs b/src/scheme/acpi.rs
+index 87570a1..5d73469 100644
+--- a/src/scheme/acpi.rs
++++ b/src/scheme/acpi.rs
+@@ -10,6 +10,7 @@ use syscall::{
+ 
+ use crate::{
+     acpi::{RxsdtEnum, RXSDT_ENUM},
++    arch::sleep,
+     context::file::InternalFlags,
+     event,
+     sync::{CleanLockToken, RwLock, WaitCondition, L1},
+@@ -40,6 +41,7 @@ enum HandleKind {
+     TopLevel,
+     Rxsdt,
+     ShutdownPipe,
++    SleepControl,
+     SchemeRoot,
+ }
+ 
+@@ -146,11 +148,11 @@ impl KernelScheme for AcpiScheme {
+         if flags & O_EXCL == O_EXCL || flags & O_SYMLINK == O_SYMLINK {
+             return Err(Error::new(EINVAL));
+         }
+-        if flags & O_ACCMODE != O_RDONLY && flags & O_STAT != O_STAT {
+-            return Err(Error::new(EROFS));
+-        }
+         let (handle_kind, int_flags) = match path {
+             "" => {
++                if flags & O_ACCMODE != O_RDONLY && flags & O_STAT != O_STAT {
++                    return Err(Error::new(EROFS));
++                }
+                 if flags & O_DIRECTORY != O_DIRECTORY && flags & O_STAT != O_STAT {
+                     return Err(Error::new(EISDIR));
+                 }
+@@ -158,17 +160,36 @@ impl KernelScheme for AcpiScheme {
+                 (HandleKind::TopLevel, InternalFlags::POSITIONED)
+             }
+             "rxsdt" => {
++                if flags & O_ACCMODE != O_RDONLY && flags & O_STAT != O_STAT {
++                    return Err(Error::new(EROFS));
++                }
+                 if flags & O_DIRECTORY == O_DIRECTORY && flags & O_STAT != O_STAT {
+                     return Err(Error::new(ENOTDIR));
+                 }
+                 (HandleKind::Rxsdt, InternalFlags::POSITIONED)
+             }
+             "kstop" => {
++                if flags & O_ACCMODE != O_RDONLY && flags & O_STAT != O_STAT {
++                    return Err(Error::new(EROFS));
++                }
+                 if flags & O_DIRECTORY == O_DIRECTORY && flags & O_STAT != O_STAT {
+                     return Err(Error::new(ENOTDIR));
+                 }
+                 (HandleKind::ShutdownPipe, InternalFlags::empty())
+             }
++            "sleep" => {
++                if flags & O_ACCMODE == O_RDONLY || flags & O_STAT == O_STAT {
++                    // allowed
++                } else if flags & O_ACCMODE != syscall::flag::O_WRONLY
++                    && flags & O_ACCMODE != syscall::flag::O_RDWR
++                {
++                    return Err(Error::new(EINVAL));
++                }
++                if flags & O_DIRECTORY == O_DIRECTORY && flags & O_STAT != O_STAT {
++                    return Err(Error::new(ENOTDIR));
++                }
++                (HandleKind::SleepControl, InternalFlags::POSITIONED)
++            }
+             _ => return Err(Error::new(ENOENT)),
+         };
+ 
+@@ -191,6 +212,7 @@ impl KernelScheme for AcpiScheme {
+         Ok(match handle.kind {
+             HandleKind::Rxsdt => DATA.get().ok_or(Error::new(EBADFD))?.len() as u64,
+             HandleKind::ShutdownPipe => 1,
++            HandleKind::SleepControl => sleep::available_sleep_states().len() as u64,
+             HandleKind::TopLevel => 0,
+             HandleKind::SchemeRoot => return Err(Error::new(EBADF))?,
+         })
+@@ -253,6 +275,7 @@ impl KernelScheme for AcpiScheme {
+ 
+                 return dst_buf.copy_exactly(&[0x42]).map(|()| 1);
+             }
++            HandleKind::SleepControl => sleep::available_sleep_states(),
+             HandleKind::Rxsdt => DATA.get().ok_or(Error::new(EBADFD))?,
+             HandleKind::TopLevel => return Err(Error::new(EISDIR)),
+             HandleKind::SchemeRoot => return Err(Error::new(EBADF)),
+@@ -295,11 +318,45 @@ impl KernelScheme for AcpiScheme {
+                 kind: DirentKind::Socket,
+                 name: "kstop",
+                 inode: 0,
++                next_opaque_id: 2,
++            })?;
++        }
++        if opaque <= 2 {
++            buf.entry(DirEntry {
++                kind: DirentKind::Regular,
++                name: "sleep",
++                inode: 0,
+                 next_opaque_id: u64::MAX,
+             })?;
+         }
+         Ok(buf.finalize())
+     }
++    fn kwrite(
++        &self,
++        id: usize,
++        buf: crate::syscall::usercopy::UserSliceRo,
++        _flags: u32,
++        _stored_flags: u32,
++        token: &mut CleanLockToken,
++    ) -> Result<usize> {
++        let handle = *HANDLES.read(token.token()).get(id)?;
++
++        if handle.stat {
++            return Err(Error::new(EBADF));
++        }
++
++        match handle.kind {
++            HandleKind::SleepControl => {
++                let mut tmp = [0_u8; 16];
++                let len = buf.copy_common_bytes_to_slice(&mut tmp)?;
++                let request = core::str::from_utf8(&tmp[..len]).map_err(|_| Error::new(EINVAL))?;
++                sleep::trigger_sleep_request(request)?;
++                Ok(len)
++            }
++            HandleKind::SchemeRoot => Err(Error::new(EBADF)),
++            _ => Err(Error::new(EBADF)),
++        }
++    }
+     fn kfpath(&self, _id: usize, buf: UserSliceWo, _token: &mut CleanLockToken) -> Result<usize> {
+         //TODO: construct useful path?
+         buf.copy_common_bytes_from_slice("/scheme/kernel.acpi/".as_bytes())
+@@ -328,6 +385,11 @@ impl KernelScheme for AcpiScheme {
+                 st_size: 1,
+                 ..Default::default()
+             },
++            HandleKind::SleepControl => Stat {
++                st_mode: MODE_FILE,
++                st_size: sleep::available_sleep_states().len().try_into().unwrap_or(u64::MAX),
++                ..Default::default()
++            },
+             HandleKind::SchemeRoot => return Err(Error::new(EBADF)),
+         })?;
+ 
+diff --git a/src/arch/x86_shared/sleep.rs b/src/arch/x86_shared/sleep.rs
+new file mode 100644
+index 0000000..9f98c0d
+--- /dev/null
++++ b/src/arch/x86_shared/sleep.rs
+@@ -0,0 +1,712 @@
++use alloc::{sync::Arc, vec::Vec};
++use core::{
++    ptr::NonNull,
++    str::FromStr,
++    sync::atomic::{AtomicU32, Ordering},
++};
++
++use acpi_ext::{
++    aml::{namespace::AmlName, object::Object, Interpreter},
++    registers::FixedRegisters,
++    sdt::{facs::Facs, fadt::Fadt, SdtHeader},
++    AcpiTables, Handle, Handler, PhysicalMapping,
++};
++use spin::Mutex;
++use syscall::error::{Error, EINVAL, EIO};
++use x86::{segmentation::SegmentSelector, task, Ring};
++
++use crate::{
++    acpi::ACPI_ROOT_INFO,
++    arch::interrupt,
++    memory::{
++        round_down_pages, round_up_pages, KernelMapper, Page, PageFlags, PhysicalAddress, RmmA,
++        RmmArch, VirtualAddress, PAGE_SIZE,
++    },
++    syscall::io::{Io, Pio},
++};
++
++const ACPI_SLP_TYP_SHIFT: u16 = 10;
++const ACPI_SLP_TYP_MASK: u16 = 0x1C00;
++const ACPI_SLP_EN: u16 = 1 << 13;
++const WAKE_TRAMPOLINE_PHYS: usize = 0x8000;
++const SLEEP_RETURN_OK: usize = 0;
++
++#[cfg(target_arch = "x86_64")]
++static WAKE_TRAMPOLINE_DATA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/s3_wakeup"));
++
++#[repr(C, packed)]
++#[derive(Clone, Copy, Debug, Default)]
++struct DescriptorTableRegister {
++    limit: u16,
++    base: u64,
++}
++
++#[repr(C, align(64))]
++#[derive(Clone, Copy, Debug)]
++struct FpuState {
++    bytes: [u8; 4096],
++}
++
++impl Default for FpuState {
++    fn default() -> Self {
++        Self { bytes: [0; 4096] }
++    }
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum SleepState {
++    S3,
++    S5,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum SleepError {
++    UnsupportedArch,
++    MissingAcpi,
++    MissingFadt,
++    MissingFacs,
++    MissingSleepObject,
++    InvalidSleepObject,
++    UnsupportedPmControl,
++    UnsupportedAmlOperation,
++    SleepDidNotEnter,
++}
++
++impl SleepError {
++    fn code(self) -> usize {
++        match self {
++            Self::UnsupportedArch => EINVAL as usize,
++            Self::MissingAcpi
++            | Self::MissingFadt
++            | Self::MissingFacs
++            | Self::MissingSleepObject
++            | Self::UnsupportedAmlOperation => EIO as usize,
++            Self::InvalidSleepObject | Self::UnsupportedPmControl | Self::SleepDidNotEnter => {
++                EINVAL as usize
++            }
++        }
++    }
++
++    fn from_code(code: usize) -> Self {
++        match code as i32 {
++            x if x == EINVAL => Self::InvalidSleepObject,
++            _ => Self::MissingAcpi,
++        }
++    }
++}
++
++#[derive(Clone, Copy, Debug, Default)]
++struct SavedCpuContext {
++    entry_rsp: usize,
++    runtime_rsp: usize,
++    facs_address: usize,
++    cr0: usize,
++    cr2: usize,
++    cr3: usize,
++    cr4: usize,
++    rflags: usize,
++    gdtr: DescriptorTableRegister,
++    idtr: DescriptorTableRegister,
++    efer: u64,
++    fs_base: u64,
++    gs_base: u64,
++    kernel_gs_base: u64,
++    fpu: FpuState,
++}
++
++static SAVED_CONTEXT: Mutex<Option<SavedCpuContext>> = Mutex::new(None);
++static AML_MUTEX_IDS: AtomicU32 = AtomicU32::new(1);
++
++#[derive(Clone, Copy, Debug)]
++struct SleepTypeData {
++    a: u16,
++    b: u16,
++}
++
++#[derive(Clone, Copy)]
++struct KernelAcpiHandler;
++
++impl KernelAcpiHandler {
++    fn map_range(physical_address: usize, size: usize) -> (*mut u8, usize) {
++        let map_base = round_down_pages(physical_address);
++        let map_offset = physical_address - map_base;
++        let mapped_length = round_up_pages(size + map_offset);
++
++        // SAFETY: The ACPI interpreter only requests firmware-described physical regions.
++        unsafe {
++            let mut mapper = KernelMapper::lock_rw();
++            for page_index in 0..mapped_length / PAGE_SIZE {
++                let (_, flush) = mapper
++                    .map_linearly(
++                        PhysicalAddress::new(map_base + page_index * PAGE_SIZE),
++                        PageFlags::new(),
++                    )
++                    .expect("failed to linearly map ACPI physical region");
++                flush.flush();
++            }
++        }
++
++        let virtual_base = RmmA::phys_to_virt(PhysicalAddress::new(map_base)).data();
++        ((virtual_base + map_offset) as *mut u8, mapped_length)
++    }
++}
++
++impl Handler for KernelAcpiHandler {
++    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
++        let (virtual_start, mapped_length) = Self::map_range(physical_address, size);
++        PhysicalMapping {
++            physical_start: physical_address,
++            virtual_start: NonNull::new(virtual_start.cast::<T>())
++                .expect("expected mapped ACPI virtual address to be non-null"),
++            region_length: size,
++            mapped_length,
++            handler: *self,
++        }
++    }
++
++    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
++
++    fn read_u8(&self, address: usize) -> u8 {
++        // SAFETY: AML system-memory accesses are byte-addressable firmware regions.
++        unsafe { core::ptr::read_volatile(RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *const u8) }
++    }
++
++    fn read_u16(&self, address: usize) -> u16 {
++        // SAFETY: AML system-memory accesses are word-addressable firmware regions.
++        unsafe {
++            core::ptr::read_volatile(RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *const u16)
++        }
++    }
++
++    fn read_u32(&self, address: usize) -> u32 {
++        // SAFETY: AML system-memory accesses are dword-addressable firmware regions.
++        unsafe {
++            core::ptr::read_volatile(RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *const u32)
++        }
++    }
++
++    fn read_u64(&self, address: usize) -> u64 {
++        // SAFETY: AML system-memory accesses are qword-addressable firmware regions.
++        unsafe {
++            core::ptr::read_volatile(RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *const u64)
++        }
++    }
++
++    fn write_u8(&self, address: usize, value: u8) {
++        // SAFETY: AML system-memory accesses are byte-addressable firmware regions.
++        unsafe {
++            core::ptr::write_volatile(RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *mut u8, value)
++        }
++    }
++
++    fn write_u16(&self, address: usize, value: u16) {
++        // SAFETY: AML system-memory accesses are word-addressable firmware regions.
++        unsafe {
++            core::ptr::write_volatile(
++                RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *mut u16,
++                value,
++            )
++        }
++    }
++
++    fn write_u32(&self, address: usize, value: u32) {
++        // SAFETY: AML system-memory accesses are dword-addressable firmware regions.
++        unsafe {
++            core::ptr::write_volatile(
++                RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *mut u32,
++                value,
++            )
++        }
++    }
++
++    fn write_u64(&self, address: usize, value: u64) {
++        // SAFETY: AML system-memory accesses are qword-addressable firmware regions.
++        unsafe {
++            core::ptr::write_volatile(
++                RmmA::phys_to_virt(PhysicalAddress::new(address)).data() as *mut u64,
++                value,
++            )
++        }
++    }
++
++    fn read_io_u8(&self, port: u16) -> u8 {
++        Pio::<u8>::new(port).read()
++    }
++
++    fn read_io_u16(&self, port: u16) -> u16 {
++        Pio::<u16>::new(port).read()
++    }
++
++    fn read_io_u32(&self, port: u16) -> u32 {
++        Pio::<u32>::new(port).read()
++    }
++
++    fn write_io_u8(&self, port: u16, value: u8) {
++        Pio::<u8>::new(port).write(value)
++    }
++
++    fn write_io_u16(&self, port: u16, value: u16) {
++        Pio::<u16>::new(port).write(value)
++    }
++
++    fn write_io_u32(&self, port: u16, value: u32) {
++        Pio::<u32>::new(port).write(value)
++    }
++
++    fn read_pci_u8(&self, _address: acpi_ext::PciAddress, _offset: u16) -> u8 {
++        0
++    }
++
++    fn read_pci_u16(&self, _address: acpi_ext::PciAddress, _offset: u16) -> u16 {
++        0
++    }
++
++    fn read_pci_u32(&self, _address: acpi_ext::PciAddress, _offset: u16) -> u32 {
++        0
++    }
++
++    fn write_pci_u8(&self, _address: acpi_ext::PciAddress, _offset: u16, _value: u8) {}
++
++    fn write_pci_u16(&self, _address: acpi_ext::PciAddress, _offset: u16, _value: u16) {}
++
++    fn write_pci_u32(&self, _address: acpi_ext::PciAddress, _offset: u16, _value: u32) {}
++
++    fn nanos_since_boot(&self) -> u64 {
++        0
++    }
++
++    fn stall(&self, microseconds: u64) {
++        for _ in 0..(microseconds.saturating_mul(64)) {
++            core::hint::spin_loop();
++        }
++    }
++
++    fn sleep(&self, milliseconds: u64) {
++        for _ in 0..(milliseconds.saturating_mul(64_000)) {
++            core::hint::spin_loop();
++        }
++    }
++
++    fn create_mutex(&self) -> Handle {
++        Handle(AML_MUTEX_IDS.fetch_add(1, Ordering::Relaxed))
++    }
++
++    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), acpi_ext::aml::AmlError> {
++        Ok(())
++    }
++
++    fn release(&self, _mutex: Handle) {}
++}
++
++fn sleep_state_name(state: SleepState) -> &'static str {
++    match state {
++        SleepState::S3 => "\\_S3",
++        SleepState::S5 => "\\_S5",
++    }
++}
++
++fn encode_sleep_type(value: u16) -> u16 {
++    if value <= 0x7 {
++        value << ACPI_SLP_TYP_SHIFT
++    } else {
++        value & ACPI_SLP_TYP_MASK
++    }
++}
++
++fn load_interpreter() -> Result<(
++    Arc<FixedRegisters<KernelAcpiHandler>>,
++    PhysicalMapping<KernelAcpiHandler, Facs>,
++    Interpreter<KernelAcpiHandler>,
++), SleepError> {
++    let root = *ACPI_ROOT_INFO.get().ok_or(SleepError::MissingAcpi)?;
++    let handler = KernelAcpiHandler;
++
++    // SAFETY: ACPI root info is captured from the firmware-provided, already validated root table.
++    let tables = unsafe {
++        AcpiTables::from_rsdt(handler, root.revision, root.root_sdt_address.data())
++            .map_err(|_| SleepError::MissingAcpi)?
++    };
++    let fadt = tables.find_table::<Fadt>().ok_or(SleepError::MissingFadt)?;
++    let registers = Arc::new(
++        FixedRegisters::new(&fadt, handler).map_err(|_| SleepError::UnsupportedPmControl)?,
++    );
++    let facs_address = fadt.facs_address().map_err(|_| SleepError::MissingFacs)?;
++
++    // SAFETY: The FADT-supplied FACS address is used exactly as described by the ACPI spec.
++    let facs = unsafe { handler.map_physical_region::<Facs>(facs_address, core::mem::size_of::<Facs>()) };
++    // SAFETY: The AML interpreter only needs an owned mapping of the same firmware FACS table.
++    let interpreter_facs = unsafe {
++        handler.map_physical_region::<Facs>(facs_address, core::mem::size_of::<Facs>())
++    };
++    let dsdt = tables.dsdt().map_err(|_| SleepError::MissingFadt)?;
++    let interpreter = Interpreter::new(handler, dsdt.revision, Arc::clone(&registers), Some(interpreter_facs));
++
++    // SAFETY: Each AML table mapping is owned by the interpreter during table loading.
++    unsafe {
++        let mapping = handler.map_physical_region::<SdtHeader>(dsdt.phys_address, dsdt.length as usize);
++        let stream = core::slice::from_raw_parts(
++            mapping.virtual_start.as_ptr().byte_add(core::mem::size_of::<SdtHeader>()) as *const u8,
++            dsdt.length as usize - core::mem::size_of::<SdtHeader>(),
++        );
++        interpreter
++            .load_table(stream)
++            .map_err(|_| SleepError::UnsupportedAmlOperation)?;
++
++        for ssdt in tables.ssdts() {
++            let mapping = handler.map_physical_region::<SdtHeader>(ssdt.phys_address, ssdt.length as usize);
++            let stream = core::slice::from_raw_parts(
++                mapping.virtual_start.as_ptr().byte_add(core::mem::size_of::<SdtHeader>()) as *const u8,
++                ssdt.length as usize - core::mem::size_of::<SdtHeader>(),
++            );
++            interpreter
++                .load_table(stream)
++                .map_err(|_| SleepError::UnsupportedAmlOperation)?;
++        }
++    }
++
++    Ok((registers, facs, interpreter))
++}
++
++fn sleep_type_data_from_interpreter(
++    interpreter: &Interpreter<KernelAcpiHandler>,
++    state: SleepState,
++) -> Result<SleepTypeData, SleepError> {
++    let name = AmlName::from_str(sleep_state_name(state)).map_err(|_| SleepError::MissingSleepObject)?;
++    let object = interpreter
++        .evaluate(name, Vec::new())
++        .map_err(|_| SleepError::MissingSleepObject)?;
++
++    let Object::Package(package) = &*object else {
++        return Err(SleepError::InvalidSleepObject);
++    };
++
++    let Some(typa_object) = package.first() else {
++        return Err(SleepError::InvalidSleepObject);
++    };
++    let Some(typb_object) = package.get(1) else {
++        return Err(SleepError::InvalidSleepObject);
++    };
++
++    let Object::Integer(typa) = &**typa_object else {
++        return Err(SleepError::InvalidSleepObject);
++    };
++    let Object::Integer(typb) = &**typb_object else {
++        return Err(SleepError::InvalidSleepObject);
++    };
++
++    Ok(SleepTypeData {
++        a: encode_sleep_type(*typa as u16),
++        b: encode_sleep_type(*typb as u16),
++    })
++}
++
++fn sleep_type_data(state: SleepState) -> Result<SleepTypeData, SleepError> {
++    let (_registers, _facs, interpreter) = load_interpreter()?;
++    sleep_type_data_from_interpreter(&interpreter, state)
++}
++
++fn install_wake_trampoline(stack_rsp: usize, cr3: usize) {
++    let trampoline_page = Page::containing_address(VirtualAddress::new(WAKE_TRAMPOLINE_PHYS));
++    let trampoline_frame = PhysicalAddress::new(WAKE_TRAMPOLINE_PHYS);
++
++    // SAFETY: The 0x8000 low-memory trampoline page is reserved by the kernel for bootstrap stubs.
++    let (result, _) = unsafe {
++        let mut mapper = KernelMapper::lock_rw();
++        let result = mapper
++            .map_phys(
++                trampoline_page.start_address(),
++                trampoline_frame,
++                PageFlags::new().execute(true).write(true),
++            )
++            .expect("failed to map S3 wake trampoline page");
++        (result, mapper.table().phys().data())
++    };
++    result.flush();
++
++    for (index, value) in WAKE_TRAMPOLINE_DATA.iter().enumerate() {
++        // SAFETY: The trampoline page is mapped writable at the same virtual address as the physical page.
++        unsafe {
++            core::ptr::write_volatile((WAKE_TRAMPOLINE_PHYS as *mut u8).add(index), *value);
++        }
++    }
++
++    // SAFETY: The wake trampoline layout reserves three qword fields immediately after the jump.
++    unsafe {
++        let stack_slot = (WAKE_TRAMPOLINE_PHYS + 8) as *mut u64;
++        let page_table_slot = stack_slot.add(1);
++        let code_slot = stack_slot.add(2);
++        stack_slot.write(stack_rsp as u64);
++        page_table_slot.write(cr3 as u64);
++        #[expect(clippy::fn_to_numeric_cast)]
++        code_slot.write(resume_from_s3_trampoline as usize as u64);
++    }
++
++    // SAFETY: The trampoline mapping is no longer needed once the physical page has been populated.
++    let (_frame, _, flush) = unsafe {
++        KernelMapper::lock_rw()
++            .unmap_phys(trampoline_page.start_address())
++            .expect("failed to unmap S3 wake trampoline page")
++    };
++    flush.flush();
++}
++
++fn save_descriptor_tables(context: &mut SavedCpuContext) {
++    // SAFETY: SGDT/SIDT only read the current CPU descriptor-table registers into the provided storage.
++    unsafe {
++        core::arch::asm!("sgdt [{}]", in(reg) &mut context.gdtr, options(nostack, preserves_flags));
++        core::arch::asm!("sidt [{}]", in(reg) &mut context.idtr, options(nostack, preserves_flags));
++    }
++}
++
++fn save_fpu_state(context: &mut SavedCpuContext) {
++    // SAFETY: The kernel owns the current CPU at suspend entry and the FXSAVE buffer is 64-byte aligned.
++    unsafe {
++        core::arch::asm!(
++            "fxsave64 [{}]",
++            in(reg) context.fpu.bytes.as_mut_ptr(),
++        );
++    }
++}
++
++fn restore_fpu_state(context: &SavedCpuContext) {
++    // SAFETY: The saved FXSAVE image belongs to the same CPU context and matches the restore instruction.
++    unsafe {
++        core::arch::asm!(
++            "fxrstor64 [{}]",
++            in(reg) context.fpu.bytes.as_ptr(),
++        );
++    }
++}
++
++fn save_cpu_context(entry_rsp: usize) -> SavedCpuContext {
++    let mut context = SavedCpuContext {
++        entry_rsp,
++        ..SavedCpuContext::default()
++    };
++
++    // SAFETY: Reading control registers and MSRs is required to reconstruct the CPU execution state on wake.
++    unsafe {
++        core::arch::asm!(
++            "mov {}, cr0",
++            out(reg) context.cr0,
++            options(nostack, preserves_flags)
++        );
++        core::arch::asm!(
++            "mov {}, cr2",
++            out(reg) context.cr2,
++            options(nostack, preserves_flags)
++        );
++        core::arch::asm!(
++            "mov {}, cr3",
++            out(reg) context.cr3,
++            options(nostack, preserves_flags)
++        );
++        core::arch::asm!(
++            "mov {}, cr4",
++            out(reg) context.cr4,
++            options(nostack, preserves_flags)
++        );
++        core::arch::asm!(
++            "pushfq",
++            "pop {}",
++            out(reg) context.rflags,
++            options(preserves_flags)
++        );
++        core::arch::asm!("mov {}, rsp", out(reg) context.runtime_rsp, options(nostack, preserves_flags));
++
++        context.efer = x86::msr::rdmsr(x86::msr::IA32_EFER);
++        context.fs_base = x86::msr::rdmsr(x86::msr::IA32_FS_BASE);
++        context.gs_base = x86::msr::rdmsr(x86::msr::IA32_GS_BASE);
++        context.kernel_gs_base = x86::msr::rdmsr(x86::msr::IA32_KERNEL_GSBASE);
++    }
++
++    save_descriptor_tables(&mut context);
++    save_fpu_state(&mut context);
++    context
++}
++
++fn set_firmware_waking_vector(facs: &mut PhysicalMapping<KernelAcpiHandler, Facs>, vector: usize) {
++    facs.firmware_waking_vector = vector as u32;
++    facs.x_firmware_waking_vector = vector as u64;
++}
++
++fn write_pm1_control_block(
++    registers: &FixedRegisters<KernelAcpiHandler>,
++    sleep_type: SleepTypeData,
++) -> Result<(), SleepError> {
++    let current_a = registers
++        .pm1_control_registers
++        .pm1a
++        .read()
++        .map_err(|_| SleepError::UnsupportedPmControl)? as u16;
++    let armed_a = (current_a & !(ACPI_SLP_TYP_MASK | ACPI_SLP_EN)) | sleep_type.a;
++
++    registers
++        .pm1_control_registers
++        .pm1a
++        .write(u64::from(armed_a))
++        .map_err(|_| SleepError::UnsupportedPmControl)?;
++
++    if let Some(pm1b) = &registers.pm1_control_registers.pm1b {
++        let current_b = pm1b.read().map_err(|_| SleepError::UnsupportedPmControl)? as u16;
++        let armed_b = (current_b & !(ACPI_SLP_TYP_MASK | ACPI_SLP_EN)) | sleep_type.b;
++        pm1b.write(u64::from(armed_b))
++            .map_err(|_| SleepError::UnsupportedPmControl)?;
++        pm1b.write(u64::from(armed_b | ACPI_SLP_EN))
++            .map_err(|_| SleepError::UnsupportedPmControl)?;
++    }
++
++    // SAFETY: WBINVD is required here to flush dirty cache lines before firmware powers down the CPU package.
++    unsafe {
++        core::arch::asm!("wbinvd", options(nostack, preserves_flags));
++    }
++
++    registers
++        .pm1_control_registers
++        .pm1a
++        .write(u64::from(armed_a | ACPI_SLP_EN))
++        .map_err(|_| SleepError::UnsupportedPmControl)?;
++
++    Ok(())
++}
++
++#[unsafe(naked)]
++unsafe extern "sysv64" fn enter_sleep_raw(state: usize) -> usize {
++    core::arch::naked_asm!(
++        "mov rsi, rsp",
++        "jmp {inner}",
++        inner = sym enter_sleep_raw_inner,
++    );
++}
++
++extern "C" fn enter_sleep_raw_inner(state: usize, entry_rsp: usize) -> usize {
++    let state = match state {
++        3 => SleepState::S3,
++        5 => SleepState::S5,
++        _ => return SleepError::InvalidSleepObject.code(),
++    };
++
++    let (registers, mut facs, interpreter) = match load_interpreter() {
++        Ok(tuple) => tuple,
++        Err(error) => return error.code(),
++    };
++    let sleep_type = match sleep_type_data_from_interpreter(&interpreter, state) {
++        Ok(data) => data,
++        Err(error) => return error.code(),
++    };
++
++    let mut context = save_cpu_context(entry_rsp);
++    context.facs_address = facs.physical_start;
++    install_wake_trampoline(context.runtime_rsp, context.cr3);
++    set_firmware_waking_vector(&mut facs, WAKE_TRAMPOLINE_PHYS);
++
++    {
++        let mut saved = SAVED_CONTEXT.lock();
++        *saved = Some(context);
++    }
++
++    // SAFETY: Suspend entry must not be interrupted while the wake vector and PM1 control block are being armed.
++    unsafe {
++        interrupt::disable();
++    }
++
++    if let Err(error) = write_pm1_control_block(registers.as_ref(), sleep_type) {
++        return error.code();
++    }
++
++    // SAFETY: The final CLI+HLT sequence is the architectural handoff point after asserting SLP_EN.
++    unsafe {
++        core::arch::asm!("cli; hlt", options(nostack));
++    }
++
++    SleepError::SleepDidNotEnter.code()
++}
++
++extern "C" fn resume_from_s3_trampoline() -> ! {
++    let mut saved = SAVED_CONTEXT.lock();
++    let context = saved.take().expect("S3 wake trampoline resumed without saved CPU context");
++    drop(saved);
++
++    // SAFETY: The saved FACS physical address was captured from the validated FADT during suspend entry.
++    if context.facs_address != 0 {
++        let mut facs = unsafe {
++            KernelAcpiHandler.map_physical_region::<Facs>(
++                context.facs_address,
++                core::mem::size_of::<Facs>(),
++            )
++        };
++        set_firmware_waking_vector(&mut facs, 0);
++    }
++
++    // SAFETY: The wake trampoline already switched to the saved kernel CR3 and long mode, so the remaining restores are architectural register state only.
++    unsafe {
++        x86::msr::wrmsr(x86::msr::IA32_EFER, context.efer);
++        core::arch::asm!("mov cr3, {}", in(reg) context.cr3, options(nostack));
++        core::arch::asm!("mov cr4, {}", in(reg) context.cr4, options(nostack));
++        core::arch::asm!("mov cr2, {}", in(reg) context.cr2, options(nostack));
++        core::arch::asm!("mov cr0, {}", in(reg) context.cr0, options(nostack));
++        core::arch::asm!("lgdt [{}]", in(reg) &context.gdtr, options(nostack));
++        core::arch::asm!("lidt [{}]", in(reg) &context.idtr, options(nostack));
++
++        task::load_tr(SegmentSelector::new(crate::arch::gdt::GDT_TSS as u16, Ring::Ring0));
++
++        x86::msr::wrmsr(x86::msr::IA32_FS_BASE, context.fs_base);
++        x86::msr::wrmsr(x86::msr::IA32_GS_BASE, context.gs_base);
++        x86::msr::wrmsr(x86::msr::IA32_KERNEL_GSBASE, context.kernel_gs_base);
++    }
++
++    restore_fpu_state(&context);
++
++    // SAFETY: Returning with the original entry stack and RFLAGS completes the suspend call as a successful function return.
++    unsafe {
++        core::arch::asm!(
++            "mov rsp, {entry_rsp}",
++            "push {rflags}",
++            "popfq",
++            "xor eax, eax",
++            "ret",
++            entry_rsp = in(reg) context.entry_rsp,
++            rflags = in(reg) context.rflags,
++            options(noreturn)
++        );
++    }
++}
++
++pub fn enter_sleep_state(state: SleepState) -> core::result::Result<(), SleepError> {
++    #[cfg(not(target_arch = "x86_64"))]
++    {
++        let _ = state;
++        return Err(SleepError::UnsupportedArch);
++    }
++
++    #[cfg(target_arch = "x86_64")]
++    {
++        let raw = unsafe {
++            enter_sleep_raw(match state {
++                SleepState::S3 => 3,
++                SleepState::S5 => 5,
++            })
++        };
++        if raw == SLEEP_RETURN_OK {
++            Ok(())
++        } else {
++            Err(SleepError::from_code(raw))
++        }
++    }
++}
++
++pub fn available_sleep_states() -> &'static [u8] {
++    if sleep_type_data(SleepState::S3).is_ok() {
++        b"S3\nS5\n"
++    } else {
++        b"S5\n"
++    }
++}
++
++pub fn trigger_sleep_request(request: &str) -> Result<(), Error> {
++    match request.trim() {
++        "S3" => enter_sleep_state(SleepState::S3).map_err(|_| Error::new(EIO)),
++        "S5" => enter_sleep_state(SleepState::S5).map_err(|_| Error::new(EIO)),
++        _ => Err(Error::new(EINVAL)),
++    }
++}
+diff --git a/src/asm/x86_64/s3_wakeup.asm b/src/asm/x86_64/s3_wakeup.asm
+new file mode 100644
+index 0000000..7beeccf
+--- /dev/null
++++ b/src/asm/x86_64/s3_wakeup.asm
+@@ -0,0 +1,110 @@
++; ACPI S3 wake trampoline
++; compiled with nasm by build.rs, copied to physical 0x8000 before S3 entry
++
++ORG 0x8000
++SECTION .text
++USE16
++
++trampoline:
++    jmp short startup_wake
++    times 8 - ($ - trampoline) nop
++    .stack: dq 0
++    .page_table: dq 0
++    .code: dq 0
++
++startup_wake:
++    cli
++
++    xor ax, ax
++    mov ds, ax
++    mov es, ax
++    mov ss, ax
++    mov sp, 0
++
++    mov edi, [trampoline.page_table]
++    mov cr3, edi
++
++    mov eax, cr0
++    and al, 11110011b
++    or al, 00100010b
++    mov cr0, eax
++
++    mov eax, cr4
++    or eax, 1 << 9 | 1 << 7 | 1 << 5 | 1 << 4
++    mov cr4, eax
++
++    fninit
++
++    lgdt [gdtr]
++
++    mov ecx, 0xC0000080
++    rdmsr
++    or eax, 1 << 11 | 1 << 8
++    wrmsr
++
++    mov ebx, cr0
++    or ebx, 1 << 31 | 1 << 16 | 1
++    mov cr0, ebx
++
++    jmp gdt.kernel_code:long_mode_wake
++
++USE64
++long_mode_wake:
++    mov rax, gdt.kernel_data
++    mov ds, rax
++    mov es, rax
++    mov fs, rax
++    mov gs, rax
++    mov ss, rax
++
++    mov rsp, [trampoline.stack]
++    mov rax, [trampoline.code]
++    jmp rax
++
++struc GDTEntry
++    .limitl resw 1
++    .basel resw 1
++    .basem resb 1
++    .attribute resb 1
++    .flags__limith resb 1
++    .baseh resb 1
++endstruc
++
++attrib:
++    .present              equ 1 << 7
++    .user                 equ 1 << 4
++    .code                 equ 1 << 3
++    .writable             equ 1 << 1
++
++flags:
++    .long_mode equ 1 << 5
++
++gdtr:
++    dw gdt.end + 1
++    dq gdt
++
++gdt:
++.null equ $ - gdt
++    dq 0
++
++.kernel_code equ $ - gdt
++istruc GDTEntry
++    at GDTEntry.limitl, dw 0
++    at GDTEntry.basel, dw 0
++    at GDTEntry.basem, db 0
++    at GDTEntry.attribute, db attrib.present | attrib.user | attrib.code
++    at GDTEntry.flags__limith, db flags.long_mode
++    at GDTEntry.baseh, db 0
++iend
++
++.kernel_data equ $ - gdt
++istruc GDTEntry
++    at GDTEntry.limitl, dw 0
++    at GDTEntry.basel, dw 0
++    at GDTEntry.basem, db 0
++    at GDTEntry.attribute, db attrib.present | attrib.user | attrib.writable
++    at GDTEntry.flags__limith, db 0
++    at GDTEntry.baseh, db 0
++iend
++
++.end equ $ - gdt

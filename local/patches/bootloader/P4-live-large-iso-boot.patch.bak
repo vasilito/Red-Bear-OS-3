@@ -1,0 +1,392 @@
+diff --git a/src/arch/x86/mod.rs b/src/arch/x86/mod.rs
+index bda3f5d..55889df 100644
+--- a/src/arch/x86/mod.rs
++++ b/src/arch/x86/mod.rs
+@@ -3,10 +3,15 @@ use crate::os::Os;
+ pub(crate) mod x32;
+ pub(crate) mod x64;
+ 
+-pub unsafe fn paging_create(os: &impl Os, kernel_phys: u64, kernel_size: u64) -> Option<usize> {
++pub unsafe fn paging_create(
++    os: &impl Os,
++    kernel_phys: u64,
++    kernel_size: u64,
++    identity_map_end: u64,
++) -> Option<usize> {
+     unsafe {
+         if crate::KERNEL_64BIT {
+-            x64::paging_create(os, kernel_phys, kernel_size)
++            x64::paging_create(os, kernel_phys, kernel_size, identity_map_end)
+         } else {
+             x32::paging_create(os, kernel_phys, kernel_size)
+         }
+diff --git a/src/arch/x86/x64.rs b/src/arch/x86/x64.rs
+index a0a275a..fcf309d 100644
+--- a/src/arch/x86/x64.rs
++++ b/src/arch/x86/x64.rs
+@@ -29,7 +29,12 @@ const PRESENT: u64 = 1;
+ const WRITABLE: u64 = 1 << 1;
+ const LARGE: u64 = 1 << 7;
+ 
+-pub unsafe fn paging_create(os: &impl Os, kernel_phys: u64, kernel_size: u64) -> Option<usize> {
++pub unsafe fn paging_create(
++    os: &impl Os,
++    kernel_phys: u64,
++    kernel_size: u64,
++    identity_map_end: u64,
++) -> Option<usize> {
+     unsafe {
+         // Create PML4
+         let pml4 = paging_allocate(os)?;
+@@ -42,8 +47,14 @@ pub unsafe fn paging_create(os: &impl Os, kernel_phys: u64, kernel_size: u64) -
+             pml4[0] = pdp.as_ptr() as u64 | WRITABLE | PRESENT;
+             pml4[256] = pdp.as_ptr() as u64 | WRITABLE | PRESENT;
+ 
+-            // Identity map 8 GiB using 2 MiB pages
+-            for pdp_i in 0..8 {
++            let mut needed_pdp = identity_map_end.div_ceil(0x4000_0000);
++            if needed_pdp == 0 {
++                needed_pdp = 1;
++            }
++            assert!(needed_pdp <= pdp.len() as u64, "identity map end exceeds paging span");
++
++            // Identity map required physical range using 2 MiB pages
++            for pdp_i in 0..needed_pdp as usize {
+                 let pd = paging_allocate(os)?;
+                 pdp[pdp_i] = pd.as_ptr() as u64 | WRITABLE | PRESENT;
+                 for pd_i in 0..pd.len() {
+diff --git a/src/main.rs b/src/main.rs
+index 78dabb0..fd8eb81 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -62,6 +62,10 @@ pub static mut KERNEL_64BIT: bool = false;
+ 
+ pub static mut LIVE_OPT: Option<(u64, &'static [u8])> = None;
+ 
++fn region_end(base: u64, size: u64) -> u64 {
++    base.saturating_add(size).next_multiple_of(0x1000)
++}
++
+ struct SliceWriter<'a> {
+     slice: &'a mut [u8],
+     i: usize,
+@@ -645,9 +649,6 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+         (memory.len() as u64, memory.as_mut_ptr() as u64)
+     };
+ 
+-    let page_phys = unsafe { paging_create(os, kernel.as_ptr() as u64, kernel.len() as u64) }
+-        .expect("Failed to set up paging");
+-
+     let max_env_size = 64 * KIBI;
+     let mut env_size = max_env_size;
+     let env_base = os.alloc_zeroed_page_aligned(env_size);
+@@ -655,6 +656,28 @@ fn main(os: &impl Os) -> (usize, u64, KernelArgs) {
+         panic!("Failed to allocate memory for stack");
+     }
+ 
++    let mut identity_map_end = region_end(kernel.as_ptr() as u64, kernel.len() as u64)
++        .max(region_end(stack_base as u64, stack_size as u64))
++        .max(region_end(bootstrap_base, bootstrap_size))
++        .max(region_end(env_base as u64, max_env_size as u64));
++
++    if let Some(ref live) = live_opt {
++        identity_map_end = identity_map_end.max(region_end(
++            live.as_ptr() as u64,
++            live.len() as u64,
++        ));
++    }
++
++    let page_phys = unsafe {
++        paging_create(
++            os,
++            kernel.as_ptr() as u64,
++            kernel.len() as u64,
++            identity_map_end,
++        )
++    }
++    .expect("Failed to set up paging");
++
+     {
+         let mut w = SliceWriter {
+             slice: unsafe { slice::from_raw_parts_mut(env_base, max_env_size) },
+diff --git a/src/os/uefi/device.rs b/src/os/uefi/device.rs
+index 0b7991f..554d88e 100644
+--- a/src/os/uefi/device.rs
++++ b/src/os/uefi/device.rs
+@@ -13,6 +13,160 @@ use uefi_std::{fs::FileSystem, loaded_image::LoadedImage, proto::Protocol};
+ 
+ use super::disk::{DiskEfi, DiskOrFileEfi};
+ 
++#[derive(Clone, Copy)]
++struct GptPartitionInfo {
++    first_lba: u64,
++    last_lba: u64,
++}
++
++fn read_u32_le(bytes: &[u8]) -> Option<u32> {
++    Some(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?))
++}
++
++fn read_u64_le(bytes: &[u8]) -> Option<u64> {
++    Some(u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?))
++}
++
++fn decode_utf16_name(bytes: &[u8]) -> Option<String> {
++    let mut units = Vec::new();
++    for chunk in bytes.chunks_exact(2) {
++        let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
++        if unit == 0 {
++            break;
++        }
++        units.push(unit);
++    }
++    String::from_utf16(&units).ok()
++}
++
++fn select_partition(best: &mut Option<GptPartitionInfo>, candidate: GptPartitionInfo) {
++    match best {
++        Some(current) if current.last_lba.saturating_sub(current.first_lba) >= candidate.last_lba.saturating_sub(candidate.first_lba) => {}
++        _ => *best = Some(candidate),
++    }
++}
++
++fn parse_gpt_partition_offset_from_bytes(data: &[u8], block_size: usize) -> Option<u64> {
++    let header_offset = block_size;
++    let header = data.get(header_offset..header_offset + 92)?;
++    if header.get(..8)? != b"EFI PART" {
++        return None;
++    }
++
++    let entries_lba = read_u64_le(header.get(72..80)?)?;
++    let entry_count = read_u32_le(header.get(80..84)?)? as usize;
++    let entry_size = read_u32_le(header.get(84..88)?)? as usize;
++    if entry_size < 128 {
++        return None;
++    }
++
++    let entries_offset = entries_lba.checked_mul(block_size as u64)? as usize;
++    let mut redox_partition = None;
++    let mut fallback_partition = None;
++
++    for index in 0..entry_count {
++        let entry_offset = entries_offset.checked_add(index.checked_mul(entry_size)?)?;
++        let entry = data.get(entry_offset..entry_offset + entry_size)?;
++        if entry.get(..16)?.iter().all(|byte| *byte == 0) {
++            continue;
++        }
++
++        let first_lba = read_u64_le(entry.get(32..40)?)?;
++        let last_lba = read_u64_le(entry.get(40..48)?)?;
++        if first_lba == 0 || last_lba < first_lba {
++            continue;
++        }
++
++        let partition = GptPartitionInfo { first_lba, last_lba };
++        let name = decode_utf16_name(entry.get(56..128)?).unwrap_or_default();
++        if name == "REDOX" {
++            redox_partition = Some(partition);
++            break;
++        }
++
++        select_partition(&mut fallback_partition, partition);
++    }
++
++    redox_partition
++        .or(fallback_partition)
++        .map(|partition| partition.first_lba * block_size as u64)
++}
++
++fn parse_gpt_partition_offset_from_parts(
++    entries: &[u8],
++    entry_count: usize,
++    entry_size: usize,
++    block_size: usize,
++) -> Option<u64> {
++    let mut redox_partition = None;
++    let mut fallback_partition = None;
++
++    for index in 0..entry_count {
++        let entry_offset = index.checked_mul(entry_size)?;
++        let entry = entries.get(entry_offset..entry_offset + entry_size)?;
++        if entry.get(..16)?.iter().all(|byte| *byte == 0) {
++            continue;
++        }
++
++        let first_lba = read_u64_le(entry.get(32..40)?)?;
++        let last_lba = read_u64_le(entry.get(40..48)?)?;
++        if first_lba == 0 || last_lba < first_lba {
++            continue;
++        }
++
++        let partition = GptPartitionInfo { first_lba, last_lba };
++        let name = decode_utf16_name(entry.get(56..128)?).unwrap_or_default();
++        if name == "REDOX" {
++            redox_partition = Some(partition);
++            break;
++        }
++
++        select_partition(&mut fallback_partition, partition);
++    }
++    redox_partition
++        .or(fallback_partition)
++        .map(|partition| partition.first_lba * block_size as u64)
++}
++
++fn gpt_partition_offset_from_buffer(data: &[u8]) -> Option<u64> {
++    parse_gpt_partition_offset_from_bytes(data, 512)
++}
++
++fn gpt_partition_offset_from_disk(disk: &mut DiskEfi) -> Option<u64> {
++    const GPT_SECTOR_SIZE: usize = 512;
++
++    if disk.media_block_size() == 0 {
++        return None;
++    }
++
++    let mut boot_region = vec![0_u8; 2048];
++    disk.read_bytes(0, &mut boot_region).ok()?;
++    let header = boot_region.get(GPT_SECTOR_SIZE..GPT_SECTOR_SIZE + 92)?;
++    if header.get(..8)? != b"EFI PART" {
++        return None;
++    }
++
++    let entries_lba = read_u64_le(header.get(72..80)?)?;
++    let entry_count = read_u32_le(header.get(80..84)?)? as usize;
++    let entry_size = read_u32_le(header.get(84..88)?)? as usize;
++    if entry_size < 128 {
++        return None;
++    }
++
++    let entries_bytes = entry_count.checked_mul(entry_size)?;
++    let entries_offset = entries_lba.checked_mul(GPT_SECTOR_SIZE as u64)?;
++    let mut entries = vec![0_u8; entries_bytes];
++    disk.read_bytes(entries_offset, &mut entries).ok()?;
++
++    parse_gpt_partition_offset_from_parts(&entries, entry_count, entry_size, GPT_SECTOR_SIZE)
++}
++
+ #[derive(Debug)]
+ enum DevicePathRelation {
+     This,
+@@ -131,12 +285,7 @@ pub fn disk_device_priority() -> Vec<DiskDevice> {
+             return vec![DiskDevice {
+                 handle: esp_handle,
+                 // Support both a copy of livedisk.iso and a standalone redoxfs partition
+-                partition_offset: if &buffer[512..520] == b"EFI PART" {
+-                    //TODO: get block from partition table
+-                    2 * crate::MIBI as u64
+-                } else {
+-                    0
+-                },
++                partition_offset: gpt_partition_offset_from_buffer(&buffer).unwrap_or(0),
+                 disk: DiskOrFileEfi::File(buffer),
+                 device_path: esp_device_path,
+                 file_path: Some("redox-live.iso"),
+@@ -154,7 +303,7 @@ pub fn disk_device_priority() -> Vec<DiskDevice> {
+     };
+     let mut devices = Vec::with_capacity(handles.len());
+     for handle in handles {
+-        let disk = match DiskEfi::handle_protocol(handle) {
++        let mut disk = match DiskEfi::handle_protocol(handle) {
+             Ok(ok) => ok,
+             Err(err) => {
+                 log::warn!(
+@@ -182,14 +331,15 @@ pub fn disk_device_priority() -> Vec<DiskDevice> {
+             }
+         };
+ 
++        let partition_offset = if disk.0.Media.LogicalPartition {
++            0
++        } else {
++            gpt_partition_offset_from_disk(&mut disk).unwrap_or(2 * crate::MIBI as u64)
++        };
++
+         devices.push(DiskDevice {
+             handle,
+-            partition_offset: if disk.0.Media.LogicalPartition {
+-                0
+-            } else {
+-                //TODO: get block from partition table
+-                2 * crate::MIBI as u64
+-            },
++            partition_offset,
+             disk: DiskOrFileEfi::Disk(disk),
+             device_path,
+             file_path: None,
+diff --git a/src/os/uefi/disk.rs b/src/os/uefi/disk.rs
+index 3f920bb..4d109f8 100644
+--- a/src/os/uefi/disk.rs
++++ b/src/os/uefi/disk.rs
+@@ -117,3 +117,43 @@ impl Disk for DiskEfi {
+         Err(Error::new(EIO))
+     }
+ }
++
++impl DiskEfi {
++    pub fn media_block_size(&self) -> usize {
++        self.0.Media.BlockSize as usize
++    }
++
++    pub fn read_bytes(&mut self, offset: u64, buffer: &mut [u8]) -> Result<()> {
++        let block_size = self.media_block_size();
++        if block_size == 0 || block_size > self.1.len() {
++            return Err(Error::new(EINVAL));
++        }
++
++        let scratch = &mut self.1[..block_size];
++        let mut copied = 0usize;
++
++        while copied < buffer.len() {
++            let absolute = offset as usize + copied;
++            let lba = (absolute / block_size) as u64;
++            let in_block = absolute % block_size;
++
++            match (self.0.ReadBlocks)(
++                self.0,
++                self.0.Media.MediaId,
++                lba,
++                block_size,
++                scratch.as_mut_ptr(),
++            ) {
++                status if status.is_success() => {
++                    let chunk_len = core::cmp::min(block_size - in_block, buffer.len() - copied);
++                    buffer[copied..copied + chunk_len]
++                        .copy_from_slice(&scratch[in_block..in_block + chunk_len]);
++                    copied += chunk_len;
++                }
++                _ => return Err(Error::new(EIO)),
++            }
++        }
++
++        Ok(())
++    }
++}
+diff --git a/src/os/uefi/mod.rs b/src/os/uefi/mod.rs
+index c79266e..86235a4 100644
+--- a/src/os/uefi/mod.rs
++++ b/src/os/uefi/mod.rs
+@@ -47,17 +47,19 @@ pub(crate) fn alloc_zeroed_page_aligned(size: usize) -> *mut u8 {
+     let ptr = {
+         // Max address mapped by src/arch paging code (8 GiB)
+         let mut ptr = 0x2_0000_0000;
+-        status_to_result((std::system_table().BootServices.AllocatePages)(
+-            1,                                  // AllocateMaxAddress
+-            MemoryType::EfiRuntimeServicesData, // Keeps this memory out of free space list
++        if status_to_result((std::system_table().BootServices.AllocatePages)(
++            0,                        // AllocateAnyPages
++            MemoryType::EfiLoaderData,
+             pages,
+             &mut ptr,
+         ))
+-        .unwrap();
++        .is_err()
++        {
++            return ptr::null_mut();
++        }
+         ptr as *mut u8
+     };
+ 
+-    assert!(!ptr.is_null());
+     unsafe { ptr::write_bytes(ptr, 0, pages * page_size) };
+     ptr
+ }

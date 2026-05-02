@@ -11,17 +11,13 @@ Red Bear OS build system orchestrator — fetches, builds, and packages ~100+ Gi
 into a bootable Redox image. Uses a Makefile + Rust "cookbook" tool + TOML configs.
 Languages: Rust (core), C (ported packages), TOML (config), Make (build orchestration).
 
-RedBearOS should be treated as an overlay distribution on top of Redox in the same way Ubuntu
-relates to Debian:
+RedBearOS is a **full fork** of Redox OS — based on frozen, archived source snapshots.
+Sources are immutable and never auto-immutable archived from upstream. All changes are explicit,
+human-initiated operations. Durable Red Bear state belongs in `local/patches/`,
+`local/recipes/`, `local/docs/`, and tracked Red Bear configs.
 
-- Redox is upstream
-- Red Bear carries integration, packaging, validation, and subsystem overlays on top
-- upstream-owned source trees are refreshable working copies
-- durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
-  Red Bear configs
-
-If we can fetch refreshed upstream sources, reapply our overlays, and rebuild successfully, the
-project is in the right shape for long-term maintenance.
+The current baseline is **Red Bear OS 0.1.0** (Redox snapshot at build-system commit `f55acba68`).
+All recipe sources are pinned and archived in `sources/redbear-0.1.0/`.
 
 ## STRUCTURE
 
@@ -172,9 +168,9 @@ only inside a fetched source tree is not preserved.
 2. **Wire the patch** into the recipe's `recipe.toml` `patches = [...]` list.
 3. **Commit** the patch file and recipe change before the session ends.
 
-**Why:** `make distclean`, `make clean`, upstream source refreshes, and `sync-upstream.sh` all
-discard or replace `recipes/*/source/` trees. Only `local/patches/`, `local/recipes/`, tracked
-configs, and `local/docs/` survive.
+**Why:** `make distclean`, `make clean`, and source immutable archivedes all
+discard or replace `recipes/*/source/` trees. Only `local/patches/`, `local/recipes/`,
+tracked configs, `local/docs/`, and `sources/redbear-0.1.0/` survive.
 
 **Examples of changes that require immediate patching:**
 
@@ -255,24 +251,20 @@ local/patches/
 | Script | Purpose |
 |--------|---------|
 | `local/scripts/apply-patches.sh` | Apply all build-system patches + create recipe symlinks |
-| `local/scripts/sync-upstream.sh` | Fetch upstream + rebase Red Bear OS commits + verify symlinks |
+| `local/scripts/provision-release.sh` | Provision new release from Redox ref + archive sources |
+| `local/scripts/check-upstream-releases.sh` | Check for new Redox snapshots (read-only) |
 
-### Updating from Upstream
+### Release Model (Fork)
+
+Red Bear OS is a full fork based on frozen Redox snapshots. Sources are immutable
+and never auto-immutable archived. The current baseline is 0.1.0.
 
 ```bash
-# Automated (preferred):
-./local/scripts/sync-upstream.sh              # Rebase Red Bear OS onto latest upstream
-./local/scripts/sync-upstream.sh --dry-run    # Preview conflicts first
+# Check for newer Redox snapshots (read-only, zero side effects):
+./local/scripts/check-upstream-releases.sh
 
-# Manual:
-git remote add upstream-redox https://github.com/redox-os/redox.git  # once
-git fetch upstream-redox master
-git rebase upstream-redox/master             # replays Red Bear OS commits on new upstream
-
-# Nuclear option (if rebase fails badly):
-git rebase --abort
-git reset --hard upstream-redox/master
-./local/scripts/apply-patches.sh --force     # apply from scratch via patch files
+# Provision a new release (explicit, human-initiated only):
+./local/scripts/provision-release.sh --ref=<redox-tag> --release=0.2.0 --dry-run
 ```
 
 ## AMD-FIRST INTEGRATION PATH
@@ -342,7 +334,7 @@ Phase 1 (runtime substrate) → Phase 2 (software compositor) → Phase 3 (KWin 
 6. `redbear-sessiond` — `local/recipes/system/redbear-sessiond/source/` — Rust D-Bus session broker exposing `org.freedesktop.login1` subset for KWin (uses `zbus`)
 7. `redbear-dbus-services` — `local/recipes/system/redbear-dbus-services/` — D-Bus activation `.service` files and XML policy files for system and session buses
 
-All custom work goes in `local/` — see `local/AGENTS.md` for overlay usage.
+All custom work goes in `local/` — see `local/AGENTS.md` for fork model usage.
 
 ## NOTES
 

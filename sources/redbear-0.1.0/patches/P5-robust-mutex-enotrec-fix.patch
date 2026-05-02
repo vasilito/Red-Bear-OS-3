@@ -1,0 +1,87 @@
+Fix ENOTRECOVERABLE returned for non-robust mutexes and register main
+thread in OS_TID_TO_PTHREAD.
+
+The robust mutex liveness check (mutex_owner_id_is_live) was returning
+ENOTRECOVERABLE for non-robust mutexes when the owner appeared dead.
+Per POSIX, the behaviour of a non-robust mutex whose owner has died is
+undefined; returning an error crashes every Rust std::sync::Mutex user.
+For lock_inner, fall through to spin/futex-wait instead. For try_lock,
+return EBUSY instead.
+
+Additionally, pthread::init() never registered the main thread in
+OS_TID_TO_PTHREAD, so any mutex owned by the main thread would always
+appear to have a dead owner, making the liveness check unreliable.
+
+diff --git a/src/pthread/mod.rs b/src/pthread/mod.rs
+index 8243a48..c455a67 100644
+--- a/src/pthread/mod.rs
++++ b/src/pthread/mod.rs
+@@ -43,9 +43,13 @@ pub unsafe fn init() {
+         thread.stack_size = STACK_SIZE;
+     }
+ 
+-    unsafe { Tcb::current() }
+-        .expect_notls("no TCB present for main thread")
+-        .pthread = thread;
++    let tcb = unsafe { Tcb::current() }
++        .expect_notls("no TCB present for main thread");
++    tcb.pthread = thread;
++
++    OS_TID_TO_PTHREAD
++        .lock()
++        .insert(Sys::current_os_tid(), ForceSendSync(tcb as *const Tcb as *mut Tcb));
+ }
+ 
+ //static NEXT_INDEX: AtomicU32 = AtomicU32::new(FIRST_THREAD_IDX + 1);
+diff --git a/src/sync/pthread_mutex.rs b/src/sync/pthread_mutex.rs
+index af0c429..1b2b3ca 100644
+--- a/src/sync/pthread_mutex.rs
++++ b/src/sync/pthread_mutex.rs
+@@ -136,11 +136,7 @@ impl RlctMutex {
+                 Err(thread) => {
+                     let owner = thread & INDEX_MASK;
+ 
+-                    if !crate::pthread::mutex_owner_id_is_live(owner) {
+-                        if !self.robust {
+-                            return Err(Errno(ENOTRECOVERABLE));
+-                        }
+-
++                    if !crate::pthread::mutex_owner_id_is_live(owner) && self.robust {
+                         let new_value = (thread & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread;
+                         match self.inner.compare_exchange(
+                             thread,
+@@ -152,6 +155,11 @@ impl RlctMutex {
+                             Ok(_) => return self.finish_lock_acquire(true),
+                             Err(_) => continue,
+                         }
++                    } else if !crate::pthread::mutex_owner_id_is_live(owner) {
++                        // Non-robust mutex with apparently-dead owner: per POSIX the
++                        // behaviour is undefined.  We conservatively keep spinning /
++                        // futex-waiting rather than returning ENOTRECOVERABLE, which
++                        // would crash any Rust std::sync::Mutex user.
+                     }
+ 
+                     if spins_left > 0 {
+@@ -241,9 +250,6 @@ impl RlctMutex {
+ 
+             if current & FUTEX_OWNER_DIED != 0 || (owner != 0 && !crate::pthread::mutex_owner_id_is_live(owner)) {
+-                if !self.robust {
+-                    return Err(Errno(ENOTRECOVERABLE));
+-                }
+-
++                if self.robust {
+                 let new_value = (current & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread;
+                 match self.inner.compare_exchange(
+                     current,
+@@ -257,6 +269,11 @@ impl RlctMutex {
+                     Ok(_) => return self.finish_lock_acquire(true),
+                     Err(_) => continue,
+                 }
++                } else {
++                    // Non-robust mutex: owner appears dead but POSIX behaviour is
++                    // undefined; report busy rather than ENOTRECOVERABLE.
++                    return Err(Errno(EBUSY));
++                }
+             }
+ 
+             return Err(Errno(EBUSY));

@@ -67,9 +67,9 @@ All profiles produce outputs under `build/x86_64/`. Each profile gets its own di
 - Enables the shared `wired-dhcp` netctl profile by default for the VM/wired baseline.
 - Ships the shared firmware/input runtime service prerequisites so the early substrate can be tested on the smallest profile as well.
 
-### Historical and experimental overlays
+### Historical and experimental release fork
 
-- Experimental overlays such as `redbear-bluetooth-experimental` and `redbear-wifi-experimental`
+- Experimental release fork such as `redbear-bluetooth-experimental` and `redbear-wifi-experimental`
   are bounded validation slices layered on top of the tracked compile targets, not additional
   compile targets.
 

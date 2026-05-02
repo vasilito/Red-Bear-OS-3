@@ -1,0 +1,61 @@
+diff --git a/drivers/pcid/src/scheme.rs b/drivers/pcid/src/scheme.rs
+index ce55b33f..c06bdec4 100644
+--- a/drivers/pcid/src/scheme.rs
++++ b/drivers/pcid/src/scheme.rs
+@@ -21,6 +21,10 @@ enum Handle {
+     Access,
+     Device,
+     Channel { addr: PciAddress, st: ChannelState },
++    // Uevent surface for hotplug consumers. Opening uevent returns an object
++    // from which device add/remove events can be read. Since pcid currently
++    // only scans at startup, this surface is ready for hotplug polling consumers.
++    Uevent,
+     SchemeRoot,
+     /// Represents an open handle to a device's bind endpoint
+     Bind { addr: PciAddress },
+@@ -34,6 +38,6 @@ struct HandleWrapper {
+     }
+     fn is_file(&self) -> bool {
+-        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. })
++        matches!(self, Self::Access | Self::Channel { .. } | Self::Bind { .. } | Self::Uevent)
+     }
+     fn is_dir(&self) -> bool {
+         !self.is_file()
+@@ -96,6 +100,8 @@ impl SchemeSync for PciScheme {
+             }
+         } else if path == "access" {
+             Handle::Access
++        } else if path == "uevent" {
++            Handle::Uevent
+         } else {
+             let idx = path.find('/').unwrap_or(path.len());
+             let (addr_str, after) = path.split_at(idx);
+@@ -140,5 +146,6 @@ impl SchemeSync for PciScheme {
+             Handle::Device => (DEVICE_CONTENTS.len(), MODE_DIR | 0o755),
+             Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } => (0, MODE_CHR | 0o600),
++            Handle::Uevent => (0, MODE_CHR | 0o644),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+         stat.st_size = len as u64;
+@@ -164,7 +171,13 @@ impl SchemeSync for PciScheme {
+             Handle::Channel {
+                 addr: _,
+                 ref mut st,
+             } => Self::read_channel(st, buf),
++            Handle::Uevent => {
++                // Uevent surface is ready for hotplug polling consumers.
++                // pcid currently only scans at startup, so return empty (EAGAIN would indicate no data available).
++                // Consumers can poll and re-read to check for new events.
++                Ok(0)
++            }
+             Handle::SchemeRoot | Handle::Bind { .. } => Err(Error::new(EBADF)),
+             _ => Err(Error::new(EBADF)),
+         }
+@@ -199,6 +212,6 @@ impl SchemeSync for PciScheme {
+             }
+             Handle::Device => DEVICE_CONTENTS,
+-            Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } => return Err(Error::new(ENOTDIR)),
++            Handle::Access | Handle::Channel { .. } | Handle::Bind { .. } | Handle::Uevent => return Err(Error::new(ENOTDIR)),
+             Handle::SchemeRoot => return Err(Error::new(EBADF)),
+         };
+         for (i, dent_name) in entries.iter().enumerate().skip(offset) {

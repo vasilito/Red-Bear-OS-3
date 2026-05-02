@@ -226,13 +226,22 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
             git: _,
             upstream: _,
             branch: _,
-            rev: _,
+            rev,
             patches: _,
             script: _,
             shallow_clone: _,
         }) => {
             offline_check_exists(&source_dir)?;
             let (head_rev, _) = get_git_head_rev(&source_dir)?;
+            if let Some(expected_rev) = rev {
+                if head_rev != *expected_rev {
+                    bail_other_err!(
+                        "source at {} has revision {} but recipe expects {}. \
+                         Source archives may be corrupted. Restore from release archives.",
+                        source_dir.display(), head_rev, expected_rev
+                    );
+                }
+            }
             FetchResult::cached(source_dir, head_rev)
         }
         Some(SourceRecipe::Tar {

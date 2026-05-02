@@ -2,7 +2,7 @@ diff --git a/src/main.rs b/src/main.rs
 index b2e2736..a6a9474 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -500,33 +500,62 @@ pub extern "C" fn main() -> ! {
+@@ -500,36 +500,63 @@ pub extern "C" fn main() -> ! {
  
          print!("live: 0/{} MiB", size / MIBI as u64);
  

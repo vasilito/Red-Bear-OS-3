@@ -4,6 +4,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Source .config for release mode settings (REDBEAR_RELEASE, etc.)
+if [ -f "$PROJECT_ROOT/.config" ]; then
+    while IFS='?=' read -r key value; do
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        [ -z "$key" ] && continue
+        [[ "$key" =~ ^# ]] && continue
+        # Only set if not already set in environment
+        [ -n "${!key:-}" ] || export "$key=$value"
+    done < "$PROJECT_ROOT/.config"
+fi
+
 CONFIG="redbear-full"
 JOBS="${JOBS:-$(nproc)}"
 APPLY_PATCHES="${APPLY_PATCHES:-1}"
@@ -79,7 +91,7 @@ echo ""
 
 cd "$PROJECT_ROOT"
 
-if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
+if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ] && [ -z "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Verifying overlay integrity (auto-repair)..."
     "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" --repair
     echo ""
@@ -124,7 +136,7 @@ ensure_relibc_desktop_surface() {
     fi
 }
 
-if [ "$APPLY_PATCHES" = "1" ]; then
+if [ "$APPLY_PATCHES" = "1" ] && [ -z "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Applying local patches..."
 
     apply_patch_dir() {
@@ -177,12 +189,8 @@ if [ "$APPLY_PATCHES" = "1" ]; then
 
     stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
     echo ""
-fi
-
-if [ -x "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh" ]; then
-    echo ">>> Verifying overlay integrity (strict)..."
-    "$PROJECT_ROOT/local/scripts/verify-overlay-integrity.sh"
-    echo ""
+elif [ -n "${REDBEAR_RELEASE:-}" ]; then
+    echo ">>> Release mode: skipping patch application (patches pre-applied in archived sources)"
 fi
 
 if [ ! -f "target/release/repo" ]; then
@@ -209,11 +217,43 @@ fi
 
 echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
-if [ "$ALLOW_UPSTREAM" -eq 1 ]; then
+
+# In release mode, verify archives exist before building
+if [ -n "${REDBEAR_RELEASE:-}" ]; then
+    echo ">>> Release mode: $REDBEAR_RELEASE"
+    if [ -f "./local/scripts/verify-sources-archived.sh" ]; then
+        bash "./local/scripts/verify-sources-archived.sh" --release="$REDBEAR_RELEASE" || {
+            echo "ERROR: Release archive verification failed. Run: provision-release.sh"
+            exit 1
+        }
+    fi
+fi
+
+if [ "${REDBEAR_ALLOW_UPSTREAM:-0}" = "1" ]; then
+    echo ">>> WARNING: Upstream fetch ENABLED (REDBEAR_ALLOW_UPSTREAM=1)"
+    REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+elif [ -n "${REDBEAR_RELEASE:-}" ]; then
+    echo ">>> Release mode: building from immutable archives (offline)"
+    # Validate source trees before building
+    if [ -f "$PROJECT_ROOT/local/scripts/validate-source-trees.sh" ]; then
+        echo ">>> Validating source trees..."
+        bash "$PROJECT_ROOT/local/scripts/validate-source-trees.sh" "$CONFIG" || {
+            echo "WARNING: Some source trees are missing."
+            echo "Attempting build with REPO_BINARY=1 fallback for missing packages..."
+            REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 REPO_BINARY=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS" || {
+                echo "ERROR: Build failed even with binary fallback."
+                echo "Run: ./local/scripts/restore-sources.sh --release=$REDBEAR_RELEASE"
+                exit 1
+            }
+            exit 0
+        }
+    fi
+    REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
+elif [ "$ALLOW_UPSTREAM" -eq 1 ]; then
     echo ">>> Upstream recipe refresh enabled"
     REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 else
-    echo ">>> Upstream recipe refresh disabled (pass --upstream to enable)"
+    echo ">>> Upstream recipe refresh disabled (default: offline)"
     REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 fi
 

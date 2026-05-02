@@ -1,0 +1,685 @@
+diff --git a/drivers/acpid/src/main.rs b/drivers/acpid/src/main.rs
+index 059254b3..a3f5f996 100644
+--- a/drivers/acpid/src/main.rs
++++ b/drivers/acpid/src/main.rs
+@@ -3,6 +3,7 @@ use std::fs::File;
+ use std::mem;
+ use std::ops::ControlFlow;
+ use std::os::unix::io::AsRawFd;
++use std::process;
+ use std::sync::Arc;
+ 
+ use ::acpi::aml::op_region::{RegionHandler, RegionSpace};
+@@ -17,6 +18,58 @@ mod ec;
+ 
+ mod scheme;
+ 
++fn parse_physaddrs(sdt: &self::acpi::Sdt) -> Vec<u64> {
++    match &sdt.signature {
++        b"RSDT" => {
++            let chunks = sdt.data().chunks_exact(mem::size_of::<u32>());
++            if !chunks.remainder().is_empty() {
++                eprintln!(
++                    "acpid: malformed RSDT length {}: expected 4-byte entries",
++                    sdt.data().len()
++                );
++                process::exit(1);
++            }
++
++            chunks
++                .map(|chunk| match <[u8; mem::size_of::<u32>()]>::try_from(chunk) {
++                    Ok(bytes) => u32::from_le_bytes(bytes) as u64,
++                    Err(_) => {
++                        eprintln!("acpid: failed to decode RSDT physical address entry");
++                        process::exit(1);
++                    }
++                })
++                .collect()
++        }
++        b"XSDT" => {
++            let chunks = sdt.data().chunks_exact(mem::size_of::<u64>());
++            if !chunks.remainder().is_empty() {
++                eprintln!(
++                    "acpid: malformed XSDT length {}: expected 8-byte entries",
++                    sdt.data().len()
++                );
++                process::exit(1);
++            }
++
++            chunks
++                .map(|chunk| match <[u8; mem::size_of::<u64>()]>::try_from(chunk) {
++                    Ok(bytes) => u64::from_le_bytes(bytes),
++                    Err(_) => {
++                        eprintln!("acpid: failed to decode XSDT physical address entry");
++                        process::exit(1);
++                    }
++                })
++                .collect()
++        }
++        signature => {
++            eprintln!(
++                "acpid: expected [RX]SDT from kernel, got {:?}",
++                String::from_utf8_lossy(signature)
++            );
++            process::exit(1);
++        }
++    }
++}
++
+ fn daemon(daemon: daemon::Daemon) -> ! {
+     common::setup_logging(
+         "misc",
+@@ -29,7 +82,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     log::info!("acpid start");
+ 
+     let rxsdt_raw_data: Arc<[u8]> = std::fs::read("/scheme/kernel.acpi/rxsdt")
+-        .expect("acpid: failed to read `/scheme/kernel.acpi/rxsdt`")
++        .unwrap_or_else(|err| {
++            eprintln!("acpid: failed to read `/scheme/kernel.acpi/rxsdt`: {err}");
++            process::exit(1);
++        })
+         .into();
+ 
+     if rxsdt_raw_data.is_empty() {
+@@ -38,84 +94,84 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+         std::process::exit(0);
+     }
+ 
+-    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).expect("acpid: failed to parse [RX]SDT");
+-
+-    let mut thirty_two_bit;
+-    let mut sixty_four_bit;
+-
+-    let physaddrs_iter = match &sdt.signature {
+-        b"RSDT" => {
+-            thirty_two_bit = sdt
+-                .data()
+-                .chunks(mem::size_of::<u32>())
+-                // TODO: With const generics, the compiler has some way of doing this for static sizes.
+-                .map(|chunk| <[u8; mem::size_of::<u32>()]>::try_from(chunk).unwrap())
+-                .map(|chunk| u32::from_le_bytes(chunk))
+-                .map(u64::from);
+-
+-            &mut thirty_two_bit as &mut dyn Iterator<Item = u64>
+-        }
+-        b"XSDT" => {
+-            sixty_four_bit = sdt
+-                .data()
+-                .chunks(mem::size_of::<u64>())
+-                .map(|chunk| <[u8; mem::size_of::<u64>()]>::try_from(chunk).unwrap())
+-                .map(|chunk| u64::from_le_bytes(chunk));
+-
+-            &mut sixty_four_bit as &mut dyn Iterator<Item = u64>
+-        }
+-        _ => panic!("acpid: expected [RX]SDT from kernel to be either of those"),
+-    };
++    let sdt = self::acpi::Sdt::new(rxsdt_raw_data).unwrap_or_else(|err| {
++        eprintln!("acpid: failed to parse [RX]SDT: {err}");
++        process::exit(1);
++    });
++    let physaddrs = parse_physaddrs(&sdt);
+ 
+     let region_handlers: Vec<(RegionSpace, Box<dyn RegionHandler + 'static>)> = vec![
+         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+         (RegionSpace::EmbeddedControl, Box::new(ec::Ec::new())),
+     ];
+-    let acpi_context = self::acpi::AcpiContext::init(physaddrs_iter, region_handlers);
++    let acpi_context = self::acpi::AcpiContext::init(physaddrs.into_iter(), region_handlers);
+ 
+     // TODO: I/O permission bitmap?
+     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+-    common::acquire_port_io_rights().expect("acpid: failed to set I/O privilege level to Ring 3");
++    common::acquire_port_io_rights().unwrap_or_else(|err| {
++        eprintln!("acpid: failed to set I/O privilege level to Ring 3: {err}");
++        process::exit(1);
++    });
+ 
+     let shutdown_pipe = File::open("/scheme/kernel.acpi/kstop")
+-        .expect("acpid: failed to open `/scheme/kernel.acpi/kstop`");
+-
+-    let mut event_queue = RawEventQueue::new().expect("acpid: failed to create event queue");
+-    let socket = Socket::nonblock().expect("acpid: failed to create disk scheme");
++        .unwrap_or_else(|err| {
++            eprintln!("acpid: failed to open `/scheme/kernel.acpi/kstop`: {err}");
++            process::exit(1);
++        });
++
++    let mut event_queue = RawEventQueue::new().unwrap_or_else(|err| {
++        eprintln!("acpid: failed to create event queue: {err}");
++        process::exit(1);
++    });
++    let socket = Socket::nonblock().unwrap_or_else(|err| {
++        eprintln!("acpid: failed to create disk scheme: {err}");
++        process::exit(1);
++    });
+ 
+     let mut scheme = self::scheme::AcpiScheme::new(&acpi_context, &socket);
+     let mut handler = Blocking::new(&socket, 16);
+ 
+     event_queue
+         .subscribe(shutdown_pipe.as_raw_fd() as usize, 0, EventFlags::READ)
+-        .expect("acpid: failed to register shutdown pipe for event queue");
++        .unwrap_or_else(|err| {
++            eprintln!("acpid: failed to register shutdown pipe for event queue: {err}");
++            process::exit(1);
++        });
+     event_queue
+         .subscribe(socket.inner().raw(), 1, EventFlags::READ)
+-        .expect("acpid: failed to register scheme socket for event queue");
++        .unwrap_or_else(|err| {
++            eprintln!("acpid: failed to register scheme socket for event queue: {err}");
++            process::exit(1);
++        });
+ 
+     register_sync_scheme(&socket, "acpi", &mut scheme)
+-        .expect("acpid: failed to register acpi scheme to namespace");
++        .unwrap_or_else(|err| {
++            eprintln!("acpid: failed to register acpi scheme to namespace: {err}");
++            process::exit(1);
++        });
+ 
+     daemon.ready();
+ 
+-    libredox::call::setrens(0, 0).expect("acpid: failed to enter null namespace");
++    libredox::call::setrens(0, 0).unwrap_or_else(|err| {
++        eprintln!("acpid: failed to enter null namespace: {err}");
++        process::exit(1);
++    });
+ 
+     let mut mounted = true;
+     while mounted {
+-        let Some(event) = event_queue
+-            .next()
+-            .transpose()
+-            .expect("acpid: failed to read event file")
+-        else {
++        let Some(event) = event_queue.next().transpose().unwrap_or_else(|err| {
++            eprintln!("acpid: failed to read event file: {err}");
++            process::exit(1);
++        }) else {
+             break;
+         };
+ 
+         if event.fd == socket.inner().raw() {
+             loop {
+-                match handler
+-                    .process_requests_nonblocking(&mut scheme)
+-                    .expect("acpid: failed to process requests")
+-                {
++                match handler.process_requests_nonblocking(&mut scheme).unwrap_or_else(|err| {
++                    eprintln!("acpid: failed to process requests: {err}");
++                    process::exit(1);
++                }) {
+                     ControlFlow::Continue(()) => {}
+                     ControlFlow::Break(()) => break,
+                 }
+@@ -134,7 +190,8 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     acpi_context.set_global_s_state(5);
+ 
+-    unreachable!("System should have shut down before this is entered");
++    eprintln!("acpid: system did not shut down after requesting S5");
++    process::exit(1);
+ }
+ 
+ fn main() {
+diff --git a/drivers/pcid/src/main.rs b/drivers/pcid/src/main.rs
+index 61cd9a78..18ee18ab 100644
+--- a/drivers/pcid/src/main.rs
++++ b/drivers/pcid/src/main.rs
+@@ -3,6 +3,7 @@
+ #![feature(non_exhaustive_omitted_patterns_lint)]
+ 
+ use std::collections::BTreeMap;
++use std::process;
+ 
+ use log::{debug, info, trace, warn};
+ use pci_types::capability::PciCapability;
+@@ -42,7 +43,16 @@ fn handle_parsed_header(
+             continue;
+         }
+         match endpoint_header.bar(i, pcie) {
+-            Some(TyBar::Io { port }) => bars[i as usize] = PciBar::Port(port.try_into().unwrap()),
++            Some(TyBar::Io { port }) => match port.try_into() {
++                Ok(port) => bars[i as usize] = PciBar::Port(port),
++                Err(_) => {
++                    warn!(
++                        "pcid: skipping invalid I/O BAR port {port:#x} on {}",
++                        endpoint_header.header().address()
++                    );
++                    bars[i as usize] = PciBar::None;
++                }
++            },
+             Some(TyBar::Memory32 {
+                 address,
+                 size,
+@@ -251,7 +261,10 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     info!("PCI SG-BS:DV.F VEND:DEVI CL.SC.IN.RV");
+ 
+     let mut scheme = scheme::PciScheme::new(pcie);
+-    let socket = redox_scheme::Socket::create().expect("failed to open pci scheme socket");
++    let socket = redox_scheme::Socket::create().unwrap_or_else(|err| {
++        eprintln!("pcid: failed to open pci scheme socket: {err}");
++        process::exit(1);
++    });
+     let handler = Blocking::new(&socket, 16);
+ 
+     {
+@@ -259,17 +272,27 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+             Ok(register_pci) => {
+                 let access_id = scheme.access();
+ 
+-                let access_fd = socket
+-                    .create_this_scheme_fd(0, access_id, syscall::O_RDWR, 0)
+-                    .expect("failed to issue this resource");
+-                let access_bytes = access_fd.to_ne_bytes();
+-                let _ = register_pci
+-                    .call_wo(
+-                        &access_bytes,
+-                        syscall::CallFlags::WRITE | syscall::CallFlags::FD,
+-                        &[],
+-                    )
+-                    .expect("failed to send pci_fd to acpid");
++                match socket.create_this_scheme_fd(0, access_id, syscall::O_RDWR, 0) {
++                    Ok(access_fd) => {
++                        let access_bytes = access_fd.to_ne_bytes();
++                        if let Err(err) = register_pci.call_wo(
++                            &access_bytes,
++                            syscall::CallFlags::WRITE | syscall::CallFlags::FD,
++                            &[],
++                        ) {
++                            warn!(
++                                "pcid: failed to send pci_fd to acpid (error: {}). Running without ACPI integration.",
++                                err
++                            );
++                        }
++                    }
++                    Err(err) => {
++                        warn!(
++                            "pcid: failed to issue acpid registration resource (error: {}). Running without ACPI integration.",
++                            err
++                        );
++                    }
++                }
+             }
+             Err(err) => {
+                 if err.errno() == libredox::errno::ENODEV {
+@@ -305,13 +328,20 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+     debug!("Enumeration complete, now starting pci scheme");
+ 
+     register_sync_scheme(&socket, "pci", &mut scheme)
+-        .expect("failed to register pci scheme to namespace");
++        .unwrap_or_else(|err| {
++            eprintln!("pcid: failed to register pci scheme to namespace: {err}");
++            process::exit(1);
++        });
+ 
+     let _ = daemon.ready();
+ 
+-    handler
+-        .process_requests_blocking(scheme)
+-        .expect("pcid: failed to process requests");
++    match handler.process_requests_blocking(scheme) {
++        Ok(never) => match never {},
++        Err(err) => {
++            eprintln!("pcid: failed to process requests: {err}");
++            process::exit(1);
++        }
++    }
+ }
+ 
+ fn scan_device(
+@@ -323,6 +353,7 @@ fn scan_device(
+ ) {
+     for func_num in 0..8 {
+         let header = TyPciHeader::new(PciAddress::new(0, bus_num, dev_num, func_num));
++        let header_address = header.address();
+ 
+         let (vendor_id, device_id) = header.id(pcie);
+         if vendor_id == 0xffff && device_id == 0xffff {
+@@ -344,21 +375,40 @@ fn scan_device(
+             revision,
+         };
+ 
+-        info!("PCI {} {}", header.address(), full_device_id.display());
++        info!("PCI {} {}", header_address, full_device_id.display());
+ 
+         let has_multiple_functions = header.has_multiple_functions(pcie);
+ 
+         match header.header_type(pcie) {
+             HeaderType::Endpoint => {
++                let endpoint_header = match EndpointHeader::from_header(header, pcie) {
++                    Some(endpoint_header) => endpoint_header,
++                    None => {
++                        warn!(
++                            "pcid: failed to parse endpoint header for {}",
++                            header_address,
++                        );
++                        continue;
++                    }
++                };
+                 handle_parsed_header(
+                     pcie,
+                     tree,
+-                    EndpointHeader::from_header(header, pcie).unwrap(),
++                    endpoint_header,
+                     full_device_id,
+                 );
+             }
+             HeaderType::PciPciBridge => {
+-                let bridge_header = PciPciBridgeHeader::from_header(header, pcie).unwrap();
++                let bridge_header = match PciPciBridgeHeader::from_header(header, pcie) {
++                    Some(bridge_header) => bridge_header,
++                    None => {
++                        warn!(
++                            "pcid: failed to parse bridge header for {}",
++                            header_address,
++                        );
++                        continue;
++                    }
++                };
+                 bus_nums.push(bridge_header.secondary_bus_number(pcie));
+             }
+             ty => {
+diff --git a/init/src/main.rs b/init/src/main.rs
+index 5682cf44..cd270a6e 100644
+--- a/init/src/main.rs
++++ b/init/src/main.rs
+@@ -1,6 +1,7 @@
+ use std::collections::BTreeMap;
+ use std::ffi::OsString;
+ use std::path::Path;
++use std::time::Duration;
+ use std::{env, fs, io};
+ 
+ use libredox::flag::{O_RDONLY, O_WRONLY};
+@@ -166,19 +167,36 @@ fn main() {
+             }
+         };
+         for entry in entries {
++            let Some(unit_name) = entry.file_name().and_then(|name| name.to_str()) else {
++                eprintln!(
++                    "init: skipping config entry with invalid filename: {}",
++                    entry.display()
++                );
++                continue;
++            };
+             scheduler.schedule_start_and_report_errors(
+                 &mut unit_store,
+-                UnitId(entry.file_name().unwrap().to_str().unwrap().to_owned()),
++                UnitId(unit_name.to_owned()),
+             );
+         }
+     };
+ 
+     scheduler.step(&mut unit_store, &mut init_config);
+ 
+-    libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
++    if let Err(err) = libredox::call::setrens(0, 0) {
++        eprintln!("init: failed to enter null namespace: {err}");
++        std::process::exit(1);
++    }
+ 
+     loop {
+         let mut status = 0;
+-        libredox::call::waitpid(0, &mut status, 0).unwrap();
++        match libredox::call::waitpid(0, &mut status, 0) {
++            Ok(_) => {}
++            Err(err) if err.errno() == libredox::errno::EINTR => continue,
++            Err(err) => {
++                eprintln!("init: waitpid failed: {err}");
++                std::thread::sleep(Duration::from_millis(100));
++            }
++        }
+     }
+ }
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+index d42a4e57..3b8d10b0 100644
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -43,7 +43,10 @@ impl Scheduler {
+     ) {
+         let loaded_units = unit_store.load_units(unit_id.clone(), errors);
+         for unit_id in loaded_units {
+-            if !unit_store.unit(&unit_id).conditions_met() {
++            if unit_store
++                .try_unit(&unit_id)
++                .is_ok_and(|unit| !unit.conditions_met())
++            {
+                 continue;
+             }
+ 
+@@ -62,7 +65,10 @@ impl Scheduler {
+ 
+             match job.kind {
+                 JobKind::Start => {
+-                    let unit = unit_store.unit_mut(&job.unit);
++                    let Ok(unit) = unit_store.try_unit_mut(&job.unit) else {
++                        eprintln!("init: unit {} not found in store, skipping", job.unit.0);
++                        continue 'a;
++                    };
+ 
+                     for dep in &unit.info.requires_weak {
+                         for pending_job in &self.pending {
+diff --git a/init/src/service.rs b/init/src/service.rs
+index ed0023e9..827ae275 100644
+--- a/init/src/service.rs
++++ b/init/src/service.rs
+@@ -3,13 +3,24 @@ use std::ffi::OsString;
+ use std::io::Read;
+ use std::os::fd::{AsRawFd, OwnedFd};
+ use std::os::unix::process::CommandExt;
+-use std::process::Command;
++use std::process::{Child, Command};
+ use std::{env, io};
+ 
+ use serde::Deserialize;
+ 
+ use crate::script::subst_env;
+ 
++fn terminate_child(child: &mut Child, command: &str) {
++    if let Err(err) = child.kill() {
++        if err.kind() != io::ErrorKind::InvalidInput {
++            eprintln!("init: failed to terminate {command}: {err}");
++        }
++    }
++    if let Err(err) = child.wait() {
++        eprintln!("init: failed to reap {command}: {err}");
++    }
++}
++
+ #[derive(Clone, Debug, Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub struct Service {
+@@ -37,7 +48,8 @@ pub enum ServiceType {
+ impl Service {
+     pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) {
+         let mut command = Command::new(&self.cmd);
+-        command.args(self.args.iter().map(|arg| subst_env(arg)));
++        let resolved_args: Vec<String> = self.args.iter().map(|arg| subst_env(arg)).collect();
++        command.args(&resolved_args);
+         command.env_clear();
+         for env in &self.inherit_envs {
+             if let Some(value) = env::var_os(env) {
+@@ -45,14 +57,25 @@ impl Service {
+             }
+         }
+         command.envs(base_envs).envs(&self.envs);
++        let command_display = if resolved_args.is_empty() {
++            self.cmd.clone()
++        } else {
++            format!("{} {}", self.cmd, resolved_args.join(" "))
++        };
+ 
+-        let (mut read_pipe, write_pipe) = io::pipe().unwrap();
++        let (mut read_pipe, write_pipe) = match io::pipe().map_err(|err| {
++            eprintln!("init: failed to create readiness pipe for {command_display}: {err}");
++            err
++        }) {
++            Ok(pair) => pair,
++            Err(_) => return,
++        };
+         unsafe { pass_fd(&mut command, "INIT_NOTIFY", write_pipe.into()) };
+ 
+         let mut child = match command.spawn() {
+             Ok(child) => child,
+             Err(err) => {
+-                eprintln!("init: failed to execute {:?}: {}", command, err);
++                eprintln!("init: failed to execute {command_display}: {err}");
+                 return;
+             }
+         };
+@@ -61,10 +84,10 @@ impl Service {
+             ServiceType::Notify => match read_pipe.read_exact(&mut [0]) {
+                 Ok(()) => {}
+                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+-                    eprintln!("init: {command:?} exited without notifying readiness");
++                    eprintln!("init: {command_display} exited without notifying readiness");
+                 }
+                 Err(err) => {
+-                    eprintln!("init: failed to wait for {command:?}: {err}");
++                    eprintln!("init: failed to wait for {command_display}: {err}");
+                 }
+             },
+             ServiceType::Scheme(scheme) => {
+@@ -80,7 +103,7 @@ impl Service {
+                             errno: syscall::EINTR,
+                         }) => continue,
+                         Ok(0) => {
+-                            eprintln!("init: {command:?} exited without notifying readiness");
++                            eprintln!("init: {command_display} exited without notifying readiness");
+                             return;
+                         }
+                         Ok(1) => break,
+@@ -89,26 +112,40 @@ impl Service {
+                             return;
+                         }
+                         Err(err) => {
+-                            eprintln!("init: failed to wait for {command:?}: {err}");
++                            eprintln!("init: failed to wait for {command_display}: {err}");
+                             return;
+                         }
+                     }
+                 }
+ 
+-                let current_namespace_fd = libredox::call::getns().expect("TODO");
+-                libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
+-                    .expect("TODO");
++                let current_namespace_fd = match libredox::call::getns() {
++                    Ok(fd) => fd,
++                    Err(err) => {
++                        eprintln!("init: failed to get current namespace for {command_display}: {err}");
++                        terminate_child(&mut child, &command_display);
++                        return;
++                    }
++                };
++                if let Err(err) =
++                    libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
++                {
++                    eprintln!(
++                        "init: failed to register scheme {scheme:?} for {command_display}: {err}"
++                    );
++                    terminate_child(&mut child, &command_display);
++                    return;
++                }
+             }
+             ServiceType::Oneshot => {
+                 drop(read_pipe);
+                 match child.wait() {
+                     Ok(exit_status) => {
+                         if !exit_status.success() {
+-                            eprintln!("init: {command:?} failed with {exit_status}");
++                            eprintln!("init: {command_display} failed with {exit_status}");
+                         }
+                     }
+                     Err(err) => {
+-                        eprintln!("init: failed to wait for {:?}: {}", command, err)
++                        eprintln!("init: failed to wait for {command_display}: {err}")
+                     }
+                 }
+             }
+diff --git a/init/src/unit.rs b/init/src/unit.rs
+index 98053cb2..bd998394 100644
+--- a/init/src/unit.rs
++++ b/init/src/unit.rs
+@@ -23,8 +23,14 @@ impl UnitStore {
+     }
+ 
+     pub fn set_runtime_target(&mut self, unit_id: UnitId) {
+-        assert!(self.runtime_target.is_none());
+-        assert!(self.units.contains_key(&unit_id));
++        if self.runtime_target.is_some() {
++            eprintln!("init: runtime target already set, ignoring {}", unit_id.0);
++            return;
++        }
++        if !self.units.contains_key(&unit_id) {
++            eprintln!("init: runtime target {} not found in unit store", unit_id.0);
++            return;
++        }
+         self.runtime_target = Some(unit_id);
+     }
+ 
+@@ -85,8 +91,15 @@ impl UnitStore {
+             let unit = self.load_single_unit(unit_id, errors);
+             if let Some(unit) = unit {
+                 loaded_units.push(unit.clone());
+-                for dep in &self.unit(&unit).info.requires_weak {
+-                    pending_units.push(dep.clone());
++                match self.try_unit(&unit) {
++                    Ok(unit) => {
++                        for dep in &unit.info.requires_weak {
++                            pending_units.push(dep.clone());
++                        }
++                    }
++                    Err(err) => {
++                        errors.push(err);
++                    }
+                 }
+             }
+         }
+@@ -94,12 +107,34 @@ impl UnitStore {
+         loaded_units
+     }
+ 
++    pub fn try_unit(&self, unit: &UnitId) -> Result<&Unit, String> {
++        self.units
++            .get(unit)
++            .ok_or_else(|| format!("unit {} not found in store", unit.0))
++    }
++
++    // Keep the legacy infallible accessors for compatibility while scheduler/load paths
++    // use the fallible helpers to avoid panicking on missing units.
++    #[allow(dead_code)]
+     pub fn unit(&self, unit: &UnitId) -> &Unit {
+-        self.units.get(unit).unwrap()
++        self.try_unit(unit).unwrap_or_else(|err| {
++            eprintln!("init: {err}");
++            std::process::exit(1);
++        })
++    }
++
++    pub fn try_unit_mut(&mut self, unit: &UnitId) -> Result<&mut Unit, String> {
++        self.units
++            .get_mut(unit)
++            .ok_or_else(|| format!("unit {} not found in store", unit.0))
+     }
+ 
++    #[allow(dead_code)]
+     pub fn unit_mut(&mut self, unit: &UnitId) -> &mut Unit {
+-        self.units.get_mut(unit).unwrap()
++        self.try_unit_mut(unit).unwrap_or_else(|err| {
++            eprintln!("init: {err}");
++            std::process::exit(1);
++        })
+     }
+ }
+ 
+@@ -180,7 +215,7 @@ impl Unit {
+     ) -> io::Result<Self> {
+         let config = fs::read_to_string(config_path)?;
+ 
+-        let Some(ext) = config_path.extension().map(|ext| ext.to_str().unwrap()) else {
++        let Some(ext) = config_path.extension().and_then(|ext| ext.to_str()) else {
+             let script = Script::from_str(&config, errors)?;
+             return Ok(Unit {
+                 id,

@@ -1,0 +1,467 @@
+# Red Bear OS Mini Configuration
+# Text-only ISO for console/recovery/install on bare metal.
+#
+# Build: make live CONFIG_NAME=redbear-mini
+#
+# Target contract:
+# - text-login live/recovery/install surface
+# - boot framebuffer for VT text consoles via vesad + fbcond
+# - all non-graphics, non-firmware packages from the full profile
+# - no linux-firmware payload, no firmware-loader, no GPU/display drivers
+
+include = ["minimal.toml", "redbear-legacy-base.toml", "redbear-netctl.toml", "redbear-device-services.toml"]
+
+[general]
+filesystem_size = 1536
+
+[users.messagebus]
+uid = 100
+gid = 100
+name = "messagebus"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
+
+[packages]
+# Red Bear OS branding and host utilities.
+redbear-release = {}
+redbear-hwutils = {}
+redbear-quirks = {}
+
+# Device driver infrastructure (pcid-spawner is built by the base recipe;
+# driver-manager requires driver config migration and is not yet ready)
+ehcid = {}
+ohcid = {}
+uhcid = {}
+
+# Redox-native netctl tooling.
+redbear-netctl = {}
+redbear-netctl-console = {}
+redbear-netstat = {}
+redbear-traceroute = {}
+redbear-mtr = {}
+redbear-nmap = {}
+
+# Wi-Fi control daemon (firmware-loader excluded — no firmware blobs in mini).
+redbear-wifictl = {}
+
+# Diagnostics and shell-side utilities.
+mc = "ignore"
+redbear-info = {}
+
+# Keep package builder utility in live environment.
+cub = {}
+cpufreqd = {}
+thermald = {}
+hwrngd = {}
+redbear-acmd = {}
+redbear-ecmd = {}
+redbear-usbaudiod = {}
+driver-params = {}
+
+# ── PCI device database (critical for PCI driver matching) ──
+pciids = {}
+
+# ── Filesystem support ──
+ext4d = {}
+fatd = {}
+redoxfs = {}
+
+# ── System installer ──
+installer = {}
+
+# ── Input / device management ──
+evdevd = {}
+udev-shim = {}
+
+# ── D-Bus IPC and session services ──
+dbus = {}
+redbear-sessiond = {}
+redbear-dbus-services = {}
+redbear-notifications = {}
+redbear-upower = {}
+redbear-udisks = {}
+redbear-polkit = {}
+
+# ── IOMMU DMA remapping ──
+iommu = {}
+
+# ── Standard CLI tools (from server profile) ──
+bash = {}
+bottom = {}
+#curl = {}  # suppressed: nghttp2 dependency chain fails; curl not needed for boot/recovery
+diffutils = {}
+findutils = {}
+#git = {}  # suppressed: cascading rebuild; git not needed for boot/recovery
+htop = {}
+#mc = {}  # suppressed: C99 format warning errors in compilation
+
+# ── Build / packaging utilities ──
+# patchelf = {}  # requires strtold which is missing in relibc
+shared-mime-info = {}
+
+# VT/getty/login chain: initfs starts inputd + vesad + fbcond in phase 1,
+# then minimal.toml legacy 30_console runs inputd -A 2 + getty 2 + getty debug.
+
+[[files]]
+path = "/etc/netctl/active"
+data = "wired-dhcp\n"
+
+[[files]]
+path = "/etc/init.d/10_smolnetd.service"
+data = """
+[unit]
+description = "Network stack (non-blocking on live-mini)"
+requires_weak = [
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "netstack"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/10_dhcpd.service"
+data = """
+[unit]
+description = "DHCP client daemon (non-blocking on live-mini)"
+requires_weak = [
+    "10_smolnetd.service",
+]
+
+[service]
+cmd = "dhcpd"
+args = ["-f"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/issue"
+data = """
+########## Red Bear OS #########
+# Login with the following:    #
+# `user`                       #
+# `root`:`password`            #
+################################
+"""
+
+[[files]]
+path = "/etc/motd"
+data = """
+ 
+     _       _                         
+    | |     (_)                        
+    | | ___  _  ___   _ __  _   _ ___ 
+    | |/ / || |/ _ \\ | '_ \\| | | / __|
+    |   < | || | (_) || |_) | |_| \\__ \\
+    |_|\\_\\|_|/ |\\___/ | .__/ \\__,_|___/
+           |__/       | |              
+                       |_|             
+
+   Red Bear OS v0.2.0 "Liliya" — Built on Redox OS
+   Type 'help' for available commands.
+"""
+
+[[files]]
+path = "/etc/init.d/20_audiod.service"
+data = """
+[unit]
+description = "Audio multiplexer (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "audiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/02_serial_probe.service"
+data = """
+[unit]
+description = "Serial boot probe marker"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "echo"
+args = ["RB_SERIAL_PROBE_OK"]
+type = "oneshot"
+"""
+
+[[files]]
+path = "/etc/init.d/00_gpiod.service"
+data = """
+[unit]
+description = "GPIO controller registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "gpiod"
+type = { scheme = "gpio" }
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2cd.service"
+data = """
+[unit]
+description = "I2C adapter registry (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "i2cd"
+type = { scheme = "i2c" }
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-dw-acpi.service"
+data = """
+[unit]
+description = "DesignWare ACPI I2C controller (non-blocking)"
+requires_weak = [
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "dw-acpi-i2cd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_intel-gpiod.service"
+data = """
+[unit]
+description = "Intel ACPI GPIO registrar (non-blocking)"
+requires_weak = [
+    "00_gpiod.service",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "intel-gpiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-gpio-expanderd.service"
+data = """
+[unit]
+description = "I2C GPIO expander companion bridge (non-blocking on live-mini)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_gpiod.service",
+]
+
+[service]
+cmd = "i2c-gpio-expanderd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_i2c-hidd.service"
+data = """
+[unit]
+description = "ACPI I2C HID bring-up daemon (non-blocking)"
+requires_weak = [
+    "00_i2cd.service",
+    "00_i2c-dw-acpi.service",
+    "00_intel-gpiod.service",
+    "00_i2c-gpio-expanderd.service",
+]
+
+[service]
+cmd = "i2c-hidd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_ucsid.service"
+data = """
+[unit]
+description = "USB-C UCSI topology detector (non-blocking on live-mini)"
+requires_weak = [
+    "00_base.target",
+    "00_i2cd.service",
+]
+
+[service]
+cmd = "ucsid"
+type = { scheme = "ucsi" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/12_boot-late.target"
+data = """
+[unit]
+description = "Late boot services target"
+requires_weak = [
+    "00_base.target",
+]
+"""
+
+[[files]]
+path = "/usr/lib/init.d/11_udev.service"
+data = """
+[unit]
+description = "udev compatibility shim"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "udev-shim"
+type = { scheme = "udev" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/10_evdevd.service"
+data = """
+[unit]
+description = "Evdev input daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "evdevd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/11_wifictl.service"
+data = """
+[unit]
+description = "Wi-Fi control daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "redbear-wifictl"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/12_dbus.service"
+data = """
+[unit]
+description = "D-Bus system bus"
+requires_weak = [
+    "12_boot-late.target",
+]
+
+[service]
+cmd = "dbus-daemon"
+args = ["--system"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-sessiond"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_iommu.service"
+data = """
+[unit]
+description = "IOMMU DMA remapping daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "/usr/bin/iommu"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-upower"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-udisks"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-polkit"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/var/lib/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/run/dbus"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/etc/pcid.d/ihdgd.toml"
+data = """
+# redbear-live-mini: text-only image; override upstream ihdgd config with empty file
+"""
+
+[[files]]
+path = "/etc/pcid.d/virtio-gpud.toml"
+data = """
+# redbear-live-mini: text-only image; override upstream virtio-gpud config with empty file
+"""
+
+[[files]]
+path = "/etc/pcid.d/00_text_mode_gpu_mask.toml"
+data = """
+# redbear-live-mini: no display driver matched; class 0x03 devices are skipped
+"""

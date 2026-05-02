@@ -1,0 +1,33 @@
+diff --git a/init.initfs.d/41_acpid.service b/init.initfs.d/41_acpid.service
+new file mode 100644
+--- /dev/null
++++ b/init.initfs.d/41_acpid.service
+@@ -0,0 +1,8 @@
++[unit]
++description = "ACPI daemon"
++default_dependencies = false
++
++[service]
++cmd = "acpid"
++inherit_envs = ["RSDP_ADDR", "RSDP_SIZE"]
++type = "notify"
+diff --git a/init.initfs.d/40_drivers.target b/init.initfs.d/40_drivers.target
+--- a/init.initfs.d/40_drivers.target
++++ b/init.initfs.d/40_drivers.target
+@@ -7,4 +7,5 @@ requires_weak = [
+     "40_bcm2835-sdhcid.service",
+     "40_hwd.service",
+     "40_pcid-spawner-initfs.service",
++    "41_acpid.service",
+ ]
+diff --git a/init.initfs.d/40_hwd.service b/init.initfs.d/40_hwd.service
+--- a/init.initfs.d/40_hwd.service
++++ b/init.initfs.d/40_hwd.service
+@@ -1,6 +1,6 @@
+ [unit]
+ description = "Hardware manager"
+-requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target"]
++requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target", "41_acpid.service"]
+ 
+ [service]
+ cmd = "hwd"

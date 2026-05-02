@@ -1,0 +1,188 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -57,16 +57,151 @@ pub mod start;
+ pub mod sync;
+ 
+-use crate::platform::{Allocator, NEWALLOCATOR};
++use crate::platform::{Allocator, NEWALLOCATOR, Pal, Sys};
+ 
+ #[global_allocator]
+ static ALLOCATOR: Allocator = NEWALLOCATOR;
++
++const MAX_FATAL_BACKTRACE_FRAMES: usize = 16;
++const MAX_FATAL_FRAME_STRIDE: usize = 1024 * 1024;
++
++#[inline(never)]
++fn write_process_thread_identity(w: &mut platform::FileWriter) {
++    use core::fmt::Write;
++
++    let pid = Sys::getpid();
++    let tid = Sys::gettid();
++
++    match crate::pthread::current_thread() {
++        Some(thread) => {
++            let _ = w.write_fmt(format_args!(
++                "RELIBC CONTEXT: pid={} tid={} pthread={:#x}\n",
++                pid,
++                tid,
++                thread as *const _ as usize,
++            ));
++        }
++        None => {
++            let _ = w.write_fmt(format_args!(
++                "RELIBC CONTEXT: pid={} tid={} pthread=<unavailable>\n",
++                pid, tid,
++            ));
++        }
++    }
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++#[inline(never)]
++fn current_frame_pointer() -> *const usize {
++    let frame: *const usize;
++
++    #[cfg(target_arch = "x86_64")]
++    unsafe {
++        core::arch::asm!("mov {}, rbp", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    #[cfg(target_arch = "x86")]
++    unsafe {
++        core::arch::asm!("mov {}, ebp", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    #[cfg(target_arch = "aarch64")]
++    unsafe {
++        core::arch::asm!("mov {}, x29", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    frame
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++fn read_backtrace_frame(frame: *const usize) -> Option<(*const usize, usize)> {
++    let align = core::mem::align_of::<usize>();
++    let frame_addr = frame as usize;
++
++    if frame.is_null() || frame_addr % align != 0 {
++        return None;
++    }
++
++    let next_frame = unsafe { frame.read() } as *const usize;
++    let return_address = unsafe { frame.add(1).read() };
++
++    if return_address == 0 {
++        return None;
++    }
++
++    Some((next_frame, return_address))
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++fn is_sane_next_backtrace_frame(current: *const usize, next: *const usize) -> bool {
++    let align = core::mem::align_of::<usize>();
++    let current_addr = current as usize;
++    let next_addr = next as usize;
++
++    !next.is_null()
++        && next_addr % align == 0
++        && next_addr > current_addr
++        && next_addr - current_addr <= MAX_FATAL_FRAME_STRIDE
++}
++
++#[inline(never)]
++fn write_best_effort_backtrace(w: &mut platform::FileWriter) {
++    use core::fmt::Write;
++
++    let _ = w.write_str("RELIBC: attempting best-effort backtrace\n");
++
++    #[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++    {
++        let mut frame = current_frame_pointer();
++        let mut wrote_frame = false;
++
++        for frame_index in 0..MAX_FATAL_BACKTRACE_FRAMES {
++            let Some((next_frame, return_address)) = read_backtrace_frame(frame) else {
++                break;
++            };
++
++            wrote_frame = true;
++            let _ = w.write_fmt(format_args!(
++                "RELIBC BACKTRACE[{frame_index:02}]: {:#x}\n",
++                return_address,
++            ));
++
++            if !is_sane_next_backtrace_frame(frame, next_frame) {
++                break;
++            }
++
++            frame = next_frame;
++        }
++
++        if !wrote_frame {
++            let _ = w.write_str("RELIBC: backtrace attempt produced no frames\n");
++        }
++    }
++
++    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
++    {
++        let _ = w.write_str("RELIBC: backtrace unavailable on this architecture\n");
++    }
++}
+ 
+ #[unsafe(no_mangle)]
+ pub extern "C" fn relibc_panic(pi: &::core::panic::PanicInfo) -> ! {
+     use core::fmt::Write;
+ 
+     let mut w = platform::FileWriter::new(2);
+-    let _ = w.write_fmt(format_args!("RELIBC PANIC: {}\n", pi));
++
++    if let Some(location) = pi.location() {
++        let _ = w.write_fmt(format_args!(
++            "RELIBC PANIC LOCATION: {}:{}:{}\n",
++            location.file(),
++            location.line(),
++            location.column(),
++        ));
++    } else {
++        let _ = w.write_str("RELIBC PANIC LOCATION: <unavailable>\n");
++    }
++
++    write_process_thread_identity(&mut w);
++    let _ = w.write_fmt(format_args!("RELIBC PANIC: {}\n", pi));
+ 
+     core::intrinsics::abort();
+ }
+@@ -95,23 +235,28 @@ pub extern "C" fn rust_oom(layout: ::core::alloc::Layout) -> ! {
+ 
+     let mut w = platform::FileWriter::new(2);
+     let _ = w.write_fmt(format_args!(
+-        "RELIBC OOM: {} bytes aligned to {} bytes\n",
++        "RELIBC OOM: {} bytes aligned to {} bytes - process will abort\n",
+         layout.size(),
+         layout.align()
+     ));
++    write_process_thread_identity(&mut w);
++    write_best_effort_backtrace(&mut w);
+ 
+     core::intrinsics::abort();
+ }
+ 
+ #[cfg(not(test))]
+ #[allow(non_snake_case)]
+ #[linkage = "weak"]
+ #[unsafe(no_mangle)]
+ pub extern "C" fn _Unwind_Resume() -> ! {
+     use core::fmt::Write;
+ 
+     let mut w = platform::FileWriter::new(2);
+-    let _ = w.write_str("_Unwind_Resume\n");
++    let _ = w.write_str(
++        "RELIBC: _Unwind_Resume called - exception propagation failed, aborting\n",
++    );
++    write_process_thread_identity(&mut w);
+ 
+     core::intrinsics::abort();
+ }

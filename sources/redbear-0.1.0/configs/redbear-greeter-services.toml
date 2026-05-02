@@ -1,0 +1,127 @@
+# Red Bear greeter/login service wiring
+#
+# This fragment is intended to be included by the active desktop/graphics target.
+
+[[files]]
+path = "/usr/lib/init.d/05_boot-essential.target"
+data = """
+[unit]
+description = "Boot essential services target"
+requires_weak = [
+    "00_base.target",
+]
+"""
+
+[users.greeter]
+password = ""
+uid = 101
+gid = 101
+name = "greeter"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
+
+[groups.greeter]
+gid = 101
+members = ["greeter"]
+
+[packages]
+redbear-authd = {}
+redbear-session-launch = {}
+redbear-greeter = {}
+
+[[files]]
+path = "/usr/lib/init.d/19_redbear-authd.service"
+data = """
+[unit]
+description = "Red Bear authentication daemon"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-authd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_display.service"
+data = """
+[unit]
+description = "Compositor proof (Phase 2: KWin virtual + Qt6 smoke + 60s survival)"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+]
+
+[service]
+cmd = "redbear-validation-session"
+envs = { VT = "3" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_greeter.service"
+data = """
+[unit]
+description = "Red Bear greeter service (experimental — Phase 3 user session bring-up)"
+requires_weak = [
+    "00_pcid-spawner.service",
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+    "19_redbear-authd.service",
+]
+
+[service]
+cmd = "/usr/bin/redbear-greeterd"
+envs = { VT = "3", REDBEAR_GREETER_USER = "greeter", KWIN_DRM_DEVICES = "/scheme/drm/card0", REDBEAR_DRM_WAIT_SECONDS = "10" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = [
+    "29_activate_console.service",
+]
+
+[service]
+cmd = "getty"
+args = ["2"]
+type = "oneshot_async"
+respawn = true
+"""
+
+[[files]]
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate fallback console VT"
+requires_weak = [
+    "05_boot-essential.target",
+]
+
+[service]
+cmd = "inputd"
+args = ["-A", "2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = [
+    "29_activate_console.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+respawn = true
+"""

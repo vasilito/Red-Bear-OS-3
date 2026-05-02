@@ -715,6 +715,20 @@ fn handle_fetch(
     allow_offline: bool,
     logger: &PtyOut,
 ) -> anyhow::Result<FetchResult> {
+    // In release mode, explicit fetch is forbidden. Cook's internal fetch
+    // (allow_offline=true) is still allowed since it respects COOKBOOK_OFFLINE.
+    if !allow_offline {
+        if let Ok(release) = env::var("REDBEAR_RELEASE") {
+            if !release.is_empty() {
+                bail!("{}", Error::Other(format!(
+                    "Fetch is disabled in release mode (REDBEAR_RELEASE={}). \
+                     Sources are immutable. To refresh, run: provision-release.sh",
+                    release
+                )));
+            }
+        }
+    }
+
     let source_dir = match config.cook.offline && allow_offline {
         true => fetch_offline(&recipe, logger),
         false => fetch(&recipe, !recipe.is_deps, logger),
@@ -789,6 +803,17 @@ fn handle_clean(
         cached = false;
     }
     let dir = recipe.dir.join("source");
+    if matches!(*command, CliCommand::Unfetch) {
+        // In release mode, unfetch is forbidden — sources are immutable
+        if let Ok(release) = std::env::var("REDBEAR_RELEASE") {
+            if !release.is_empty() {
+                anyhow::bail!(
+                    "Unfetch is disabled in release mode (REDBEAR_RELEASE={}). Sources are immutable.",
+                    release
+                );
+            }
+        }
+    }
     if dir.exists() && matches!(*command, CliCommand::Unfetch) {
         if is_local_overlay(&recipe.dir) && !redbear_allow_local_unfetch() {
             eprintln!(

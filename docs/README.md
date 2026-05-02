@@ -1,6 +1,6 @@
 # Red Bear OS Documentation Index
 
-Technical documentation for Red Bear OS as an overlay distribution on top of Redox OS.
+Technical documentation for Red Bear OS as an full fork on top of Redox OS.
 
 This index is the entry point for the documentation set. Its main job is to make the
 current/canonical versus historical/reference split obvious.
@@ -21,13 +21,13 @@ current/canonical versus historical/reference split obvious.
 
 > **Repository model:** RedBearOS relates to Redox in the same way Ubuntu relates to Debian.
 > Upstream Redox remains the base platform; Red Bear carries packaging, patch, validation, and
-> subsystem overlays on top. For long-term stability, upstream-owned source trees should be treated
-> as refreshable working copies, while durable Red Bear state belongs in `local/patches/`,
+> subsystem release fork on top. For long-term stability, upstream-owned source trees should be treated
+> as immutable archived release snapshot, while durable Red Bear state belongs in `local/patches/`,
 > `local/recipes/`, `local/docs/`, and tracked Red Bear configs.
 >
 > **WIP policy:** if an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a
-> local project until upstream promotes it to first-class status. We may refresh from upstream WIP,
-> but we should fix and ship from the Red Bear overlay until upstream support is real enough to
+> local project until upstream promotes it to first-class status. We may immutable archived from upstream WIP,
+> but we should fix and ship from the Red Bear release fork until upstream support is real enough to
 > replace the local copy.
 
 ## Document Status Matrix

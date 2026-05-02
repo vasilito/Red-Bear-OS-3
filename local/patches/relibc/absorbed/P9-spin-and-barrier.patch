@@ -1,0 +1,43 @@
+diff --git a/src/sync/pthread_mutex.rs b/src/sync/pthread_mutex.rs
+index 2871a6149..3c8e73f15 100644
+--- a/src/sync/pthread_mutex.rs
++++ b/src/sync/pthread_mutex.rs
+@@ -35,7 +35,7 @@ const FUTEX_OWNER_DIED: u32 = 1 << 30;
+ const INDEX_MASK: u32 = !(WAITING_BIT | FUTEX_OWNER_DIED);
+ // TODO: Lower limit is probably better.
+ const RECURSIVE_COUNT_MAX_INCLUSIVE: u32 = u32::MAX;
+-const SPIN_COUNT: usize = 0;
++const SPIN_COUNT: usize = 100;
+
+ impl RlctMutex {
+     pub(crate) fn new(attr: &RlctMutexAttr) -> Result<Self, Errno> {
+diff --git a/src/sync/barrier.rs b/src/sync/barrier.rs
+index b5847b5..a8e3c2f0 100644
+--- a/src/sync/barrier.rs
++++ b/src/sync/barrier.rs
+@@ -47,6 +47,8 @@ impl Barrier {
+             cvar: FutexState::new(count.get()),
+         }
+     }
++    pub fn destroy(&self) {}
++
+     pub fn wait(&self) -> WaitResult {
+         let _ = &self.lock;
+         let sense = self.cvar.sense.load(Ordering::Acquire);
+diff --git a/src/header/pthread/barrier.rs b/src/header/pthread/barrier.rs
+index 1a5df3a..e69e2b9 100644
+--- a/src/header/pthread/barrier.rs
++++ b/src/header/pthread/barrier.rs
+@@ -24,10 +24,8 @@ pub(crate) struct RlctBarrierAttr {
+ // Not async-signal-safe.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_barrier_destroy(barrier: *mut pthread_barrier_t) -> c_int {
+-    // Behavior is undefined if any thread is currently waiting when this is called.
+-
+-    // No-op, currently.
+-    unsafe { core::ptr::drop_in_place(barrier.cast::<RlctBarrier>()) };
++    let barrier = unsafe { &*barrier.cast::<RlctBarrier>() };
++    barrier.destroy();
+
+     0
+ }

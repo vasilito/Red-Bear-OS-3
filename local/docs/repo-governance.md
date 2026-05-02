@@ -53,9 +53,9 @@ why it is intentionally excluded.
 - Red Bear builds must remain resilient when access to upstream Redox infrastructure is degraded or
   unavailable.
 - Local package/source copies are the default operational source of truth for builds.
-- Upstream fetch/refresh is opt-in and must be explicitly requested by the operator (for example via
+- Upstream fetch/immutable archived is opt-in and must be explicitly requested by the operator (for example via
   an explicit `--upstream` workflow).
-- After an explicit upstream refresh, local durable overlays (`local/patches`, `local/recipes`) stay
+- After an explicit upstream immutable archived, local durable release fork (`local/patches`, `local/recipes`) stay
   authoritative until a conscious reevaluation/promotion decision is made.
 
 ## Profile Intent
@@ -94,6 +94,6 @@ For any substantial Red Bear change, record:
 
 ## Upstream Sync Discipline
 
-- Rebase/sync through `local/scripts/sync-upstream.sh`.
+- Rebase/sync through `local/scripts/provision-release.sh`.
 - Keep Red Bear-specific diffs easy to audit.
 - Update profile docs when config inheritance or package composition changes.

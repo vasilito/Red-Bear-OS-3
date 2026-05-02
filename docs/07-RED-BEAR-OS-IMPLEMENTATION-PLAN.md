@@ -17,26 +17,26 @@ Detailed subsystem planning remains in focused documents under `local/docs/`.
 
 ## Repository Model
 
-RedBearOS should be understood as an overlay distribution on top of Redox in the same way Ubuntu
+RedBearOS should be understood as an full fork on top of Redox in the same way Ubuntu
 relates to Debian.
 
 - Redox is upstream.
-- Red Bear carries integration, packaging, validation, and subsystem overlays on top.
-- Upstream-owned source trees are refreshable working copies.
+- Red Bear carries integration, packaging, validation, and subsystem release fork on top.
+- Upstream-owned source trees are immutable archived release snapshot.
 - Durable Red Bear state belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and tracked
   Red Bear configs.
 
-The project is in the right long-term shape only when refreshed upstream sources can be fetched,
-Red Bear overlays can be reapplied, and the project still rebuilds successfully.
+The project is in the right long-term shape only when immutable archived upstream sources can be fetched,
+Red Bear release fork can be apply, and the project still rebuilds successfully.
 
 ## Ownership Rules
 
 ### Upstream-owned layer
 
-These are refreshable working inputs, not durable Red Bear storage:
+These are immutable archived release sources, not durable Red Bear storage:
 
 - `recipes/*/source/`
-- most of `recipes/` outside local overlay symlinks
+- most of `recipes/` outside local release fork symlinks
 - mainline configs such as `config/desktop.toml` and `config/minimal.toml`
 - generated build outputs under `target/`, `build/`, `repo/`, and recipe-local `target/*`
 
@@ -63,7 +63,7 @@ If an upstream recipe or subsystem is still marked WIP, Red Bear treats it as a 
 That means:
 
 1. upstream WIP can be used as an input and reference,
-2. but Red Bear should fix and ship from the local overlay while the work is still WIP,
+2. but Red Bear should fix and ship from the local release fork while the work is still WIP,
 3. and once upstream promotes that work to first-class supported status, Red Bear should reevaluate
    and prefer upstream where appropriate.
 
@@ -80,7 +80,7 @@ That means:
 
 - functionality is delivered as packages,
 - profiles are composed from packages and package groups,
-- integration should prefer packaging, configuration, and overlays over invasive upstream rewrites.
+- integration should prefer packaging, configuration, and release fork over invasive upstream rewrites.
 
 ### Validation over claims
 
@@ -148,11 +148,11 @@ The current repo is no longer at a greenfield or “missing everything” stage.
 
 The current evidence-backed baseline is:
 
-- the Red Bear overlay model is documented and in active use,
+- the Red Bear release fork model is documented and in active use,
 - major local subsystem plans exist under `local/docs/`,
 - native wired networking is present,
 - Qt6 and major downstream desktop dependencies build,
-- Wayland-facing relibc compatibility surfaces now rebuild from a refreshed upstream relibc source
+- Wayland-facing relibc compatibility surfaces now rebuild from a immutable archived upstream relibc source
   tree via local patch carriers,
 - `libwayland` and `qtbase` build successfully from the reconstructed relibc state,
 - the Red Bear-native greeter/login path now has a bounded passing runtime proof, while broader KDE/KWin session stability is still not yet a general runtime claim,
@@ -170,7 +170,7 @@ ordering.
 
 The current repository-wide work order is:
 
-1. repository discipline and overlay hygiene
+1. repository discipline and release fork hygiene
 2. reproducible profiles and validation surfaces
 3. low-level controller and IRQ quality
 4. USB maturity
@@ -202,27 +202,27 @@ order.
 
 ## Workstreams
 
-### 1. Repository discipline and overlay hygiene
+### 1. Repository discipline and release fork hygiene
 
 Goal:
 
 - keep Red Bear-specific work identifiable,
-- keep upstream refresh predictable,
-- ensure durable overlays exist for active Red Bear-owned deltas,
+- keep release provisioning predictable,
+- ensure durable release fork exist for active Red Bear-owned deltas,
 - keep WIP migration logic explicit.
 
 Current state:
 
-- overlay model is documented,
-- relibc preservation/reapply proof exists,
+- release fork model is documented,
+- relibc preservation and patch application proof exists,
 - WIP ownership policy is documented,
 - documentation still needs cleaner indexing and some historical pruning.
 
 Acceptance:
 
-- refreshed upstream sources can be re-overlaid and rebuilt predictably,
+- sources are provisioned via provision-release.sh and rebuilt predictably,
 - the canonical/current-vs-historical split is visible in docs,
-- active Red Bear-owned deltas are preserved outside refreshable source trees.
+- active Red Bear-owned deltas are preserved in local/patches and local/recipes.
 
 ### 2. Profiles and packaging
 
@@ -435,9 +435,9 @@ Do not compress these into a single “supported” claim.
 The highest-value documentation follow-ups from the current state are:
 
 1. add a clearer document-status matrix in `docs/README.md`,
-2. add a WIP migration ledger for major upstream-WIP-to-local-overlay transitions,
+2. add a WIP migration ledger for major upstream-WIP-to-local-release fork transitions,
 3. add a concise script behavior matrix for sync/fetch/apply/build helper scripts,
-4. continue pruning obsolete local overlays only after refreshed-upstream reapply proofs confirm
+4. continue pruning obsolete local release fork only after release provisioning proofs confirm
    upstream coverage is sufficient.
 
 ## Bottom Line
@@ -445,11 +445,11 @@ The highest-value documentation follow-ups from the current state are:
 Red Bear OS is no longer at the stage where the main question is “can we start?”.
 
 The current state is a transition from compile-oriented subsystem accumulation toward a stricter,
-profile-driven, overlay-disciplined, evidence-backed system project. The implementation plan must now
+profile-driven, release fork-disciplined, evidence-backed system project. The implementation plan must now
 optimize for:
 
-- predictable upstream refresh,
-- durable local overlays,
+- predictable release provisioning,
+- durable local release fork,
 - honest support language,
 - and execution order that respects the real blocker chain.
 

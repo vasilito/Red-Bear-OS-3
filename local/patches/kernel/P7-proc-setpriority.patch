@@ -11,7 +11,7 @@ diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
      Name,
  
      MmapMinAddr(Arc<AddrSpaceWrapper>),
-@@ -160,6 +161,17 @@ pub struct ProcScheme;
+@@ -160,7 +161,18 @@ pub struct ProcScheme;
  static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
  static HANDLES: RwLock<L1, HashMap<usize, Handle>> =
      RwLock::new(HashMap::with_hasher(DefaultHashBuilder::new()));
@@ -38,7 +38,7 @@ diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
              "mmap-min-addr" => (
                  ContextHandle::MmapMinAddr(Arc::clone(
                      context
-@@ -1191,6 +1204,17 @@ impl ContextHandle {
+@@ -1191,6 +1204,18 @@ impl ContextHandle {
  
                  Ok(size_of_val(&mask))
              }

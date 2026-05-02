@@ -303,7 +303,7 @@ Close the loop with evidence, canonical docs, and durable patch carriers.
 - update canonical docs:
   - `local/docs/USB-IMPLEMENTATION-PLAN.md`
   - `local/docs/USB-VALIDATION-RUNBOOK.md`
-- refresh durable patch carriers under `local/patches/base/`
+- immutable archived durable patch carriers under `local/patches/base/`
 - delete only clearly stale, superseded docs after link sweep
 
 ### Exit Criteria
@@ -311,7 +311,7 @@ Close the loop with evidence, canonical docs, and durable patch carriers.
 - all bounded USB/xHCI proofs pass on a fresh image
 - changed files are diagnostics-clean
 - canonical docs match actual proof scope
-- patch carrier is refreshed and reapplicable
+- patch carrier is immutable archived and reapplicable
 
 ## Validation Matrix
 
@@ -356,5 +356,5 @@ This work is complete only when:
 - `xhcid` builds/tests cleanly
 - bounded QEMU proof matrix passes on a rebuilt image
 - canonical docs are synchronized
-- durable patch carrier is refreshed
+- durable patch carrier is immutable archived
 - remaining gaps, if any, are explicitly documented as future or hardware-only work

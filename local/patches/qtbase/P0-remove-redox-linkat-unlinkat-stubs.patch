@@ -2,7 +2,7 @@ diff --git a/src/corelib/io/qfilesystemengine_unix.cpp b/src/corelib/io/qfilesys
 index e857f1a..f4f7f4a 100644
 --- a/src/corelib/io/qfilesystemengine_unix.cpp
 +++ b/src/corelib/io/qfilesystemengine_unix.cpp
-@@ -27,23 +27,6 @@
+@@ -27,22 +27,5 @@
  #include <stdio.h>
  #include <errno.h>
  

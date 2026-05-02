@@ -141,7 +141,7 @@ new file mode 100644
 diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
 --- a/tests/Makefile.tests.mk
 +++ b/tests/Makefile.tests.mk
-@@ -85,6 +85,7 @@ VARIED_NAMES=\
+@@ -85,1 +85,2 @@ VARIED_NAMES=\
 	stdio/fseek \
 	stdio/fwrite \
 	stdio/getc_unget \

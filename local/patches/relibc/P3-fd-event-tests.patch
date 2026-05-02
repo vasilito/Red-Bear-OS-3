@@ -1,7 +1,7 @@
 diff --git a/tests/Makefile.tests.mk b/tests/Makefile.tests.mk
 --- a/tests/Makefile.tests.mk
 +++ b/tests/Makefile.tests.mk
-@@ -314,8 +314,12 @@ VARIED_NAMES=\
+@@ -314,0 +314,4 @@ VARIED_NAMES=\
 	grp/gr_iter \
 	semaphore/named \
 	semaphore/unnamed \

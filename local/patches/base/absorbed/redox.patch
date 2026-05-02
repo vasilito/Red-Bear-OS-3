@@ -10625,7 +10625,7 @@ diff --git a/drivers/pcid-spawner/src/main.rs b/drivers/pcid-spawner/src/main.rs
 index a968f4d4..bfff05c3 100644
 --- a/drivers/pcid-spawner/src/main.rs
 +++ b/drivers/pcid-spawner/src/main.rs
-@@ -1,11 +1,40 @@
+@@ -1,11 +1,41 @@
 +use std::env;
  use std::fs;
  use std::process::Command;
@@ -10667,7 +10667,7 @@ index a968f4d4..bfff05c3 100644
  fn main() -> Result<()> {
      let mut args = pico_args::Arguments::from_env();
      let initfs = args.contains("--initfs");
-@@ -30,6 +59,12 @@ fn main() -> Result<()> {
+@@ -30,12 +59,33 @@ fn main() -> Result<()> {
      }
  
      let config: Config = toml::from_str(&config_data)?;

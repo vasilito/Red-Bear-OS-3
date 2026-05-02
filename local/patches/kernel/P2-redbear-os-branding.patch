@@ -41,7 +41,7 @@ index 7a7c0ae8..62f9523c 100644
              args.print();
  
              // Set up GDT
-@@ -127,16 +127,21 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+@@ -127,17 +127,21 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
  
              // Initialize devices
              device::init();

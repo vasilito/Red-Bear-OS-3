@@ -1,0 +1,829 @@
+# Red Bear OS shared device-service wiring
+#
+# Shared by profiles that ship the firmware/input/Wi-Fi control compatibility stack.
+
+[packages]
+redbear-quirks = {}
+pciids = {}
+fatd = {}
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/12_boot-late.target"
+data = """
+[unit]
+description = "Late boot services target"
+requires_weak = [
+    "00_base.target",
+]
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d"
+data = ""
+directory = true
+mode = 0o755
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/00-storage.toml"
+data = """
+[[driver]]
+name = "nvmed"
+description = "NVMe storage driver"
+priority = 100
+command = ["/usr/lib/drivers/nvmed"]
+
+[[driver.match]]
+class = 1
+subclass = 8
+
+[[driver]]
+name = "ahcid"
+description = "AHCI SATA driver"
+priority = 100
+command = ["/usr/lib/drivers/ahcid"]
+
+[[driver.match]]
+class = 1
+subclass = 6
+
+[[driver]]
+name = "ided"
+description = "PATA IDE driver"
+priority = 100
+command = ["/usr/lib/drivers/ided"]
+
+[[driver.match]]
+class = 1
+subclass = 1
+
+[[driver]]
+name = "virtio-blkd"
+description = "VirtIO block device driver"
+priority = 100
+command = ["/usr/lib/drivers/virtio-blkd"]
+
+[[driver.match]]
+vendor = 0x1AF4
+device = 0x1001
+class = 1
+subclass = 0
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/10-network.toml"
+data = """
+[[driver]]
+name = "e1000d"
+description = "Intel Gigabit Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/e1000d"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 2
+
+[[driver]]
+name = "rtl8168d"
+description = "Realtek 8168/8125 Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/rtl8168d"]
+
+[[driver.match]]
+vendor = 0x10EC
+class = 2
+
+[[driver]]
+name = "rtl8139d"
+description = "Realtek 8139 Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/rtl8139d"]
+
+[[driver.match]]
+vendor = 0x10EC
+device = 0x8139
+
+[[driver]]
+name = "ixgbed"
+description = "Intel 10 Gigabit Ethernet"
+priority = 50
+command = ["/usr/lib/drivers/ixgbed"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 2
+subclass = 0
+
+[[driver]]
+name = "virtio-netd"
+description = "VirtIO network driver"
+priority = 50
+command = ["/usr/lib/drivers/virtio-netd"]
+
+[[driver.match]]
+vendor = 0x1AF4
+class = 2
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/20-usb.toml"
+data = """
+[[driver]]
+name = "xhcid"
+description = "xHCI USB host controller"
+priority = 80
+command = ["/usr/lib/drivers/xhcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x30
+
+[[driver]]
+name = "ehcid"
+description = "EHCI USB 2.0 host controller"
+priority = 80
+command = ["/usr/lib/drivers/ehcid"]
+
+# EHCI now owns a simple /scheme/usb controller surface for per-port status and
+# control-transfer pass-through while the wider USB stack continues converging.
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x20
+
+[[driver]]
+name = "ohcid"
+description = "OHCI USB 1.1 host controller"
+priority = 80
+command = ["/usr/lib/drivers/ohcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x10
+
+[[driver]]
+name = "uhcid"
+description = "UHCI USB 1.1 host controller (Intel)"
+priority = 80
+command = ["/usr/lib/drivers/uhcid"]
+
+[[driver.match]]
+class = 0x0C
+subclass = 0x03
+prog_if = 0x00
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/30-graphics.toml"
+data = """
+[[driver]]
+name = "vesad"
+description = "VESA BIOS display driver"
+priority = 60
+command = ["/usr/lib/drivers/vesad"]
+
+[[driver.match]]
+class = 0x03
+
+[[driver]]
+name = "redox-drm"
+description = "DRM/KMS display driver (AMD + Intel)"
+priority = 60
+command = ["/usr/bin/redox-drm"]
+
+[[driver.match]]
+class = 0x03
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/40-input.toml"
+data = """
+[[driver]]
+name = "ps2d"
+description = "PS/2 keyboard and mouse driver"
+priority = 90
+command = ["/usr/lib/drivers/ps2d"]
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d/50-audio.toml"
+data = """
+[[driver]]
+name = "ihdad"
+description = "Intel HD Audio driver"
+priority = 40
+command = ["/usr/lib/drivers/ihdad"]
+
+[[driver.match]]
+vendor = 0x8086
+class = 0x04
+
+[[driver]]
+name = "ac97d"
+description = "AC'97 audio codec driver"
+priority = 40
+command = ["/usr/lib/drivers/ac97d"]
+
+[[driver.match]]
+class = 0x04
+subclass = 0x01
+"""
+
+[[files]]
+path = "/lib/drivers.d/70-usb-class.toml"
+data = """
+[[driver]]
+name = "redbear-acmd"
+description = "USB CDC ACM serial driver"
+priority = 70
+command = ["/usr/bin/redbear-acmd"]
+
+[[driver]]
+name = "redbear-ecmd"
+description = "USB CDC ECM/NCM ethernet driver"
+priority = 70
+command = ["/usr/bin/redbear-ecmd"]
+
+[[driver]]
+name = "redbear-usbaudiod"
+description = "USB Audio Class driver"
+priority = 70
+command = ["/usr/bin/redbear-usbaudiod"]
+"""
+
+# Profiles that include this fragment should start `driver-manager` instead of
+# `pcid-spawner`; the manager performs the PCI bind/channel handoff itself.
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/00_driver-manager.service"
+data = """
+[unit]
+description = "PCI driver spawner"
+requires_weak = [
+    "00_base.target",
+]
+
+[service]
+cmd = "pcid-spawner"
+type = "oneshot"
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/lib/drivers.d"
+data = ""
+directory = true
+mode = 0o755
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/10_evdevd.service"
+data = """
+[unit]
+description = "Evdev input daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "evdevd"
+type = "oneshot_async"
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/etc/firmware-fallbacks.d"
+data = ""
+directory = true
+mode = 0o755
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/15_cpufreqd.service"
+data = """
+[unit]
+description = "CPU frequency scaling daemon"
+requires_weak = ["12_boot-late.target"]
+
+[service]
+cmd = "/usr/bin/cpufreqd"
+type = "oneshot_async"
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/15_thermald.service"
+data = """
+[unit]
+description = "Thermal management daemon"
+requires_weak = ["12_boot-late.target"]
+
+[service]
+cmd = "/usr/bin/thermald"
+type = "oneshot_async"
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/15_hwrngd.service"
+data = """
+[unit]
+description = "Hardware RNG entropy daemon"
+requires_weak = ["00_base.target"]
+
+[service]
+cmd = "/usr/bin/hwrngd"
+type = "oneshot_async"
+"""
+
+# Firmware fallback chain configs
+[[files]]
+path = "/etc/firmware-fallbacks.d/00-amdgpu.toml"
+data = """
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn31.bin"
+chain = ["amdgpu/dmcub_dcn30.bin", "amdgpu/dmcub_dcn20.bin"]
+
+[[fallback]]
+pattern = "amdgpu/dmcub_dcn30.bin"
+chain = ["amdgpu/dmcub_dcn20.bin"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/10-iwlwifi.toml"
+data = """
+[[fallback]]
+pattern = "iwlwifi-bz-b0-gf-a0-92.ucode"
+chain = ["iwlwifi-bz-b0-gf-a0-83.ucode", "iwlwifi-bz-b0-gf-a0-77.ucode"]
+"""
+
+[[files]]
+path = "/etc/firmware-fallbacks.d/20-intel-dmc.toml"
+data = """
+[[fallback]]
+pattern = "i915/adlp_dmc_ver2_16.bin"
+chain = ["i915/adlp_dmc_ver2_14.bin", "i915/adlp_dmc_ver2_12.bin"]
+"""
+[[files]]
+path = "/usr/lib/init.d/13_driver-params.service"
+data = """
+[unit]
+description = "Driver parameter scheme"
+requires_weak = ["00_driver-manager.service"]
+
+[service]
+cmd = "/usr/bin/driver-params"
+type = { scheme = "driver-params" }
+"""
+
+[[files]]
+path = "/usr/lib/init.d/16_redbear-acmd.service"
+data = """
+[unit]
+description = "USB CDC ACM serial daemon"
+requires_weak = ["12_boot-late.target"]
+
+[service]
+cmd = "/usr/bin/redbear-acmd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/16_redbear-ecmd.service"
+data = """
+[unit]
+description = "USB CDC ECM/NCM ethernet daemon"
+requires_weak = ["12_boot-late.target"]
+
+[service]
+cmd = "/usr/bin/redbear-ecmd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/16_redbear-usbaudiod.service"
+data = """
+[unit]
+description = "USB Audio Class daemon"
+requires_weak = ["12_boot-late.target"]
+
+[service]
+cmd = "/usr/bin/redbear-usbaudiod"
+type = "oneshot_async"
+"""

@@ -118,6 +118,9 @@ endif # PODMAN_BUILD
 # unfetch local overlay recipes unless REDBEAR_ALLOW_LOCAL_UNFETCH=1 is set.
 # This is the safe default for Red Bear OS. local/ is NEVER deleted.
 distclean:
+ifneq ($(REDBEAR_RELEASE),)
+	$(error distclean is disabled in release mode (REDBEAR_RELEASE=$(REDBEAR_RELEASE)). Sources are immutable. Use: make clean (build artifacts only, safe))
+endif
 ifeq ($(PODMAN_BUILD),1)
 ifneq ("$(wildcard $(CONTAINER_TAG))","")
 	$(PODMAN_RUN) make $@

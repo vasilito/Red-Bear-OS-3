@@ -33,7 +33,7 @@ diff --git a/src/pthread/mod.rs b/src/pthread/mod.rs
      ptr,
      sync::atomic::{AtomicBool, AtomicUsize, Ordering},
  };
-@@ -208,13 +209,41 @@ pub(crate) unsafe fn create(
+@@ -208,11 +209,39 @@ pub(crate) unsafe fn create(
  }
  
  /// A shim to wrap thread entry points in logic to set up TLS, for example

@@ -1,7 +1,7 @@
 diff -ruN a/src/header/signal/mod.rs b/src/header/signal/mod.rs
 --- a/src/header/signal/mod.rs	2026-04-15 09:40:30.420306210 +0100
 +++ b/src/header/signal/mod.rs	2026-04-15 09:46:42.011891206 +0100
-@@ -32,6 +32,9 @@
+@@ -32,7 +32,10 @@
  #[path = "redox.rs"]
  pub mod sys;
  

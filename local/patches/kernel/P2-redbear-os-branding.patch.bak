@@ -1,0 +1,65 @@
+# Red Bear OS branding in kernel start messages
+# Changes "Redox OS" to "RedBear OS" in architecture start files
+# Adds device init logging milestones in x86_shared start path
+
+diff --git a/src/arch/aarch64/start.rs b/src/arch/aarch64/start.rs
+index e1c8cfb4..65e3fe33 100644
+--- a/src/arch/aarch64/start.rs
++++ b/src/arch/aarch64/start.rs
+@@ -91,7 +91,7 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs) -> ! {
+                 dtb::serial::init_early(dtb);
+             }
+ 
+-            info!("Redox OS starting...");
++            info!("RedBear OS starting...");
+             args.print();
+ 
+             // Initialize RMM
+diff --git a/src/arch/riscv64/start.rs b/src/arch/riscv64/start.rs
+index 2551968f..a825536a 100644
+--- a/src/arch/riscv64/start.rs
++++ b/src/arch/riscv64/start.rs
+@@ -97,7 +97,7 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs) -> ! {
+                 init_early(dtb);
+             }
+ 
+-            info!("Redox OS starting...");
++            info!("RedBear OS starting...");
+             args.print();
+ 
+             if let Some(dtb) = &dtb {
+diff --git a/src/arch/x86_shared/start.rs b/src/arch/x86_shared/start.rs
+index 7a7c0ae8..62f9523c 100644
+--- a/src/arch/x86_shared/start.rs
++++ b/src/arch/x86_shared/start.rs
+@@ -91,7 +91,7 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+             // Set up graphical debug
+             graphical_debug::init(args.env());
+ 
+-            info!("Redox OS starting...");
++            info!("RedBear OS starting...");
+             args.print();
+ 
+             // Set up GDT
+@@ -127,16 +127,21 @@ unsafe extern "C" fn start(args_ptr: *const KernelArgs, stack_end: usize) -> ! {
+ 
+             // Initialize devices
+             device::init();
++            info!("kernel: device init complete (PIC + LAPIC)");
+ 
+             // Read ACPI tables, starts APs
+             if cfg!(feature = "acpi") {
+                 crate::acpi::init(args.acpi_rsdp());
++                info!("kernel: ACPI tables parsed");
+ 
+                 device::init_after_acpi();
++                info!("kernel: IOAPIC init complete");
+             }
+             crate::profiling::init();
+ 
+             // Initialize all of the non-core devices not otherwise needed to complete initialization
+             device::init_noncore();
++            info!("kernel: timer init complete, entering userspace");
+ 
+             args.bootstrap()
+         };

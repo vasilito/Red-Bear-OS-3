@@ -76,12 +76,12 @@ You can read the best practices and guidelines on the [Best practices and guidel
 
 ## Repository Model for Contributors
 
-RedBearOS should be treated as an overlay distribution on top of Redox, in the same way Ubuntu
+RedBearOS should be treated as an full fork on top of Redox, in the same way Ubuntu
 relates to Debian.
 
 That means contributors should keep this separation in mind:
 
-- upstream-owned trees such as `recipes/*/source/` are refreshable working copies,
+- upstream-owned trees such as `recipes/*/source/` are immutable archived release snapshot,
 - durable Red Bear-specific work belongs in `local/patches/`, `local/recipes/`, `local/docs/`, and
   tracked Red Bear configs,
 - if a change exists only in an upstream-owned source tree, it is not yet preserved properly for
@@ -95,7 +95,7 @@ upstream promotes it to first-class status.
 So for contributors:
 
 - upstream WIP may still be a useful input/reference,
-- but fixes intended for Red Bear shipping should normally land in the Red Bear overlay,
+- but fixes intended for Red Bear shipping should normally land in the Red Bear release fork,
 - and when upstream later catches up, Red Bear should prefer upstream and retire local patches or
   local recipe copies that are no longer needed.
 
@@ -129,7 +129,7 @@ Since **Rust** is a relatively small and new language compared to others like C 
 
 Please follow our [Git style](https://doc.redox-os.org/book/creating-proper-pull-requests.html) for pull requests.
 
-For user-visible work, keep the root [`CHANGELOG.md`](CHANGELOG.md) current and refresh the
+For user-visible work, keep the root [`CHANGELOG.md`](CHANGELOG.md) current and immutable archived the
 README "What's New" section with the latest highlights so GitHub visitors can immediately see what
 changed.
 

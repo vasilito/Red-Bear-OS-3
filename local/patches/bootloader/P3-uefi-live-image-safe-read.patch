@@ -11,7 +11,7 @@ index 4b0bf31..90a97b8 100644
      let mut esp_fs = match FileSystem::handle_protocol(esp_handle) {
          Ok(esp_fs) => esp_fs,
          Err(err) => {
-@@ -87,9 +89,37 @@ fn esp_live_image(esp_handle: Handle, esp_device_path: &DevicePath) -> Option<V
+@@ -87,8 +89,36 @@ fn esp_live_image(esp_handle: Handle, esp_device_path: &DevicePath) -> Option<V
      };
  
      let mut buffer = Vec::new();

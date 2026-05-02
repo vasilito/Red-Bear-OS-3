@@ -1,0 +1,27 @@
+diff --git a/src/corelib/io/qfilesystemengine_unix.cpp b/src/corelib/io/qfilesystemengine_unix.cpp
+index e857f1a..f4f7f4a 100644
+--- a/src/corelib/io/qfilesystemengine_unix.cpp
++++ b/src/corelib/io/qfilesystemengine_unix.cpp
+@@ -27,23 +27,6 @@
+ #include <stdio.h>
+ #include <errno.h>
+ 
+-#ifdef Q_OS_REDOX
+-// relibc does not provide unlinkat/linkat yet (POSIX.1-2008 *at functions).
+-// Provide inline stubs that work for AT_FDCWD only - sufficient for
+-// FreeDesktop trash operations in this file.
+-#include <fcntl.h>
+-static inline int unlinkat(int dirfd, const char *pathname, int flags)
+-{
+-    if (dirfd != AT_FDCWD || flags != 0) { errno = ENOTSUP; return -1; }
+-    return unlink(pathname);
+-}
+-static inline int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags)
+-{
+-    if (olddirfd != AT_FDCWD || newdirfd != AT_FDCWD || flags != 0) { errno = ENOTSUP; return -1; }
+-    return link(oldpath, newpath);
+-}
+-#endif
+-
+ #include <chrono>
+ #include <memory> // for std::unique_ptr

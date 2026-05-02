@@ -101,6 +101,11 @@ endif
 ifeq ($(REPO_OFFLINE),1)
 	export COOKBOOK_OFFLINE=true
 endif
+ifneq ($(REDBEAR_RELEASE),)
+	export REDBEAR_RELEASE
+	REPO_OFFLINE=1
+	export COOKBOOK_OFFLINE=true
+endif
 ifeq ($(REPO_DEBUG),1)
 	export COOKBOOK_NOSTRIP=true
 	export COOKBOOK_DEBUG=true

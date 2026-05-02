@@ -56,7 +56,7 @@ When reordering patches, test the FULL chain: remove source, rebuild, verify.
 
 `recipes/core/base/recipe.toml` is git-tracked. Changes to it are durable.
 `recipes/core/base/source/` is a fetched working copy — destroyed by `make clean`,
-`make distclean`, source refresh, and sync-upstream.
+`make distclean`, source immutable archived, and provision-release.
 
 Any change to source/ MUST be preserved as a patch in `local/patches/base/`.
 

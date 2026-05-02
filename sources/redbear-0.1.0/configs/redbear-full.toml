@@ -1,0 +1,408 @@
+# Red Bear OS Full Configuration
+# Desktop/graphics ISO for bare metal and QEMU.
+#
+# Build: make live CONFIG_NAME=redbear-full
+# QEMU:  make all CONFIG_NAME=redbear-full && make qemu
+#
+# Extends redbear-mini with the full desktop/graphics stack:
+# Wayland, Qt6, KF6, KWin, Mesa, DRM drivers, firmware, greeter.
+
+include = ["redbear-mini.toml"]
+
+[general]
+filesystem_size = 4096
+efi_partition_size = 16
+
+[users.messagebus]
+uid = 100
+gid = 100
+name = "messagebus"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
+
+[users.root]
+shell = "/usr/bin/zsh"
+
+[packages]
+# Runtime driver parameter control surface.
+driver-params = {}
+
+# Firmware loading
+redbear-firmware = {}
+firmware-loader = {}
+
+# NUMA topology discovery (userspace daemon)
+numad = {}
+
+# GPU/graphics stack
+redox-drm = {}
+mesa = {}
+libdrm = {}
+
+libwayland = {}
+wayland-protocols = {}
+# redbear-compositor = {}
+
+# Keyboard/input
+# libxkbcommon = {}  # build needed
+# xkeyboard-config = {}  # build needed
+libevdev = {}
+# libinput = {}  # WIP: missing libepoll-shim recipe dependency
+
+# Qt6 stack
+qtbase = {}
+qtdeclarative = {}
+qtsvg = {}
+qtwayland = {}
+qt6-wayland-smoke = {}
+qt6-sensors = {}
+
+# KF6 Frameworks — explicit real-build surface in alphabetical order
+# kirigami: blocked (QML gate — QQuickWindow/QQmlEngine headers don't exist on Redox)
+kf6-kio = {}
+# kde-cli-tools = {}   # blocked: direct repo cook fails
+
+kdecoration = {}
+kf6-attica = {}
+kf6-karchive = {}
+kf6-kauth = {}
+kf6-kbookmarks = {}
+kf6-kcmutils = {}
+kf6-kcodecs = {}
+kf6-kcolorscheme = {}
+kf6-kcompletion = {}
+kf6-kconfig = {}
+kf6-kconfigwidgets = {}
+kf6-kcoreaddons = {}
+kf6-kcrash = {}
+kf6-kdbusaddons = {}
+kf6-kdeclarative = {}
+kf6-kded6 = {}
+kf6-kguiaddons = {}
+kf6-ki18n = {}
+kf6-kiconthemes = {}
+kf6-kidletime = {}
+kf6-kitemmodels = {}
+kf6-kitemviews = {}
+kf6-kjobwidgets = {}
+kf6-knotifications = {}
+kf6-kpackage = {}
+kf6-kservice = {}
+kf6-ktextwidgets = {}
+kf6-kwayland = {}
+kf6-kwidgetsaddons = {}
+kf6-kxmlgui = {}
+kf6-prison = {}
+kf6-solid = {}
+kf6-sonnet = {}
+kf6-knewstuff = {}
+kf6-kwallet = {}
+kglobalacceld = {}
+
+# kwin = {}  # Blocked: Qt6 Wayland plugin import error (QML gate)
+
+# Plasma + app packages — blocked on kirigami (QML gate)
+# plasma-framework = {}
+# plasma-workspace = {}
+# plasma-desktop = {}
+
+redbear-authd = {}
+redbear-session-launch = {}
+seatd = {}
+redbear-greeter = {}
+amdgpu = {}
+
+# Core Red Bear umbrella package
+redbear-meta = {}
+
+# Phase 1 runtime validation tests (POSIX: signalfd, timerfd, eventfd, shm_open, sem_open, waitid)
+relibc-phase1-tests = {}
+
+# Desktop fonts and icons
+dejavu = {}
+freefont = {}
+hicolor-icon-theme = {}
+pop-icon-theme = {}
+
+# Suppress legacy desktop packages
+orbdata = "ignore"
+orbital = "ignore"
+orbterm = "ignore"
+orbutils = "ignore"
+cosmic-edit = "ignore"
+cosmic-files = "ignore"
+cosmic-icons = "ignore"
+cosmic-term = "ignore"
+curl = "ignore"
+git = "ignore"
+mc = "ignore"
+#curl = "ignore"  # suppressed: cascade rebuild
+#git = "ignore"  # suppressed: cascade rebuild
+#konsole = {}  # WIP: recipe exists, not yet built — blocked by libiconv fetch
+#kf6-pty = {}  # WIP: recipe exists, not yet built
+
+[[files]]
+path = "/lib/firmware/amdgpu"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/usr/lib/fonts"
+data = "/usr/share/fonts"
+symlink = true
+
+[[files]]
+path = "/usr/lib/init.d/05_boot-essential.target"
+data = """
+[unit]
+description = "Boot essential services target"
+requires_weak = [
+    "00_base.target",
+]
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_iommu.service"
+data = """
+[unit]
+description = "IOMMU DMA remapping daemon"
+requires_weak = [
+    "12_boot-late.target",
+    "00_pcid-spawner.service",
+]
+
+[service]
+cmd = "/usr/bin/iommu"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/12_dbus.service"
+data = """
+[unit]
+description = "D-Bus system bus"
+requires_weak = [
+    "12_boot-late.target",
+]
+
+[service]
+cmd = "dbus-daemon"
+args = ["--system", "--nopidfile"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-sessiond.service"
+data = """
+[unit]
+description = "Red Bear session broker (org.freedesktop.login1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-sessiond"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_seatd.service"
+data = """
+[unit]
+description = "seatd seat management daemon"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+]
+
+[service]
+cmd = "/usr/bin/seatd"
+args = ["-l", "info"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-upower.service"
+data = """
+[unit]
+description = "UPower D-Bus service (org.freedesktop.UPower)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-upower"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-udisks.service"
+data = """
+[unit]
+description = "UDisks2 D-Bus service (org.freedesktop.UDisks2)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-udisks"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/14_redbear-polkit.service"
+data = """
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "redbear-polkit"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/19_redbear-authd.service"
+data = """
+[unit]
+description = "Red Bear authentication daemon"
+requires_weak = [
+    "12_dbus.service",
+]
+
+[service]
+cmd = "/usr/bin/redbear-authd"
+envs = { QT_PLUGIN_PATH = "/usr/plugins", QT_QPA_PLATFORM_PLUGIN_PATH = "/usr/plugins/platforms", QML2_IMPORT_PATH = "/usr/qml", XCURSOR_THEME = "Pop", XKB_CONFIG_ROOT = "/usr/share/X11/xkb", KWIN_DRM_DEVICES = "/scheme/drm/card0" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_display.service"
+data = """
+[unit]
+description = "KDE session assembly helper"
+requires_weak = [
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+    "19_redbear-authd.service",
+]
+
+[service]
+cmd = "/usr/bin/redbear-session-launch"
+args = ["--username", "root", "--mode", "session", "--session", "kde-wayland", "--vt", "4", "--runtime-dir", "/tmp/run/redbear-display-session", "--wayland-display", "wayland-display"]
+envs = { QT_PLUGIN_PATH = "/usr/plugins", QT_QPA_PLATFORM_PLUGIN_PATH = "/usr/plugins/platforms", QML2_IMPORT_PATH = "/usr/qml", XCURSOR_THEME = "Pop", XKB_CONFIG_ROOT = "/usr/share/X11/xkb", REDBEAR_KDE_SESSION_BACKEND = "virtual", REDBEAR_KDE_SESSION_STATE_DIR = "/run/redbear-display-session" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/20_greeter.service"
+data = """
+[unit]
+description = "Red Bear greeter service"
+requires_weak = [
+    "00_pcid-spawner.service",
+    "12_dbus.service",
+    "13_redbear-sessiond.service",
+    "13_seatd.service",
+    "19_redbear-authd.service",
+]
+
+[service]
+cmd = "/usr/bin/redbear-greeterd"
+envs = { VT = "3", REDBEAR_GREETER_USER = "greeter", KWIN_DRM_DEVICES = "/scheme/drm/card0", REDBEAR_DRM_WAIT_SECONDS = "10" }
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/29_activate_console.service"
+data = """
+[unit]
+description = "Activate fallback console VT"
+requires_weak = [
+    "05_boot-essential.target",
+]
+
+[service]
+cmd = "inputd"
+args = ["-A", "2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/30_console.service"
+data = """
+[unit]
+description = "Console terminals"
+requires_weak = [
+    "29_activate_console.service",
+]
+
+[service]
+cmd = "getty"
+args = ["2"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/31_debug_console.service"
+data = """
+[unit]
+description = "Debug console"
+requires_weak = [
+    "29_activate_console.service",
+]
+
+[service]
+cmd = "getty"
+args = ["/scheme/debug/no-preserve", "-J"]
+type = "oneshot_async"
+"""
+
+[users.greeter]
+password = ""
+uid = 101
+gid = 101
+name = "greeter"
+home = "/nonexistent"
+shell = "/usr/bin/ion"
+
+[groups.greeter]
+gid = 101
+members = ["greeter"]
+
+[groups.messagebus]
+gid = 100
+members = ["messagebus"]
+
+[[files]]
+path = "/etc/pcid.d/ihdgd.toml"
+data = """
+[[drivers]]
+name = "Intel GPU (VGA compatible)"
+class = 0x03
+vendor = 0x8086
+subclass = 0x00
+command = ["redox-drm"]
+
+[[drivers]]
+name = "Intel GPU (3D controller)"
+class = 0x03
+vendor = 0x8086
+subclass = 0x02
+command = ["redox-drm"]
+"""
+
+[[files]]
+path = "/etc/pcid.d/virtio-gpud.toml"
+data = """
+[[drivers]]
+name = "VirtIO GPU"
+class = 0x03
+vendor = 0x1af4
+subclass = 0x00
+command = ["redox-drm"]
+"""

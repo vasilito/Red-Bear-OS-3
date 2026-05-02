@@ -1,7 +1,7 @@
 diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
 --- a/src/platform/redox/mod.rs
 +++ b/src/platform/redox/mod.rs
-@@ -77,11 +77,74 @@ static mut BRK_CUR: *mut c_void = ptr::null_mut();
+@@ -77,12 +77,74 @@ static mut BRK_CUR: *mut c_void = ptr::null_mut();
  static mut BRK_END: *mut c_void = ptr::null_mut();
  
  const PAGE_SIZE: usize = 4096;

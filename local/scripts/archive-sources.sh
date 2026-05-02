@@ -2,9 +2,10 @@
 # archive-sources.sh — Export fully-patched source archives for Red Bear OS.
 #
 # Usage:
-#   ./local/scripts/archive-sources.sh [--all] [--recipe <path>] [--target <triple>]
+#   ./local/scripts/archive-sources.sh [--release=<ver>] [--all] [--recipe <path>] [--target <triple>]
 #
-# Creates versioned, fully-patched source archives in sources/<target>/:
+# Creates versioned, fully-patched source archives in sources/<target>/
+# or sources/.staging/redbear-<release>/tarballs/:
 #   <category>-<pkgname>-v<version>-patched.tar.gz
 #
 # Each archive contains: source/ (fully patched) + recipe.toml
@@ -14,10 +15,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TARGET="${TARGET:-x86_64-unknown-redox}"
-SOURCES_DIR="${PROJECT_ROOT}/sources/${TARGET}"
-MANIFEST="${SOURCES_DIR}/packages.txt"
-
-mkdir -p "${SOURCES_DIR}"
+RELEASE=""
+SOURCES_DIR=""
+MANIFEST=""
 
 GREEN='\033[1;32m'
 RED='\033[1;31m'
@@ -139,26 +139,68 @@ archive_all() {
     done < <(find "${PROJECT_ROOT}/recipes" "${PROJECT_ROOT}/local/recipes" -name "recipe.toml" -print0 2>/dev/null)
 
     echo ""
-    status "Archive complete: ${count} packages, ${failed} failures"
+    status "Archive complete: ${count} packages, ${failed} failures → ${SOURCES_DIR}"
 }
 
 # ── Main ────────────────────────────────────────────────────────────
 
-case "${1:-}" in
-    --recipe)
-        if [ -z "${2:-}" ]; then
-            err "--recipe requires a path"
+MODE=""
+RECIPE_PATH=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --release=*)
+            RELEASE="${1#*=}"
+            ;;
+        --recipe)
+            if [ -z "${2:-}" ]; then
+                err "--recipe requires a path"
+                exit 1
+            fi
+            MODE="recipe"
+            RECIPE_PATH="$2"
+            shift
+            ;;
+        --all)
+            MODE="all"
+            ;;
+        *)
+            echo "Usage: $0 [--release=<ver>] --all | --recipe <path>"
+            echo ""
+            echo "  --release=<ver> Optional release staging target (e.g. 0.2.0)"
+            echo "  --all           Archive all recipes with source directories"
+            echo "  --recipe PATH   Archive a specific recipe (e.g. recipes/core/base)"
+            echo ""
+            echo "  Environment: TARGET=x86_64-unknown-redox (default)"
             exit 1
-        fi
+            ;;
+    esac
+    shift
+done
+
+if [ -n "$RELEASE" ]; then
+    SOURCES_DIR="${PROJECT_ROOT}/sources/.staging/redbear-${RELEASE}/tarballs"
+else
+    SOURCES_DIR="${PROJECT_ROOT}/sources/${TARGET}"
+fi
+MANIFEST="${SOURCES_DIR}/packages.txt"
+
+mkdir -p "${SOURCES_DIR}"
+
+case "$MODE" in
+    recipe)
+        status "Writing archives to ${SOURCES_DIR}"
         > "$MANIFEST"
-        archive_recipe "${PROJECT_ROOT}/${2}"
+        archive_recipe "${PROJECT_ROOT}/${RECIPE_PATH}"
         ;;
-    --all)
+    all)
+        status "Writing archives to ${SOURCES_DIR}"
         archive_all
         ;;
     *)
-        echo "Usage: $0 --all | --recipe <path>"
+        echo "Usage: $0 [--release=<ver>] --all | --recipe <path>"
         echo ""
+        echo "  --release=<ver> Optional release staging target (e.g. 0.2.0)"
         echo "  --all           Archive all recipes with source directories"
         echo "  --recipe PATH   Archive a specific recipe (e.g. recipes/core/base)"
         echo ""

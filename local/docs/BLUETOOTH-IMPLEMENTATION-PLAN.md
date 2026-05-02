@@ -189,7 +189,7 @@ live under `local/`:
 - validation helpers under `local/scripts/`
 - support-language and roadmap updates under `local/docs/`
 
-That keeps the first implementation pass aligned with Red Bear's overlay model and rebase strategy.
+That keeps the first implementation pass aligned with Red Bear's release fork model and rebase strategy.
 
 ### 3. Desktop parity is not the first milestone
 
@@ -310,7 +310,7 @@ Some of the implementation targets below refer to upstream-managed trees such as
 
 In Red Bear, changes against those paths should be carried through the relevant patch carrier under
 `local/patches/` until intentionally upstreamed. This plan names the technical integration point,
-not a recommendation to edit upstream-managed trees outside Red Bear's normal overlay model.
+not a recommendation to edit upstream-managed trees outside Red Bear's normal release fork model.
 
 ### Phase B0 — Scope Freeze and Support Model
 

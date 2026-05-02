@@ -1,7 +1,7 @@
 diff --git a/src/percpu.rs b/src/percpu.rs
 --- a/src/percpu.rs
 +++ b/src/percpu.rs
-@@ -100,6 +100,14 @@ static ALL_PERCPU_BLOCKS: [AtomicPtr<PercpuBlock>; MAX_CPU_COUNT as usize] =
+@@ -100,5 +100,13 @@ static ALL_PERCPU_BLOCKS: [AtomicPtr<PercpuBlock>; MAX_CPU_COUNT as usize] =
  pub unsafe fn init_tlb_shootdown(id: LogicalCpuId, block: *mut PercpuBlock) {
      ALL_PERCPU_BLOCKS[id.get() as usize].store(block, Ordering::Release)
  }
@@ -18,7 +18,7 @@ diff --git a/src/percpu.rs b/src/percpu.rs
 diff --git a/src/context/switch.rs b/src/context/switch.rs
 --- a/src/context/switch.rs
 +++ b/src/context/switch.rs
-@@ -7,15 +7,15 @@ use crate::{
+@@ -7,15 +7,135 @@ use crate::{
          self, arch, idle_contexts, idle_contexts_try, run_contexts, ArcContextLockWriteGuard,
          Context, ContextLock, SchedPolicy, WeakContextRef, RUN_QUEUE_COUNT,
      },
@@ -170,7 +170,7 @@ diff --git a/src/context/switch.rs b/src/context/switch.rs
          run_queues[prio].push_back(context_ref);
      }
  }
-@@ -559,6 +672,16 @@ fn select_next_context(
+@@ -559,6 +672,17 @@ fn select_next_context(
          );
          return Ok(Some(next_context_guard));
      }

@@ -1,0 +1,2954 @@
+diff --git a/redox-rt/src/signal.rs b/redox-rt/src/signal.rs
+index 022f873..ab96dea 100644
+--- a/redox-rt/src/signal.rs
++++ b/redox-rt/src/signal.rs
+@@ -1,4 +1,10 @@
+-use core::{ffi::c_int, ptr::NonNull, sync::atomic::Ordering};
++use core::{
++    ffi::c_int,
++    hint::unreachable_unchecked,
++    panic::AssertUnwindSafe,
++    ptr::NonNull,
++    sync::atomic::Ordering,
++};
+ 
+ use syscall::{
+     CallFlags, EAGAIN, EINTR, EINVAL, ENOMEM, EPERM, Error, RawAction, Result, SenderInfo,
+@@ -103,6 +109,47 @@ pub struct SiginfoAbi {
+     pub si_value: usize, // sigval
+ }
+ 
++fn invoke_signal_handler<F: FnOnce()>(f: AssertUnwindSafe<F>) -> bool {
++    fn do_call<F: FnOnce()>(data: *mut u8) {
++        let callback = unsafe { &mut *data.cast::<Option<AssertUnwindSafe<F>>>() };
++        if let Some(callback) = callback.take() {
++            callback.0();
++        }
++    }
++
++    fn do_catch<F: FnOnce()>(_data: *mut u8, _payload: *mut u8) {}
++
++    let mut callback = Some(f);
++    unsafe {
++        core::intrinsics::catch_unwind(
++            do_call::<F>,
++            (&mut callback as *mut Option<AssertUnwindSafe<F>>).cast(),
++            do_catch::<F>,
++        ) != 0
++    }
++}
++
++#[inline(always)]
++unsafe fn return_ignored_signal(
++    os: &RtTcb,
++    stack: &SigStack,
++    signals_were_disabled: bool,
++) {
++    unsafe {
++        (*os.arch.get()).last_sig_was_restart = true;
++        (*os.arch.get()).last_sigstack = NonNull::new(stack.link);
++    }
++
++    if !signals_were_disabled {
++        core::sync::atomic::compiler_fence(Ordering::Release);
++        let control_flags = &os.control.control_flags;
++        control_flags.store(
++            control_flags.load(Ordering::Relaxed) & !SigcontrolFlags::INHIBIT_DELIVERY.bits(),
++            Ordering::Relaxed,
++        );
++    }
++}
++
+ #[inline(always)]
+ unsafe fn inner(stack: &mut SigStack) {
+     let os = unsafe { &Tcb::current().unwrap().os_specific };
+@@ -168,7 +215,10 @@ unsafe fn inner(stack: &mut SigStack) {
+         // and reaching this code. If so, we do already know whether the signal is IGNORED *now*,
+         // and so we should return early ideally without even temporarily touching the signal mask.
+         SigactionKind::Ignore => {
+-            panic!("ctl {:#x?} signal {}", os.control, stack.sig_num)
++            unsafe {
++                return_ignored_signal(os, stack, signals_were_disabled);
++            }
++            return;
+         }
+         // this case should be treated equally as the one above
+         //
+@@ -183,7 +233,9 @@ unsafe fn inner(stack: &mut SigStack) {
+                 CallFlags::empty(),
+                 &[ProcCall::Exit as u64, u64::from(sig) << 8],
+             );
+-            panic!()
++            // SAFETY: ProcCall::Exit terminates the current process when it succeeds, so reaching
++            // this point would violate the proc manager exit contract.
++            unsafe { unreachable_unchecked() }
+         }
+         SigactionKind::Handled { handler } => handler,
+     };
+@@ -224,15 +276,21 @@ unsafe fn inner(stack: &mut SigStack) {
+             si_uid: sender_uid as i32,
+             si_value: stack.sival,
+         };
+-        unsafe {
++        if invoke_signal_handler(AssertUnwindSafe(|| unsafe {
+             sigaction(
+                 stack.sig_num as c_int,
+                 core::ptr::addr_of!(info).cast(),
+                 stack as *mut SigStack as *mut (),
+             )
+-        };
++        })) {
++            let _ = syscall::write(2, b"redox-rt: sa_siginfo handler panicked; continuing\n");
++        }
+     } else if let Some(handler) = unsafe { handler.handler } {
+-        handler(stack.sig_num as c_int);
++        if invoke_signal_handler(AssertUnwindSafe(|| {
++            handler(stack.sig_num as c_int);
++        })) {
++            let _ = syscall::write(2, b"redox-rt: sa_handler panicked; continuing\n");
++        }
+     }
+ 
+     // Disable signals while we modify the sigmask again
+diff --git a/src/header/_aio/mod.rs b/src/header/_aio/mod.rs
+index b75ba38..a59995a 100644
+--- a/src/header/_aio/mod.rs
++++ b/src/header/_aio/mod.rs
+@@ -1,75 +1,283 @@
+ //! `aio.h` implementation.
+ //!
+-//! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/aio.h.html>.
++//! Synchronous emulation of POSIX AIO. All operations complete immediately
++//! in the calling thread. This provides sufficient compatibility for software
++//! (such as Qt6's QIODevice) that uses aio as an optional fallback path.
++
++use core::slice;
+ 
+ use crate::{
+-    header::{bits_timespec::timespec, signal::sigevent},
+-    platform::types::{c_int, c_void},
++    error::Errno,
++    header::{
++        bits_timespec::timespec,
++        errno::{EFAULT, EINVAL, EINPROGRESS, EIO},
++        fcntl::O_SYNC,
++        signal::sigevent,
++    },
++    platform::{
++        Sys,
++        types::{c_int, c_void, off_t, size_t, ssize_t},
++        ERRNO,
++    },
+ };
+ 
++// POSIX lio_listio operation codes
++pub const LIO_READ: c_int = 0;
++pub const LIO_WRITE: c_int = 1;
++pub const LIO_NOP: c_int = 2;
++
++// lio_listio modes
++pub const LIO_WAIT: c_int = 0;
++pub const LIO_NOWAIT: c_int = 1;
++
++// aio_cancel return values
++pub const AIO_CANCELED: c_int = 0;
++pub const AIO_NOTCANCELED: c_int = 1;
++pub const AIO_ALLDONE: c_int = 2;
++
++// O_DSYNC is not yet defined in relibc's fcntl module.
++// Accept it in aio_fsync by matching the Linux x86_64 value.
++// TODO: import from fcntl when O_DSYNC is added there.
++const _O_DSYNC: c_int = 0x0001_0000;
++
++// Internal operation states for synchronous emulation
++const _AIO_IDLE: c_int = 0;
++const _AIO_DONE: c_int = 2;
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/aio.h.html>.
++#[repr(C)]
+ pub struct aiocb {
+     pub aio_fildes: c_int,
++    pub aio_offset: off_t,
+     pub aio_lio_opcode: c_int,
+     pub aio_reqprio: c_int,
+     pub aio_buf: *mut c_void,
+-    pub aio_nbytes: usize,
++    pub aio_nbytes: size_t,
+     pub aio_sigevent: sigevent,
++    // Private emulation state
++    pub __state: c_int,
++    pub __error_code: c_int,
++    pub __return_value: ssize_t,
++}
++
++/// Perform a synchronous pread and store the result in the aiocb.
++///
++/// Returns 0 on success, -1 on error (with errno set).
++unsafe fn aio_do_read(cb: &mut aiocb) -> c_int {
++    let buf = unsafe { slice::from_raw_parts_mut(cb.aio_buf.cast::<u8>(), cb.aio_nbytes) };
++    match Sys::pread(cb.aio_fildes, buf, cb.aio_offset) {
++        Ok(n) => {
++            cb.__error_code = 0;
++            cb.__return_value = n as ssize_t;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
++}
++
++/// Perform a synchronous pwrite and store the result in the aiocb.
++///
++/// Returns 0 on success, -1 on error (with errno set).
++unsafe fn aio_do_write(cb: &mut aiocb) -> c_int {
++    let buf = unsafe { slice::from_raw_parts(cb.aio_buf.cast::<u8>(), cb.aio_nbytes) };
++    match Sys::pwrite(cb.aio_fildes, buf, cb.aio_offset) {
++        Ok(n) => {
++            cb.__error_code = 0;
++            cb.__return_value = n as ssize_t;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_read.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_read(aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_read(aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    if cb.aio_buf.is_null() && cb.aio_nbytes > 0 {
++        ERRNO.set(EFAULT);
++        cb.__state = _AIO_DONE;
++        cb.__error_code = EFAULT;
++        cb.__return_value = -1;
++        return -1;
++    }
++    unsafe { aio_do_read(cb) }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_write.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_write(aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_write(aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    if cb.aio_buf.is_null() && cb.aio_nbytes > 0 {
++        ERRNO.set(EFAULT);
++        cb.__state = _AIO_DONE;
++        cb.__error_code = EFAULT;
++        cb.__return_value = -1;
++        return -1;
++    }
++    unsafe { aio_do_write(cb) }
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/lio_listio.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn lio_listio(
+-    mode: c_int,
+-    list: *const *const aiocb,
+-    nent: c_int,
+-    sig: *mut sigevent,
+-) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_fsync.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_fsync(operation: c_int, aiocbp: *mut aiocb) -> c_int {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    // Validate operation: O_SYNC from fcntl, or _O_DSYNC (Linux compat value).
++    if operation != O_SYNC && operation != _O_DSYNC {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &mut *aiocbp };
++    match Sys::fsync(cb.aio_fildes) {
++        Ok(()) => {
++            cb.__error_code = 0;
++            cb.__return_value = 0;
++            cb.__state = _AIO_DONE;
++            0
++        }
++        Err(Errno(e)) => {
++            cb.__error_code = e;
++            cb.__return_value = -1;
++            cb.__state = _AIO_DONE;
++            ERRNO.set(e);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_error.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_error(aiocbp: *const aiocb) -> c_int {
+-    unimplemented!();
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_error(aiocbp: *const aiocb) -> c_int {
++    if aiocbp.is_null() {
++        return EINVAL;
++    }
++    let cb = unsafe { &*aiocbp };
++    match cb.__state {
++        _AIO_IDLE => 0,      // Never submitted -- no error
++        _AIO_DONE => cb.__error_code,
++        _ => EINPROGRESS,    // Should not occur with sync emulation
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_return.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_return(aiocbp: *mut aiocb) -> usize {
+-    unimplemented!();
+-}
+-
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_cancel.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_cancel(fildes: c_int, aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_return(aiocbp: *mut aiocb) -> ssize_t {
++    if aiocbp.is_null() {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let cb = unsafe { &*aiocbp };
++    if cb.__state != _AIO_DONE {
++        ERRNO.set(EINPROGRESS);
++        return -1;
++    }
++    cb.__return_value
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_suspend.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_suspend(
++///
++/// With synchronous emulation, all operations are already complete when
++/// aio_suspend is called, so this is effectively a no-op that returns 0.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_suspend(
+     list: *const *const aiocb,
+     nent: c_int,
+     timeout: *const timespec,
+ ) -> c_int {
+-    unimplemented!();
++    let _ = timeout;
++    if list.is_null() || nent < 0 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    // All operations complete synchronously, so just return success.
++    0
+ }
+ 
+-/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_fsync.html>.
+-// #[unsafe(no_mangle)]
+-pub extern "C" fn aio_fsync(operation: c_int, aiocbp: *mut aiocb) -> c_int {
+-    unimplemented!();
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/aio_cancel.html>.
++///
++/// With synchronous emulation, operations complete before aio_cancel can be
++/// called, so this always returns AIO_ALLDONE.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn aio_cancel(fildes: c_int, aiocbp: *mut aiocb) -> c_int {
++    if !aiocbp.is_null() {
++        let cb = unsafe { &*aiocbp };
++        if cb.aio_fildes != fildes {
++            ERRNO.set(EINVAL);
++            return -1;
++        }
++    }
++    AIO_ALLDONE
++}
++
++/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/lio_listio.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lio_listio(
++    mode: c_int,
++    list: *const *const aiocb,
++    nent: c_int,
++    sig: *mut sigevent,
++) -> c_int {
++    let _ = sig;
++    if (mode != LIO_WAIT && mode != LIO_NOWAIT) || list.is_null() || nent < 0 {
++        ERRNO.set(EINVAL);
++        return -1;
++    }
++    let mut any_failed = false;
++    for i in 0..nent {
++        let entry = unsafe { *list.add(i as usize) };
++        if entry.is_null() {
++            continue;
++        }
++        let cb = unsafe { &mut *(entry as *mut aiocb) };
++        match cb.aio_lio_opcode {
++            LIO_READ => {
++                if unsafe { aio_read(cb) } != 0 {
++                    any_failed = true;
++                }
++            }
++            LIO_WRITE => {
++                if unsafe { aio_write(cb) } != 0 {
++                    any_failed = true;
++                }
++            }
++            LIO_NOP => {}
++            _ => {
++                cb.__state = _AIO_DONE;
++                cb.__error_code = EINVAL;
++                cb.__return_value = -1;
++                ERRNO.set(EINVAL);
++                any_failed = true;
++            }
++        }
++    }
++    if any_failed {
++        ERRNO.set(EIO);
++        return -1;
++    }
++    0
+ }
+diff --git a/src/header/fcntl/mod.rs b/src/header/fcntl/mod.rs
+index 28455c9..504d505 100644
+--- a/src/header/fcntl/mod.rs
++++ b/src/header/fcntl/mod.rs
+@@ -7,6 +7,8 @@ use core::num::NonZeroU64;
+ use crate::{
+     c_str::CStr,
+     error::ResultExt,
++    header::unistd::close,
++    header::unistd::close,
+     platform::{
+         Pal, Sys,
+         types::{c_char, c_int, c_short, c_ulonglong, mode_t, off_t, pid_t},
+@@ -74,6 +76,40 @@ pub unsafe extern "C" fn fcntl(fildes: c_int, cmd: c_int, mut __valist: ...) ->
+         _ => 0,
+     };
+ 
++    if cmd == F_DUPFD_CLOEXEC {
++        let new_fd = Sys::fcntl(fildes, F_DUPFD_CLOEXEC, arg).or_minus_one_errno();
++        if new_fd >= 0 {
++            return new_fd;
++        }
++
++        let new_fd = Sys::fcntl(fildes, F_DUPFD, arg).or_minus_one_errno();
++        if new_fd < 0 {
++            return -1;
++        }
++        if Sys::fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong).or_minus_one_errno() < 0 {
++            let _ = close(new_fd);
++            return -1;
++        }
++        return new_fd;
++    }
++
++    if cmd == F_DUPFD_CLOEXEC {
++        let new_fd = Sys::fcntl(fildes, F_DUPFD_CLOEXEC, arg).or_minus_one_errno();
++        if new_fd >= 0 {
++            return new_fd;
++        }
++
++        let new_fd = Sys::fcntl(fildes, F_DUPFD, arg).or_minus_one_errno();
++        if new_fd < 0 {
++            return -1;
++        }
++        if Sys::fcntl(new_fd, F_SETFD, FD_CLOEXEC as c_ulonglong).or_minus_one_errno() < 0 {
++            let _ = close(new_fd);
++            return -1;
++        }
++        return new_fd;
++    }
++
+     Sys::fcntl(fildes, cmd, arg).or_minus_one_errno()
+ }
+ 
+diff --git a/src/header/mod.rs b/src/header/mod.rs
+index 4bdb6b1..3eecb00 100644
+--- a/src/header/mod.rs
++++ b/src/header/mod.rs
+@@ -91,6 +91,7 @@ pub mod strings;
+ // TODO: stropts.h (deprecated)
+ pub mod sys_auxv;
+ pub mod sys_epoll;
++pub mod sys_eventfd;
+ pub mod sys_file;
+ pub mod sys_ioctl;
+ // TODO: sys/ipc.h
+@@ -113,9 +114,11 @@ pub mod sys_timeb;
+ pub mod arch_aarch64_user;
+ pub mod arch_riscv64_user;
+ pub mod arch_x64_user;
++pub mod sys_signalfd;
+ #[cfg(not(target_arch = "x86"))] // TODO: x86
+ pub mod sys_procfs;
+ pub mod sys_random;
++pub mod sys_timerfd;
+ pub mod sys_syslog;
+ pub mod sys_types;
+ #[allow(non_camel_case_types)]
+diff --git a/src/header/pthread/barrier.rs b/src/header/pthread/barrier.rs
+index dedf715..d0b1d0d 100644
+--- a/src/header/pthread/barrier.rs
++++ b/src/header/pthread/barrier.rs
+@@ -24,10 +24,8 @@ impl Default for RlctBarrierAttr {
+ // Not async-signal-safe.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_barrier_destroy(barrier: *mut pthread_barrier_t) -> c_int {
+-    // Behavior is undefined if any thread is currently waiting when this is called.
+-
+-    // No-op, currently.
+-    unsafe { core::ptr::drop_in_place(barrier.cast::<RlctBarrier>()) };
++    let barrier = unsafe { &*barrier.cast::<RlctBarrier>() };
++    barrier.destroy();
+ 
+     0
+ }
+diff --git a/src/header/pthread/cbindgen.toml b/src/header/pthread/cbindgen.toml
+index 04b8d7d..65b4334 100644
+--- a/src/header/pthread/cbindgen.toml
++++ b/src/header/pthread/cbindgen.toml
+@@ -8,6 +8,7 @@ cpp_compat = true
+ [export.rename]
+ "timespec" = "struct timespec"
+ "sched_param" = "struct sched_param"
++"cpu_set_t" = "struct cpu_set_t"
+ 
+ [enum]
+ prefix_with_name = true
+diff --git a/src/header/pthread/mod.rs b/src/header/pthread/mod.rs
+index c742a42..ade947e 100644
+--- a/src/header/pthread/mod.rs
++++ b/src/header/pthread/mod.rs
+@@ -3,23 +3,140 @@
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/pthread.h.html>.
+ 
+ use alloc::collections::LinkedList;
+-use core::{cell::Cell, ptr::NonNull};
++use core::{cell::Cell, mem::size_of, ptr::NonNull};
++
++#[cfg(target_os = "redox")]
++use redox_rt::proc::FdGuard;
++    header::errno::EINVAL,
++#[cfg(target_os = "linux")]
++use sc::syscall;
++#[cfg(target_os = "redox")]
++use syscall;
+ 
+ use crate::{
+     error::Errno,
+-    header::{bits_timespec::timespec, sched::*},
++    header::{
++        bits_timespec::timespec,
++        errno::{EINVAL, ERANGE},
++        sched::*,
++    },
+     platform::{
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
+         Pal, Sys,
+         types::{
+-            c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
++            c_char, c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
+             pthread_barrierattr_t, pthread_cond_t, pthread_condattr_t, pthread_key_t,
+             pthread_mutex_t, pthread_mutexattr_t, pthread_once_t, pthread_rwlock_t,
+             pthread_rwlockattr_t, pthread_spinlock_t, pthread_t, size_t,
+         },
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
+     },
+     pthread,
+ };
+ 
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
++#[cfg(target_os = "linux")]
++use crate::platform::sys::e_raw;
++
+ pub fn e(result: Result<(), Errno>) -> i32 {
+     match result {
+         Ok(()) => 0,
+@@ -27,6 +144,276 @@ pub fn e(result: Result<(), Errno>) -> i32 {
+     }
+ }
+ 
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
++const RLCT_AFFINITY_BYTES: usize = size_of::<u64>();
++const RLCT_MAX_AFFINITY_CPUS: usize = u64::BITS as usize;
++
++fn cpuset_bytes<'a>(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<&'a [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_bytes_mut<'a>(cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<&'a mut [u8], Errno> {
++    if cpuset.is_null() || !(RLCT_AFFINITY_BYTES..=size_of::<cpu_set_t>()).contains(&cpusetsize) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(unsafe { core::slice::from_raw_parts_mut(cpuset.cast::<u8>(), cpusetsize) })
++}
++
++fn cpuset_to_u64(cpusetsize: size_t, cpuset: *const cpu_set_t) -> Result<u64, Errno> {
++    let bytes = cpuset_bytes(cpusetsize, cpuset)?;
++    let mut mask = 0_u64;
++
++    for (byte_index, byte) in bytes.iter().copied().enumerate() {
++        for bit in 0..u8::BITS as usize {
++            if byte & (1 << bit) == 0 {
++                continue;
++            }
++
++            let cpu = byte_index * u8::BITS as usize + bit;
++            if cpu >= RLCT_MAX_AFFINITY_CPUS {
++                return Err(Errno(EINVAL));
++            }
++
++            mask |= 1_u64 << cpu;
++        }
++    }
++
++    Ok(mask)
++}
++
++fn copy_u64_to_cpuset(mask: u64, cpusetsize: size_t, cpuset: *mut cpu_set_t) -> Result<(), Errno> {
++    let bytes = cpuset_bytes_mut(cpusetsize, cpuset)?;
++    bytes.fill(0);
++
++    for (byte_index, dst) in bytes.iter_mut().take(RLCT_AFFINITY_BYTES).enumerate() {
++        *dst = (mask >> (byte_index * u8::BITS as usize)) as u8;
++    }
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_set_thread_affinity(thread: &pthread::Pthread, mask: u64) -> Result<(), Errno> {
++    let mut kernel_cpuset = cpu_set_t::default();
++    kernel_cpuset.__bits[0] = mask;
++
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let _ = handle.write(unsafe {
++        core::slice::from_raw_parts(
++            core::ptr::from_ref(&kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    Ok(())
++}
++
++#[cfg(target_os = "redox")]
++fn redox_get_thread_affinity(thread: &pthread::Pthread) -> Result<u64, Errno> {
++    let handle = FdGuard::new(unsafe {
++        syscall::dup(thread.os_tid.get().read().thread_fd, b"sched-affinity")?
++    });
++    let mut kernel_cpuset = cpu_set_t::default();
++    let _ = handle.read(unsafe {
++        core::slice::from_raw_parts_mut(
++            core::ptr::from_mut(&mut kernel_cpuset).cast::<u8>(),
++            size_of::<cpu_set_t>(),
++        )
++    })?;
++
++    if kernel_cpuset.__bits[1..].iter().any(|bits| *bits != 0) {
++        return Err(Errno(EINVAL));
++    }
++
++    Ok(kernel_cpuset.__bits[0])
++}
++
+ #[derive(Clone)]
+ pub(crate) struct RlctAttr {
+     pub detachstate: c_uchar,
+@@ -82,6 +469,42 @@ pub use self::attr::*;
+ 
+ pub mod barrier;
+ pub use self::barrier::*;
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread).and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ 
+ pub mod cond;
+ pub use self::cond::*;
+@@ -131,6 +554,42 @@ pub unsafe extern "C" fn pthread_detach(pthread: pthread_t) -> c_int {
+ pub extern "C" fn pthread_equal(pthread1: pthread_t, pthread2: pthread_t) -> c_int {
+     core::ptr::eq(pthread1, pthread2).into()
+ }
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset).and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_atfork.html>.
+ #[unsafe(no_mangle)]
+@@ -186,6 +645,117 @@ pub unsafe extern "C" fn pthread_getcpuclockid(
+     }
+ }
+ 
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread)
++                .and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread)
++                .and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *mut cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            redox_get_thread_affinity(thread)
++                .and_then(|mask| copy_u64_to_cpuset(mask, cpusetsize, cpuset))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_GETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_getschedparam.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_getschedparam(
+@@ -235,6 +805,117 @@ pub unsafe extern "C" fn pthread_self() -> pthread_t {
+     core::ptr::from_ref(unsafe { pthread::current_thread().unwrap_unchecked() }) as *mut _
+ }
+ 
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset)
++                .and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset)
++                .and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
++/// GNU extension. See <https://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html>.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setaffinity_np(
++    thread: pthread_t,
++    cpusetsize: size_t,
++    cpuset: *const cpu_set_t,
++) -> c_int {
++    let thread: &pthread::Pthread = unsafe { &*thread.cast() };
++
++    let result = {
++        #[cfg(target_os = "redox")]
++        {
++            cpuset_to_u64(cpusetsize, cpuset)
++                .and_then(|mask| redox_set_thread_affinity(thread, mask))
++        }
++
++        #[cfg(target_os = "linux")]
++        {
++            if cpuset.is_null() {
++                Err(Errno(EINVAL))
++            } else {
++                e_raw(unsafe {
++                    syscall!(
++                        SCHED_SETAFFINITY,
++                        thread.os_tid.get().read().thread_id,
++                        cpusetsize,
++                        cpuset.cast::<c_void>()
++                    )
++                })
++                .map(|_| ())
++            }
++        }
++    };
++
++    e(result)
++}
++
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_setcancelstate.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_setcancelstate(state: c_int, oldstate: *mut c_int) -> c_int {
+@@ -307,6 +988,27 @@ pub unsafe extern "C" fn pthread_testcancel() {
+     unsafe { pthread::testcancel() };
+ }
+ 
++/// <https://man7.org/linux/man-pages/man3/pthread_yield.3.html>
++///
++/// Non-standard GNU extension. Prefer `sched_yield()` instead.
++pub extern "C" fn pthread_yield() {
++    let _ = Sys::sched_yield();
++}
++
++/// <https://man7.org/linux/man-pages/man3/pthread_yield.3.html>
++///
++/// Non-standard GNU extension. Prefer `sched_yield()` instead.
++pub extern "C" fn pthread_yield() {
++    let _ = Sys::sched_yield();
++}
++
++/// <https://man7.org/linux/man-pages/man3/pthread_yield.3.html>
++///
++/// Non-standard GNU extension. Prefer `sched_yield()` instead.
++pub extern "C" fn pthread_yield() {
++    let _ = Sys::sched_yield();
++}
++
+ // Must be the same struct as defined in the pthread_cleanup_push macro.
+ #[repr(C)]
+ pub(crate) struct CleanupLinkedListEntry {
+@@ -350,3 +1052,242 @@ pub(crate) unsafe fn run_destructor_stack() {
+         (entry.routine)(entry.arg);
+     }
+ }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setname_np(thread: pthread_t, name: *const c_char) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++
++    let cstr = unsafe { core::ffi::CStr::from_ptr(name) };
++    let name_bytes = cstr.to_bytes();
++    let len = name_bytes.len().min(31);
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name\0", os_tid.thread_fd);
++        let path_cstr = core::ffi::CStr::from_bytes_with_nul(path.as_bytes()).unwrap();
++        let fd = match Sys::open(path_cstr.into(), crate::header::fcntl::O_WRONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let result = match Sys::write(fd, &name_bytes[..len]) {
++            Ok(written) if written == len => 0,
++            Ok(_) => crate::header::errno::EIO,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getname_np(
++    thread: pthread_t,
++    name: *mut c_char,
++    len: size_t,
++) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++    if len == 0 {
++        return ERANGE;
++    }
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name\0", os_tid.thread_fd);
++        let path_cstr = core::ffi::CStr::from_bytes_with_nul(path.as_bytes()).unwrap();
++        let fd = match Sys::open(path_cstr.into(), crate::header::fcntl::O_RDONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let mut buf = [0u8; 31];
++        let result = match Sys::read(fd, &mut buf) {
++            Ok(read) if read < len => {
++                unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), name.cast(), read) };
++                unsafe { *name.add(read) = 0 };
++                0
++            }
++            Ok(_) => ERANGE,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        unsafe { *name = 0 };
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setname_np(thread: pthread_t, name: *const c_char) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++
++    let cstr = unsafe { core::ffi::CStr::from_ptr(name) };
++    let name_bytes = cstr.to_bytes();
++    let len = name_bytes.len().min(31);
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name", os_tid.thread_fd);
++        let fd = match Sys::open(&path, crate::header::fcntl::O_WRONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let result = match Sys::write(fd, &name_bytes[..len]) {
++            Ok(written) if written == len => 0,
++            Ok(_) => crate::header::errno::EIO,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getname_np(
++    thread: pthread_t,
++    name: *mut c_char,
++    len: size_t,
++) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++    if len == 0 {
++        return ERANGE;
++    }
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name", os_tid.thread_fd);
++        let fd = match Sys::open(&path, crate::header::fcntl::O_RDONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let mut buf = [0u8; 31];
++        let result = match Sys::read(fd, &mut buf) {
++            Ok(read) if read < len => {
++                unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), name.cast(), read) };
++                unsafe { *name.add(read) = 0 };
++                0
++            }
++            Ok(_) => ERANGE,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        unsafe { *name = 0 };
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_setname_np(thread: pthread_t, name: *const c_char) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++
++    let cstr = unsafe { core::ffi::CStr::from_ptr(name) };
++    let name_bytes = cstr.to_bytes();
++    let len = name_bytes.len().min(31);
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name", os_tid.thread_fd);
++        let fd = match Sys::open(&path, crate::header::fcntl::O_WRONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let result = match Sys::write(fd, &name_bytes[..len]) {
++            Ok(written) if written == len => 0,
++            Ok(_) => crate::header::errno::EIO,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        0
++    }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn pthread_getname_np(
++    thread: pthread_t,
++    name: *mut c_char,
++    len: size_t,
++) -> c_int {
++    if name.is_null() {
++        return EINVAL;
++    }
++    if len == 0 {
++        return ERANGE;
++    }
++
++    #[cfg(target_os = "redox")]
++    {
++        let thread = unsafe { &*thread.cast::<crate::pthread::Pthread>() };
++        let os_tid = unsafe { thread.os_tid.get().read() };
++        let path = alloc::format!("proc:{}/name", os_tid.thread_fd);
++        let fd = match Sys::open(&path, crate::header::fcntl::O_RDONLY, 0) {
++            Ok(fd) => fd,
++            Err(Errno(code)) => return code,
++        };
++
++        let mut buf = [0u8; 31];
++        let result = match Sys::read(fd, &mut buf) {
++            Ok(read) if read < len => {
++                unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), name.cast(), read) };
++                unsafe { *name.add(read) = 0 };
++                0
++            }
++            Ok(_) => ERANGE,
++            Err(Errno(code)) => code,
++        };
++        let _ = Sys::close(fd);
++        result
++    }
++    #[cfg(not(target_os = "redox"))]
++    {
++        let _ = thread;
++        unsafe { *name = 0 };
++        0
++    }
++}
+diff --git a/src/header/sched/cbindgen.toml b/src/header/sched/cbindgen.toml
+index b361fa4..d2e6130 100644
+--- a/src/header/sched/cbindgen.toml
++++ b/src/header/sched/cbindgen.toml
+@@ -5,7 +5,7 @@
+ # - "[SS|TSP] The <sched.h> header shall define the time_t type as described in <sys/types.h>."
+ # - "The <sched.h> header shall define the timespec structure as described in <time.h>."
+ # - "Inclusion of the <sched.h> header may make visible all symbols from the <time.h> header."
+-sys_includes = ["sys/types.h"]
++sys_includes = ["sys/types.h", "stdint.h"]
+ include_guard = "_RELIBC_SCHED_H"
+ after_includes = """
+ #include <bits/timespec.h> // for timespec
+@@ -20,3 +20,31 @@ prefix_with_name = true
+ 
+ [export.rename]
+ "timespec" = "struct timespec"
++
++[export]
++include = [
++    "sched_param",
++    "cpu_set_t",
++    "sched_get_priority_max",
++    "sched_get_priority_min",
++    "sched_getparam",
++    "sched_getscheduler",
++    "sched_rr_get_interval",
++    "sched_setparam",
++    "sched_setscheduler",
++    "sched_yield",
++]
++
++[export]
++include = [
++    "sched_param",
++    "cpu_set_t",
++    "sched_get_priority_max",
++    "sched_get_priority_min",
++    "sched_getparam",
++    "sched_getscheduler",
++    "sched_rr_get_interval",
++    "sched_setparam",
++    "sched_setscheduler",
++    "sched_yield",
++]
+diff --git a/src/header/sched/mod.rs b/src/header/sched/mod.rs
+index bcdd346..e7865ca 100644
+--- a/src/header/sched/mod.rs
++++ b/src/header/sched/mod.rs
+@@ -4,12 +4,14 @@
+ 
+ use crate::{
+     error::ResultExt,
+-    header::bits_timespec::timespec,
++    header::{bits_timespec::timespec, errno},
+     platform::{
+-        Pal, Sys,
++        self, Pal, Sys,
+         types::{c_int, pid_t},
+     },
+ };
++pub const CPU_SETSIZE: usize = 1024;
++
+ 
+ // TODO: There are extensions, but adding more member is breaking ABI for pthread_attr_t
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sched.h.html>.
+@@ -18,6 +20,13 @@ use crate::{
+ pub struct sched_param {
+     pub sched_priority: c_int,
+ }
++/// Linux-compatible CPU affinity mask storage.
++#[repr(C)]
++#[derive(Clone, Copy, Debug, Default)]
++pub struct cpu_set_t {
++    pub __bits: [u64; 16],
++}
++
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/sched.h.html>.
+ pub const SCHED_FIFO: c_int = 0;
+@@ -29,31 +38,70 @@ pub const SCHED_OTHER: c_int = 2;
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_max(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 99,
++        SCHED_OTHER => 0,
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_get_priority_max.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_get_priority_min(policy: c_int) -> c_int {
+-    todo!()
++    match policy {
++        SCHED_FIFO | SCHED_RR => 0,
++        SCHED_OTHER => 0,
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_getparam.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sched_getparam(pid: pid_t, param: *mut sched_param) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; return default params
++    (*param).sched_priority = 0;
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_rr_get_interval.html>.
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn sched_rr_get_interval(pid: pid_t, time: *const timespec) -> c_int {
+-    todo!()
++    if time.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; report a nominal 1-second round-robin interval
++    unsafe {
++        (*(time as *mut timespec)).tv_sec = 1;
++        (*(time as *mut timespec)).tv_nsec = 0;
++    }
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setparam.html>.
+ // #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn sched_setparam(pid: pid_t, param: *const sched_param) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    let priority = (*param).sched_priority;
++    if priority < 0 || priority > 99 {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    // Redox has no real-time scheduler; validate and succeed as a no-op
++    0
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_setscheduler.html>.
+@@ -63,7 +111,25 @@ pub extern "C" fn sched_setscheduler(
+     policy: c_int,
+     param: *const sched_param,
+ ) -> c_int {
+-    todo!()
++    if param.is_null() {
++        platform::ERRNO.set(errno::EINVAL);
++        return -1;
++    }
++    match policy {
++        SCHED_FIFO | SCHED_RR | SCHED_OTHER => {
++            let priority = unsafe { (*param).sched_priority };
++            if priority < 0 || priority > 99 {
++                platform::ERRNO.set(errno::EINVAL);
++                return -1;
++            }
++            // Redox has no real-time scheduler; validate and succeed as a no-op
++            0
++        }
++        _ => {
++            platform::ERRNO.set(errno::EINVAL);
++            -1
++        }
++    }
+ }
+ 
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/sched_yield.html>.
+@@ -74,3 +140,6 @@ pub extern "C" fn sched_yield() -> c_int {
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn cbindgen_stupid_struct_user_for_sched_param(_: sched_param) {}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn cbindgen_stupid_struct_user_for_cpu_set_t(_: cpu_set_t) {}
+diff --git a/src/header/signal/mod.rs b/src/header/signal/mod.rs
+index f049573..f3d665c 100644
+--- a/src/header/signal/mod.rs
++++ b/src/header/signal/mod.rs
+@@ -2,7 +2,10 @@
+ //!
+ //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/signal.h.html>.
+ 
+-use core::{mem, ptr};
++use core::{
++    mem, ptr,
++    sync::atomic::Ordering,
++};
+ 
+ use cbitset::BitSet;
+ 
+@@ -32,6 +35,9 @@ pub mod sys;
+ #[path = "redox.rs"]
+ pub mod sys;
+ 
++mod signalfd;
++pub use self::signalfd::*;
++
+ type SigSet = BitSet<[u64; 1]>;
+ 
+ pub(crate) const SIG_DFL: usize = 0;
+@@ -154,10 +160,15 @@ pub extern "C" fn killpg(pgrp: pid_t, sig: c_int) -> c_int {
+ /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_kill.html>.
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn pthread_kill(thread: pthread_t, sig: c_int) -> c_int {
+-    let os_tid = {
+-        let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
+-        unsafe { pthread.os_tid.get().read() }
+-    };
++    let pthread = unsafe { &*(thread as *const crate::pthread::Pthread) };
++    let os_tid = unsafe { pthread.os_tid.get().read() };
++    let flags = crate::pthread::PthreadFlags::from_bits_retain(
++        pthread.flags.load(Ordering::Acquire),
++    );
++    if flags.contains(crate::pthread::PthreadFlags::FINISHED) {
++        return errno::ESRCH;
++    }
++
+     crate::header::pthread::e(unsafe { Sys::rlct_kill(os_tid, sig as usize) })
+ }
+ 
+@@ -168,12 +179,10 @@ pub unsafe extern "C" fn pthread_sigmask(
+     set: *const sigset_t,
+     oldset: *mut sigset_t,
+ ) -> c_int {
+-    // On Linux and Redox, pthread_sigmask and sigprocmask are equivalent
+-    if unsafe { sigprocmask(how, set, oldset) } == 0 {
+-        0
+-    } else {
+-        //TODO: Fix race
+-        platform::ERRNO.get()
++    let filtered_set = unsafe { set.as_ref().map(|&block| block & !RLCT_SIGNAL_MASK) };
++    match unsafe { Sys::sigprocmask(how, filtered_set.as_ref(), oldset.as_mut()) } {
++        Ok(()) => 0,
++        Err(errno) => errno.0,
+     }
+ }
+ 
+diff --git a/src/header/spawn/cbindgen.toml b/src/header/spawn/cbindgen.toml
+new file mode 100644
+index 0000000..a9f188f
+--- /dev/null
++++ b/src/header/spawn/cbindgen.toml
+@@ -0,0 +1,63 @@
++sys_includes = ["sys/types.h", "signal.h", "sched.h"]
++include_guard = "_SPAWN_H"
++after_includes = """
++typedef struct {
++    short __flags;
++    pid_t __pgrp;
++    sigset_t __sd;
++    sigset_t __ss;
++    struct sched_param __sp;
++    int __policy;
++    int __pad[16];
++} posix_spawnattr_t;
++
++typedef struct {
++    int __allocated;
++    int __used;
++    void *__actions;
++    int __pad[16];
++} posix_spawn_file_actions_t;
++"""
++trailer = """
++#define POSIX_SPAWN_RESETIDS    0x01
++#define POSIX_SPAWN_SETPGROUP   0x02
++#define POSIX_SPAWN_SETSIGDEF   0x04
++#define POSIX_SPAWN_SETSIGMASK  0x08
++#define POSIX_SPAWN_SETSCHEDPARAM 0x10
++#define POSIX_SPAWN_SETSCHEDULER  0x20
++
++int posix_spawn(pid_t *__restrict, const char *__restrict,
++                const posix_spawn_file_actions_t *,
++                const posix_spawnattr_t *__restrict,
++                char *const __restrict[], char *const __restrict[]);
++int posix_spawnp(pid_t *__restrict, const char *__restrict,
++                 const posix_spawn_file_actions_t *,
++                 const posix_spawnattr_t *__restrict,
++                 char *const __restrict[], char *const __restrict[]);
++int posix_spawnattr_init(posix_spawnattr_t *);
++int posix_spawnattr_destroy(posix_spawnattr_t *);
++int posix_spawnattr_setflags(posix_spawnattr_t *, short);
++int posix_spawnattr_getflags(const posix_spawnattr_t *__restrict, short *__restrict);
++int posix_spawnattr_setpgroup(posix_spawnattr_t *, pid_t);
++int posix_spawnattr_getpgroup(const posix_spawnattr_t *__restrict, pid_t *__restrict);
++int posix_spawnattr_setsigdefault(posix_spawnattr_t *__restrict, const sigset_t *__restrict);
++int posix_spawnattr_getsigdefault(posix_spawnattr_t *__restrict, sigset_t *__restrict);
++int posix_spawnattr_setsigmask(posix_spawnattr_t *__restrict, const sigset_t *__restrict);
++int posix_spawnattr_getsigmask(posix_spawnattr_t *__restrict, sigset_t *__restrict);
++int posix_spawn_file_actions_init(posix_spawn_file_actions_t *);
++int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *);
++int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *, int, int);
++int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *, int);
++int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *__restrict,
++                                      int, const char *__restrict, int, mode_t);
++"""
++language = "C"
++style = "Type"
++no_includes = true
++cpp_compat = true
++
++[enum]
++prefix_with_name = true
++
++[export]
++include = []
+diff --git a/src/header/spawn/mod.rs b/src/header/spawn/mod.rs
+new file mode 100644
+index 0000000..84ce717
+--- /dev/null
++++ b/src/header/spawn/mod.rs
+@@ -0,0 +1,105 @@
++//! `spawn.h` implementation. See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/spawn.h.html>.
++
++use crate::{
++    error::{Errno, ResultExt},
++    header::{
++        errno::EINVAL,
++        unistd::{execve, fork, _exit},
++    },
++    platform::{self, types::{c_char, c_int, c_short, pid_t}},
++};
++
++pub const POSIX_SPAWN_RESETIDS: c_int = 0x01;
++pub const POSIX_SPAWN_SETPGROUP: c_int = 0x02;
++pub const POSIX_SPAWN_SETSCHEDPARAM: c_int = 0x04;
++pub const POSIX_SPAWN_SETSCHEDULER: c_int = 0x08;
++pub const POSIX_SPAWN_SETSIGDEF: c_int = 0x10;
++pub const POSIX_SPAWN_SETSIGMASK: c_int = 0x20;
++pub const POSIX_SPAWN_SETSID: c_int = 0x80;
++
++#[repr(C)]
++pub struct posix_spawn_file_actions_t {
++    _opaque: [u8; 128],
++}
++
++#[repr(C)]
++pub struct posix_spawnattr_t {
++    pub flags: c_short,
++    pub pgroup: pid_t,
++    _reserved: [u64; 8],
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_init(
++    file_actions: *mut posix_spawn_file_actions_t,
++) -> c_int {
++    if file_actions.is_null() {
++        return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno();
++    }
++    unsafe { core::ptr::write_bytes(file_actions, 0, 1) };
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_destroy(
++    _file_actions: *mut posix_spawn_file_actions_t,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_addopen(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int, _path: *const c_char, _oflag: c_int, _mode: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_addclose(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn_file_actions_adddup2(
++    _file_actions: *mut posix_spawn_file_actions_t,
++    _fildes: c_int, _newfildes: c_int,
++) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnattr_init(attr: *mut posix_spawnattr_t) -> c_int {
++    if attr.is_null() { return Err::<c_int, _>(Errno(EINVAL)).or_minus_one_errno(); }
++    unsafe { core::ptr::write_bytes(attr, 0, 1) };
++    0
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnattr_destroy(_attr: *mut posix_spawnattr_t) -> c_int { 0 }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawnp(
++    pid: *mut pid_t, file: *const c_char,
++    file_actions: *const posix_spawn_file_actions_t,
++    attrp: *const posix_spawnattr_t,
++    argv: *const *mut c_char, envp: *const *mut c_char,
++) -> c_int {
++    unsafe { posix_spawn(pid, file, file_actions, attrp, argv, envp) }
++}
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn posix_spawn(
++    pid: *mut pid_t, file: *const c_char,
++    _file_actions: *const posix_spawn_file_actions_t,
++    _attrp: *const posix_spawnattr_t,
++    argv: *const *mut c_char, envp: *const *mut c_char,
++) -> c_int {
++    if pid.is_null() || file.is_null() || argv.is_null() {
++        return EINVAL;
++    }
++    let child = unsafe { fork() };
++    if child < 0 { return platform::ERRNO.get(); }
++    if child == 0 {
++        unsafe { execve(file, argv, envp); }
++        _exit(127);
++    }
++    unsafe { *pid = child };
++    0
++}
++
+diff --git a/src/header/stdio/mod.rs b/src/header/stdio/mod.rs
+index a1d43be..8cb689e 100644
+--- a/src/header/stdio/mod.rs
++++ b/src/header/stdio/mod.rs
+@@ -47,6 +47,9 @@ mod default;
+ pub use self::getdelim::*;
+ mod getdelim;
+ 
++pub use self::open_memstream::*;
++mod open_memstream;
++
+ mod ext;
+ mod helpers;
+ pub mod printf;
+diff --git a/src/header/sys_timerfd/cbindgen.toml b/src/header/sys_timerfd/cbindgen.toml
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/header/threads/cbindgen.toml b/src/header/threads/cbindgen.toml
+new file mode 100644
+index 0000000..3f90606
+--- /dev/null
++++ b/src/header/threads/cbindgen.toml
+@@ -0,0 +1,17 @@
++sys_includes = ["stddef.h", "pthread.h", "time.h"]
++include_guard = "_RELIBC_THREADS_H"
++language = "C"
++style = "Type"
++no_includes = true
++cpp_compat = true
++
++[export]
++include = [
++  "thrd_t",
++  "mtx_t",
++  "cnd_t",
++  "thrd_start_t",
++]
++
++[enum]
++prefix_with_name = true
+diff --git a/src/header/threads/mod.rs b/src/header/threads/mod.rs
+new file mode 100644
+index 0000000..9ab9496
+--- /dev/null
++++ b/src/header/threads/mod.rs
+@@ -0,0 +1,31 @@
++//! `threads.h` implementation — C11 threads type definitions and constants.
++//!
++//! Full C11 threads API (thrd_create, mtx_lock, cnd_wait, etc.) requires
++//! a deeper pthread integration layer; this module provides the type
++//! definitions and constants for C11 header compatibility.
++
++use crate::platform::types::c_int;
++
++pub type thrd_start_t = Option<unsafe extern "C" fn(*mut core::ffi::c_void) -> c_int>;
++
++pub const thrd_success: c_int = 0;
++pub const thrd_nomem: c_int = -1;
++pub const thrd_timedout: c_int = -2;
++pub const thrd_busy: c_int = -3;
++pub const thrd_error: c_int = -4;
++
++pub const mtx_plain: c_int = 0;
++pub const mtx_timed: c_int = 1;
++
++// Opaque types; sizes match relibc's pthread backing types
++// (pthread_t = *mut c_void = 8 bytes, pthread_mutex_t = 12 bytes,
++//  pthread_cond_t = 8 bytes)
++#[repr(C)]
++pub struct thrd_t { _priv: *mut core::ffi::c_void }
++#[repr(C)]
++pub struct mtx_t { _priv: [u8; 12] }
++#[repr(C)]
++pub struct cnd_t { _priv: [u8; 8] }
++
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn thrd_yield() {}
+diff --git a/src/lib.rs b/src/lib.rs
+index ea853da..18252ad 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -57,16 +57,151 @@ pub mod raw_cell;
+ pub mod start;
+ pub mod sync;
+ 
+-use crate::platform::{Allocator, NEWALLOCATOR};
++use crate::platform::{Allocator, NEWALLOCATOR, Pal, Sys};
+ 
+ #[global_allocator]
+ static ALLOCATOR: Allocator = NEWALLOCATOR;
+ 
++const MAX_FATAL_BACKTRACE_FRAMES: usize = 16;
++const MAX_FATAL_FRAME_STRIDE: usize = 1024 * 1024;
++
++#[inline(never)]
++fn write_process_thread_identity(w: &mut platform::FileWriter) {
++    use core::fmt::Write;
++
++    let pid = Sys::getpid();
++    let tid = Sys::gettid();
++
++    match crate::pthread::current_thread() {
++        Some(thread) => {
++            let _ = w.write_fmt(format_args!(
++                "RELIBC CONTEXT: pid={} tid={} pthread={:#x}\n",
++                pid,
++                tid,
++                thread as *const _ as usize,
++            ));
++        }
++        None => {
++            let _ = w.write_fmt(format_args!(
++                "RELIBC CONTEXT: pid={} tid={} pthread=<unavailable>\n",
++                pid, tid,
++            ));
++        }
++    }
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++#[inline(never)]
++fn current_frame_pointer() -> *const usize {
++    let frame: *const usize;
++
++    #[cfg(target_arch = "x86_64")]
++    unsafe {
++        core::arch::asm!("mov {}, rbp", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    #[cfg(target_arch = "x86")]
++    unsafe {
++        core::arch::asm!("mov {}, ebp", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    #[cfg(target_arch = "aarch64")]
++    unsafe {
++        core::arch::asm!("mov {}, x29", out(reg) frame, options(nomem, nostack, preserves_flags));
++    }
++
++    frame
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++fn read_backtrace_frame(frame: *const usize) -> Option<(*const usize, usize)> {
++    let align = core::mem::align_of::<usize>();
++    let frame_addr = frame as usize;
++
++    if frame.is_null() || frame_addr % align != 0 {
++        return None;
++    }
++
++    let next_frame = unsafe { frame.read() } as *const usize;
++    let return_address = unsafe { frame.add(1).read() };
++
++    if return_address == 0 {
++        return None;
++    }
++
++    Some((next_frame, return_address))
++}
++
++#[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++fn is_sane_next_backtrace_frame(current: *const usize, next: *const usize) -> bool {
++    let align = core::mem::align_of::<usize>();
++    let current_addr = current as usize;
++    let next_addr = next as usize;
++
++    !next.is_null()
++        && next_addr % align == 0
++        && next_addr > current_addr
++        && next_addr - current_addr <= MAX_FATAL_FRAME_STRIDE
++}
++
++#[inline(never)]
++fn write_best_effort_backtrace(w: &mut platform::FileWriter) {
++    use core::fmt::Write;
++
++    let _ = w.write_str("RELIBC: attempting best-effort backtrace\n");
++
++    #[cfg(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"))]
++    {
++        let mut frame = current_frame_pointer();
++        let mut wrote_frame = false;
++
++        for frame_index in 0..MAX_FATAL_BACKTRACE_FRAMES {
++            let Some((next_frame, return_address)) = read_backtrace_frame(frame) else {
++                break;
++            };
++
++            wrote_frame = true;
++            let _ = w.write_fmt(format_args!(
++                "RELIBC BACKTRACE[{frame_index:02}]: {:#x}\n",
++                return_address,
++            ));
++
++            if !is_sane_next_backtrace_frame(frame, next_frame) {
++                break;
++            }
++
++            frame = next_frame;
++        }
++
++        if !wrote_frame {
++            let _ = w.write_str("RELIBC: backtrace attempt produced no frames\n");
++        }
++    }
++
++    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")))]
++    {
++        let _ = w.write_str("RELIBC: backtrace unavailable on this architecture\n");
++    }
++}
++
+ #[unsafe(no_mangle)]
+ pub extern "C" fn relibc_panic(pi: &::core::panic::PanicInfo) -> ! {
+     use core::fmt::Write;
+ 
+     let mut w = platform::FileWriter::new(2);
++
++    if let Some(location) = pi.location() {
++        let _ = w.write_fmt(format_args!(
++            "RELIBC PANIC LOCATION: {}:{}:{}\n",
++            location.file(),
++            location.line(),
++            location.column(),
++        ));
++    } else {
++        let _ = w.write_str("RELIBC PANIC LOCATION: <unavailable>\n");
++    }
++
++    write_process_thread_identity(&mut w);
+     let _ = w.write_fmt(format_args!("RELIBC PANIC: {}\n", pi));
+ 
+     core::intrinsics::abort();
+@@ -95,10 +230,12 @@ pub extern "C" fn rust_oom(layout: ::core::alloc::Layout) -> ! {
+ 
+     let mut w = platform::FileWriter::new(2);
+     let _ = w.write_fmt(format_args!(
+-        "RELIBC OOM: {} bytes aligned to {} bytes\n",
++        "RELIBC OOM: {} bytes aligned to {} bytes - process will abort\n",
+         layout.size(),
+         layout.align()
+     ));
++    write_process_thread_identity(&mut w);
++    write_best_effort_backtrace(&mut w);
+ 
+     core::intrinsics::abort();
+ }
+@@ -111,7 +248,10 @@ pub extern "C" fn _Unwind_Resume() -> ! {
+     use core::fmt::Write;
+ 
+     let mut w = platform::FileWriter::new(2);
+-    let _ = w.write_str("_Unwind_Resume\n");
++    let _ = w.write_str(
++        "RELIBC: _Unwind_Resume called - exception propagation failed, aborting\n",
++    );
++    write_process_thread_identity(&mut w);
+ 
+     core::intrinsics::abort();
+ }
+diff --git a/src/platform/redox/mod.rs b/src/platform/redox/mod.rs
+index 752339a..73d9af1 100644
+--- a/src/platform/redox/mod.rs
++++ b/src/platform/redox/mod.rs
+@@ -669,6 +669,11 @@ impl Pal for Sys {
+     }
+ 
+     fn getpriority(which: c_int, who: id_t) -> Result<c_int> {
++        if is_current_process_priority_target(which, who) {
++            let nice = read_current_process_nice()?;
++            return Ok(20 - nice);
++        }
++
+         match redox_rt::sys::posix_getpriority(which, who as u32) {
+             Ok(kernel_prio) => {
+                 let posix_prio = (kernel_prio as i32 * -1) + 40 as i32;
+@@ -1231,7 +1236,12 @@ impl Pal for Sys {
+     }
+ 
+     fn setpriority(which: c_int, who: id_t, prio: c_int) -> Result<()> {
+-        let clamped_prio = prio.clamp(-20, 19);
++        let clamped_prio = prio.clamp(NICE_MIN, NICE_MAX);
++
++        if is_current_process_priority_target(which, who) {
++            return write_current_process_nice(clamped_prio);
++        }
++
+         let kernel_prio = (20 + clamped_prio) as u32;
+ 
+         match redox_rt::sys::posix_setpriority(which, who as u32, kernel_prio) {
+diff --git a/src/pthread/mod.rs b/src/pthread/mod.rs
+index 8243a48..ae25efb 100644
+--- a/src/pthread/mod.rs
++++ b/src/pthread/mod.rs
+@@ -2,6 +2,7 @@
+ 
+ use core::{
+     cell::UnsafeCell,
++    panic::AssertUnwindSafe,
+     ptr,
+     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+ };
+@@ -43,9 +44,13 @@ pub unsafe fn init() {
+         thread.stack_size = STACK_SIZE;
+     }
+ 
+-    unsafe { Tcb::current() }
+-        .expect_notls("no TCB present for main thread")
+-        .pthread = thread;
++    let tcb = unsafe { Tcb::current() }
++        .expect_notls("no TCB present for main thread");
++    tcb.pthread = thread;
++
++    OS_TID_TO_PTHREAD
++        .lock()
++        .insert(Sys::current_os_tid(), ForceSendSync(tcb as *const Tcb as *mut Tcb));
+ }
+ 
+ //static NEXT_INDEX: AtomicU32 = AtomicU32::new(FIRST_THREAD_IDX + 1);
+@@ -227,12 +232,23 @@ unsafe extern "C" fn new_thread_shim(
+         unsafe {
+             tcb.activate(None);
+         }
+-        redox_rt::signal::setup_sighandler(&tcb.os_specific, false);
++        match catch_unwind(AssertUnwindSafe(|| {
++            redox_rt::signal::setup_sighandler(&tcb.os_specific, false)
++        })) {
++            Ok(()) => {}
++            Err(()) => {
++                log::error!("pthread: failed to set up child thread signal handler");
++                unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++            }
++        }
+     }
+ 
+     let procmask = unsafe { (&*synchronization_mutex).as_ptr().read() };
+ 
+-    unsafe { tcb.copy_masters() }.unwrap();
++    if let Err(err) = unsafe { tcb.copy_masters() } {
++        log::error!("pthread: failed to copy TLS masters for child thread: {err:?}");
++        unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++    }
+ 
+     unsafe { (*tcb).pthread.os_tid.get().write(Sys::current_os_tid()) };
+ 
+@@ -240,11 +256,21 @@ unsafe extern "C" fn new_thread_shim(
+ 
+     #[cfg(target_os = "redox")]
+     {
+-        redox_rt::signal::set_sigmask(Some(procmask), None)
+-            .expect("failed to set procmask in child thread");
++        if let Err(err) = redox_rt::signal::set_sigmask(Some(procmask), None) {
++            log::error!("pthread: failed to set child thread signal mask: {err:?}");
++        }
+     }
+ 
+-    let retval = unsafe { entry_point(arg) };
++    let mut retval = ptr::null_mut();
++    match catch_unwind(AssertUnwindSafe(|| {
++        retval = unsafe { entry_point(arg) };
++    })) {
++        Ok(()) => {}
++        Err(()) => {
++            log::error!("pthread: child thread entry point panicked");
++            unsafe { exit_current_thread(Retval(ptr::null_mut())) }
++        }
++    }
+ 
+     unsafe { exit_current_thread(Retval(retval)) }
+ }
+diff --git a/src/start.rs b/src/start.rs
+index 63d4046..7cc96bf 100644
+--- a/src/start.rs
++++ b/src/start.rs
+@@ -1,10 +1,7 @@
+ //! Startup code.
+ 
+ use alloc::{boxed::Box, vec::Vec};
+-use core::{intrinsics, ptr};
+-
+-#[cfg(target_os = "redox")]
+-use generic_rt::ExpectTlsFree;
++use core::{fmt::Write, intrinsics, panic::AssertUnwindSafe, ptr};
+ 
+ use crate::{
+     ALLOCATOR,
+@@ -164,14 +161,23 @@ pub unsafe extern "C" fn relibc_start_v1(
+     unsafe { relibc_verify_host() };
+ 
+     #[cfg(target_os = "redox")]
+-    let thr_fd = redox_rt::proc::FdGuard::new(
+-        unsafe {
++    let thr_fd = {
++        let thr_fd = match unsafe {
+             crate::platform::get_auxv_raw(sp.auxv().cast(), redox_rt::auxv_defs::AT_REDOX_THR_FD)
++        } {
++            Some(thr_fd) => thr_fd,
++            None => abort_startup(format_args!(
++                "relibc_start_v1: missing AT_REDOX_THR_FD auxv entry; no thread fd present\n"
++            )),
++        };
++
++        match redox_rt::proc::FdGuard::new(thr_fd).to_upper() {
++            Ok(thr_fd) => thr_fd,
++            Err(err) => abort_startup(format_args!(
++                "relibc_start_v1: failed to move thread fd to upper table: {err:?}\n"
++            )),
+         }
+-        .expect_notls("no thread fd present"),
+-    )
+-    .to_upper()
+-    .expect_notls("failed to move thread fd to upper table");
++    };
+ 
+     // Initialize TLS, if necessary
+     unsafe {
+@@ -237,7 +243,10 @@ pub unsafe extern "C" fn relibc_start_v1(
+         let mut f = unsafe { &__preinit_array_start } as *const _;
+         #[allow(clippy::op_ref)]
+         while f < &raw const __preinit_array_end {
+-            (unsafe { *f })();
++            let func = unsafe { *f };
++            if catch_unwind(AssertUnwindSafe(|| unsafe { (*f)() })).is_err() {
++                log_initializer_panic(".preinit_array", func);
++            }
+             f = unsafe { f.offset(1) };
+         }
+     }
+@@ -247,7 +256,10 @@ pub unsafe extern "C" fn relibc_start_v1(
+         let mut f = unsafe { &__init_array_start } as *const _;
+         #[allow(clippy::op_ref)]
+         while f < &raw const __init_array_end {
+-            (unsafe { *f })();
++            let func = unsafe { *f };
++            if catch_unwind(AssertUnwindSafe(|| unsafe { (*f)() })).is_err() {
++                log_initializer_panic(".init_array", func);
++            }
+             f = unsafe { f.offset(1) };
+         }
+     }
+diff --git a/src/sync/barrier.rs b/src/sync/barrier.rs
+index 6204a23..a8c41ad 100644
+--- a/src/sync/barrier.rs
++++ b/src/sync/barrier.rs
+@@ -1,18 +1,34 @@
+-use core::num::NonZeroU32;
++use core::{
++    num::NonZeroU32,
++    sync::atomic::{AtomicU32, Ordering},
++};
+ 
+ pub struct Barrier {
+     original_count: NonZeroU32,
+     // 4
+     lock: crate::sync::Mutex<Inner>,
+     // 16
+-    cvar: crate::header::pthread::RlctCond,
++    cvar: FutexState,
+     // 24
+ }
+ #[derive(Debug)]
+ struct Inner {
+-    count: u32,
+-    // TODO: Overflows might be problematic... 64-bit?
+-    gen_id: u32,
++    _unused0: u32,
++    _unused1: u32,
++}
++
++struct FutexState {
++    count: AtomicU32,
++    sense: AtomicU32,
++}
++
++impl FutexState {
++    const fn new(count: u32) -> Self {
++        Self {
++            count: AtomicU32::new(count),
++            sense: AtomicU32::new(0),
++        }
++    }
+ }
+ 
+ pub enum WaitResult {
+@@ -25,61 +41,38 @@ impl Barrier {
+         Self {
+             original_count: count,
+             lock: crate::sync::Mutex::new(Inner {
+-                count: 0,
+-                gen_id: 0,
++                _unused0: 0,
++                _unused1: 0,
+             }),
+-            cvar: crate::header::pthread::RlctCond::new(),
++            cvar: FutexState::new(count.get()),
+         }
+     }
+-    pub fn wait(&self) -> WaitResult {
+-        let mut guard = self.lock.lock();
+-        let gen_id = guard.gen_id;
+-
+-        guard.count += 1;
+-
+-        if guard.count == self.original_count.get() {
+-            guard.gen_id = guard.gen_id.wrapping_add(1);
+-            guard.count = 0;
+-            if let Ok(()) = self.cvar.broadcast() {}; // TODO handle error
+-
+-            drop(guard);
++    pub fn destroy(&self) {}
+ 
+-            WaitResult::NotifiedAll
+-        } else {
+-            while guard.gen_id == gen_id {
+-                guard = self.cvar.wait_inner_typedmutex(guard);
+-            }
+-
+-            WaitResult::Waited
+-        }
+-        /*
+-        let mut guard = self.lock.lock();
+-        let Inner { count, gen_id } = *guard;
+-
+-        let last = self.original_count.get() - 1;
+-
+-        if count == last {
+-            eprintln!("last {:?}", *guard);
+-            guard.gen_id = guard.gen_id.wrapping_add(1);
+-            guard.count = 0;
+-
+-            drop(guard);
++    pub fn wait(&self) -> WaitResult {
++        let _ = &self.lock;
++        let sense = self.cvar.sense.load(Ordering::Acquire);
+ 
+-            self.cvar.broadcast();
++        if self.cvar.count.fetch_sub(1, Ordering::AcqRel) == 1 {
++            self.cvar
++                .count
++                .store(self.original_count.get(), Ordering::Relaxed);
++            self.cvar
++                .sense
++                .store(sense.wrapping_add(1), Ordering::Release);
++            crate::sync::futex_wake(&self.cvar.sense, i32::MAX);
+ 
+             WaitResult::NotifiedAll
+         } else {
+-            guard.count += 1;
+-
+-            while guard.count != last && guard.gen_id == gen_id {
+-                eprintln!("before {:?}", *guard);
+-                guard = self.cvar.wait_inner_typedmutex(guard);
+-                eprintln!("after {:?}", *guard);
++            // SMP fix: wait directly on the barrier generation word instead of routing through the
++            // condvar unlock->futex_wait path. If the last thread flips `sense` after we load it
++            // but before our futex wait starts, the futex observes a stale value and returns
++            // immediately instead of sleeping forever after a missed broadcast wakeup.
++            while self.cvar.sense.load(Ordering::Acquire) == sense {
++                let _ = crate::sync::futex_wait(&self.cvar.sense, sense, None);
+             }
+ 
+             WaitResult::Waited
+         }
+-        */
+     }
+ }
+-static LOCK: crate::sync::Mutex<()> = crate::sync::Mutex::new(());
+diff --git a/src/sync/pthread_mutex.rs b/src/sync/pthread_mutex.rs
+index 29bad63..ef027e7 100644
+--- a/src/sync/pthread_mutex.rs
++++ b/src/sync/pthread_mutex.rs
+@@ -1,3 +1,4 @@
++use alloc::boxed::Box;
+ use core::{
+     cell::Cell,
+     sync::atomic::{AtomicU32 as AtomicUint, Ordering},
+@@ -6,10 +7,9 @@ use core::{
+ use crate::{
+     error::Errno,
+     header::{bits_timespec::timespec, errno::*, pthread::*},
++    platform::{Pal, Sys, types::c_int},
+ };
+ 
+-use crate::platform::{Pal, Sys, types::c_int};
+-
+ use super::FutexWaitResult;
+ 
+ pub struct RlctMutex {
+@@ -21,15 +21,22 @@ pub struct RlctMutex {
+     robust: bool,
+ }
+ 
++pub struct RobustMutexNode {
++    pub next: *mut RobustMutexNode,
++    pub prev: *mut RobustMutexNode,
++    pub mutex: *const RlctMutex,
++}
++
+ const STATE_UNLOCKED: u32 = 0;
+ const WAITING_BIT: u32 = 1 << 31;
+-const INDEX_MASK: u32 = !WAITING_BIT;
++const FUTEX_OWNER_DIED: u32 = 1 << 30;
++const INDEX_MASK: u32 = !(WAITING_BIT | FUTEX_OWNER_DIED);
+ 
+ // TODO: Lower limit is probably better.
+ const RECURSIVE_COUNT_MAX_INCLUSIVE: u32 = u32::MAX;
+ // TODO: How many spins should we do before it becomes more time-economical to enter kernel mode
+ // via futexes?
+-const SPIN_COUNT: usize = 0;
++const SPIN_COUNT: usize = 100;
+ 
+ impl RlctMutex {
+     pub(crate) fn new(attr: &RlctMutexAttr) -> Result<Self, Errno> {
+@@ -69,13 +76,25 @@ impl RlctMutex {
+         Ok(0)
+     }
+     pub fn make_consistent(&self) -> Result<(), Errno> {
+-        todo_skip!(0, "pthread robust mutexes: not implemented");
+-        Ok(())
++        debug_assert!(self.robust, "make_consistent called on non-robust mutex");
++
++        if !self.robust {
++            return Err(Errno(EINVAL));
++        }
++
++        let current = self.inner.load(Ordering::Relaxed);
++        let owner = current & INDEX_MASK;
++
++        if owner == os_tid_invalid_after_fork() && current & FUTEX_OWNER_DIED != 0 {
++            self.inner.store(0, Ordering::Release);
++            Ok(())
++        } else {
++            Err(Errno(EINVAL))
++        }
+     }
+     fn lock_inner(&self, deadline: Option<&timespec>) -> Result<(), Errno> {
+         let this_thread = os_tid_invalid_after_fork();
+-
+-        //let mut spins_left = SPIN_COUNT;
++        let mut spins_left = SPIN_COUNT;
+ 
+         loop {
+             let result = self.inner.compare_exchange_weak(
+@@ -86,51 +105,70 @@ impl RlctMutex {
+             );
+ 
+             match result {
+-                // CAS succeeded
+-                Ok(_) => {
+-                    if self.ty == Ty::Recursive {
+-                        self.increment_recursive_count()?;
+-                    }
+-                    return Ok(());
+-                }
+-                // CAS failed, but the mutex was recursive and we already own the lock.
++                Ok(_) => return self.finish_lock_acquire(false),
+                 Err(thread) if thread & INDEX_MASK == this_thread && self.ty == Ty::Recursive => {
+                     self.increment_recursive_count()?;
+                     return Ok(());
+                 }
+-                // CAS failed, but the mutex was error-checking and we already own the lock.
+                 Err(thread) if thread & INDEX_MASK == this_thread && self.ty == Ty::Errck => {
+-                    return Err(Errno(EAGAIN));
++                    return Err(Errno(EDEADLK));
+                 }
+-                // CAS spuriously failed, simply retry the CAS. TODO: Use core::hint::spin_loop()?
+-                Err(thread) if thread & INDEX_MASK == 0 => {
+-                    continue;
++                Err(thread) if thread & FUTEX_OWNER_DIED != 0 && thread & INDEX_MASK == 0 => {
++                    return Err(Errno(ENOTRECOVERABLE));
+                 }
+-                // CAS failed because some other thread owned the lock. We must now wait.
++                Err(thread) if thread & FUTEX_OWNER_DIED != 0 => {
++                    if !self.robust {
++                        return Err(Errno(ENOTRECOVERABLE));
++                    }
++
++                    let new_value = (thread & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread;
++                    match self.inner.compare_exchange(
++                        thread,
++                        new_value,
++                        Ordering::Acquire,
++                        Ordering::Relaxed,
++                    ) {
++                        Ok(_) => return self.finish_lock_acquire(true),
++                        Err(_) => continue,
++                    }
++                }
++                Err(thread) if thread & INDEX_MASK == 0 => continue,
+                 Err(thread) => {
+-                    /*if spins_left > 0 {
+-                        // TODO: Faster to spin trying to load the flag, compared to CAS?
++                    let owner = thread & INDEX_MASK;
++
++                    if !crate::pthread::mutex_owner_id_is_live(owner) {
++                        if !self.robust {
++                            return Err(Errno(ENOTRECOVERABLE));
++                        }
++
++                        let new_value = (thread & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread;
++                        match self.inner.compare_exchange(
++                            thread,
++                            new_value,
++                            Ordering::Acquire,
++                            Ordering::Relaxed,
++                        ) {
++                            Ok(_) => return self.finish_lock_acquire(true),
++                            Err(_) => continue,
++                        }
++                    }
++
++                    if spins_left > 0 {
+                         spins_left -= 1;
+                         core::hint::spin_loop();
+                         continue;
+                     }
+-
+-                    spins_left = SPIN_COUNT;
+-
+-                    let inner = self.inner.fetch_or(WAITING_BIT, Ordering::Relaxed);
+-
+-                    if inner == STATE_UNLOCKED {
+-                        continue;
+-                    }*/
+-
+-                    // If the mutex is not robust, simply futex_wait until unblocked.
+-                    //crate::sync::futex_wait(&self.inner, inner | WAITING_BIT, None);
+                     if crate::sync::futex_wait(&self.inner, thread, deadline)
+                         == FutexWaitResult::TimedOut
+                     {
+                         return Err(Errno(ETIMEDOUT));
+                     }
+                 }
++                } else {
++                    // Non-robust mutex: owner appears dead but POSIX behaviour is
++                    // undefined; report busy rather than ENOTRECOVERABLE.
++                    return Err(Errno(EBUSY));
++                }
+             }
+         }
+     }
+@@ -140,6 +178,20 @@ impl RlctMutex {
+     pub fn lock_with_timeout(&self, deadline: &timespec) -> Result<(), Errno> {
+         self.lock_inner(Some(deadline))
+     }
++    fn finish_lock_acquire(&self, owner_dead: bool) -> Result<(), Errno> {
++        if self.ty == Ty::Recursive {
++            self.increment_recursive_count()?;
++        }
++        if self.robust {
++            add_to_robust_list(self);
++        }
++
++        if owner_dead {
++            Err(Errno(EOWNERDEAD))
++        } else {
++            Ok(())
++        }
++    }
+     fn increment_recursive_count(&self) -> Result<(), Errno> {
+         // We don't have to worry about asynchronous signals here, since pthread_mutex_trylock
+         // is not async-signal-safe.
+@@ -161,41 +213,65 @@ impl RlctMutex {
+     pub fn try_lock(&self) -> Result<(), Errno> {
+         let this_thread = os_tid_invalid_after_fork();
+ 
+-        // TODO: If recursive, omitting CAS may be faster if it is already owned by this thread.
+-        let result = self.inner.compare_exchange(
+-            STATE_UNLOCKED,
+-            this_thread,
+-            Ordering::Acquire,
+-            Ordering::Relaxed,
+-        );
++        loop {
++            let current = self.inner.load(Ordering::Relaxed);
++
++            if current == STATE_UNLOCKED {
++                match self.inner.compare_exchange(
++                    STATE_UNLOCKED,
++                    this_thread,
++                    Ordering::Acquire,
++                    Ordering::Relaxed,
++                ) {
++                    Ok(_) => return self.finish_lock_acquire(false),
++                    Err(_) => continue,
++                }
++            }
+ 
+-        if self.ty == Ty::Recursive {
+-            match result {
+-                Err(index) if index & INDEX_MASK != this_thread => return Err(Errno(EBUSY)),
+-                _ => (),
++            let owner = current & INDEX_MASK;
++
++            if owner == this_thread && self.ty == Ty::Recursive {
++                self.increment_recursive_count()?;
++                return Ok(());
+             }
+ 
+-            self.increment_recursive_count()?;
++            if owner == this_thread && self.ty == Ty::Errck {
++                return Err(Errno(EDEADLK));
++            }
+ 
+-            return Ok(());
+-        }
++            if current & FUTEX_OWNER_DIED != 0 && owner == 0 {
++                return Err(Errno(ENOTRECOVERABLE));
++            }
++
++            if current & FUTEX_OWNER_DIED != 0 || (owner != 0 && !crate::pthread::mutex_owner_id_is_live(owner)) {
++                if !self.robust {
++                    return Err(Errno(ENOTRECOVERABLE));
++                }
+ 
+-        match result {
+-            Ok(_) => Ok(()),
+-            Err(index) if index & INDEX_MASK == this_thread && self.ty == Ty::Errck => {
+-                Err(Errno(EDEADLK))
++                let new_value = (current & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread;
++                match self.inner.compare_exchange(
++                    current,
++                    new_value,
++                    Ordering::Acquire,
++                    Ordering::Relaxed,
++                ) {
++                    Ok(_) => return self.finish_lock_acquire(true),
++                    Err(_) => continue,
++                }
+             }
+-            Err(_) => Err(Errno(EBUSY)),
++
++            return Err(Errno(EBUSY));
+         }
+     }
+     // Safe because we are not protecting any data.
+     pub fn unlock(&self) -> Result<(), Errno> {
++        let current = self.inner.load(Ordering::Relaxed);
++
+         if self.robust || matches!(self.ty, Ty::Recursive | Ty::Errck) {
+-            if self.inner.load(Ordering::Relaxed) & INDEX_MASK != os_tid_invalid_after_fork() {
++            if current & INDEX_MASK != os_tid_invalid_after_fork() {
+                 return Err(Errno(EPERM));
+             }
+ 
+-            // TODO: Is this fence correct?
+             core::sync::atomic::fence(Ordering::Acquire);
+         }
+ 
+@@ -208,18 +284,47 @@ impl RlctMutex {
+             }
+         }
+ 
+-        self.inner.store(STATE_UNLOCKED, Ordering::Release);
+-        crate::sync::futex_wake(&self.inner, i32::MAX);
+-        /*let was_waiting = self.inner.swap(STATE_UNLOCKED, Ordering::Release) & WAITING_BIT != 0;
++        if self.robust {
++            remove_from_robust_list(self);
++        }
+ 
+-        if was_waiting {
+-            let _ = crate::sync::futex_wake(&self.inner, 1);
+-        }*/
++        let new_state = if self.robust && current & FUTEX_OWNER_DIED != 0 {
++            FUTEX_OWNER_DIED
++        } else {
++            STATE_UNLOCKED
++        };
++
++        self.inner.store(new_state, Ordering::Release);
++        crate::sync::futex_wake(&self.inner, i32::MAX);
+ 
+         Ok(())
+     }
+ }
+ 
++pub(crate) unsafe fn mark_robust_mutexes_dead(thread: &crate::pthread::Pthread) {
++    let head = thread.robust_list_head.get();
++    let this_thread = os_tid_invalid_after_fork();
++    let mut node = unsafe { *head };
++
++    unsafe { *head = core::ptr::null_mut() };
++
++    while !node.is_null() {
++        let next = unsafe { (*node).next };
++        let mutex = unsafe { &*(*node).mutex };
++        let current = mutex.inner.load(Ordering::Relaxed);
++
++        if current & INDEX_MASK == this_thread {
++            mutex
++                .inner
++                .store((current & WAITING_BIT) | FUTEX_OWNER_DIED | this_thread, Ordering::Release);
++            crate::sync::futex_wake(&mutex.inner, i32::MAX);
++        }
++
++        unsafe { drop(Box::from_raw(node)) };
++        node = next;
++    }
++}
++
+ #[repr(u8)]
+ #[derive(PartialEq)]
+ enum Ty {
+@@ -237,6 +342,54 @@ enum Ty {
+ #[thread_local]
+ static CACHED_OS_TID_INVALID_AFTER_FORK: Cell<u32> = Cell::new(0);
+ 
++fn add_to_robust_list(mutex: &RlctMutex) {
++    let thread = crate::pthread::current_thread().expect("current thread not present");
++    let node_ptr = Box::into_raw(Box::new(RobustMutexNode {
++        next: core::ptr::null_mut(),
++        prev: core::ptr::null_mut(),
++        mutex: core::ptr::from_ref(mutex),
++    }));
++
++    unsafe {
++        let head = thread.robust_list_head.get();
++        if !(*head).is_null() {
++            (**head).prev = node_ptr;
++        }
++        (*node_ptr).next = *head;
++        *head = node_ptr;
++    }
++}
++
++fn remove_from_robust_list(mutex: &RlctMutex) {
++    let thread = match crate::pthread::current_thread() {
++        Some(thread) => thread,
++        None => return,
++    };
++
++    unsafe {
++        let mut node = *thread.robust_list_head.get();
++
++        while !node.is_null() {
++            if core::ptr::eq((*node).mutex, core::ptr::from_ref(mutex)) {
++                if !(*node).prev.is_null() {
++                    (*(*node).prev).next = (*node).next;
++                } else {
++                    *thread.robust_list_head.get() = (*node).next;
++                }
++
++                if !(*node).next.is_null() {
++                    (*(*node).next).prev = (*node).prev;
++                }
++
++                drop(Box::from_raw(node));
++                return;
++            }
++
++            node = (*node).next;
++        }
++    }
++}
++
+ // Assumes TIDs are unique between processes, which I only know is true for Redox.
+ fn os_tid_invalid_after_fork() -> u32 {
+     // TODO: Coordinate better if using shared == PTHREAD_PROCESS_SHARED, with up to 2^32 separate

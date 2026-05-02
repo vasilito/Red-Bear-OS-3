@@ -1,0 +1,385 @@
+# Red Bear OS 0.1.0 Release Manifest
+# Generated: vie 01 may 2026 10:31:16 WEST
+# Build system: f55acba68
+
+# Total: 404 recipes (139 git, 165 tar)
+
+archives/lz4 tar=https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz blake3=3e69fd475e7852e17594985528b5232afeba7d3d56cfebe2e89071768b2ab36a
+archives/zstd tar=https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz blake3=730dca31244abd219e995f03a55d95b2cfb4b3e16cda055a79fa6f30a4f0e1db
+artwork/pop-wallpapers git=https://github.com/pop-os/wallpapers rev=
+artwork/ubuntu-wallpapers tar=https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/ubuntu-wallpapers/23.10.4/ubuntu-wallpapers_23.10.4.orig.tar.gz blake3=1e479d0aa48fe3f2961a2dac28c3ed397a29616cf6e7d73f5ceb6fabfd6449e1
+branding/redbear-release path=source
+core/base git=https://gitlab.redox-os.org/redox-os/base.git rev=463f76b9608a896e6f6c9f63457f57f6409873c7
+core/base-initfs same_as=../base
+core/binutils git=https://gitlab.redox-os.org/redox-os/binutils.git rev=
+core/bootloader git=https://gitlab.redox-os.org/redox-os/bootloader.git rev=b22a35c
+core/contain git=https://gitlab.redox-os.org/redox-os/contain.git rev=
+core/coreutils git=https://gitlab.redox-os.org/redox-os/coreutils.git rev=5559e20
+core/dash git=https://gitlab.redox-os.org/redox-os/dash.git rev=
+core/ext4d path=source
+core/extrautils git=https://gitlab.redox-os.org/redox-os/extrautils.git rev=fb66941
+core/fatd path=source
+core/findutils git=https://gitlab.redox-os.org/redox-os/findutils.git rev=116c044
+core/grub tar=https://ftp.gnu.org/gnu/grub/grub-2.12.tar.xz blake3=13c48453f9becf4a6e49618749dc7cb83a2c4a0d7600eeeadc6c7c2772c0b877
+core/installer git=https://gitlab.redox-os.org/redox-os/installer.git rev=948bfdc
+core/ion git=https://gitlab.redox-os.org/redox-os/ion.git rev=1440704f
+core/kernel git=https://gitlab.redox-os.org/redox-os/kernel.git rev=866dfad
+core/netdb git=https://gitlab.redox-os.org/redox-os/netdb.git rev=2c15606
+core/netutils git=https://gitlab.redox-os.org/redox-os/netutils.git rev=40a573b
+core/pkgar git=https://gitlab.redox-os.org/redox-os/pkgar.git rev=
+core/pkgutils git=https://gitlab.redox-os.org/redox-os/pkgutils.git rev=70c5067
+core/profiled git=https://gitlab.redox-os.org/redox-os/profiled.git rev=
+core/redoxfs git=https://gitlab.redox-os.org/redox-os/redoxfs.git rev=b596776
+core/relibc git=https://gitlab.redox-os.org/redox-os/relibc.git rev=861bbb0
+core/strace git=https://gitlab.redox-os.org/redox-os/strace-redox.git rev=
+core/userutils git=https://gitlab.redox-os.org/redox-os/userutils.git rev=0c5274f
+core/uutils git=https://github.com/uutils/coreutils rev=1f7c81f5d2d3e56c518349c0392158871a1ea9ec
+demos/cmatrix git=https://github.com/abishekvashok/cmatrix rev=
+demos/cpal git=https://gitlab.redox-os.org/redox-os/cpal.git rev=
+demos/dynamic-example git=https://gitlab.redox-os.org/redox-os/dynamic-example.git rev=
+demos/exampled git=https://gitlab.redox-os.org/redox-os/exampled.git rev=
+demos/glutin git=https://gitlab.redox-os.org/redox-os/glutin.git rev=
+demos/iced git=https://gitlab.redox-os.org/redox-os/iced.git rev=
+demos/orbclient git=https://gitlab.redox-os.org/redox-os/orbclient.git rev=
+demos/pixelcannon git=https://github.com/jackpot51/pixelcannon.git rev=
+demos/winit git=https://github.com/pop-os/winit.git rev=
+dev/autoconf tar=https://ftp.gnu.org/gnu/autoconf/autoconf-2.71.tar.xz blake3=da1cc8af8551c343de9f42af0ae53fd7dff3623487157623892b6cd7e3bb5692
+dev/automake tar=https://ftp.gnu.org/gnu/automake/automake-1.16.5.tar.xz blake3=f42cfc333aaaa11f2bcb05b5b0273b8706c820c22f9ba4367f7eb920551695cd
+dev/binutils-gdb git=https://gitlab.redox-os.org/redox-os/binutils-gdb rev=
+dev/clang21 same_as=../llvm21
+dev/cmake tar=https://github.com/Kitware/CMake/releases/download/v4.0.3/cmake-4.0.3.tar.gz blake3=
+dev/crates-io-index git=https://github.com/rust-lang/crates.io-index.git rev=
+dev/fontconfig tar=https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz blake3=5c95d48f5b9150f4a06d8acac12c25edaac956007df95a3bf527df02a5908f0e
+dev/gcc13 git=https://gitlab.redox-os.org/redox-os/gcc rev=8e365ce7e5
+dev/gdbserver git=https://gitlab.redox-os.org/redox-os/gdbserver.git rev=
+dev/gdk-pixbuf tar=https://ftp.gnome.org/pub/gnome/sources/gdk-pixbuf/2.44/gdk-pixbuf-2.44.4.tar.xz blake3=94db7bebffbd6be84a1b58a05771e411e9f7c16b06d73fcedaf0e6c0e552be9c
+dev/git tar=https://www.kernel.org/pub/software/scm/git/git-2.13.1.tar.xz blake3=bc78271bffd60c5b8b938d8c08fd74dc2de8d21fbaf8f8e0e3155436d9263f17
+dev/gitoxide git=https://github.com/Byron/gitoxide.git rev=
+dev/gnu-make tar=http://ftp.gnu.org/gnu/make/make-4.4.tar.gz blake3=1a0e5353205e106bd9b3c0f4a5f37ee1156a1e1c8feb771d1b4842c216612cba
+dev/hello-world-examples git=https://github.com/leachim6/hello-world rev=
+dev/jq tar=https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-1.8.1.tar.gz blake3=
+dev/lci git=https://github.com/jD91mZM2/rust-lci rev=
+dev/libtool git=https://gitlab.redox-os.org/redox-os/libtool rev=
+dev/lld21 same_as=../llvm21
+dev/llvm18 git=https://gitlab.redox-os.org/redox-os/llvm-project.git rev=
+dev/llvm21 git=https://gitlab.redox-os.org/redox-os/llvm-project.git rev=250d0b022e
+dev/lua54 tar=https://lua.org/ftp/lua-5.4.7.tar.gz blake3=e51c2f347e3185479d5ff95cae8ac77511db486853269443c56bedaa0a6ae629
+dev/luajit git=https://luajit.org/git/luajit.git rev=a4f56a459a588ae768801074b46ba0adcfb49eb1
+dev/luarocks git=https://github.com/luarocks/luarocks.git rev=
+dev/nasm tar=https://gstreamer.freedesktop.org/src/mirror/nasm-2.14.02.tar.xz blake3=f66c0cc852c3b9e3321f57c33ef336e17a128bd3d854ee095aae7e6f64629f20
+dev/patch tar=https://ftp.gnu.org/gnu/patch/patch-2.7.6.tar.xz blake3=d46d14c12aa4ea51e356bf92091c368fd871e1d770b94bc29027886737aecd5f
+dev/pciids git=https://github.com/pciutils/pciids.git rev=1f4ff7c
+dev/php84 tar=https://www.php.net/distributions/php-8.4.17.tar.xz blake3=a8478dddd948d4b26e51c5727ac0895440da76e8ad9be947098a4284ca0b7f2a
+dev/pkg-config tar=https://pkg-config.freedesktop.org/releases/pkg-config-0.29.2.tar.gz blake3=713372b09a1fafeec130dc9bf812a3880f2a90496af5d2194e508d91ccf667d0
+dev/python312 tar=https://www.python.org/ftp/python/3.12.12/Python-3.12.12.tar.xz blake3=29636fdae3e0ee8d0fe585e528c9376fe43876f5f3f0f7892140567946fd907b
+dev/redoxer git=https://gitlab.redox-os.org/redox-os/redoxer rev=
+dev/rust git=https://gitlab.redox-os.org/redox-os/rust.git rev=
+dev/rustpython git=https://github.com/RustPython/RustPython rev=2025-10-13-main-51
+doc/book git=https://gitlab.redox-os.org/redox-os/book.git rev=
+drivers/ehcid path=source
+drivers/linux-kpi path=source
+drivers/ohcid path=source
+drivers/redbear-btusb path=source
+drivers/redbear-iwlwifi path=source
+drivers/redox-driver-core path=source
+drivers/redox-driver-pci path=source
+drivers/redox-driver-sys path=source
+drivers/uhcid path=source
+drivers/usb-core path=source
+emulators/dosbox tar=https://sourceforge.net/projects/dosbox/files/dosbox/0.74-3/dosbox-0.74-3.tar.gz/download blake3=8bc50ffdba20579fb3080a0dca32cb939c8a3c19259aed026482c6ac069b0007
+emulators/flycast git=https://github.com/jackpot51/flycast.git rev=
+emulators/libretro-super git=https://github.com/jackpot51/libretro-super.git rev=
+emulators/mednafen tar=https://mednafen.github.io/releases/files/mednafen-1.29.0.tar.xz blake3=c75c1044cdc9328b2349915a67972d6135c77eb53eb0d995788f22b7daacf79b
+emulators/mgba tar=https://github.com/mgba-emu/mgba/archive/0.10.5.tar.gz blake3=a1b9e797a5058f5264d276805aef5643b7ea460916e491a0098ba32d87f1519e
+emulators/retroarch git=https://github.com/jackpot51/retroarch.git rev=
+emulators/rs-nes git=https://gitlab.redox-os.org/redox-os/rs-nes.git rev=
+emulators/rust64 git=https://gitlab.redox-os.org/redox-os/rust64.git rev=
+emulators/rustual-boy git=https://gitlab.redox-os.org/redox-os/rustual-boy.git rev=
+emulators/rvvm git=https://github.com/LekKit/RVVM.git rev=
+emulators/scummvm tar=https://downloads.scummvm.org/frs/scummvm/2.0.0/scummvm-2.0.0.tar.xz blake3=02e6791fd43ad3cb4238c07d23350ca1459a0f692689e585dba1d46648f64327
+files/hf git=https://github.com/sorairolake/hf rev=
+fonts/dejavu tar=http://sourceforge.net/projects/dejavu/files/dejavu/2.37/dejavu-fonts-ttf-2.37.tar.bz2 blake3=b702bac8a0f8e0802758549da3b4d8041c3c83c3894e1e8a960eab53af18cce8
+fonts/freefont tar=https://ftp.gnu.org/gnu/freefont/freefont-otf-20120503.tar.gz blake3=e950397741d84981106cf648fbc143c7827b61d637c86c916232d47aabdfe253
+fonts/ibm-plex tar=https://github.com/IBM/plex/archive/refs/tags/v6.3.0.tar.gz blake3=6c67f5bf8069762eea1e31f5cca5b4e6f57ea1151b34b338046c7976072ccdef
+fonts/intel-one-mono tar=https://github.com/intel/intel-one-mono/archive/refs/tags/V1.3.0.tar.gz blake3=9caff71b0a9fe8627253c55889964612ea4ae144584a283cd2fe88b7a14a4140
+fonts/noto-color-emoji git=https://github.com/googlefonts/noto-emoji rev=e8073ab740292f8d5f19b5de144087ac58044d06
+fonts/ttf-hack tar=https://github.com/source-foundry/Hack/releases/download/v3.003/Hack-v3.003-ttf.tar.xz blake3=acd40f61f6f512b0808d4bf530ab4aeb5a8ec3aa1f65bf5a1d08964d1bc3d044
+games/classicube git=https://github.com/jackpot51/ClassiCube.git rev=
+games/devilutionx tar=https://github.com/diasurgical/devilutionX/archive/refs/tags/1.5.4.tar.gz blake3=d4a61ff3a7c69d86a29158918aad48ab9c4866c6a22a3e8da5feadbb7d23b3ca
+games/eduke32 tar=https://dukeworld.com/eduke32/synthesis/20181010-7067/eduke32_src_20181010-7067.tar.xz blake3=b0b759fe9ca51849f42669e4832ae1ae1f9ad7938529769108f7cf6a6a176558
+games/freeciv tar=https://files.freeciv.org/stable/freeciv-3.1.4.tar.xz blake3=212630af5e50fb72662ca62a71cdd57318d0cf309b53e46377dd24c8199923a4
+games/freedoom git=https://gitlab.redox-os.org/redox-os/freedoom.git rev=
+games/game-2048 git=https://gitlab.redox-os.org/redox-os/2048-rs.git rev=
+games/gigalomania git=https://gitlab.redox-os.org/redox-os/gigalomania.git rev=
+games/hematite git=https://gitlab.redox-os.org/redox-os/hematite.git rev=
+games/neverball tar=https://neverball.org/neverball-1.6.0.tar.gz blake3=74f3b68595f475e89fd2ca8b5fc349837ff36fbbe141f321dfc232dbf8fccf51
+games/neverball-sols same_as=../neverball
+games/openjazz tar=https://github.com/AlisterT/openjazz/archive/refs/tags/20240919.tar.gz blake3=c419066dd7bf50510c5ef0746fc47450ab8f5a17a0010a1bc0ad67d0e63538da
+games/openjk git=https://github.com/jackpot51/OpenJK rev=
+games/openttd git=https://github.com/OpenTTD/OpenTTD.git rev=231402fb4bea0a0d6a16cef90764d9e7aa699c53
+games/openttd-opengfx git=https://gitlab.redox-os.org/redox-os/openttd-opengfx.git rev=
+games/openttd-openmsx git=https://gitlab.redox-os.org/redox-os/openttd-openmsx.git rev=
+games/openttd-opensfx git=https://gitlab.redox-os.org/redox-os/openttd-opensfx.git rev=
+games/opentyrian git=https://github.com/opentyrian/opentyrian rev=
+games/prboom tar=https://downloads.sourceforge.net/project/prboom/prboom%20stable/2.5.0/prboom-2.5.0.tar.gz blake3=24c1b9b5aa15fd73e59162055f2c6d8faa82759b76ddfca9828cd2a5c8dc6b2a
+games/quakespasm git=https://github.com/sezero/quakespasm rev=cc32abe09ed417ce3be10af300d2dc2f686349ba
+games/redox-games git=https://gitlab.redox-os.org/redox-os/games.git rev=
+games/sm64ex git=https://github.com/jackpot51/sm64ex.git rev=
+games/sopwith tar=https://github.com/fragglet/sdl-sopwith/releases/download/sdl-sopwith-1.8.4/sopwith-1.8.4.tar.gz blake3=44e1404a9c4bea257d7778d2a4b1512231603a74b0a7b18eac5d18f36730ed3e
+games/spacecadetpinball git=https://gitlab.redox-os.org/xTibor/SpaceCadetPinball.git rev=
+gpu/amdgpu path=source
+gpu/redox-drm path=source
+graphics/procedural-wallpapers-rs git=https://github.com/lukas-kirschner/procedural-wallpapers-rs.git rev=
+gui/installer-gui git=https://gitlab.redox-os.org/redox-os/installer-gui.git rev=
+gui/orbdata git=https://gitlab.redox-os.org/redox-os/orbdata.git rev=
+gui/orbital git=https://gitlab.redox-os.org/redox-os/orbital.git rev=
+gui/orbterm git=https://gitlab.redox-os.org/redox-os/orbterm.git rev=
+gui/orbutils git=https://gitlab.redox-os.org/redox-os/orbutils.git rev=
+gui/orbutils-background same_as=../orbutils
+icons/cosmic-icons git=https://github.com/pop-os/cosmic-icons.git rev=f93dcdfa1060c2cf3f8cf0b56b0338292edcafa5
+icons/hicolor-icon-theme git=https://gitlab.freedesktop.org/xdg/default-icon-theme.git rev=8d22bbf
+icons/pop-icon-theme git=https://github.com/pop-os/icon-theme.git rev=1a575a8
+kde/breeze tar=https://invent.kde.org/plasma/breeze/-/archive/v6.3.4/breeze-v6.3.4.tar.gz blake3=
+kde/kde-cli-tools tar=https://invent.kde.org/plasma/kde-cli-tools/-/archive/v6.3.4/kde-cli-tools-v6.3.4.tar.gz blake3=
+kde/kdecoration tar=https://invent.kde.org/plasma/kdecoration/-/archive/v6.3.4/kdecoration-v6.3.4.tar.gz blake3=
+kde/kf6-attica tar=https://invent.kde.org/frameworks/attica/-/archive/v6.10.0/attica-v6.10.0.tar.gz blake3=
+kde/kf6-extra-cmake-modules tar=https://invent.kde.org/frameworks/extra-cmake-modules/-/archive/v6.10.0/extra-cmake-modules-v6.10.0.tar.gz blake3=
+kde/kf6-karchive tar=https://invent.kde.org/frameworks/karchive/-/archive/v6.10.0/karchive-v6.10.0.tar.gz blake3=
+kde/kf6-kauth tar=https://invent.kde.org/frameworks/kauth/-/archive/v6.10.0/kauth-v6.10.0.tar.gz blake3=
+kde/kf6-kbookmarks tar=https://invent.kde.org/frameworks/kbookmarks/-/archive/v6.10.0/kbookmarks-v6.10.0.tar.gz blake3=
+kde/kf6-kcmutils tar=https://invent.kde.org/frameworks/kcmutils/-/archive/v6.10.0/kcmutils-v6.10.0.tar.gz blake3=
+kde/kf6-kcodecs tar=https://invent.kde.org/frameworks/kcodecs/-/archive/v6.10.0/kcodecs-v6.10.0.tar.gz blake3=
+kde/kf6-kcolorscheme tar=https://invent.kde.org/frameworks/kcolorscheme/-/archive/v6.10.0/kcolorscheme-v6.10.0.tar.gz blake3=
+kde/kf6-kcompletion tar=https://invent.kde.org/frameworks/kcompletion/-/archive/v6.10.0/kcompletion-v6.10.0.tar.gz blake3=
+kde/kf6-kconfig tar=https://invent.kde.org/frameworks/kconfig/-/archive/v6.10.0/kconfig-v6.10.0.tar.gz blake3=
+kde/kf6-kconfigwidgets tar=https://invent.kde.org/frameworks/kconfigwidgets/-/archive/v6.10.0/kconfigwidgets-v6.10.0.tar.gz blake3=
+kde/kf6-kcoreaddons tar=https://invent.kde.org/frameworks/kcoreaddons/-/archive/v6.10.0/kcoreaddons-v6.10.0.tar.gz blake3=
+kde/kf6-kcrash tar=https://invent.kde.org/frameworks/kcrash/-/archive/v6.10.0/kcrash-v6.10.0.tar.gz blake3=
+kde/kf6-kdbusaddons tar=https://invent.kde.org/frameworks/kdbusaddons/-/archive/v6.10.0/kdbusaddons-v6.10.0.tar.gz blake3=
+kde/kf6-kdeclarative tar=https://invent.kde.org/frameworks/kdeclarative/-/archive/v6.10.0/kdeclarative-v6.10.0.tar.gz blake3=
+kde/kf6-kded6 tar=https://invent.kde.org/frameworks/kded/-/archive/v6.10.0/kded-v6.10.0.tar.gz blake3=
+kde/kf6-kglobalaccel tar=https://invent.kde.org/frameworks/kglobalaccel/-/archive/v6.10.0/kglobalaccel-v6.10.0.tar.gz blake3=
+kde/kf6-kguiaddons tar=https://invent.kde.org/frameworks/kguiaddons/-/archive/v6.10.0/kguiaddons-v6.10.0.tar.gz blake3=
+kde/kf6-ki18n tar=https://invent.kde.org/frameworks/ki18n/-/archive/v6.10.0/ki18n-v6.10.0.tar.gz blake3=
+kde/kf6-kiconthemes tar=https://invent.kde.org/frameworks/kiconthemes/-/archive/v6.10.0/kiconthemes-v6.10.0.tar.gz blake3=
+kde/kf6-kidletime tar=https://invent.kde.org/frameworks/kidletime/-/archive/v6.10.0/kidletime-v6.10.0.tar.gz blake3=
+kde/kf6-kio tar=https://invent.kde.org/frameworks/kio/-/archive/v6.10.0/kio-v6.10.0.tar.gz blake3=
+kde/kf6-kirigami tar=https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz blake3=d0964890aa6523f7067510bb7e6c784ba77611952d952bfdd6422a58a23664f6
+kde/kf6-kitemmodels tar=https://invent.kde.org/frameworks/kitemmodels/-/archive/v6.10.0/kitemmodels-v6.10.0.tar.gz blake3=
+kde/kf6-kitemviews tar=https://invent.kde.org/frameworks/kitemviews/-/archive/v6.10.0/kitemviews-v6.10.0.tar.gz blake3=
+kde/kf6-kjobwidgets tar=https://invent.kde.org/frameworks/kjobwidgets/-/archive/v6.10.0/kjobwidgets-v6.10.0.tar.gz blake3=
+kde/kf6-knotifications tar=https://invent.kde.org/frameworks/knotifications/-/archive/v6.10.0/knotifications-v6.10.0.tar.gz blake3=
+kde/kf6-kpackage tar=https://invent.kde.org/frameworks/kpackage/-/archive/v6.10.0/kpackage-v6.10.0.tar.gz blake3=
+kde/kf6-kservice tar=https://invent.kde.org/frameworks/kservice/-/archive/v6.10.0/kservice-v6.10.0.tar.gz blake3=
+kde/kf6-ktextwidgets tar=https://invent.kde.org/frameworks/ktextwidgets/-/archive/v6.10.0/ktextwidgets-v6.10.0.tar.gz blake3=
+kde/kf6-kwallet tar=https://invent.kde.org/frameworks/kwallet/-/archive/v6.10.0/kwallet-v6.10.0.tar.gz blake3=
+kde/kf6-kwayland tar=https://download.kde.org/stable/plasma/6.3.4/kwayland-6.3.4.tar.xz blake3=
+kde/kf6-kwidgetsaddons tar=https://invent.kde.org/frameworks/kwidgetsaddons/-/archive/v6.10.0/kwidgetsaddons-v6.10.0.tar.gz blake3=
+kde/kf6-kwindowsystem tar=https://invent.kde.org/frameworks/kwindowsystem/-/archive/v6.10.0/kwindowsystem-v6.10.0.tar.gz blake3=
+kde/kf6-kxmlgui tar=https://invent.kde.org/frameworks/kxmlgui/-/archive/v6.10.0/kxmlgui-v6.10.0.tar.gz blake3=
+kde/kf6-prison tar=https://invent.kde.org/frameworks/prison/-/archive/v6.10.0/prison-v6.10.0.tar.gz blake3=
+kde/kf6-pty tar=https://invent.kde.org/frameworks/kpty/-/archive/v6.10.0/kpty-v6.10.0.tar.gz blake3=
+kde/kf6-solid tar=https://invent.kde.org/frameworks/solid/-/archive/v6.10.0/solid-v6.10.0.tar.gz blake3=
+kde/kf6-sonnet tar=https://invent.kde.org/frameworks/sonnet/-/archive/v6.10.0/sonnet-v6.10.0.tar.gz blake3=
+kde/kglobalacceld tar=https://invent.kde.org/plasma/kglobalacceld/-/archive/v6.0.0/kglobalacceld-v6.0.0.tar.gz blake3=
+kde/kirigami tar=https://invent.kde.org/frameworks/kirigami/-/archive/v6.10.0/kirigami-v6.10.0.tar.gz blake3=d0964890aa6523f7067510bb7e6c784ba77611952d952bfdd6422a58a23664f6
+kde/konsole tar=https://invent.kde.org/utilities/konsole/-/archive/v24.08.3/konsole-v24.08.3.tar.gz blake3=
+kde/kwin tar=https://invent.kde.org/plasma/kwin/-/archive/v6.3.4/kwin-v6.3.4.tar.gz blake3=2aa1e234a75b0aa94f0da3a74d93e2a8e49b30a3afb12dc24b2ecd3abaa94e7f
+kde/plasma-desktop tar=https://invent.kde.org/plasma/plasma-desktop/-/archive/v6.3.4/plasma-desktop-v6.3.4.tar.gz blake3=
+kde/plasma-framework tar=https://invent.kde.org/frameworks/plasma-framework/-/archive/v6.10.0/plasma-framework-v6.10.0.tar.gz blake3=
+kde/plasma-wayland-protocols tar=https://invent.kde.org/libraries/plasma-wayland-protocols/-/archive/v1.16.0/plasma-wayland-protocols-v1.16.0.tar.gz blake3=
+kde/plasma-workspace tar=https://invent.kde.org/plasma/plasma-workspace/-/archive/v6.3.4/plasma-workspace-v6.3.4.tar.gz blake3=
+libs/atk tar=https://download.gnome.org/sources/atk/2.38/atk-2.38.0.tar.xz blake3=cbc1b7ba03009ee5cc0e646d8a86117e0d65bf8d105f2e8714fbde0299a8012e
+libs/cairo tar=https://www.cairographics.org/releases/cairo-1.18.4.tar.xz blake3=b9fa14e02f85ec4e72396c62236c98502d04dbbdf8daf01ab9557a1c7aa7106e
+libs/duktape tar=https://duktape.org/duktape-2.7.0.tar.xz blake3=b0a17da888847bc9c73624ae3ba7f858ec327a9bbce9d287aee6a2489e518448
+libs/expat tar=https://github.com/libexpat/libexpat/releases/download/R_2_5_0/expat-2.5.0.tar.xz blake3=ea89dd9a5a2e48d5e44fed38554b36a8f2e365a5091a99d08e30bfb1c15dda5e
+libs/ffmpeg6 tar=https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz blake3=4879074c357102f85932673044c57c144b0c188ae58edec2a115965536ee340f
+libs/freetype2 tar=https://sourceforge.net/projects/freetype/files/freetype2/2.13.3/freetype-2.13.3.tar.xz/download blake3=07a01894ccdb584943ce817b57341a8595ce9a92bfaa77c602ec4757dfabd5e2
+libs/fribidi tar=https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz blake3=c16ee250f73f149d7d52dc7d285eb73ac755bad7907d237391e23f429b2b71d5
+libs/glib tar=https://download.gnome.org/sources/glib/2.87/glib-2.87.0.tar.xz blake3=26b77ae24bc02f85d1c6742fe601167b056085f117cda70da7b805cefa6195e9
+libs/gstreamer tar=https://gitlab.freedesktop.org/gstreamer/gstreamer/-/archive/1.24.12/gstreamer-1.24.12.tar.gz blake3=181daf73050f7472ec656e7461b7f67028d6002c1133870576033a32e43a364f
+libs/harfbuzz tar=https://github.com/harfbuzz/harfbuzz/releases/download/11.0.1/harfbuzz-11.0.1.tar.xz blake3=51f0edaaf2e9b7a7176d3252f15d03d409ef7ad35f77b050c407de89f85b77c5
+libs/jansson tar=https://github.com/akheron/jansson/releases/download/v2.10/jansson-2.10.tar.gz blake3=3c74f374a6c7ac5e323f72d87e49e5309ca922ca26cfe4992873b31f28776624
+libs/lcms2-stub path=source
+libs/libarchive tar=https://libarchive.org/downloads/libarchive-3.6.2.tar.xz blake3=f98695fe81235a74fa3fc2c3ba0f0d4f13ea15f9be3850b83e304cf5d78be710
+libs/libatomic same_as=../../dev/gcc13
+libs/libcosmic git=https://gitlab.redox-os.org/redox-os/libcosmic.git rev=
+libs/libdisplay-info-stub path=source
+libs/libepoxy-stub path=source
+libs/libffi tar=https://github.com/libffi/libffi/releases/download/v3.4.5/libffi-3.4.5.tar.gz blake3=f9a2cfe1d2ac8d211c18c99f9cfafe5537925101bfb92c2d44d844680dd82264
+libs/libflac tar=https://github.com/xiph/flac/releases/download/1.5.0/flac-1.5.0.tar.xz blake3=2adca3cd8da4b577ebb9c12e73c91cf6f6a7feb7485b3f003853b82710bada84
+libs/libgmp tar=https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz blake3=fffe4996713928ae19331c8ef39129e46d3bf5b7182820656fd4639435cd83a4
+libs/libiconv tar=https://ftp.gnu.org/gnu/libiconv/libiconv-1.17.tar.gz blake3=820b3b9fd3e2181bfb95475f01e9a3451e6d751e4f8c98ebcdcca1d8aa720f7f
+libs/libjpeg tar=https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.0/libjpeg-turbo-3.1.0.tar.gz blake3=3efc14da55c56fc0a6a50f109d9e1ee8a91f5ae7dd17a21d3aebe04a65f3ee96
+libs/libmodplug1 tar=https://pilotfiber.dl.sourceforge.net/project/modplug-xmms/libmodplug/0.8.9.0/libmodplug-0.8.9.0.tar.gz blake3=01d71f7fe4e1abeb848db02b74c70ab2fd51e824f5ea7e9e18631571a76c3592
+libs/libmpfr tar=https://www.mpfr.org/mpfr-current/mpfr-4.2.2.tar.xz blake3=11d59d061ef8db588650bc7dc5172594a6e5aad013994801c6f63011a62b191d
+libs/libnettle tar=https://ftp.gnu.org/gnu/nettle/nettle-3.9.1.tar.gz blake3=e4bfbda32f4fdf5ed96c152efe3a3867193b690faa5378d02a2a6fd052ee3393
+libs/libogg tar=https://github.com/xiph/ogg/releases/download/v1.3.4/libogg-1.3.4.tar.xz blake3=1cffbe7c498555ddfdb1390d7a38179c4bead6129ea37b1b1d54f3a76b816304
+libs/libopus tar=https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz blake3=874bd7d28e24f10d88105c7d846a2e5bf085284af91a0ee36b05674a8f78e759
+libs/liborbital git=https://gitlab.redox-os.org/redox-os/liborbital.git rev=cdb08e8
+libs/libpng tar=https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.46.tar.gz blake3=36f4bbb48c70975116b00ab0cff577931b96f703b2774ac3b33131d001419435
+libs/libpsl tar=https://github.com/rockdaboot/libpsl/releases/download/0.21.5/libpsl-0.21.5.tar.lz blake3=91318b7b876b12ff4649b7a0d6f6ed4ab1ab44f48a49508c8978ab7b4ccf3298
+libs/libqrencode tar=https://github.com/fukuchi/libqrencode/archive/refs/tags/v4.1.1.tar.gz blake3=78bf8bbcfb037140d0e98dc355e77416c9c9b0fd3ac12fd6e767b07d68f60f8c
+libs/libsodium tar=https://github.com/jedisct1/libsodium/archive/1.0.16.tar.gz blake3=2482633f872c173f9a42e6badb44c3efb042e783e664fdf8b1046babfa2405e7
+libs/libssh2 tar=https://www.libssh2.org/download/libssh2-1.10.0.tar.gz blake3=2447216ce82c1d22301456bb02f60dfb6688f1461417b90f900c099a87f1292f
+libs/libstdcxx-v3 same_as=../../dev/gcc13
+libs/libudev-stub path=source
+libs/liburcu tar=https://lttng.org/files/urcu/userspace-rcu-0.14.0.tar.bz2 blake3=
+libs/libuv tar=https://dist.libuv.org/dist/v1.51.0/libuv-v1.51.0.tar.gz blake3=e8b5e68bc2d0776ac4ea67df59d694fca58d5cc570c103443a2284e723d01fc2
+libs/libvorbis tar=https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.xz blake3=c67f3f74ec26d93a5571c4404a64eb6e6587d7d77b46b552f7b410f5bc5b1f03
+libs/libxcvt-stub path=source
+libs/libxml2 tar=https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.3.tar.xz blake3=0653d3750576299c4cb88740942165671b576ff93019f3d669b3f37136225ab7
+libs/lua-compat-53 git=https://github.com/lunarmodules/lua-compat-5.3.git rev=
+libs/luv git=https://github.com/luvit/luv.git rev=
+libs/mesa git=https://gitlab.redox-os.org/redox-os/mesa.git rev=0ecd6b66c
+libs/mesa-glu tar=https://archive.mesa3d.org/glu/glu-9.0.3.tar.xz blake3=beed1665ed983540e7502289ec50c7e66d840820af3e9ef21c9c4a7e9686ab9f
+libs/mpc tar=https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz blake3=
+libs/ncurses tar=https://ftp.gnu.org/gnu/ncurses/ncurses-6.6.tar.gz blake3=fbec55697a01f99b9cc3f25be55e73ae7091f4c53e5d81a1ea15734c4e5b7238
+libs/ncursesw same_as=../ncurses
+libs/nghttp2 tar=https://github.com/nghttp2/nghttp2/releases/download/v1.64.0/nghttp2-1.64.0.tar.xz blake3=1bbc08de4816769d800c42f501a00c1ba3f5efa1b76e1f65d2e5bdf3aa30354d
+libs/openssl1 git=https://gitlab.redox-os.org/redox-os/openssl.git rev=
+libs/opusfile tar=https://downloads.xiph.org/releases/opus/opusfile-0.12.tar.gz blake3=1b6a5c371a0ea2ae8e37ab2e921388dfef9252dbf7f60045192dabbdd898f2bf
+libs/pango tar=https://download.gnome.org/sources/pango/1.56/pango-1.56.3.tar.xz blake3=78542feaaf007c1d648b94c4e9b6655ed7515d27ce434766aea99bef886c21ac
+libs/pcre tar=https://mirrors.gigenet.com/OSDN//sfnet/p/pc/pcre/pcre/8.42/pcre-8.42.tar.gz blake3=12d515ba12a816994def6b1e7196b5783fd2cfe495733a9167fa4d71dbe10248
+libs/pcre2 tar=https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.45/pcre2-10.45.tar.bz2 blake3=aea544846f9a03c1ec62c9f8d1c9a4187cc3cce557e53e6876eb6a58c7cdd9fe
+libs/pixman tar=https://www.cairographics.org/releases/pixman-0.46.0.tar.xz blake3=379369245a0bbd13784bf550c87622964a6aba87edf598ffa137dc10201746e0
+libs/readline tar=https://ftp.gnu.org/gnu/readline/readline-8.3.tar.gz blake3=7109f094062bda387a0c16b4875375b96e36437bebbbd8d8f91bb27ba01d687f
+libs/redox-fatfs git=https://gitlab.redox-os.org/redox-os/redox-fatfs.git rev=
+libs/sdl-gfx tar=https://sourceforge.net/projects/sdlgfx/files/SDL_gfx-2.0.25.tar.gz blake3=e6f571a38e51d369b010f4b10eb35b95e3d2edae2edd796241c47ea8376581e6
+libs/sdl1 git=https://gitlab.redox-os.org/redox-os/sdl1.2.git rev=
+libs/sdl1-image tar=https://www.libsdl.org/projects/SDL_image/release/SDL_image-1.2.12.tar.gz blake3=731a6f8cad9fff22c82394bd1c0c34ce4aa60fa8923f3755a3e3239f1e269389
+libs/sdl1-mixer tar=https://www.libsdl.org/projects/SDL_mixer/release/SDL_mixer-1.2.12.tar.gz blake3=ef23bab2d42250dfdc51ce6939ee7b393973ff11a0dd3481f32180b489d2661c
+libs/sdl1-ttf tar=https://www.libsdl.org/projects/SDL_ttf/release/SDL_ttf-2.0.11.tar.gz blake3=a684e57553e43b55ab28b064d1d5d44b8749299f259da31a62d671fc1d5505ee
+libs/sdl2 git=https://gitlab.redox-os.org/redox-os/sdl2.git rev=
+libs/sdl2-gfx tar=http://www.ferzkopp.net/Software/SDL2_gfx/SDL2_gfx-1.0.4.tar.gz blake3=2e9bd2dc0f004349b51418f33219ebf5cd69f25ed0ba660373652a662cbb857c
+libs/sdl2-image tar=https://www.libsdl.org/projects/SDL_image/release/SDL2_image-2.0.4.tar.gz blake3=
+libs/sdl2-mixer tar=https://www.libsdl.org/projects/SDL_mixer/release/SDL2_mixer-2.8.1.tar.gz blake3=fa0798ce7ffdb5f89545311292374e5b7af479df8bc99a4aacfb40d2ab2f8384
+libs/sdl2-ttf tar=https://www.libsdl.org/projects/SDL_ttf/release/SDL2_ttf-2.0.15.tar.gz blake3=9814a07f33a3501b414f0fc7fa962e7d7ffc56748406f3798b7698b8d7e7fe12
+libs/termcap tar=https://ftp.gnu.org/gnu/termcap/termcap-1.3.1.tar.gz blake3=57c095e0bb6e60e7b4a0597f51f7ac15b501ca0f95d37424d8d13978d28b8da3
+libs/unibilium tar=https://github.com/neovim/unibilium/archive/refs/tags/v2.1.2.tar.gz blake3=856a7593a412942f4716bb55bfdd225f3ce92cb013b9d4a44693255f0570b1c7
+libs/utf8proc tar=https://github.com/JuliaStrings/utf8proc/archive/refs/tags/v2.10.0.tar.gz blake3=6f675db5d1ae55ad0825351ba9c58a5b5c24c862f559cc7bfed1cb63c1185594
+libs/zbus path=source
+libs/zlib tar=https://www.zlib.net/fossils/zlib-1.3.tar.gz blake3=ec1abc6f672a7a6ee6f49ba544cc9529f73121b478310473be44fee22a140ebf
+math/orbcalculator git=https://gitlab.redox-os.org/redox-os/orbcalculator.git rev=
+net/nginx tar=https://nginx.org/download/nginx-1.28.0.tar.gz blake3=
+net/openssh tar=https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-9.8p1.tar.gz blake3=
+net/redox-ssh git=https://gitlab.redox-os.org/redox-os/redox-ssh.git rev=
+net/rsync tar=https://download.samba.org/pub/rsync/src/rsync-3.4.1.tar.gz blake3=
+other/ca-certificates git=https://gitlab.redox-os.org/redox-os/ca-certificates.git rev=8139d99
+other/cookbook git=https://gitlab.redox-os.org/redox-os/redox.git rev=
+other/generaluser-gs git=https://gitlab.redox-os.org/redox-os/generaluser-gs.git rev=
+other/jeremy git=https://gitlab.redox-os.org/jackpot51/jeremy.git rev=
+other/rustconf2025 git=https://github.com/jackpot51/rustconf2025.git rev=
+other/shared-mime-info tar=https://gitlab.freedesktop.org/xdg/shared-mime-info/-/archive/2.4/shared-mime-info-2.4.tar.gz blake3=ad130f2f923ab3d5455c643e6257abf3598339fdd134ad0fac4e5dbbbf070eb9
+other/terminfo git=https://github.com/sajattack/terminfo rev=dc5712b
+qt/qt6-sensors tar=https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtsensors-everywhere-src-6.11.0.tar.xz blake3=
+shells/bash tar=https://ftp.gnu.org/gnu/bash/bash-5.2.15.tar.gz blake3=c1548e3f2a9b6de5296e18c28b3d2007985e647273e03f039efd3e489edaa41f
+shells/nushell git=https://github.com/nushell/nushell rev=172a070a4bbeff15a289813bc73d4628a3032210
+shells/zsh tar=https://github.com/zsh-users/zsh/archive/refs/tags/zsh-5.9.tar.gz blake3=a15b94fae03e87aba6fc6a27df3c98e610b85b0c7c0fc90248f07fdcb8816860
+sound/freepats git=https://gitlab.redox-os.org/redox-os/freepats.git rev=
+sound/rodioplay git=https://gitlab.redox-os.org/redox-os/rodioplay.git rev=
+sound/timidity git=https://gitlab.redox-os.org/redox-os/timidity.git rev=
+system/cpufreqd path=source
+system/cub path=source
+system/driver-manager path=source
+system/driver-params path=source
+system/evdevd path=source
+system/firmware-loader path=source
+system/hwrngd path=source
+system/iommu path=source
+system/numad path=source
+system/redbear-acmd path=source
+system/redbear-authd path=source
+system/redbear-btctl path=source
+system/redbear-dbus-services path=files
+system/redbear-ecmd path=source
+system/redbear-firmware path=source
+system/redbear-greeter path=source
+system/redbear-hwutils path=source
+system/redbear-info path=source
+system/redbear-login-protocol path=source
+system/redbear-meta path=source
+system/redbear-mtr path=source
+system/redbear-netctl path=source
+system/redbear-netctl-console path=source
+system/redbear-netstat path=source
+system/redbear-nmap path=source
+system/redbear-notifications path=source
+system/redbear-polkit path=source
+system/redbear-quirks path=source
+system/redbear-session-launch path=source
+system/redbear-sessiond path=source
+system/redbear-traceroute path=source
+system/redbear-udisks path=source
+system/redbear-upower path=source
+system/redbear-usbaudiod path=source
+system/redbear-wifictl path=source
+system/thermald path=source
+system/udev-shim path=source
+terminal/bash-completion tar=https://github.com/scop/bash-completion/releases/download/2.17.0/bash-completion-2.17.0.tar.xz blake3=
+terminal/pls git=https://github.com/pls-rs/pls rev=
+terminal/zoxide git=https://github.com/ajeetdsouza/zoxide rev=
+tests/acid git=https://gitlab.redox-os.org/redox-os/acid.git rev=
+tests/acid-bins same_as=../acid
+tests/benchmarks git=https://gitlab.redox-os.org/redox-os/benchmarks rev=
+tests/iperf3 tar=https://downloads.es.net/pub/iperf/iperf-3.20.tar.gz blake3=
+tests/openposixtestsuite git=https://gitlab.redox-os.org/redox-os/openposixtestsuite.git rev=
+tests/os-test git=https://gitlab.com/sortix/os-test rev=
+tests/os-test-bins same_as=../os-test
+tests/os-test-result same_as=../os-test
+tests/redox-drm-prime-test path=source
+tests/redox-posix-tests git=https://gitlab.redox-os.org/redox-os/redox-posix-tests.git rev=
+tests/relibc-phase1-tests path=source
+tests/relibc-tests same_as=../../core/relibc
+tests/relibc-tests-bins same_as=../../core/relibc
+tests/schedrs git=https://gitlab.redox-os.org/akshitgaur2005/schedrs.git rev=
+tests/sysbench git=https://github.com/akopytov/sysbench.git rev=
+tests/vttest tar=https://invisible-island.net/archives/vttest/vttest-20140305.tgz blake3=b515b9a5e1f1498ed99e1a1c172fbcfdf2b7a214e185bd2005cc994407ded89e
+tools/bzip2 tar=https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz blake3=97af3f520629c65fe41292f77e6ca798fe594d7987bfb2aebe7c6fcdc7ab5ed2
+tools/cleye git=https://gitlab.redox-os.org/redox-os/cleye.git rev=
+tools/cosmic-edit git=https://github.com/pop-os/cosmic-edit.git rev=epoch-1.0.8
+tools/cosmic-files git=https://github.com/pop-os/cosmic-files.git rev=epoch-1.0.8
+tools/cosmic-reader git=https://github.com/pop-os/cosmic-reader.git rev=epoch-1.0.8
+tools/cosmic-settings git=https://github.com/pop-os/cosmic-settings.git rev=
+tools/cosmic-store git=https://github.com/pop-os/cosmic-store.git rev=epoch-1.0.8
+tools/cosmic-term git=https://github.com/pop-os/cosmic-term.git rev=epoch-1.0.8
+tools/cosmic-text git=https://github.com/pop-os/cosmic-text.git rev=
+tools/diffutils tar=https://ftp.gnu.org/gnu/diffutils/diffutils-3.6.tar.xz blake3=086a95093c15edcdb826e75ff4de6c2213de6fbd2eb13538d07bdc3286dfb4a4
+tools/fd git=https://github.com/sharkdp/fd.git rev=840a565d3aadbeb303b10a01c0aa3561924dfc46
+tools/file tar=https://astron.com/pub/file/file-5.46.tar.gz blake3=
+tools/friar git=https://github.com/jackpot51/friar.git rev=
+tools/gettext tar=https://ftp.gnu.org/gnu/gettext/gettext-0.22.5.tar.gz blake3=cb3f3a34da7ce1a92746df81f5b78c5d53841973a24eb80ab76537263d380ec0
+tools/gnu-binutils tar=https://ftp.gnu.org/gnu/binutils/binutils-2.43.1.tar.xz blake3=f074c81313b70eabc58ce9a9411cd771c5fa2433792d0ad8abcc45f603f58ed6
+tools/gnu-grep tar=https://ftp.gnu.org/gnu/grep/grep-3.1.tar.xz blake3=46b6e24dfa1b0f309f4eae3c450d612396c8faa6510b53a55f629e4f4c70b4a3
+tools/helix git=https://github.com/greyshaman/helix.git rev=
+tools/libc-bench tar=https://www.etalabs.net/releases/libc-bench-20110206.tar.gz blake3=64093102f29faa76da455f55a7b4be25b6d74d5c3d6fe88dbbc38aaae185182f
+tools/lsd git=https://github.com/lsd-rs/lsd rev=
+tools/nano tar=https://www.nano-editor.org/dist/v7/nano-7.2.tar.xz blake3=
+tools/onefetch git=https://github.com/o2sh/onefetch rev=
+tools/patchelf tar=https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0.tar.bz2 blake3=f843b32bdf3ee8a1f465e92d3fef34f30c48ccef9c112fdb793e2e7f2ae7283a
+tools/pathfinder git=https://gitlab.redox-os.org/redox-os/pathfinder.git rev=
+tools/perg git=https://github.com/guerinoni/perg.git rev=e206fab6bbd9c363c686fa7503d318304e48ddbe
+tools/periodictable git=https://gitlab.redox-os.org/redox-os/periodictable.git rev=
+tools/powerline git=https://github.com/jD91mZM2/powerline-rs rev=
+tools/ripgrep git=https://github.com/jackpot51/ripgrep.git rev=
+tools/schismtracker tar=https://github.com/schismtracker/schismtracker/archive/20181223.tar.gz blake3=057e973f4f84cf898e2240d67c0e92f25086d8b9ffdc7e0c7ef81dd8dc81bc70
+tools/sed tar=https://ftp.gnu.org/gnu/sed/sed-4.4.tar.xz blake3=a88c12b2b4304e53e3c7ae2eb0499d02e28873c1b9e1a6871e5347c6886a1ecd
+tools/shellharden git=https://github.com/anordal/shellharden.git rev=bd24c99d5d1e76452b6d0749404837c1c95d923c
+tools/shellstorm git=https://gitlab.redox-os.org/redox-os/shellstorm.git rev=
+tools/smith git=https://gitlab.redox-os.org/redox-os/Smith.git rev=
+tools/sodium git=https://gitlab.redox-os.org/redox-os/sodium.git rev=
+tools/tokei git=https://github.com/XAMPPRocky/tokei.git rev=
+tools/twin-commander git=https://github.com/kivimango/twin-commander.git rev=
+tools/vim tar=https://github.com/vim/vim/archive/refs/tags/v9.1.0821.tar.gz blake3=d1f5802ceb047b09143f1764bf4016f084cf7e6c026c7047919264c9f262a5dd
+tools/xz tar=https://github.com/tukaani-project/xz/releases/download/v5.2.13/xz-5.2.13.tar.gz blake3=edc6350542e8cb7188a878135e5b9bd592d687e5b47451ca1c89d51cc4bc6b53
+tui/goaccess tar=https://tar.goaccess.io/goaccess-1.9.4.tar.gz blake3=a7a7641c98956e8941191956129141e071321851d004269c7d21bce536d9224a
+tui/mc tar=https://ftp.osuosl.org/pub/midnightcommander/mc-4.8.33.tar.xz blake3=cad9c1587f2976b9e42016191a72c4f23a07222c96ec7a9454a1a66ce639ac63
+tui/mdp git=https://github.com/visit1985/mdp.git rev=
+tui/ncdu tar=https://dev.yorhel.nl/download/ncdu-1.22.tar.gz blake3=b7838c03ded7207a328a26c840ec3d62d3be6bbf7269a70ea3430c6cbf065960
+video/sdl-player git=https://gitlab.redox-os.org/redox-os/sdl-player.git rev=
+wayland/qt6-wayland-smoke path=source
+wayland/redbear-compositor path=source
+wayland/seatd-redox tar=https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.1.tar.gz blake3=
+wayland/smallvil git=https://github.com/jackpot51/smithay rev=
+web/netsurf tar=https://download.netsurf-browser.org/netsurf/releases/source-full/netsurf-all-3.11.tar.gz blake3=cd406668a9ed5712efac1a8685125b83626690b73bbc6cb5de82ef00e3f65087
+web/website git=https://gitlab.redox-os.org/redox-os/website rev=

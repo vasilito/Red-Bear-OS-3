@@ -1,0 +1,13 @@
+diff --git a/src/header/unistd/mod.rs b/src/header/unistd/mod.rs
+--- a/src/header/unistd/mod.rs
++++ b/src/header/unistd/mod.rs
+@@ -1262,8 +1262,8 @@
+ /// Specifications Issue 6, and removed in Issue 7.
+ #[deprecated]
+ // #[unsafe(no_mangle)]
+ pub extern "C" fn vfork() -> pid_t {
+-    unimplemented!();
++    unsafe { fork() }
+ }
+ 
+ unsafe fn with_argv(

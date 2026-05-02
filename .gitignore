@@ -1,6 +1,5 @@
 /build/
 /prefix/
-.config
 **/my_*
 
 .idea/
@@ -83,7 +82,8 @@ local/cache/pkgar/
 !local/cache/pkgar/**
 Packages/redbear-firmware.pkgar
 packages/
-sources/
+sources/x86_64-unknown-redox/
+sources/*.tar.gz
 local/linux-kernel-cache/
 local/recipes/kde/kwin/**
 !local/recipes/kde/kwin/recipe.toml

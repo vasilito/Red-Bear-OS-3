@@ -1,0 +1,51 @@
+# Red Bear OS overrides for base init services.
+#
+# 00_base.service: stripped base setup (tmpdir only, no sudo — sudo runs from
+#                  base.toml's 00_sudo.service). ipcd and ptyd are started by
+#                  00_ipcd.service and 00_ptyd.service from the base recipe.
+# 00_drivers / 10_net: no longer overridden — the legacy scripts were removed
+#             from base.toml. The retained 00_pcid-spawner.service unit name now
+#             launches driver-manager so existing init ordering remains stable.
+# 00_pcid-spawner.service: compatibility wrapper for driver-manager. The base
+#          recipe uses type="oneshot" which blocks init until pcid-spawner exits.
+#          Running driver-manager here with oneshot_async keeps the historic unit
+#          name for downstream `requires_weak` consumers while moving PCI driver
+#          spawning to the manager that performs bind/channel handoff.
+
+[packages]
+zsh = {}
+
+[[files]]
+path = "/usr/lib/init.d/00_base.service"
+data = """
+[unit]
+description = "Base environment setup (tmpdir)"
+
+[service]
+cmd = "ion"
+args = ["-c", "rm -rf /tmp; mkdir -m a=rwxt /tmp"]
+type = "oneshot"
+"""
+
+[[files]]
+path = "/etc/init.d/20_audiod.service"
+data = """
+[unit]
+description = "Audio multiplexer"
+default_dependencies = false
+
+[service]
+cmd = "audiod"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/etc/init.d/00_pcid-spawner.service"
+data = """
+[unit]
+description = "PCI driver spawner"
+
+[service]
+cmd = "pcid-spawner"
+type = "oneshot"
+"""

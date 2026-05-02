@@ -1,0 +1,20 @@
+# Red Bear OS Wi-Fi Experimental Profile
+#
+# Standalone tracked build target for the current bounded Intel Wi-Fi slice.
+#
+# This profile extends the existing minimal Red Bear baseline but switches the default active profile
+# to the bounded Wi-Fi path and adds the first Intel driver-side package on top of the shared
+# firmware/control/profile tooling.
+
+include = ["redbear-minimal.toml"]
+
+[general]
+filesystem_size = 2048
+
+[packages]
+# First bounded Intel driver-side package
+redbear-iwlwifi = {}
+
+[[files]]
+path = "/etc/netctl/active"
+data = "wifi-open-bounded\n"

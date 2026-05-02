@@ -1,0 +1,106 @@
+# Red Bear OS shared network profile wiring
+#
+# Shared by redbear-minimal, redbear-desktop, redbear-full, and redbear-kde.
+
+[[files]]
+path = "/etc/netctl"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/etc/netctl/examples"
+data = ""
+directory = true
+mode = 0o755
+
+[[files]]
+path = "/etc/netctl/examples/wired-dhcp"
+data = """
+Description='Red Bear wired DHCP profile'
+Interface=eth0
+Connection=ethernet
+IP=dhcp
+"""
+
+[[files]]
+path = "/etc/netctl/wired-dhcp"
+data = """
+Description='Red Bear wired DHCP profile'
+Interface=eth0
+Connection=ethernet
+IP=dhcp
+"""
+
+[[files]]
+path = "/etc/netctl/examples/wired-static"
+data = """
+Description='Red Bear wired static profile'
+Interface=eth0
+Connection=ethernet
+IP=static
+Address=('192.168.1.10/24')
+Gateway='192.168.1.1'
+DNS=('1.1.1.1')
+"""
+
+[[files]]
+path = "/etc/netctl/examples/wifi-dhcp"
+data = """
+Description='Red Bear Wi-Fi DHCP profile'
+Interface=wlan0
+Connection=wifi
+SSID='example-ssid'
+Security=wpa2-psk
+Key='example-passphrase'
+IP=dhcp
+"""
+
+[[files]]
+path = "/etc/netctl/examples/wifi-open"
+data = """
+Description='Red Bear Wi-Fi open-network profile'
+Interface=wlan0
+Connection=wifi
+SSID='example-open-ssid'
+Security=open
+IP=dhcp
+"""
+
+[[files]]
+path = "/etc/netctl/examples/wifi-open-bounded"
+data = """
+Description='Red Bear Wi-Fi bounded lifecycle profile'
+Interface=wlan0
+Connection=wifi
+SSID='example-open-ssid'
+Security=open
+IP=bounded
+"""
+
+[[files]]
+path = "/etc/netctl/wifi-open-bounded"
+data = """
+Description='Red Bear Wi-Fi bounded lifecycle profile'
+Interface=wlan0
+Connection=wifi
+SSID='example-open-ssid'
+Security=open
+IP=bounded
+"""
+
+[[files]]
+path = "/usr/lib/init.d/12_netctl.service"
+data = """
+[unit]
+description = "Network profile application"
+requires_weak = [
+    "10_smolnetd.service",
+    "10_dhcpd.service",
+]
+
+[service]
+cmd = "redbear-netctl"
+args = ["--boot"]
+type = "oneshot_async"
+"""

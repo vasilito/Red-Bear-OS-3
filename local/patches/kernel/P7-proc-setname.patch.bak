@@ -1,0 +1,47 @@
+diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
+--- a/src/scheme/proc.rs
++++ b/src/scheme/proc.rs
+@@ -147,6 +147,7 @@ enum ContextHandle {
+     Priority,
+     SchedAffinity,
+     SchedPolicy,
++    Name,
+ 
+     MmapMinAddr(Arc<AddrSpaceWrapper>),
+ }
+@@ -267,6 +268,7 @@ impl ProcScheme {
+             "sched-affinity" => (ContextHandle::SchedAffinity, true),
+             // TODO: Switch this kernel-local proc handle over to a stable upstream
+             // redox_syscall ProcCall::SetSchedPolicy opcode once that lands.
+             "sched-policy" => (ContextHandle::SchedPolicy, false),
++            "name" => (ContextHandle::Name, false),
+             "status" => (ContextHandle::Status { privileged: false }, false),
+             _ if path.starts_with("auth-") => {
+                 let nonprefix = &path["auth-".len()..];
+@@ -1218,6 +1220,16 @@ impl ContextHandle {
+                 Ok(2)
+             }
++            ContextHandle::Name => {
++                let mut name_buf = [0u8; 32];
++                let len = buf.copy_common_bytes_to_slice(&mut name_buf[..31]).unwrap_or(0);
++                let mut context = context.write(token.token());
++                context.name.clear();
++                if let Ok(s) = core::str::from_utf8(&name_buf[..len]) {
++                    context.name.push_str(s);
++                }
++                Ok(len)
++            }
+             ContextHandle::Status { privileged } => {
+                 let mut args = buf.usizes();
+ 
+@@ -1532,6 +1544,10 @@ impl ContextHandle {
+                 let data = [context.sched_policy as u8, context.sched_rt_priority];
+                 buf.copy_common_bytes_from_slice(&data)
+             }
++            ContextHandle::Name => {
++                let context = context.read(token.token());
++                buf.copy_common_bytes_from_slice(context.name.as_bytes())
++            }
+             ContextHandle::Status { .. } => {
+                 let status = {
+                     let context = context.read(token.token());

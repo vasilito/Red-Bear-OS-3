@@ -9,7 +9,7 @@ diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
  
      MmapMinAddr(Arc<AddrSpaceWrapper>),
  }
-@@ -267,6 +268,7 @@ impl ProcScheme {
+@@ -267,7 +268,8 @@ impl ProcScheme {
              "sched-affinity" => (ContextHandle::SchedAffinity, true),
              // TODO: Switch this kernel-local proc handle over to a stable upstream
              // redox_syscall ProcCall::SetSchedPolicy opcode once that lands.
@@ -18,7 +18,7 @@ diff --git a/src/scheme/proc.rs b/src/scheme/proc.rs
              "status" => (ContextHandle::Status { privileged: false }, false),
              _ if path.starts_with("auth-") => {
                  let nonprefix = &path["auth-".len()..];
-@@ -1218,6 +1220,16 @@ impl ContextHandle {
+@@ -1218,5 +1220,15 @@ impl ContextHandle {
                  Ok(2)
              }
 +            ContextHandle::Name => {

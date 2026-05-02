@@ -1,0 +1,18 @@
+# P2-hwd-misc.patch
+# Keep hwd focused on hardware probing. Init owns boot-time pcid startup.
+
+diff --git a/drivers/hwd/src/main.rs b/drivers/hwd/src/main.rs
+index 79360e34..4de3d9f3 100644
+--- a/drivers/hwd/src/main.rs
++++ b/drivers/hwd/src/main.rs
+@@ -37,10 +37,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
+ 
+     //TODO: launch pcid based on backend information?
+     // Must launch after acpid but before probe calls /scheme/acpi/symbols
+-    #[allow(deprecated, reason = "we can't yet move this to init")]
+-    daemon::Daemon::spawn(process::Command::new("pcid"));
+-
+     daemon.ready();
+ 
+     //TODO: HWD is meant to locate PCI/XHCI/etc devices in ACPI and DeviceTree definitions and start their drivers
+ 
