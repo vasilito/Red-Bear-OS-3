@@ -99,7 +99,7 @@ kf6-knewstuff = {}
 kf6-kwallet = {}
 kglobalacceld = {}
 
-kwin = {}
+# kwin = {}  # Blocked: Qt6 Wayland plugin import error (QML gate)
 
 # Plasma + app packages — blocked on kirigami (QML gate)
 # plasma-framework = {}

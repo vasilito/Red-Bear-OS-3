@@ -27,12 +27,11 @@ redbear-release = {}
 redbear-hwutils = {}
 redbear-quirks = {}
 
-# Device driver infrastructure (pcid-spawner is the stable driver spawner;
+# Device driver infrastructure (pcid-spawner is built by the base recipe;
 # driver-manager requires driver config migration and is not yet ready)
 ehcid = {}
 ohcid = {}
 uhcid = {}
-pcid-spawner = "ignore"
 
 # Redox-native netctl tooling.
 redbear-netctl = {}
