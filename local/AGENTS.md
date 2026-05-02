@@ -191,7 +191,7 @@ redox-master/                  ← git pull updates mainline Redox
 │   ├── recipes/
 │   │   ├── core/              ← ext4d (ext4 filesystem scheme daemon + mkfs tool), grub (GRUB 2.12 UEFI bootloader)
 │   │   ├── branding/          ← redbear-release (os-release, hostname, motd)
-│   │   ├── drivers/           ← redox-driver-sys, linux-kpi (GPU/Wi-Fi compat only — NOT USB)
+│   │   ├── drivers/           ← redox-driver-sys, linux-kpi (DRM/GPU + Wi-Fi only — NOT USB — NOT input subsystem)
 │   │   ├── gpu/               ← redox-drm (AMD + Intel display drivers), amdgpu (C port)
 │   │   ├── system/            ← cub, evdevd, udev-shim, redbear-firmware, firmware-loader, redbear-hwutils, redbear-info, redbear-netctl, redbear-quirks, redbear-meta
 │   │   │   ├── redbear-sessiond       ← org.freedesktop.login1 D-Bus session broker (zbus-based Rust daemon)
@@ -426,6 +426,41 @@ The current execution order for these subsystem plans is:
 
 Do not present USB, Wi-Fi, Bluetooth, or low-level controller work as optional or secondary.
 
+## LINUX KERNEL SOURCE POLICY (CRITICAL)
+
+Linux kernel source is **REFERENCE ONLY** — never a dependency.
+
+If Red Bear OS needs something from the Linux kernel, it MUST be implemented in the project
+tree, using Linux source as reference only.
+
+### Policy (VERBATIM)
+> "If we need something from Linux kernel, it MUST be implemented in our tree, having Linux source as reference only"
+> "If we need linux-input-headers than we must code redbear-input-headers"
+
+### linux-kpi Scope
+`local/recipes/drivers/linux-kpi/` covers **ONLY**:
+- DRM/GPU headers (`drm/`) — AMD + Intel display drivers
+- Wi-Fi headers (`net/`) — mac80211, cfg80211, nl80211
+- General kernel headers (`linux/`) — mm, device, irq, dma-mapping, firmware, etc.
+
+**Does NOT cover**: USB, input subsystem, or any other Linux kernel subsystem.
+
+### Implementing New Linux-Compatibility Headers
+When Red Bear needs Linux kernel headers for a new subsystem:
+
+1. Create `local/recipes/drivers/redbear-<subsystem>-headers/`
+2. Implement headers using Linux source as **reference only**
+3. Do NOT pull Linux source tarballs directly
+4. Do NOT use third-party tarballs that bundle Linux headers as a proxy
+5. Examples:
+   - `redbear-input-headers/` → linux/input.h, input-event-codes.h, uinput.h
+   - `redbear-usb-headers/` → linux/usb/ch9.h, etc. (NOT linux-kpi's purpose)
+
+### linux-input-headers — Policy Violation
+`recipes/wip/libs/linux-input-headers/` extracts Linux kernel input headers from the
+libevdev tarball. This is a **policy violation** — it pulls Linux headers via a third-party
+tarball. The correct implementation is `redbear-input-headers` in `local/recipes/drivers/`.
+
 ## FILESYSTEMS
 
 Red Bear OS supports three filesystems:
@@ -598,6 +633,26 @@ When a package fails to build due to missing functionality:
 1. **DO NOT** mark packages as `"ignore"` to skip them
 2. **DO NOT** create stub recipes that provide fake cmake configs without real functionality
 3. **DO NOT** disable required dependencies via sed/cmake hacks without implementing the dependency
+
+### Fix Before Disable
+
+When a build blocker exposes a missing producer surface, missing dependency export, or incomplete
+integration boundary, the default policy is:
+
+> **Always do your best to fix before disabling.**
+
+This means:
+
+- prefer restoring the real producer/package surface over commenting out the consumer
+- prefer fixing CMake/pkg-config/header visibility over disabling the dependent feature
+- treat disabling as a last resort, not the normal path
+
+If disabling is temporarily unavoidable, it must be:
+
+- explicit,
+- narrowly scoped,
+- documented with the real blocker,
+- and treated as temporary debt to remove, not as the desired final state.
 
 Instead, **implement the missing functionality properly**:
 
