@@ -3,6 +3,7 @@
 
 [source]
 tar = "https://download.qt.io/official_releases/qt/6.11/6.11.0/submodules/qtlottie-everywhere-src-6.11.0.tar.xz"
+blake3 = "03ec625fe5fbbc072c9d0ffcba49b31c8213945c8797f1c7b46923c9c045f2b1"
 
 [build]
 template = "custom"
@@ -13,6 +14,7 @@ script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
 
 # Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} -> usr/
 # but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}.
@@ -30,6 +32,16 @@ if [ ! -d "${COOKBOOK_SYSROOT}/lib/cmake/Qt6Quick" ] \
         'Rebuild the verified QtQuick/QML substrate before cooking qtlottie.' >&2
     exit 1
 fi
+
+# Redox Qt stack currently lacks Qt6QuickVectorImageGeneratorPrivate.
+# Disable the optional lottietoqml tool and vector image plugin slices that require it,
+# while keeping the core runtime library and QML import buildable.
+sed -i 's|^include("${CMAKE_CURRENT_LIST_DIR}/tools/lottietoqml/Qt6LottieToQmlMacros.cmake")|# disabled for Redox: requires Qt6QuickVectorImageGeneratorPrivate|' \
+    "${COOKBOOK_SOURCE}/CMakeLists.txt" 2>/dev/null || true
+sed -i 's|^add_subdirectory(lottietoqml)|# disabled for Redox: requires Qt6QuickVectorImageGeneratorPrivate|' \
+    "${COOKBOOK_SOURCE}/tools/CMakeLists.txt" 2>/dev/null || true
+sed -i 's|^add_subdirectory(vectorimageformats)|# disabled for Redox: requires Qt6QuickVectorImageGeneratorPrivate|' \
+    "${COOKBOOK_SOURCE}/src/plugins/CMakeLists.txt" 2>/dev/null || true
 
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
@@ -92,42 +104,19 @@ if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
 fi
 
 BUILD_DIR="${COOKBOOK_BUILD}"
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
-fi
-
+STAGE_USR="${COOKBOOK_STAGE}/usr"
+STAGE_CMAKE_DIR="${STAGE_USR}/lib/cmake"
 SYSROOT="${COOKBOOK_SYSROOT}"
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|/usr/lib|${SYSROOT}/lib|g" {} + 2>/dev/null || true
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|/usr/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
-    find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-        "s|${COOKBOOK_SOURCE}/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
+if [ -d "${STAGE_CMAKE_DIR}" ]; then
+    redbear_qt_rewrite_stage_build_paths "${STAGE_USR}" "${BUILD_DIR}"
+    redbear_qt_rewrite_stage_include_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+    redbear_qt_rewrite_stage_lib_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+    redbear_qt_rewrite_usr_src_metatype_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+    redbear_qt_rewrite_stage_source_metatype_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}" "${COOKBOOK_SOURCE}"
+    redbear_qt_copy_stage_qt6_cmake_to_sysroot "${STAGE_USR}" "${SYSROOT}"
 fi
-if [ -d "${COOKBOOK_STAGE}/usr/include" ]; then
-    mkdir -p "${SYSROOT}/include"
-    cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/lib/cmake" ]; then
-    mkdir -p "${SYSROOT}/lib/cmake"
-    cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
-fi
-mkdir -p "${SYSROOT}/lib"
-cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
-if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
-    mkdir -p "${SYSROOT}/plugins"
-    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
-    mkdir -p "${SYSROOT}/qml"
-    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/metatypes" ]; then
-    mkdir -p "${SYSROOT}/metatypes"
-    cp -a "${COOKBOOK_STAGE}/usr/metatypes/"* "${SYSROOT}/metatypes/" 2>/dev/null || true
-fi
+redbear_qt_copy_common_stage_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" plugins
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" qml
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" metatypes
 """

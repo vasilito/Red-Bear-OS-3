@@ -9,12 +9,48 @@ template = "custom"
 dependencies = [
     "qtbase",
     "qtshadertools",
+    "qtsvg",
 ]
 script = """
 DYNAMIC_INIT
 
 HOST_BUILD="${COOKBOOK_ROOT}/build/qt-host-build"
 DECL_HOST="${COOKBOOK_ROOT}/build/qt-declarative-host"
+HOST_QTSVG_BUILD="${COOKBOOK_ROOT}/build/qtsvg-host-build"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
+source "${COOKBOOK_ROOT}/local/scripts/lib/qt-sysroot.sh"
+
+# ============================================================
+# Step 0: Build host qtsvg into the shared host prefix.
+# quick-vectorimage in qtdeclarative requires host Qt::Svg support before
+# svgtoqml / Qt6QuickTools can be generated and exported.
+# ============================================================
+if [ ! -d "${HOST_BUILD}/lib/cmake/Qt6Svg" ]; then
+    echo "=== Building qtsvg host module ==="
+    rm -rf "${HOST_QTSVG_BUILD}"
+    env \
+        -u CPPFLAGS \
+        -u LDFLAGS \
+        -u PKG_CONFIG_ALLOW_CROSS \
+        -u PKG_CONFIG_PATH \
+        -u PKG_CONFIG_LIBDIR \
+        -u PKG_CONFIG_SYSROOT_DIR \
+        -u CFLAGS_x86_64_unknown_redox \
+        -u CXXFLAGS_x86_64_unknown_redox \
+        -u LDFLAGS_x86_64_unknown_redox \
+        cmake -S "${COOKBOOK_ROOT}/recipes/wip/qt/qtsvg/source" -B "${HOST_QTSVG_BUILD}" \
+        -DCMAKE_C_COMPILER=/usr/bin/cc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${HOST_BUILD}" \
+        -DCMAKE_PREFIX_PATH="${HOST_BUILD}" \
+        -DQT_BUILD_EXAMPLES=OFF \
+        -DQT_BUILD_TESTS=OFF \
+        -DQT_GENERATE_SBOM=OFF \
+        -Wno-dev
+    cmake --build "${HOST_QTSVG_BUILD}" -j"${COOKBOOK_MAKE_JOBS}"
+    cmake --install "${HOST_QTSVG_BUILD}" --prefix "${HOST_BUILD}"
+fi
 
 # ============================================================
 # Step 1: Build only the qtdeclarative host tools actually needed for cross-builds.
@@ -23,7 +59,7 @@ DECL_HOST="${COOKBOOK_ROOT}/build/qt-declarative-host"
 # Install/copy the minimal host tools into the same prefix as qtbase host tools so
 # QT_HOST_PATH finds both qtbase and qtdeclarative tools.
 # ============================================================
-if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaotstats" ] || [ ! -d "${HOST_BUILD}/lib/cmake/Qt6QmlTools" ]; then
+if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaotstats" ] || [ ! -d "${HOST_BUILD}/lib/cmake/Qt6QmlTools" ] || [ ! -d "${HOST_BUILD}/lib/cmake/Qt6QuickTools" ] || { [ ! -f "${HOST_BUILD}/bin/svgtoqml" ] && [ ! -f "${HOST_BUILD}/libexec/svgtoqml" ]; }; then
     echo "=== Building qtdeclarative host tools ==="
     mkdir -p "${DECL_HOST}"
     env \
@@ -47,7 +83,7 @@ if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaots
         -DQT_BUILD_TESTS=OFF \
         -DQT_GENERATE_SBOM=OFF \
         -Wno-dev
-    cmake --build "${DECL_HOST}" --target qmllint qmlimportscanner qmltyperegistrar qmlaotstats -j"${COOKBOOK_MAKE_JOBS}" || true
+    cmake --build "${DECL_HOST}" --target qmllint qmlimportscanner qmltyperegistrar qmlaotstats svgtoqml -j"${COOKBOOK_MAKE_JOBS}" || true
     # Generate jsroot.qmltypes needed by qmlcachegen using the host-built qmltyperegistrar.
     # Qt6 CMake rule: qmltyperegistrar --jsroot --generate-qmltypes <output>
     QMLREG="${DECL_HOST}/libexec/qmltyperegistrar"
@@ -72,7 +108,7 @@ if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaots
     fi
 
     mkdir -p "${HOST_BUILD}/bin" "${HOST_BUILD}/libexec" "${HOST_BUILD}/lib/cmake"
-    for tool in qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats; do
+    for tool in qmlcachegen qmllint qmlimportscanner qmltyperegistrar qmlaotstats svgtoqml; do
         if [ -f "${DECL_HOST}/bin/${tool}" ]; then
             cp -a "${DECL_HOST}/bin/${tool}" "${HOST_BUILD}/bin/"
         elif [ -f "${DECL_HOST}/libexec/${tool}" ]; then
@@ -82,6 +118,7 @@ if [ ! -f "${HOST_BUILD}/bin/qmlcachegen" ] || [ ! -f "${HOST_BUILD}/bin/qmlaots
     done
     cp -a "${DECL_HOST}/lib/cmake/Qt6QmlTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
     cp -a "${DECL_HOST}/lib/cmake/Qt6QmlCompiler" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
+    cp -a "${DECL_HOST}/lib/cmake/Qt6QuickTools" "${HOST_BUILD}/lib/cmake/" 2>/dev/null || true
 fi
 
 # ============================================================
@@ -90,14 +127,7 @@ fi
 rm -f CMakeCache.txt
 rm -rf CMakeFiles
 
-# Sysroot path fix: the cookbook only symlinks sysroot/{bin,include,lib,share} → usr/
-# but Qt6 cmake targets reference ${_IMPORT_PREFIX}/{plugins,mkspecs,metatypes,modules}
-# which resolve to sysroot/{plugins,mkspecs,metatypes,modules} — missing the usr/ layer.
-for qtdir in plugins mkspecs metatypes modules; do
-    if [ -d "${COOKBOOK_SYSROOT}/usr/${qtdir}" ] && [ ! -e "${COOKBOOK_SYSROOT}/${qtdir}" ]; then
-        ln -s "usr/${qtdir}" "${COOKBOOK_SYSROOT}/${qtdir}"
-    fi
-done
+redbear_qt_link_sysroot_dirs "${COOKBOOK_SYSROOT}" plugins mkspecs metatypes modules
 
 # Patch masm/CheckedArithmetic.h: add missing ArithmeticOperations<unsigned, long>
 # specialization for LP64 (sizeof(long) != sizeof(int)). The existing code only
@@ -184,7 +214,7 @@ cmake "${COOKBOOK_SOURCE}" \
 
 HOST_QT6_LIBS="${DECL_HOST}/lib:${HOST_BUILD}/lib"
 export LD_LIBRARY_PATH="${HOST_QT6_LIBS}:${LD_LIBRARY_PATH:-}"
-cmake --build . --target Qt6Qml Qt6Quick Qt6QuickWidgets Qt6QmlModels Qt6QmlWorkerScript Qt6QmlIntegration Qt6LabsSettings Qt6QuickTest Qt6QuickControls2 Qt6QuickTemplates2 -j${COOKBOOK_MAKE_JOBS} || true
+cmake --build . --target Qml Quick QuickWidgets QmlModels QmlWorkerScript QmlIntegration LabsSettings QuickControls2 QuickTemplates2 QuickVectorImageGeneratorPrivate QuickVectorImage QuickVectorImageHelpers -j${COOKBOOK_MAKE_JOBS}
 cmake --build . -j${COOKBOOK_MAKE_JOBS} 2>/dev/null || echo "Some targets failed (tools/qml expected)"
 
 # ============================================================
@@ -228,37 +258,20 @@ for lib in "${COOKBOOK_STAGE}/usr/lib/libQt6"*.so.*; do
 done
 find "${COOKBOOK_STAGE}/usr/plugins" -name '*.so' -exec patchelf --remove-rpath {} + 2>/dev/null || true
 
-# CMake export fixup: replace build-tree paths with /usr
+# CMake export fixup and sysroot propagation
 BUILD_DIR="${COOKBOOK_BUILD}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|${BUILD_DIR}|/usr|g" {} + 2>/dev/null || true
-
+STAGE_USR="${COOKBOOK_STAGE}/usr"
+STAGE_CMAKE_DIR="${STAGE_USR}/lib/cmake"
 SYSROOT="${COOKBOOK_SYSROOT}"
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|/usr/include|${SYSROOT}/include|g" {} + 2>/dev/null || true
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|/usr/lib|${SYSROOT}/lib|g" {} + 2>/dev/null || true
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|/usr/src|${COOKBOOK_SOURCE}/src|g" {} + 2>/dev/null || true
-find "${COOKBOOK_STAGE}/usr/lib/cmake" -name '*.cmake' -exec sed -i \
-    "s|${COOKBOOK_SOURCE}/src/.*/meta_types/|${SYSROOT}/metatypes/|g" {} + 2>/dev/null || true
-
-mkdir -p "${SYSROOT}/include" "${SYSROOT}/lib/cmake" "${SYSROOT}/lib"
-cp -a "${COOKBOOK_STAGE}/usr/include/"* "${SYSROOT}/include/" 2>/dev/null || true
-cp -a "${COOKBOOK_STAGE}/usr/lib/cmake/Qt6"* "${SYSROOT}/lib/cmake/" 2>/dev/null || true
-cp -a "${COOKBOOK_STAGE}/usr/lib/libQt6"* "${SYSROOT}/lib/" 2>/dev/null || true
-if [ -d "${COOKBOOK_STAGE}/usr/metatypes" ]; then
-    mkdir -p "${SYSROOT}/metatypes"
-    cp -a "${COOKBOOK_STAGE}/usr/metatypes/"* "${SYSROOT}/metatypes/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/plugins" ]; then
-    mkdir -p "${SYSROOT}/plugins"
-    cp -a "${COOKBOOK_STAGE}/usr/plugins/"* "${SYSROOT}/plugins/" 2>/dev/null || true
-fi
-if [ -d "${COOKBOOK_STAGE}/usr/qml" ]; then
-    mkdir -p "${SYSROOT}/qml"
-    cp -a "${COOKBOOK_STAGE}/usr/qml/"* "${SYSROOT}/qml/" 2>/dev/null || true
-fi
+redbear_qt_rewrite_stage_build_paths "${STAGE_USR}" "${BUILD_DIR}"
+redbear_qt_rewrite_stage_include_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+redbear_qt_rewrite_stage_lib_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}"
+redbear_qt_rewrite_stage_source_metatype_paths "${STAGE_CMAKE_DIR}" "${SYSROOT}" "${COOKBOOK_SOURCE}"
+redbear_qt_copy_common_stage_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_stage_qt6_cmake_to_sysroot "${STAGE_USR}" "${SYSROOT}"
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" metatypes
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" plugins
+redbear_qt_copy_optional_stage_dir_to_sysroot "${STAGE_USR}" "${SYSROOT}" qml
 
 for stdlib in \
     "${COOKBOOK_STAGE}/usr/include/stdlib.h" \
