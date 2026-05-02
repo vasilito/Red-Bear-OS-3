@@ -3,14 +3,26 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/lib/relibc-surface.sh"
 
 # Source .config for release mode settings (REDBEAR_RELEASE, etc.)
 if [ -f "$PROJECT_ROOT/.config" ]; then
-    while IFS='?=' read -r key value; do
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line=$(echo "$line" | xargs)
+        [ -z "$line" ] && continue
+        if [[ "$line" == *"?="* ]]; then
+            key="${line%%\?=*}"
+            value="${line#*\?=}"
+        elif [[ "$line" == *"="* ]]; then
+            key="${line%%=*}"
+            value="${line#*=}"
+        else
+            continue
+        fi
         key=$(echo "$key" | xargs)
         value=$(echo "$value" | xargs)
         [ -z "$key" ] && continue
-        [[ "$key" =~ ^# ]] && continue
         # Only set if not already set in environment
         [ -n "${!key:-}" ] || export "$key=$value"
     done < "$PROJECT_ROOT/.config"
@@ -111,31 +123,6 @@ stash_nested_repo_if_dirty() {
 
 stash_nested_repo_if_dirty "$PROJECT_ROOT/recipes/core/relibc/source" "relibc"
 
-ensure_relibc_desktop_surface() {
-    local relibc_target="$PROJECT_ROOT/recipes/core/relibc/target/x86_64-unknown-redox"
-    local relibc_stage_include="$relibc_target/stage/usr/include"
-    local relibc_stage_lib="$relibc_target/stage/usr/lib/libc.so"
-
-    if [ ! -f "$relibc_stage_include/sys/signalfd.h" ] || \
-       [ ! -f "$relibc_stage_include/sys/timerfd.h" ] || \
-       [ ! -f "$relibc_stage_include/sys/eventfd.h" ] || \
-       [ ! -f "$relibc_stage_lib" ] || \
-       ! readelf -Ws "$relibc_stage_lib" | grep -q '_Z7strtoldPKcPPc'; then
-        echo ">>> Refreshing relibc staged surface for full desktop target..."
-        rm -rf \
-            "$relibc_target/build" \
-            "$relibc_target/stage" \
-            "$relibc_target/stage.tmp" \
-            "$relibc_target/sysroot"
-        rm -f \
-            "$relibc_target/auto_deps.toml" \
-            "$relibc_target/stage.pkgar" \
-            "$relibc_target/stage.toml"
-        REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 ./target/release/repo cook relibc
-        echo ""
-    fi
-}
-
 if [ "$APPLY_PATCHES" = "1" ] && [ -z "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Applying local patches..."
 
@@ -199,7 +186,7 @@ if [ ! -f "target/release/repo" ]; then
 fi
 
 if [ "$CONFIG" = "redbear-full" ]; then
-    ensure_relibc_desktop_surface
+    redbear_ensure_relibc_desktop_surface
 fi
 
 FW_AMD_DIR="$PROJECT_ROOT/local/firmware/amdgpu"
@@ -218,36 +205,17 @@ fi
 echo ">>> Building Red Bear OS with config: $CONFIG"
 echo ">>> This may take 30-60 minutes on first build..."
 
-# In release mode, verify archives exist before building
 if [ -n "${REDBEAR_RELEASE:-}" ]; then
-    echo ">>> Release mode: $REDBEAR_RELEASE"
-    if [ -f "./local/scripts/verify-sources-archived.sh" ]; then
-        bash "./local/scripts/verify-sources-archived.sh" --release="$REDBEAR_RELEASE" || {
-            echo "ERROR: Release archive verification failed. Run: provision-release.sh"
-            exit 1
-        }
-    fi
+    bash "$PROJECT_ROOT/local/scripts/build-release-mode.sh" --release="$REDBEAR_RELEASE" --config="$CONFIG" --extra-package=relibc
 fi
+
+bash "$PROJECT_ROOT/local/scripts/build-preflight.sh" --config="$CONFIG" ${REDBEAR_RELEASE:+--release="$REDBEAR_RELEASE"} --extra-package=relibc
 
 if [ "${REDBEAR_ALLOW_UPSTREAM:-0}" = "1" ]; then
     echo ">>> WARNING: Upstream fetch ENABLED (REDBEAR_ALLOW_UPSTREAM=1)"
     REPO_OFFLINE=0 COOKBOOK_OFFLINE=false CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 elif [ -n "${REDBEAR_RELEASE:-}" ]; then
     echo ">>> Release mode: building from immutable archives (offline)"
-    # Validate source trees before building
-    if [ -f "$PROJECT_ROOT/local/scripts/validate-source-trees.sh" ]; then
-        echo ">>> Validating source trees..."
-        bash "$PROJECT_ROOT/local/scripts/validate-source-trees.sh" "$CONFIG" || {
-            echo "WARNING: Some source trees are missing."
-            echo "Attempting build with REPO_BINARY=1 fallback for missing packages..."
-            REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 REPO_BINARY=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS" || {
-                echo "ERROR: Build failed even with binary fallback."
-                echo "Run: ./local/scripts/restore-sources.sh --release=$REDBEAR_RELEASE"
-                exit 1
-            }
-            exit 0
-        }
-    fi
     REPO_OFFLINE=1 COOKBOOK_OFFLINE=true CI=1 make all "CONFIG_NAME=$CONFIG" "JOBS=$JOBS"
 elif [ "$ALLOW_UPSTREAM" -eq 1 ]; then
     echo ">>> Upstream recipe refresh enabled"
