@@ -184,6 +184,89 @@ tracked configs, `local/docs/`, and `sources/redbear-0.1.0/` survive.
 **What does NOT need patching:** Files that already live in `local/`, tracked `config/redbear-*.toml`,
 or any path that is already git-tracked and not inside a fetched source tree.
 
+## BUILD SYSTEM POLICIES
+
+### Atomic Patch Application
+
+The cookbook tool (`src/cook/fetch.rs`) applies patches **atomically**:
+patches are applied to a staging directory (created via `cp -al` hard links),
+and only promoted into the live source tree if **all** patches succeed. If any
+patch fails, the staging directory is discarded and the source tree remains
+untouched.
+
+**The source tree is NEVER left in a partially-patched state.**
+
+When a patch fails, the error message includes the `[ATOMIC]` tag and the
+failed patch name. Recovery: fix the patch file, then re-run `repo fetch`.
+
+### Patch Format
+
+Patches may use either format:
+- Simple `---`/`+++` unified diff (preferred)
+- `diff --git` format (auto-normalized by `normalize_patch()`)
+
+Git-specific headers (`diff --git`, `index`, `new file mode`, `rename from/to`,
+`similarity index`, `dissimilarity index`) are automatically stripped before
+`patch` is invoked. The build system uses `--fuzz=0` for strict context matching.
+
+### Protected Recipes
+
+Core recipes (`base`, `kernel`, `relibc`, `bootloader`, etc.) are **protected**
+and cannot be re-fetched without explicit approval. Use the `--allow-protected`
+flag (or set `REDBEAR_ALLOW_PROTECTED_FETCH=1`) to override.
+
+```bash
+repo --allow-protected fetch base
+repo --allow-protected cook base
+```
+
+### Workspace Pollution Prevention
+
+Before every fetch and build, the cookbook tool removes orphaned `Cargo.toml`
+and `Cargo.lock` files from `recipes/` root. These files can appear as side
+effects of relibc workspace builds and cause "current package believes it's in
+a workspace" errors.
+
+### Patch Chain Ordering
+
+Patches in `recipe.toml` are applied in listed order. Dependencies between
+patches must be respected:
+- Patches that **define** types (e.g., `InputProducer`) must come BEFORE
+  patches that **use** those types
+- Patches that **create** files must come BEFORE patches that **modify** them
+- Cumulative patches (P0 → P2 → P3) must maintain correct line number context
+
+When reordering patches: remove the source tree, re-fetch, and rebuild to verify.
+
+### Large Patch Files (redox.patch)
+
+`local/patches/base/redox.patch` (consolidated mega-patch) exceeds GitHub's
+100 MB file size limit. It is stored as 90 MB chunks under
+`local/patches/base/redox-patch-chunks/` and reassembled by:
+```bash
+local/patches/base/reassemble-redox-patch.sh
+```
+
+### Patch Governance
+
+See `local/docs/PATCH-GOVERNANCE.md` for the full patch governance rules.
+Critical rules:
+- **Never remove patches** to fix build failures — rebase them
+- **Never remove BINS entries** — fix the source or use `EXISTING_BINS`
+- **Recipe.toml is git-tracked** — changes to it are durable
+- **Source trees are disposable** — `repo clean`/`distclean` destroy them
+- **All source changes must be patches** in `local/patches/`
+- **Commit patch files and recipe.toml changes** before session end
+
+### Build Validation
+
+After ANY change to patches or `recipe.toml`:
+1. Remove source: `rm -rf recipes/core/base/source`
+2. Fetch: `repo --allow-protected fetch base`
+3. Build: `repo cook base && repo cook base-initfs`
+4. Verify no `FAILED`, `[ATOMIC] patch application rolled back`, or `.rej` files
+5. Full image: `make all CONFIG_NAME=redbear-mini`
+
 ## PATCH MANAGEMENT
 
 All Red Bear OS modifications to upstream files are kept separately in `local/patches/`.
