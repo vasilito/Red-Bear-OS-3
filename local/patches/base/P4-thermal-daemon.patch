@@ -1,5 +1,5 @@
 --- a/drivers/thermald/Cargo.toml	1970-01-01 00:00:00.000000000 +0000
-+++ b/drivers/thermald/Cargo.toml	2026-05-03 15:36:46.091061688 +0100
++++ b/drivers/thermald/Cargo.toml	2026-05-03 15:54:52.487976196 +0100
 @@ -0,0 +1,12 @@
 +[package]
 +name = "thermald"
@@ -9,13 +9,13 @@
 +[dependencies]
 +log.workspace = true
 +anyhow.workspace = true
-+common = { path = "../../common" }
++common = { path = "../common" }
 +
 +[lints]
 +workspace = true
 --- a/drivers/thermald/src/main.rs	1970-01-01 00:00:00.000000000 +0000
-+++ b/drivers/thermald/src/main.rs	2026-05-03 15:36:46.091037823 +0100
-@@ -0,0 +1,32 @@
++++ b/drivers/thermald/src/main.rs	2026-05-03 15:54:52.488780946 +0100
+@@ -0,0 +1,30 @@
 +use anyhow::{Context, Result};
 +use std::{thread, time};
 +
@@ -41,14 +41,18 @@
 +                log::error!("thermald: CRITICAL {:.1}C", temp);
 +            } else if temp > 70.0 {
 +                log::warn!("thermald: WARNING {:.1}C", temp);
-+            } else {
-+                log::info!("thermald: {:.1}C", temp);
 +            }
 +        }
 +        thread::sleep(time::Duration::from_secs(5));
 +    }
 +}
---- a/.gitkeep	2026-05-03 15:36:46.091061688 +0100
-+++ b/.gitkeep	1970-01-01 00:00:00.000000000 +0000
-@@ -1 +0,0 @@
--
+--- a/init.d/30_thermald.service	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/30_thermald.service	2026-05-03 15:54:52.489441597 +0100
+@@ -0,0 +1,7 @@
++[unit]
++description = "CPU Thermal Monitor"
++requires_weak = ["00_base.target"]
++
++[service]
++cmd = "thermald"
++type = "oneshot_async"

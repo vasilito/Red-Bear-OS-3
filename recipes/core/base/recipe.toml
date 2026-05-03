@@ -20,6 +20,7 @@ patches = [
     "P4-initfs-dbus-services.patch",
     "P4-fbcond-scrollback.patch",
     "P4-thermal-daemon.patch",
+    "P4-thermald-workspace.patch",
 ]
 
 [build]
@@ -67,6 +68,7 @@ BINS=(
     rtl8168d
     usbctl
     usbhidd
+    thermald
     usbhubd
     ucsid
     usbscsid

@@ -1,0 +1,10 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -46,6 +46,7 @@
+     "drivers/input/ps2d",
+     "drivers/input/usbhidd",
++    "drivers/thermald",
+ 
+     "drivers/net/driver-network",
+     "drivers/net/e1000d",
+     "drivers/net/ixgbed",
