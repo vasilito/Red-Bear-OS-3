@@ -1,0 +1,22 @@
+--- /dev/null
++++ b/init.initfs.d/45_usbscsid.service
+@@ -0,0 +1,8 @@
++[unit]
++description = "USB Mass Storage Driver"
++requires_weak = ["40_drivers.target"]
++condition_architecture = ["x86", "x86_64"]
++
++[service]
++cmd = "usbscsid"
++type = "notify"
+--- /dev/null
++++ b/init.initfs.d/30_redox-drm.service
+@@ -0,0 +1,8 @@
++[unit]
++description = "DRM/KMS Display Driver"
++requires_weak = ["20_graphics.target", "40_hwd.service", "40_pcid-spawner-initfs.service"]
++condition_architecture = ["x86", "x86_64"]
++
++[service]
++cmd = "redox-drm"
++type = "notify"
