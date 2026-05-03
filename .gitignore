@@ -11,6 +11,9 @@
 /web
 /cookbook.toml
 
+# Nested recipe debris from prior build-system layouts (4.2GB+ of duplicates)
+recipes/recipes/
+
 # Fetched source trees in mainline recipes (not our code in local/)
 # Matches recipes/<category>/<name>/source/ but NOT local/recipes/*/source/
 recipes/**/source
@@ -90,3 +93,4 @@ local/recipes/kde/kwin/**
 !local/recipes/kde/kwin/README.md
 Packages/*.pkgar
 local/cache/pkgar/
+local/patches/base/redox.patch
