@@ -1,16 +1,5 @@
---- a/init.d/25_serial_getty.service	1970-01-01 00:00:00.000000000 +0000
-+++ b/init.d/25_serial_getty.service	2026-05-03 11:30:02.804864646 +0100
-@@ -0,0 +1,8 @@
-+[unit]
-+description = "Serial console getty"
-+requires_weak = ["00_base.target"]
-+
-+[service]
-+cmd = "getty"
-+args = ["ttyS0"]
-+type = "oneshot_async"
---- a/init.d/29_activate_console.service	1970-01-01 00:00:00.000000000 +0000
-+++ b/init.d/29_activate_console.service	2026-05-03 11:30:02.805544603 +0100
+--- /dev/null
++++ b/init.d/29_activate_console.service
 @@ -0,0 +1,8 @@
 +[unit]
 +description = "Activate console VT"
@@ -20,8 +9,8 @@
 +cmd = "inputd"
 +args = ["-A", "2"]
 +type = "oneshot_async"
---- a/init.d/30_console.service	1970-01-01 00:00:00.000000000 +0000
-+++ b/init.d/30_console.service	2026-05-03 11:30:02.806099127 +0100
+--- /dev/null
++++ b/init.d/30_console.service
 @@ -0,0 +1,8 @@
 +[unit]
 +description = "Console getty on VT2"
@@ -30,4 +19,15 @@
 +[service]
 +cmd = "getty"
 +args = ["2"]
++type = "oneshot_async"
+--- /dev/null
++++ b/init.d/31_debug_console.service
+@@ -0,0 +1,8 @@
++[unit]
++description = "Debug console on VT3"
++requires_weak = ["29_activate_console.service"]
++
++[service]
++cmd = "getty"
++args = ["3"]
 +type = "oneshot_async"
