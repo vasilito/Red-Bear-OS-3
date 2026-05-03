@@ -1,13 +1,5 @@
 --- a/logd/src/scheme.rs	2026-05-03 08:55:56.440274548 +0100
 +++ b/logd/src/scheme.rs	2026-05-03 08:55:56.440461577 +0100
-@@ -1,6 +1,7 @@
- use std::collections::{BTreeMap, VecDeque};
- use std::fs::{File, OpenOptions};
- use std::io::{Read, Write};
-+use std::path::Path;
- use std::mem;
- use std::os::fd::{FromRawFd, RawFd};
- use std::sync::mpsc::{self, Sender};
 @@ -41,14 +42,25 @@
  
          let mut kernel_sys_log = std::fs::File::open("/scheme/sys/log").unwrap();
