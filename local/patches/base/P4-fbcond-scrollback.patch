@@ -1,3 +1,102 @@
+diff --git a/drivers/graphics/fbcond/src/main.rs b/drivers/graphics/fbcond/src/main.rs
+index eb4f9add..d7d4abb8 100644
+--- a/drivers/graphics/fbcond/src/main.rs
++++ b/drivers/graphics/fbcond/src/main.rs
+@@ -225,7 +225,7 @@ fn handle_event(
+ 
+     for (handle_id, handle) in scheme.handles.iter_mut() {
+         let handle = match handle {
+-            Handle::SchemeRoot => continue,
++            Handle::SchemeRoot | Handle::Scrollback(_) => continue,
+             Handle::Vt(handle) => handle,
+         };
+ 
+diff --git a/drivers/graphics/fbcond/src/scheme.rs b/drivers/graphics/fbcond/src/scheme.rs
+index 1bee134e..b31ee2e3 100644
+--- a/drivers/graphics/fbcond/src/scheme.rs
++++ b/drivers/graphics/fbcond/src/scheme.rs
+@@ -38,6 +38,7 @@ pub struct FdHandle {
+ pub enum Handle {
+     Vt(FdHandle),
+     SchemeRoot,
++    Scrollback(VtIndex),
+ }
+ 
+ pub struct FbconScheme {
+@@ -70,7 +71,7 @@ impl FbconScheme {
+     fn get_vt_handle_mut(&mut self, id: usize) -> Result<&mut FdHandle> {
+         match self.handles.get_mut(id)? {
+             Handle::Vt(handle) => Ok(handle),
+-            Handle::SchemeRoot => Err(Error::new(EBADF)),
++            Handle::SchemeRoot | Handle::Scrollback(_) => Err(Error::new(EBADF)),
+         }
+     }
+ }
+@@ -92,8 +93,17 @@ impl SchemeSync for FbconScheme {
+             return Err(Error::new(EACCES));
+         }
+ 
+-        let vt_i = VtIndex(path_str.parse::<usize>().map_err(|_| Error::new(ENOENT))?);
++        let (vt_str, is_scrollback) = if let Some(stripped) = path_str.strip_suffix("/scrollback") {
++            (stripped, true)
++        } else {
++            (path_str, false)
++        };
++        let vt_i = VtIndex(vt_str.parse::<usize>().map_err(|_| Error::new(ENOENT))?);
+         if self.vts.contains_key(&vt_i) {
++            if is_scrollback {
++                let id = self.handles.insert(Handle::Scrollback(vt_i));
++                return Ok(OpenResult::ThisScheme { number: id, flags: NewFdFlags::empty() });
++            }
+             let id = self.handles.insert(Handle::Vt(FdHandle {
+                 vt_i,
+                 flags: flags | fcntl_flags as usize,
+@@ -150,23 +160,31 @@ impl SchemeSync for FbconScheme {
+         _fcntl_flags: u32,
+         _ctx: &CallerCtx,
+     ) -> Result<usize> {
+-        let handle = match self.handles.get(id)? {
+-            Handle::Vt(handle) => Ok(handle),
+-            Handle::SchemeRoot => Err(Error::new(EBADF)),
+-        }?;
+-
+-        if let Some(screen) = self.vts.get_mut(&handle.vt_i) {
+-            if !screen.can_read() {
+-                if handle.flags & O_NONBLOCK != 0 {
+-                    Err(Error::new(EAGAIN))
++        let handle = self.handles.get(id)?;
++        match handle {
++            Handle::Vt(handle) => {
++                let vt_i = handle.vt_i;
++                if let Some(screen) = self.vts.get_mut(&vt_i) {
++                    if !screen.can_read() {
++                        Err(Error::new(EAGAIN))
++                    } else {
++                        screen.read(buf)
++                    }
+                 } else {
+-                    Err(Error::new(EAGAIN))
++                    Err(Error::new(EBADF))
+                 }
+-            } else {
+-                screen.read(buf)
+             }
+-        } else {
+-            Err(Error::new(EBADF))
++            Handle::Scrollback(vt_i) => {
++                if let Some(screen) = self.vts.get(&vt_i) {
++                    let data = screen.read_scrollback();
++                    let to_copy = data.len().min(buf.len());
++                    buf[..to_copy].copy_from_slice(&data[..to_copy]);
++                    Ok(to_copy)
++                } else {
++                    Err(Error::new(EBADF))
++                }
++            }
++            Handle::SchemeRoot => Err(Error::new(EBADF)),
+         }
+     }
+ 
 diff --git a/drivers/graphics/fbcond/src/text.rs b/drivers/graphics/fbcond/src/text.rs
 index 8a24bbeb..8c85bf77 100644
 --- a/drivers/graphics/fbcond/src/text.rs
