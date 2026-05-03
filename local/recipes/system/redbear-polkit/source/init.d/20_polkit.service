@@ -1,0 +1,7 @@
+[unit]
+description = "PolicyKit1 D-Bus service (org.freedesktop.PolicyKit1)"
+requires_weak = ["12_dbus.service"]
+
+[service]
+cmd = "redbear-polkit"
+type = "oneshot_async"
