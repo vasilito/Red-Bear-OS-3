@@ -1,134 +1,12 @@
---- a/drivers/acpid/src/acpi.rs
-+++ b/drivers/acpid/src/acpi.rs
-@@ -578,80 +578,119 @@ impl AcpiContext {
-             }
-         };
- 
--        let port = fadt.pm1a_control_block as u16;
--        let mut val = 1 << 13;
-+        let pm1a_port = fadt.pm1a_control_block as u16;
-+        let pm1b_port = fadt.pm1b_control_block as u16;
-+
-+        if pm1a_port == 0 {
-+            log::error!("PM1a control block is zero - ACPI shutdown unavailable");
-+            log::warn!("Falling back to keyboard controller reset");
-+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-+            Pio::<u8>::new(0x64u16).write(0xFEu8);
-+            return;
-+        }
- 
--        let aml_symbols = self.aml_symbols.read();
-+        let mut val = 1u16 << 13;
- 
--        let s5_aml_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
--            Ok(aml_name) => aml_name,
--            Err(error) => {
--                log::error!("Could not build AmlName for \\_S5, {:?}", error);
--                return;
--            }
-+        let aml_symbols = self.aml_symbols.read();
-+        let s5_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
-+            Ok(n) => n,
-+            Err(e) => { log::error!("\\_S5 AML name error: {:?}", e); return; }
-         };
- 
-         let s5 = match &aml_symbols.aml_context {
--            Some(aml_context) => match aml_context.namespace.lock().get(s5_aml_name) {
--                Ok(s5) => s5,
--                Err(error) => {
--                    log::error!("Cannot set S-state, missing \\_S5, {:?}", error);
--                    return;
--                }
-+            Some(ctx) => match ctx.namespace.lock().get(s5_name) {
-+                Ok(s) => s,
-+                Err(e) => { log::error!("\\_S5 not found: {:?}", e); return; }
-             },
--            None => {
--                log::error!("Cannot set S-state, AML context not initialized");
--                return;
--            }
-+            None => { log::error!("AML context not initialized"); return; }
-         };
- 
-         let package = match s5.deref() {
--            acpi::aml::object::Object::Package(package) => package,
--            _ => {
--                log::error!("Cannot set S-state, \\_S5 is not a package");
--                return;
--            }
-+            acpi::aml::object::Object::Package(p) => p,
-+            _ => { log::error!("\\_S5 is not a package"); return; }
-         };
- 
-         let slp_typa = match package[0].deref() {
--            acpi::aml::object::Object::Integer(i) => i.to_owned(),
--            _ => {
--                log::error!("typa is not an Integer");
--                return;
--            }
-+            acpi::aml::object::Object::Integer(i) => *i as u16,
-+            _ => { log::error!("SLP_TYPa is not an integer"); return; }
-         };
--        let slp_typb = match package[1].deref() {
--            acpi::aml::object::Object::Integer(i) => i.to_owned(),
--            _ => {
--                log::error!("typb is not an Integer");
--                return;
-+        let slp_typb = if package.len() > 1 {
-+            match package[1].deref() {
-+                acpi::aml::object::Object::Integer(i) => *i as u16,
-+                _ => 0u16
-             }
--        };
-+        } else { 0u16 };
- 
--        log::trace!("Shutdown SLP_TYPa {:X}, SLP_TYPb {:X}", slp_typa, slp_typb);
--        val |= slp_typa as u16;
-+        val |= slp_typa & 0x1FFF;
- 
-         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-         {
--            log::warn!("Shutdown with ACPI outw(0x{:X}, 0x{:X})", port, val);
--            Pio::<u16>::new(port).write(val);
--        }
-+            log::info!("ACPI shutdown: PM1a=0x{:04X} val=0x{:04X} SLP_TYPa=0x{:X} SLP_TYPb=0x{:X}",
-+                pm1a_port, val, slp_typa, slp_typb);
- 
--        // TODO: Handle SLP_TYPb
-+            let mut pio = Pio::<u16>::new(pm1a_port);
-+            pio.write(val);
-+
-+            std::thread::sleep(std::time::Duration::from_secs(3));
-+
-+            log::warn!("ACPI PM1a shutdown did not power off - retry with PM1b");
-+            val |= slp_typb & 0x1FFF;
-+            val |= 1u16 << 13;
-+            pio.write(val);
-+
-+            if pm1b_port != 0 {
-+                let mut pio_b = Pio::<u16>::new(pm1b_port);
-+                pio_b.write(val);
-+                log::info!("ACPI shutdown: also wrote PM1b=0x{:04X}", pm1b_port);
-+            }
-+
-+            std::thread::sleep(std::time::Duration::from_secs(2));
-+            log::error!("ACPI shutdown failed - falling back to keyboard controller reset");
-+            Pio::<u8>::new(0x64u16).write(0xFEu8);
-+        }
- 
-         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-         {
--            log::error!(
--                "Cannot shutdown with ACPI outw(0x{:X}, 0x{:X}) on this architecture",
--                port,
--                val
--            );
-+            log::error!("ACPI shutdown not supported on this architecture");
+--- a/drivers/acpid/src/acpi.rs	2026-05-03 15:42:05.770648512 +0100
++++ b/drivers/acpid/src/acpi.rs	2026-05-03 15:42:05.778560344 +0100
+@@ -654,6 +654,84 @@
+             log::error!("ACPI shutdown not supported on this architecture");
          }
-+    }
- 
--        loop {
--            core::hint::spin_loop();
+     }
++
++    /// Suspend-to-RAM (S3 sleep state)
++    /// See ACPI 6.1 spec for SLP_TYPa/SLP_TYPb encoding
 +    pub fn suspend_to_ram(&self) {
 +        log::info!("ACPI: attempting suspend-to-RAM (S3)");
 +        let fadt = match self.fadt() {
@@ -139,7 +17,7 @@
 +        if pm1a == 0 {
 +            log::error!("ACPI S3: PM1a port is zero");
 +            return;
-         }
++        }
 +        let aml_symbols = self.aml_symbols.read();
 +        let s3_name = match acpi::aml::namespace::AmlName::from_str("\\_S3") {
 +            Ok(n) => n,
@@ -154,16 +32,55 @@
 +        };
 +        let pkg = match s3.deref() {
 +            acpi::aml::object::Object::Package(p) => p,
-+            _ => { log::error!("ACPI S3: \\_S3 is not a package"); return; }
++            _ => { log::error!("ACPI S3: \\_S3 not a package"); return; }
 +        };
 +        let slp_typa = match pkg[0].deref() {
 +            acpi::aml::object::Object::Integer(i) => *i as u16,
 +            _ => { log::error!("ACPI S3: SLP_TYPa not integer"); return; }
 +        };
-+        let mut val = (1u16 << 13) | (slp_typa & 0x1FFF) | (1u16 << 10); // SLEEP_EN + SLP_TYPa + SLP_EN
-+        log::info!("ACPI S3: PM1a=0x{:04X} val=0x{:04X}", pm1a, val);
-+        Pio::<u16>::new(pm1a).write(val);
-     }
++        let mut val = (1u16 << 13) | (slp_typa & 0x1FFF);
++        log::info!("ACPI S3: writing PM1a=0x{:04X} val=0x{:04X}", pm1a, val);
++        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++        { Pio::<u16>::new(pm1a).write(val); }
++    }
++
++
++    /// Query ACPI battery via \\_SB_.BAT0._BST
++    /// Returns (remaining_capacity_mAh, present_voltage_mV) if available
++    pub fn read_battery_status(&self) -> Option<(u32, u32)> {
++        let aml_symbols = self.aml_symbols.read();
++        let ctx = aml_symbols.aml_context.as_ref()?;
++        let mut ns = ctx.namespace.lock();
++        let bst_name = acpi::aml::namespace::AmlName::from_str("\\_SB_.BAT0._BST").ok()?;
++        let bst = ns.get(bst_name).ok()?;
++        match bst.deref() {
++            acpi::aml::object::Object::Package(p) if p.len() >= 4 => {
++                let cap = match p[1].deref() { acpi::aml::object::Object::Integer(i) => *i as u32, _ => return None };
++                let volt = match p[2].deref() { acpi::aml::object::Object::Integer(i) => *i as u32, _ => return None };
++                Some((cap, volt))
++            }
++            _ => { log::warn!("ACPI: _BST not a valid battery package"); None }
++        }
++    }
++
++    /// Query ACPI battery info via \\_SB_.BAT0._BIF
++    /// Returns (design_capacity_mAh, last_full_capacity_mAh, design_voltage_mV) if available
++    pub fn read_battery_info(&self) -> Option<(u32, u32, u32)> {
++        let aml_symbols = self.aml_symbols.read();
++        let ctx = aml_symbols.aml_context.as_ref()?;
++        let mut ns = ctx.namespace.lock();
++        let bif_name = acpi::aml::namespace::AmlName::from_str("\\_SB_.BAT0._BIF").ok()?;
++        let bif = ns.get(bif_name).ok()?;
++        match bif.deref() {
++            acpi::aml::object::Object::Package(p) if p.len() >= 13 => {
++                let design = match p[1].deref() { acpi::aml::object::Object::Integer(i) => *i as u32, _ => return None };
++                let last = match p[2].deref() { acpi::aml::object::Object::Integer(i) => *i as u32, _ => return None };
++                let volt = match p[4].deref() { acpi::aml::object::Object::Integer(i) => *i as u32, _ => return None };
++                Some((design, last, volt))
++            }
++            _ => { log::warn!("ACPI: _BIF not a valid battery package"); None }
++        }
++    }
 +
  }
  

@@ -13,6 +13,7 @@ patches = [
     "P3-init-colored-output.patch",
     "P4-logd-persistent-logging.patch",
     "P4-acpi-shutdown-hardening.patch",
+    "P4-acpi-s3-sleep.patch",
     "P4-initfs-usb-drm-services.patch",
     "P4-initfs-network-services.patch",
     "P4-initfs-getty-services.patch",
