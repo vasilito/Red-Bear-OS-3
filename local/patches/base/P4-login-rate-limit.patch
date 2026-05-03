@@ -1,0 +1,43 @@
+--- a/src/bin/login.rs	2026-05-03 09:46:36.866954421 +0100
++++ /mnt/data/homes/kellito/Builds/rbos/b/src/bin/login.rs	2026-05-03 09:46:36.867061170 +0100
+@@ -120,6 +120,7 @@
+ pub fn main() {
+     let mut stdout = io::stdout();
+     let mut stderr = io::stderr();
++    let mut consecutive_failures: u32 = 0;
+ 
+     let _args = clap_app!(login =>
+         (author: "Jeremy Soller, Jose Narvaez")
+@@ -133,6 +134,10 @@
+     }
+ 
+     loop {
++        if consecutive_failures >= 3 {
++            let delay_secs = std::cmp::min(consecutive_failures as u64, 30);
++            std::thread::sleep(std::time::Duration::from_secs(delay_secs));
++        }
+         let user = liner::Context::new()
+             .read_line(
+                 liner::Prompt::from("\x1B[1mredox login:\x1B[0m "),
+@@ -150,11 +155,13 @@
+                 None => {
+                     stdout.write(b"\nLogin incorrect\n").r#try(&mut stderr);
+                     stdout.write(b"\n").r#try(&mut stderr);
++                    consecutive_failures += 1;
+                     stdout.flush().r#try(&mut stderr);
+                     continue;
+                 }
+                 Some(user) => {
+                     if user.is_passwd_blank() {
++                        consecutive_failures = 0;
+                         if let Ok(mut motd) = File::open(MOTD_FILE) {
+                             io::copy(&mut motd, &mut stdout).r#try(&mut stderr);
+                             stdout.flush().r#try(&mut stderr);
+@@ -185,6 +192,7 @@
+                         stdout.flush().r#try(&mut stderr);
+ 
+                         if user.verify_passwd(&password) {
++                            consecutive_failures = 0;
+                             if let Ok(mut motd) = File::open(MOTD_FILE) {
+                                 io::copy(&mut motd, &mut stdout).r#try(&mut stderr);
+                                 stdout.flush().r#try(&mut stderr);

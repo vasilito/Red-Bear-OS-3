@@ -14,6 +14,7 @@ patches = [
     "P4-logd-persistent-logging.patch",
     "P4-acpi-shutdown-hardening.patch",
     "P4-initfs-usb-drm-services.patch",
+    "P4-initfs-network-services.patch",
 ]
 
 [build]
