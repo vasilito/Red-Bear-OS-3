@@ -1,0 +1,10 @@
+# Red Bear OS polkit policy — action_id = uid1, uid2, ...
+# uid 0 (root) is always authorized
+org.freedesktop.login1.power-off = 0, 1000
+org.freedesktop.login1.reboot = 0, 1000
+org.freedesktop.login1.suspend = 0, 1000
+org.freedesktop.login1.set-user-linger = 0
+org.freedesktop.udisks2.filesystem-mount = 0, 1000
+org.freedesktop.udisks2.filesystem-mount-system = 0
+org.freedesktop.NetworkManager.settings.modify.system = 0
+org.freedesktop.NetworkManager.enable-disable-wifi = 0, 1000

@@ -1,15 +1,17 @@
-use std::{collections::HashMap, env, error::Error, process, time::Duration};
+use std::{collections::HashMap, env, error::Error, fs, process, time::Duration};
 
 use tokio::runtime::Builder as RuntimeBuilder;
 use zbus::{
     Address,
     connection::Builder as ConnectionBuilder,
+    fdo,
     interface,
     zvariant::{ObjectPath, OwnedObjectPath},
 };
 
 const BUS_NAME: &str = "org.freedesktop.PolicyKit1";
 const AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
+const POLICY_FILE: &str = "/etc/polkit-1/policy.toml";
 
 type AuthorizationDetails = HashMap<String, String>;
 type EnumeratedAction = (
@@ -21,6 +23,33 @@ type EnumeratedAction = (
     u32,
     AuthorizationDetails,
 );
+
+/// Returns true if the caller (by UID) is authorized for the given action.
+/// uid=0 (root) is always authorized. Other users are checked against policy.
+fn is_authorized(uid: u32, action_id: &str) -> bool {
+    if uid == 0 {
+        return true;
+    }
+    if let Ok(policy) = fs::read_to_string(POLICY_FILE) {
+        for line in policy.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((action, users)) = line.split_once('=') {
+                if action.trim() == action_id {
+                    for user in users.split(',') {
+                        if let Ok(u) = user.trim().parse::<u32>() {
+                            if u == uid { return true; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Default: deny for unknown actions from non-root users
+    false
+}
 
 #[derive(Debug, Default)]
 struct PolicyKitAuthority;
@@ -38,6 +67,8 @@ async fn wait_for_dbus_socket() {
     let socket_path = env::var("DBUS_STARTER_ADDRESS")
         .ok()
         .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from))
+        .or_else(|| env::var("DBUS_SYSTEM_BUS_ADDRESS").ok()
+            .and_then(|addr| addr.strip_prefix("unix:path=").map(String::from)))
         .unwrap_or_else(|| "/run/dbus/system_bus_socket".to_string());
 
     for _ in 0..30 {
@@ -70,11 +101,10 @@ fn parse_object_path(path: &str) -> Result<OwnedObjectPath, Box<dyn Error>> {
 }
 
 fn system_connection_builder() -> Result<ConnectionBuilder<'static>, Box<dyn Error>> {
-    if let Ok(address) = env::var("DBUS_STARTER_ADDRESS") {
-        Ok(ConnectionBuilder::address(Address::try_from(address.as_str())?)?)
-    } else {
-        Ok(ConnectionBuilder::address(Address::try_from("unix:path=/run/dbus/system_bus_socket")?)?)
-    }
+    let addr_str = env::var("DBUS_STARTER_ADDRESS")
+        .or_else(|_| env::var("DBUS_SYSTEM_BUS_ADDRESS"))
+        .unwrap_or_else(|_| "unix:path=/run/dbus/system_bus_socket".to_string());
+    Ok(ConnectionBuilder::address(Address::try_from(addr_str.as_str())?)?)
 }
 
 fn spawn_signal_handler(shutdown_tx: tokio::sync::watch::Sender<bool>) {
@@ -104,12 +134,16 @@ impl PolicyKitAuthority {
     #[zbus(name = "CheckAuthorization")]
     fn check_authorization(
         &self,
-        _action_id: &str,
+        action_id: &str,
         _details: AuthorizationDetails,
         _flags: u32,
         _cancellation_id: &str,
+        #[zbus(header)] hdr: zbus::MessageHeader<'_>,
     ) -> (bool, bool, AuthorizationDetails) {
-        (true, false, AuthorizationDetails::new())
+        // Get caller's UID from D-Bus message credentials
+        let uid = hdr.unix_uid().unwrap_or(0);
+        let authorized = is_authorized(uid, action_id);
+        (authorized, !authorized, AuthorizationDetails::new())
     }
 
     #[zbus(name = "RegisterAuthenticationAgent")]
@@ -136,7 +170,7 @@ impl PolicyKitAuthority {
 
     #[zbus(property(emits_changed_signal = "const"), name = "BackendName")]
     fn backend_name(&self) -> String {
-        String::from("redbear-permit-all")
+        String::from("redbear-uid-policy")
     }
 
     #[zbus(property(emits_changed_signal = "const"), name = "BackendVersion")]
