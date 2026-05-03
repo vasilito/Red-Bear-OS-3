@@ -13,5 +13,9 @@ current plans. They are kept for reference only.
 | `GREETER-LOGIN-ANALYSIS.md` | `GREETER-LOGIN-IMPLEMENTATION-PLAN.md` |
 | `INTEL-HDA-IMPLEMENTATION-PLAN.md` | (Deferred — audio is P3 priority) |
 | `ACPI-I2C-HID-IMPLEMENTATION-PLAN.md` | (Deferred — USB HID is primary input path) |
+| `GRUB-INTEGRATION-PLAN.md` | GRUB is fully implemented (redbear-grub config, installer support, grub recipe) |
+| `VFAT-IMPLEMENTATION-PLAN.md` | VFAT is fully implemented (fatd, fat-mkfs, fat-label, fat-check) |
+| `USB-BOOT-INPUT-PLAN.md` | Superseded — USB HID in initfs, USB storage in initfs (Phase B2) |
+| `ZSH-PORTING-PLAN.md` | Deferred indefinitely — ion is the default shell |
 
 ## Date archived: 2026-05-03
