@@ -1,0 +1,133 @@
+--- a/drivers/acpid/src/acpi.rs	2026-05-03 09:01:18.952563444 +0100
++++ b/drivers/acpid/src/acpi.rs	2026-05-03 09:04:01.579079121 +0100
+@@ -578,78 +578,80 @@
+             }
+         };
+ 
+-        let port = fadt.pm1a_control_block as u16;
+-        let mut val = 1 << 13;
++        let pm1a_port = fadt.pm1a_control_block as u16;
++        let pm1b_port = fadt.pm1b_control_block as u16;
+ 
+-        let aml_symbols = self.aml_symbols.read();
++        if pm1a_port == 0 {
++            log::error!("PM1a control block is zero - ACPI shutdown unavailable");
++            log::warn!("Falling back to keyboard controller reset");
++            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
++            Pio::<u8>::new(0x64u16).write(0xFEu8);
++            return;
++        }
+ 
+-        let s5_aml_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
+-            Ok(aml_name) => aml_name,
+-            Err(error) => {
+-                log::error!("Could not build AmlName for \\_S5, {:?}", error);
+-                return;
+-            }
++        let mut val = 1u16 << 13;
++
++        let aml_symbols = self.aml_symbols.read();
++        let s5_name = match acpi::aml::namespace::AmlName::from_str("\\_S5") {
++            Ok(n) => n,
++            Err(e) => { log::error!("\\_S5 AML name error: {:?}", e); return; }
+         };
+ 
+         let s5 = match &aml_symbols.aml_context {
+-            Some(aml_context) => match aml_context.namespace.lock().get(s5_aml_name) {
+-                Ok(s5) => s5,
+-                Err(error) => {
+-                    log::error!("Cannot set S-state, missing \\_S5, {:?}", error);
+-                    return;
+-                }
++            Some(ctx) => match ctx.namespace.lock().get(s5_name) {
++                Ok(s) => s,
++                Err(e) => { log::error!("\\_S5 not found: {:?}", e); return; }
+             },
+-            None => {
+-                log::error!("Cannot set S-state, AML context not initialized");
+-                return;
+-            }
++            None => { log::error!("AML context not initialized"); return; }
+         };
+ 
+         let package = match s5.deref() {
+-            acpi::aml::object::Object::Package(package) => package,
+-            _ => {
+-                log::error!("Cannot set S-state, \\_S5 is not a package");
+-                return;
+-            }
++            acpi::aml::object::Object::Package(p) => p,
++            _ => { log::error!("\\_S5 is not a package"); return; }
+         };
+ 
+         let slp_typa = match package[0].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typa is not an Integer");
+-                return;
+-            }
++            acpi::aml::object::Object::Integer(i) => *i as u16,
++            _ => { log::error!("SLP_TYPa is not an integer"); return; }
+         };
+-        let slp_typb = match package[1].deref() {
+-            acpi::aml::object::Object::Integer(i) => i.to_owned(),
+-            _ => {
+-                log::error!("typb is not an Integer");
+-                return;
++        let slp_typb = if package.len() > 1 {
++            match package[1].deref() {
++                acpi::aml::object::Object::Integer(i) => *i as u16,
++                _ => 0u16
+             }
+-        };
++        } else { 0u16 };
+ 
+-        log::trace!("Shutdown SLP_TYPa {:X}, SLP_TYPb {:X}", slp_typa, slp_typb);
+-        val |= slp_typa as u16;
++        val |= slp_typa & 0x1FFF;
+ 
+         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+         {
+-            log::warn!("Shutdown with ACPI outw(0x{:X}, 0x{:X})", port, val);
+-            Pio::<u16>::new(port).write(val);
+-        }
++            log::info!("ACPI shutdown: PM1a=0x{:04X} val=0x{:04X} SLP_TYPa=0x{:X} SLP_TYPb=0x{:X}",
++                pm1a_port, val, slp_typa, slp_typb);
+ 
+-        // TODO: Handle SLP_TYPb
++            let mut pio = Pio::<u16>::new(pm1a_port);
++            pio.write(val);
+ 
+-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+-        {
+-            log::error!(
+-                "Cannot shutdown with ACPI outw(0x{:X}, 0x{:X}) on this architecture",
+-                port,
+-                val
+-            );
++            std::thread::sleep(std::time::Duration::from_secs(3));
++
++            log::warn!("ACPI PM1a shutdown did not power off - retry with PM1b");
++            val |= slp_typb & 0x1FFF;
++            val |= 1u16 << 13;
++            pio.write(val);
++
++            if pm1b_port != 0 {
++                let mut pio_b = Pio::<u16>::new(pm1b_port);
++                pio_b.write(val);
++                log::info!("ACPI shutdown: also wrote PM1b=0x{:04X}", pm1b_port);
++            }
++
++            std::thread::sleep(std::time::Duration::from_secs(2));
++            log::error!("ACPI shutdown failed - falling back to keyboard controller reset");
++            Pio::<u8>::new(0x64u16).write(0xFEu8);
+         }
+ 
+-        loop {
+-            core::hint::spin_loop();
++        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
++        {
++            log::error!("ACPI shutdown not supported on this architecture");
+         }
+     }
+ }

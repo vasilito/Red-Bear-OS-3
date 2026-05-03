@@ -12,6 +12,7 @@ patches = [
     "P3-usbhidd-hardening.patch",
     "P3-init-colored-output.patch",
     "P4-logd-persistent-logging.patch",
+    "P4-acpi-shutdown-hardening.patch",
 ]
 
 [build]
