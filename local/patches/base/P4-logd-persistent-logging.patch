@@ -1,16 +1,15 @@
---- a/logd/src/scheme.rs	2026-05-03 08:55:56.440274548 +0100
-+++ b/logd/src/scheme.rs	2026-05-03 08:55:56.440461577 +0100
-@@ -41,14 +42,25 @@
+--- a/logd/src/scheme.rs	2026-05-03 10:11:43.179863727 +0100
++++ b/logd/src/scheme.rs	2026-05-03 10:11:43.179952713 +0100
+@@ -41,14 +41,30 @@
  
          let mut kernel_sys_log = std::fs::File::open("/scheme/sys/log").unwrap();
  
 +        let _ = std::fs::create_dir_all("/var/log");
-+        let persistent_log = OpenOptions::new()
++        let persistent_log: Option<File> = OpenOptions::new()
 +            .create(true)
 +            .append(true)
 +            .open("/var/log/system.log")
-+            .unwrap_or_else(|_| File::create("/tmp/logd-fallback.log")
-+                .expect("logd: cannot open log file"));
++            .ok();
 +
          let (output_tx, output_rx) = mpsc::channel::<OutputCmd>();
  
@@ -18,20 +17,17 @@
              let mut files: Vec<File> = vec![];
              let mut logs = VecDeque::new();
 +            let mut persistent = persistent_log;
++            if let Some(ref mut f) = persistent {
++                let _ = f.write(b"--- logd started ---
++");
++            }
              for cmd in output_rx {
                  match cmd {
                      OutputCmd::Log(line) => {
-+                        let _ = persistent.write(&line);
-+                        let _ = persistent.flush();
++                        if let Some(ref mut f) = persistent {
++                            let _ = f.write(&line);
++                            let _ = f.flush();
++                        }
                          for file in &mut files {
                              let _ = file.write(&line);
                              let _ = file.flush();
-@@ -80,7 +92,7 @@
-             loop {
-                 let n = kernel_sys_log.read(&mut buf["kernel: ".len()..]).unwrap();
-                 if n == 0 {
--                    // FIXME currently possible as /scheme/log/kernel presents a snapshot of the log queue
-+
-                     break;
-                 }
-                 Self::write_logs(&output_tx2, &mut handle_buf, "kernel", &buf, None);
