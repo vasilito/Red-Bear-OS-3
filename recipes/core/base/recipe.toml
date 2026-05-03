@@ -16,6 +16,7 @@ patches = [
     "P4-initfs-usb-drm-services.patch",
     "P4-initfs-network-services.patch",
     "P4-initfs-getty-services.patch",
+    "P4-initfs-dbus-services.patch",
 ]
 
 [build]

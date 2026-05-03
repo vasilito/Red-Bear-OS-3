@@ -1,0 +1,46 @@
+--- a/init.d/05_boot_essential.target	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/05_boot_essential.target	2026-05-03 14:36:41.375362503 +0100
+@@ -0,0 +1,4 @@
++[unit]
++description = "Boot target"
++requires_weak = ["00_base.target"]
++
+--- a/init.d/12_boot_late.target	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/12_boot_late.target	2026-05-03 14:36:41.377146063 +0100
+@@ -0,0 +1,4 @@
++[unit]
++description = "Boot target"
++requires_weak = ["00_base.target"]
++
+--- a/init.d/12_dbus.service	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/12_dbus.service	2026-05-03 14:36:41.377886492 +0100
+@@ -0,0 +1,8 @@
++[unit]
++description = "D-Bus system bus"
++requires_weak = ["12_boot_late.target", "00_ipcd.service"]
++
++[service]
++cmd = "dbus-daemon"
++args = ["--system", "--nopidfile"]
++type = "oneshot_async"
+--- a/init.d/13_seatd.service	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/13_seatd.service	2026-05-03 14:36:41.379589005 +0100
+@@ -0,0 +1,8 @@
++[unit]
++description = "seatd seat management daemon"
++requires_weak = ["12_dbus.service", "13_sessiond.service"]
++
++[service]
++cmd = "/usr/bin/seatd"
++args = ["-l", "info"]
++type = "oneshot_async"
+--- a/init.d/13_sessiond.service	1970-01-01 00:00:00.000000000 +0000
++++ b/init.d/13_sessiond.service	2026-05-03 14:36:41.378643373 +0100
+@@ -0,0 +1,7 @@
++[unit]
++description = "Red Bear session broker (org.freedesktop.login1)"
++requires_weak = ["12_dbus.service"]
++
++[service]
++cmd = "redbear-sessiond"
++type = "oneshot_async"
