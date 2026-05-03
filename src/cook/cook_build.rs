@@ -503,6 +503,7 @@ pub fn build(
         .map_err(|e| format!("Unable to move {e:?}"))?;
 
         // Move stage.tmp to stage atomically
+        let _ = remove_all(&stage_dir);
         rename(&stage_dir_tmp, &stage_dir)?;
     }
 
@@ -711,6 +712,7 @@ pub fn build_remote(
                 )
             })?;
             // Move stage.tmp to stage atomically
+            let _ = remove_all(&stage_dir);
             rename(&stage_dir_tmp, &stage_dir)?;
         }
     }

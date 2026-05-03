@@ -1,0 +1,23 @@
+--- a/src/os/uefi/mod.rs	2026-05-03 14:17:35.198125412 +0100
++++ b/src/os/uefi/mod.rs	2026-05-03 14:17:35.205312393 +0100
+@@ -53,12 +53,16 @@
+             pages,
+             &mut ptr,
+         ))
+-        .unwrap();
+-        ptr as *mut u8
++        .unwrap_or_else(|_| {
++            ptr = 0;
++            0
++        });
++        if ptr == 0 { ptr::null_mut() } else { ptr as *mut u8 }
+     };
+ 
+-    assert!(!ptr.is_null());
+-    unsafe { ptr::write_bytes(ptr, 0, pages * page_size) };
++    if !ptr.is_null() {
++        unsafe { ptr::write_bytes(ptr, 0, pages * page_size) };
++    }
+     ptr
+ }
+ 
