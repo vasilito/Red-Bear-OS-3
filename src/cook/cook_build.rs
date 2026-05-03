@@ -200,6 +200,9 @@ pub fn build(
 ) -> Result<BuildResult, String> {
     let recipe = &cook_recipe.recipe;
     let name = &cook_recipe.name;
+
+    crate::cook::fetch::cleanup_workspace_pollution(recipe_dir, logger);
+
     let check_source = !cook_recipe.is_deps;
     let sysroot_dir = get_sub_target_dir(target_dir, "sysroot");
     let toolchain_dir = get_sub_target_dir(target_dir, "toolchain");

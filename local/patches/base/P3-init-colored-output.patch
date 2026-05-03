@@ -1,0 +1,260 @@
+--- a/init/src/color.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/init/src/color.rs	2026-05-03 08:14:33.424932357 +0100
+@@ -0,0 +1,27 @@
++pub fn status_ok(msg: &str) {
++    eprintln!("[32m[[1;32m  OK   [0m[32m][0m {msg}");
++}
++
++pub fn status_fail(msg: &str) {
++    eprintln!("[31m[[1;31m FAILED [0m[31m][0m {msg}");
++}
++
++pub fn status_skip(msg: &str) {
++    eprintln!("[33m[[1;33m  SKIP [0m[33m][0m {msg}");
++}
++
++pub fn init_error(msg: &str) {
++    eprintln!("[31m[1minit:[0m {msg}");
++}
++
++pub fn init_warn(msg: &str) {
++    eprintln!("[33minit:[0m {msg}");
++}
++
++pub fn init_info(msg: &str) {
++    eprintln!("init: {msg}");
++}
++
++pub fn init_debug(msg: &str) {
++    eprintln!("[36minit:[0m {msg}");
++}
+--- a/init/src/main.rs	2026-05-03 05:35:37.646633516 +0100
++++ b/init/src/main.rs	2026-05-03 08:14:33.426007641 +0100
+@@ -8,11 +8,14 @@
+ use crate::scheduler::Scheduler;
+ use crate::unit::{UnitId, UnitStore};
+ 
++mod color;
+ mod scheduler;
+ mod script;
+ mod service;
+ mod unit;
+ 
++use crate::color::{init_error, init_warn, status_fail, status_ok};
++
+ fn switch_stdio(stdio: &str) -> io::Result<()> {
+     let stdin = libredox::Fd::open(stdio, O_RDONLY, 0)?;
+     let stdout = libredox::Fd::open(stdio, O_WRONLY, 0)?;
+@@ -49,11 +52,7 @@
+ }
+ 
+ fn switch_root(unit_store: &mut UnitStore, config: &mut InitConfig, prefix: &Path, etcdir: &Path) {
+-    eprintln!(
+-        "init: switchroot to {} {}",
+-        prefix.display(),
+-        etcdir.display()
+-    );
++    status_ok(&format!("switchroot to {} {}", prefix.display(), etcdir.display()));
+ 
+     config
+         .envs
+@@ -79,10 +78,7 @@
+                                 continue;
+                             }
+                             let Some((key, value)) = env.split_once('=') else {
+-                                eprintln!(
+-                                    "init: failed to parse env line from {}: {env:?}",
+-                                    file.display(),
+-                                );
++                                init_warn(&format!("failed to parse env line from {}: {:?}", file.display(), env));
+                                 continue;
+                             };
+                             config
+@@ -91,23 +87,18 @@
+                         }
+                     }
+                     Err(err) => {
+-                        eprintln!(
+-                            "init: failed to read environment from {}: {err}",
+-                            file.display(),
+-                        );
++                        init_error(&format!("failed to read environment from {}: {}", file.display(), err));
+                     }
+                 }
+             }
+         }
+         Err(err) => {
+-            eprintln!(
+-                "init: failed to read environments from {}: {err}",
++            init_error(&format!("failed to read environments from {}: {}",
+                 env_dirs
+                     .iter()
+                     .map(|dir| dir.display().to_string())
+                     .collect::<Vec<_>>()
+-                    .join(", ")
+-            );
++                    .join(", "), err));
+         }
+     }
+ }
+@@ -129,7 +120,7 @@
+         .schedule_start_and_report_errors(&mut unit_store, UnitId("00_logd.service".to_owned()));
+     scheduler.step(&mut unit_store, &mut init_config);
+     if let Err(err) = switch_stdio("/scheme/log") {
+-        eprintln!("init: failed to switch stdio to '/scheme/log': {err}");
++        init_error(&format!("failed to switch stdio to '/scheme/log': {}", err));
+     }
+ 
+     let runtime_target = UnitId("00_runtime.target".to_owned());
+@@ -153,15 +144,13 @@
+         let entries = match config::config_for_dirs(&unit_store.config_dirs) {
+             Ok(entries) => entries,
+             Err(err) => {
+-                eprintln!(
+-                    "init: failed to read configs from {}: {err}",
++                init_error(&format!("failed to read configs from {}: {}",
+                     unit_store
+                         .config_dirs
+                         .iter()
+                         .map(|dir| dir.display().to_string())
+                         .collect::<Vec<_>>()
+-                        .join(", ")
+-                );
++                        .join(", "), err));
+                 return;
+             }
+         };
+@@ -186,7 +175,7 @@
+         let mut status = 0;
+         match libredox::call::waitpid(0, &mut status, 1) {
+             Ok(_pid) => {}
+-            Err(err) => eprintln!("init: waitpid error: {err}"),
++            Err(err) => init_error(&format!("waitpid error: {}", err)),
+         }
+     }
+ }
+--- a/init/src/scheduler.rs	2026-05-03 05:35:37.539232447 +0100
++++ b/init/src/scheduler.rs	2026-05-03 08:14:33.426815867 +0100
+@@ -1,6 +1,7 @@
+ use std::collections::VecDeque;
+ 
+ use crate::InitConfig;
++use crate::color::{init_debug, init_error, init_info, status_ok, status_skip};
+ use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
+ 
+ pub struct Scheduler {
+@@ -31,7 +32,7 @@
+         let mut errors = vec![];
+         self.schedule_start(unit_store, unit_id, &mut errors);
+         for error in errors {
+-            eprintln!("init: {error}");
++            init_error(&format!("{}", error));
+         }
+     }
+ 
+@@ -85,31 +86,28 @@
+         UnitKind::LegacyScript { script } => {
+             for cmd in script.clone() {
+                 if config.log_debug {
+-                    eprintln!("init: running: {cmd:?}");
++                    init_debug(&format!("running: {cmd:?}"));
+                 }
+                 cmd.run(config);
+             }
+         }
+         UnitKind::Service { service } => {
++            let desc = unit.info.description.as_ref().unwrap_or(&unit.id.0);
+             if config.skip_cmd.contains(&service.cmd) {
+-                eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
++                status_skip(&format!("Skipping {} ({})", desc, service.cmd));
+                 return;
+             }
+             if config.log_debug {
+-                eprintln!(
+-                    "Starting {} ({})",
+-                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                    service.cmd,
+-                );
++                init_info(&format!("Starting {} ({})", desc, service.cmd));
++            } else {
++                status_ok(&format!("Started {}", desc));
+             }
+             service.spawn(&config.envs);
+         }
+         UnitKind::Target {} => {
+             if config.log_debug {
+-                eprintln!(
+-                    "Reached target {}",
+-                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+-                );
++                init_info(&format!("Reached target {}",
++                    unit.info.description.as_ref().unwrap_or(&unit.id.0)));
+             }
+         }
+     }
+--- a/init/src/service.rs	2026-05-03 05:35:37.594239723 +0100
++++ b/init/src/service.rs	2026-05-03 08:14:33.427953738 +0100
+@@ -8,6 +8,7 @@
+ 
+ use serde::Deserialize;
+ 
++use crate::color::{init_error, init_warn, status_fail};
+ use crate::script::subst_env;
+ 
+ #[derive(Clone, Debug, Deserialize)]
+@@ -52,7 +53,7 @@
+         let mut child = match command.spawn() {
+             Ok(child) => child,
+             Err(err) => {
+-                eprintln!("init: failed to execute {:?}: {}", command, err);
++                status_fail(&format!("failed to execute {:?}: {}", command, err));
+                 return;
+             }
+         };
+@@ -61,10 +62,10 @@
+             ServiceType::Notify => match read_pipe.read_exact(&mut [0]) {
+                 Ok(()) => {}
+                 Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+-                    eprintln!("init: {command:?} exited without notifying readiness");
++                    init_warn(&format!("{:?} exited without notifying readiness", command));
+                 }
+                 Err(err) => {
+-                    eprintln!("init: failed to wait for {command:?}: {err}");
++                    init_error(&format!("failed to wait for {:?}: {}", command, err));
+                 }
+             },
+             ServiceType::Scheme(scheme) => {
+@@ -80,16 +81,16 @@
+                             errno: syscall::EINTR,
+                         }) => continue,
+                         Ok(0) => {
+-                            eprintln!("init: {command:?} exited without notifying readiness");
++                            init_warn(&format!("{:?} exited without notifying readiness", command));
+                             return;
+                         }
+                         Ok(1) => break,
+                         Ok(n) => {
+-                            eprintln!("init: incorrect amount of fds {n} returned");
++                            init_error(&format!("incorrect amount of fds {} returned", n));
+                             return;
+                         }
+                         Err(err) => {
+-                            eprintln!("init: failed to wait for {command:?}: {err}");
++                            init_error(&format!("failed to wait for {:?}: {}", command, err));
+                             return;
+                         }
+                     }
+@@ -104,11 +105,11 @@
+                 match child.wait() {
+                     Ok(exit_status) => {
+                         if !exit_status.success() {
+-                            eprintln!("init: {command:?} failed with {exit_status}");
++                            status_fail(&format!("{:?} failed with {}", command, exit_status));
+                         }
+                     }
+                     Err(err) => {
+-                        eprintln!("init: failed to wait for {:?}: {}", command, err)
++                        init_error(&format!("failed to wait for {:?}: {}", command, err))
+                     }
+                 }
+             }

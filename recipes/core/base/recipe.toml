@@ -4,17 +4,13 @@ rev = "463f76b9608a896e6f6c9f63457f57f6409873c7"
 patches = [
     "P0-daemon-fix-init-notify-unwrap.patch",
     "P0-workspace-add-bootstrap.patch",
-    "P0-bootstrap-workspace-fix.patch",
-    "P2-daemon-ready-graceful.patch",
+    "P0-init-continuous-scheduling.patch",
     "P2-i2c-gpio-ucsi-drivers.patch",
-    "P3-pcid-bind-scheme.patch",
-    "P3-pcid-aer-scheme.patch",
-    "P3-pcid-uevent-format-fix.patch",
-    "P3-acpi-wave12-hardening.patch",
-    "P3-acpi-power-dmi.patch",
-    "P3-xhci-device-hardening.patch",
-    "P5-init-supervisor-restart.patch",
-    "P5-init-daemon-panic-hardening.patch",
+    "P9-fix-so-pecred.patch",
+    "P3-inputd-keymap-bridge.patch",
+    "P3-ps2d-led-feedback.patch",
+    "P3-usbhidd-hardening.patch",
+    "P3-init-colored-output.patch",
 ]
 
 [build]

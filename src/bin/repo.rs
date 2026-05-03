@@ -80,6 +80,8 @@ const REPO_HELP_STR: &str = r#"
         --category=<category>      apply to all recipes in <cookbook_dir>/<category>
         --filesystem=<filesystem>  override recipes config using installer file
         --repo-binary              override recipes config to use repo_binary
+        --allow-protected         allow re-fetching of protected recipes
+                                   (equivalent to REDBEAR_ALLOW_PROTECTED_FETCH=1)
 
     cook env and their defaults:
         CI=                          set to any value to disable TUI
@@ -465,6 +467,10 @@ fn parse_args(args: Vec<String>) -> anyhow::Result<(CliConfig, CliCommand, Vec<C
                     "--repo-binary" => override_filesystem_repo_binary = true,
                     "--with-package-deps" => config.with_package_deps = true,
                     "--all" => config.all = true,
+                    "--allow-protected" => {
+                        // SAFETY: set once at startup, before any threading
+                        unsafe { env::set_var("REDBEAR_ALLOW_PROTECTED_FETCH", "1"); }
+                    }
                     _ => {
                         eprintln!("Error: Unknown flag: {}", arg);
                         process::exit(1);

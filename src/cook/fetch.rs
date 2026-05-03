@@ -35,6 +35,20 @@ pub struct FetchResult {
     pub cached: bool,
 }
 
+pub(crate) fn cleanup_workspace_pollution(recipe_dir: &Path, logger: &PtyOut) {
+    let recipes_root = recipe_dir.join("../..");
+    for file in &["Cargo.toml", "Cargo.lock"] {
+        let path = recipes_root.join(file);
+        if path.is_file() && !path.is_symlink() {
+            if let Err(e) = fs::remove_file(&path) {
+                log_to_pty!(logger, "[WARN] failed to remove workspace pollution {}: {e}", path.display());
+            } else {
+                log_to_pty!(logger, "[CLEAN] removed workspace pollution {}", path.display());
+            }
+        }
+    }
+}
+
 fn redbear_protected_recipe(name: &str) -> bool {
     matches!(
         name,
@@ -158,6 +172,100 @@ fn redbear_allow_protected_fetch() -> bool {
     )
 }
 
+fn redbear_release() -> Option<String> {
+    env::var("REDBEAR_RELEASE")
+        .ok()
+        .map(|value| value.trim().trim_start_matches('=').to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn redbear_project_root(recipe_dir: &Path) -> Option<PathBuf> {
+    let absolute_recipe_dir = if recipe_dir.is_absolute() {
+        recipe_dir.to_path_buf()
+    } else {
+        env::current_dir().ok()?.join(recipe_dir)
+    };
+    for ancestor in absolute_recipe_dir.ancestors() {
+        if ancestor.file_name().is_some_and(|name| name == "recipes") {
+            return ancestor.parent().map(Path::to_path_buf);
+        }
+    }
+    None
+}
+
+fn redbear_recipe_restore_path(recipe_dir: &Path) -> Option<String> {
+    let mut saw_recipes = false;
+    let mut parts = Vec::new();
+    for component in recipe_dir.components() {
+        let value = component.as_os_str().to_string_lossy();
+        if saw_recipes {
+            parts.push(value.to_string());
+        } else if value == "recipes" {
+            saw_recipes = true;
+        }
+    }
+    if saw_recipes && !parts.is_empty() {
+        Some(parts.join("/"))
+    } else {
+        None
+    }
+}
+
+fn redbear_try_restore_source(recipe_dir: &Path, logger: &PtyOut, force: bool) -> Result<()> {
+    let Some(release) = redbear_release() else {
+        return Ok(());
+    };
+    let Some(project_root) = redbear_project_root(recipe_dir) else {
+        return Ok(());
+    };
+    let Some(recipe_path) = redbear_recipe_restore_path(recipe_dir) else {
+        return Ok(());
+    };
+    let restore_script = project_root.join("local/scripts/restore-sources.sh");
+    if !restore_script.is_file() {
+        return Ok(());
+    }
+    let mut command = Command::new("python3");
+    command.current_dir(&project_root);
+    command.arg(&restore_script);
+    command.arg(format!("--release={release}"));
+    if force {
+        command.arg("--force");
+    }
+    command.arg(recipe_path);
+    run_command(command, logger)
+}
+
+fn redbear_source_dir_is_effectively_empty(source_dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(source_dir) else {
+        return true;
+    };
+    let visible_entries = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name() != ".gitkeep")
+        .count();
+    visible_entries == 0
+}
+
+fn redbear_ensure_offline_source(recipe_dir: &Path, source_dir: &PathBuf, logger: &PtyOut) -> Result<()> {
+    if !source_dir.exists() || redbear_source_dir_is_effectively_empty(source_dir) {
+        redbear_try_restore_source(recipe_dir, logger, true)?;
+    }
+    offline_check_exists(source_dir)
+}
+
+fn redbear_ensure_offline_git_source(
+    recipe_dir: &Path,
+    source_dir: &PathBuf,
+    logger: &PtyOut,
+) -> Result<()> {
+    let git_head = source_dir.join(".git/HEAD");
+    if !source_dir.exists() || !git_head.is_file() {
+        redbear_try_restore_source(recipe_dir, logger, true)?;
+    }
+    offline_check_exists(source_dir)
+}
+
 /// Check if a recipe directory is a local Red Bear overlay (symlink into local/).
 fn is_local_overlay(recipe_dir: &Path) -> bool {
     if let Ok(resolved) = recipe_dir.canonicalize() {
@@ -197,6 +305,11 @@ pub(crate) fn get_blake3(path: &PathBuf) -> Result<String> {
 pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult> {
     let recipe_dir = &recipe.dir;
     let source_dir = recipe_dir.join("source");
+
+    // Clean up workspace pollution that may have been left by previous
+    // builds (e.g. Cargo workspace files leaked into the recipes/ root).
+    cleanup_workspace_pollution(recipe_dir, logger);
+
     match recipe.recipe.build.kind {
         BuildKind::None => {
             // the build function doesn't need source dir exists
@@ -210,8 +323,12 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
     }
 
     let result = match &recipe.recipe.source {
-        Some(SourceRecipe::Path { path: _ }) | None => {
-            offline_check_exists(&source_dir)?;
+        Some(SourceRecipe::Path { path: _ }) => {
+            redbear_ensure_offline_source(recipe_dir, &source_dir, logger)?;
+            let ident = fetch_apply_source_info(recipe, "".to_string())?;
+            FetchResult::cached(source_dir, ident)
+        }
+        None => {
             let ident = fetch_apply_source_info(recipe, "".to_string())?;
             FetchResult::cached(source_dir, ident)
         }
@@ -227,22 +344,61 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
             upstream: _,
             branch: _,
             rev,
-            patches: _,
-            script: _,
+            patches,
+            script,
             shallow_clone: _,
         }) => {
-            offline_check_exists(&source_dir)?;
+            redbear_ensure_offline_git_source(recipe_dir, &source_dir, logger)?;
+            let git_head = source_dir.join(".git/HEAD");
+            if !git_head.is_file() {
+                let source_ident = rev.clone().unwrap_or_else(|| {
+                    format!("release-archive:{}", recipe.name.name())
+                });
+                FetchResult::cached(source_dir, source_ident)
+            } else {
             let (head_rev, _) = get_git_head_rev(&source_dir)?;
             if let Some(expected_rev) = rev {
-                if head_rev != *expected_rev {
+                let head_short = &head_rev[..head_rev.len().min(7)];
+                let expected_short = &expected_rev[..expected_rev.len().min(7)];
+                if !head_rev.starts_with(expected_rev.as_str())
+                    && head_short != expected_short
+                {
                     bail_other_err!(
                         "source at {} has revision {} but recipe expects {}. \
                          Source archives may be corrupted. Restore from release archives.",
-                        source_dir.display(), head_rev, expected_rev
+                        source_dir.display(), head_short, expected_rev
                     );
                 }
             }
+            // Validate all patch symlinks resolve before touching source.
+            fetch_validate_patch_symlinks(recipe_dir, patches)?;
+
+            if (!patches.is_empty() || script.is_some())
+                && fetch_patches_state_stale(recipe_dir, patches, script, &source_dir)
+            {
+                log_to_pty!(logger, "[INFO] patches state stale or missing — re-applying");
+                // Reset source to clean state, including submodules.
+                let mut clean_cmd = Command::new("git");
+                clean_cmd.arg("-C").arg(&source_dir);
+                clean_cmd.arg("clean").arg("-ffdx");
+                let _ = run_command(clean_cmd, logger);
+                let mut reset_cmd = Command::new("git");
+                reset_cmd.arg("-C").arg(&source_dir);
+                reset_cmd.arg("reset").arg("--hard");
+                run_command(reset_cmd, logger)?;
+                // Recursively reset submodules if any exist.
+                if source_dir.join(".gitmodules").exists() {
+                    let mut sub_cmd = Command::new("git");
+                    sub_cmd.arg("-C").arg(&source_dir);
+                    sub_cmd.arg("submodule").arg("foreach");
+                    sub_cmd.arg("--recursive");
+                    sub_cmd.arg("git reset --hard && git clean -ffdx");
+                    run_command(sub_cmd, logger)?;
+                }
+                fetch_apply_patches(recipe_dir, patches, script, &source_dir, logger)?;
+            }
             FetchResult::cached(source_dir, head_rev)
+            }
         }
         Some(SourceRecipe::Tar {
             tar: _,
@@ -274,7 +430,7 @@ pub fn fetch_offline(recipe: &CookRecipe, logger: &PtyOut) -> Result<FetchResult
                     }
                 }
             }
-            offline_check_exists(&source_dir)?;
+            redbear_ensure_offline_source(recipe_dir, &source_dir, logger)?;
             FetchResult::new(source_dir, ident, cached)
         }
     };
@@ -288,7 +444,7 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
     if redbear_protected_recipe(recipe.name.name()) && !redbear_allow_protected_fetch() {
         log_to_pty!(
             logger,
-            "[INFO]: protected recipe {} uses local source (fetch disabled; set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
+            "[INFO]: protected recipe {} uses local source (fetch disabled; use --allow-protected flag or set REDBEAR_ALLOW_PROTECTED_FETCH=1 to override)",
             recipe.name.name()
         );
         return fetch_offline(recipe, logger);
@@ -528,6 +684,7 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
                     manual_git_recursive_submodule(logger, &source_dir, cmds)?;
                 }
 
+                fetch_validate_patch_symlinks(recipe_dir, patches)?;
                 fetch_apply_patches(recipe_dir, patches, script, &source_dir, logger)?;
             }
 
@@ -967,36 +1124,307 @@ pub(crate) fn fetch_apply_patches(
     source_dir_tmp: &PathBuf,
     logger: &PtyOut,
 ) -> Result<()> {
+    if patches.is_empty() && script.is_none() {
+        return Ok(());
+    }
+
+    // Read and normalize all patch files.
+    let mut patch_contents: Vec<(String, Vec<u8>)> = Vec::new();
     for patch_name in patches {
         let patch_file = recipe_dir.join(patch_name);
         if !patch_file.is_file() {
             bail_other_err!("Failed to find patch file {:?}", patch_file.display());
         }
-
-        let patch = fs::read_to_string(&patch_file).map_err(|err| {
+        let raw = fs::read(&patch_file).map_err(|err| {
             format!(
-                "failed to read patch file '{}': {}\n{:#?}",
-                patch_file.display(),
-                err,
-                err
+                "failed to read patch file '{}': {err}",
+                patch_file.display()
             )
         })?;
-
-        let mut command = Command::new("patch");
-        command.arg("--directory").arg(source_dir_tmp);
-        command.arg("--strip=1");
-        run_command_stdin(command, patch.as_bytes(), logger)?;
+        let normalized = normalize_patch(&raw);
+        patch_contents.push((patch_name.clone(), normalized));
     }
-    Ok(if let Some(script) = script {
-        let mut command = Command::new("bash");
-        command.arg("-ex");
-        command.current_dir(source_dir_tmp);
-        run_command_stdin(
-            command,
-            format!("{SHARED_PRESCRIPT}\n{script}").as_bytes(),
-            logger,
-        )?;
-    })
+
+    // Apply all patches atomically to a staging directory.
+    // If any patch fails, the staging directory is discarded and the
+    // original source tree is left untouched.
+    // Uses cp -al (hard links) for zero-copy staging.
+    let staging_dir = source_dir_tmp.with_extension("staging");
+    let _ = fs::remove_dir_all(&staging_dir);
+    Command::new("cp")
+        .arg("-al")
+        .arg(source_dir_tmp)
+        .arg(&staging_dir)
+        .status()
+        .map_err(|e| format!("failed to create staging copy via cp -al: {e}"))?;
+
+    let result = (|| -> Result<Vec<String>> {
+        let mut applied = Vec::new();
+        for (patch_name, patch_data) in &patch_contents {
+            let mut command = Command::new("patch");
+            command.arg("--directory").arg(&staging_dir);
+            command.arg("--strip=1");
+            command.arg("--batch");
+            command.arg("--fuzz=0");
+            run_command_stdin(command, patch_data.as_slice(), logger)
+                .map_err(|e| format!("patch {patch_name} FAILED: {e}"))?;
+
+            for ext in &["rej", "orig"] {
+                let rej_check = Command::new("find")
+                    .arg(&staging_dir)
+                    .arg("-name")
+                    .arg(format!("*.{ext}"))
+                    .arg("-print")
+                    .arg("-quit")
+                    .output();
+                if let Ok(out) = rej_check {
+                    if !out.stdout.is_empty() {
+                        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        bail_other_err!(
+                            "patch {patch_name} left .{ext} file (hunks failed to apply): {path}"
+                        );
+                    }
+                }
+            }
+            applied.push(patch_name.clone());
+        }
+        Ok(applied)
+    })();
+
+    match result {
+        Ok(applied) => {
+            let backup_dir = source_dir_tmp.with_extension("backup");
+            let _ = fs::remove_dir_all(&backup_dir);
+            fs::rename(source_dir_tmp, &backup_dir)
+                .map_err(|e| format!("failed to rename source to backup: {e}"))?;
+            fs::rename(&staging_dir, source_dir_tmp)
+                .map_err(|e| format!("failed to promote staging to source: {e}"))?;
+            let _ = fs::remove_dir_all(&backup_dir);
+
+            fetch_write_patches_state(recipe_dir, &applied, source_dir_tmp, script, logger)?;
+
+            if let Some(script) = script {
+                let mut command = Command::new("bash");
+                command.arg("-ex");
+                command.current_dir(source_dir_tmp);
+                run_command_stdin(
+                    command,
+                    format!("{SHARED_PRESCRIPT}\n{script}").as_bytes(),
+                    logger,
+                )?;
+            }
+            log_to_pty!(logger, "[ATOMIC] {n}/{n} patches applied", n = applied.len());
+            Ok(())
+        }
+        Err(e) => {
+            let _ = fs::remove_dir_all(&staging_dir);
+            log_to_pty!(logger, "[ATOMIC] patch application rolled back — source tree unchanged");
+            Err(e)
+        }
+    }
+}
+
+/// Normalizes a patch for compatibility with the `patch` command by stripping
+/// git-specific headers (`diff --git`, `index`, `new file mode`, etc.) that
+/// `patch` does not recognize.
+fn normalize_patch(raw: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(raw);
+    let mut out = String::with_capacity(text.len());
+    let mut prev_empty = true;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("diff --git ")
+            || trimmed.starts_with("index ")
+            || trimmed.starts_with("new file mode ")
+            || trimmed.starts_with("deleted file mode ")
+            || trimmed.starts_with("rename from ")
+            || trimmed.starts_with("rename to ")
+            || trimmed.starts_with("similarity index ")
+            || trimmed.starts_with("dissimilarity index ")
+        {
+            continue;
+        }
+        if !prev_empty || !line.is_empty() {
+            out.push_str(line);
+            out.push('\n');
+            prev_empty = line.is_empty();
+        }
+    }
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// Computes a BLAKE3 hash over all patch file contents (in order).
+fn fetch_compute_patches_hash(
+    recipe_dir: &Path,
+    patches: &[String],
+) -> Result<String> {
+    // BLAKE3 is already a project dependency (used for source verification).
+    let mut hasher = blake3::Hasher::new();
+    for patch_name in patches {
+        let patch_file = recipe_dir.join(patch_name);
+        let content = fs::read(&patch_file).map_err(|err| {
+            format!("failed to read patch for hashing '{}': {err}", patch_file.display())
+        })?;
+        hasher.update(&content);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// Writes a .patches-state file into the recipe's *target* directory
+/// (NOT the source checkout — git clean would delete it otherwise).
+/// Contains: upstream commit, ordered patch list, composite hash, script hash,
+/// and state schema version for forward-compatibility.
+/// Computes a BLAKE3 hash over all tracked files in the source directory,
+/// so that manual source edits (outside the patch system) are detected
+/// and trigger re-patching on the next build.
+fn fetch_compute_source_hash(source_dir: &Path) -> String {
+    let output = Command::new("git")
+        .arg("-C").arg(source_dir)
+        .args(["ls-files", "-z"])
+        .output();
+    match output {
+        Ok(out) if !out.stdout.is_empty() => {
+            let mut hasher = blake3::Hasher::new();
+            // Hash file paths in sorted order for stability.
+            let mut files: Vec<&str> = out.stdout
+                .split(|&b| b == 0)
+                .filter_map(|s| std::str::from_utf8(s).ok())
+                .collect();
+            files.sort();
+            for path in &files {
+                hasher.update(path.as_bytes());
+                hasher.update(b"\0");
+                // Hash file contents for integrity.
+                if let Ok(content) = fs::read(source_dir.join(path)) {
+                    hasher.update(&content);
+                }
+                hasher.update(b"\0");
+            }
+            hasher.finalize().to_hex().to_string()
+        }
+        _ => "no-git".to_string(),
+    }
+}
+
+fn fetch_write_patches_state(
+    recipe_dir: &Path,
+    applied: &[String],
+    source_dir: &Path,
+    script: &Option<String>,
+    logger: &PtyOut,
+) -> Result<()> {
+    let head_rev = get_git_head_rev(&source_dir.to_path_buf())
+        .map(|(r, _)| r)
+        .unwrap_or_else(|_| "unknown".to_string());
+    let hash = fetch_compute_patches_hash(recipe_dir, applied)
+        .unwrap_or_else(|_| "hash-error".to_string());
+    let script_hash = script.as_ref().map(|s| {
+        blake3::hash(s.as_bytes()).to_hex().to_string()
+    }).unwrap_or_else(|| "none".to_string());
+
+    // State goes in target/ so git clean/reset won't delete it.
+    let state_dir = recipe_dir.join("target");
+    let _ = fs::create_dir_all(&state_dir);
+    let state_file = state_dir.join(".patches-state");
+
+    let source_hash = fetch_compute_source_hash(source_dir);
+
+    let mut content = String::new();
+    content.push_str("schema: 1\n");
+    content.push_str(&format!("upstream-rev: {head_rev}\n"));
+    content.push_str(&format!("patches-hash: {hash}\n"));
+    content.push_str(&format!("script-hash: {script_hash}\n"));
+    content.push_str(&format!("source-hash: {source_hash}\n"));
+    for (i, name) in applied.iter().enumerate() {
+        content.push_str(&format!("patch[{}]: {name}\n", i + 1));
+    }
+    fs::write(&state_file, &content).map_err(|err| {
+        format!("failed to write .patches-state: {err}")
+    })?;
+    log_to_pty!(logger, "[OK] wrote .patches-state ({}/{} patches)", applied.len(), applied.len());
+    Ok(())
+}
+
+/// Validates that every patch file path resolves to a real file before we
+/// touch the source tree.  Fails early with a clear message if any symlink
+/// is broken or file is missing.
+fn fetch_validate_patch_symlinks(
+    recipe_dir: &Path,
+    patches: &[String],
+) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for patch_name in patches {
+        let patch_file = recipe_dir.join(patch_name);
+        if !patch_file.is_file() {
+            bail_other_err!(
+                "patch file not found: {:?}  (broken symlink or missing file in {})",
+                patch_file.display(),
+                recipe_dir.display()
+            );
+        }
+        // Canonicalize to catch symlink chains
+        let canonical = patch_file.canonicalize().map_err(|e| {
+            format!(
+                "cannot resolve patch path {:?}: {e}  (broken symlink?)",
+                patch_file.display()
+            )
+        })?;
+        if !seen.insert(canonical) {
+            bail_other_err!(
+                "duplicate patch after canonicalization: {:?}  (listed twice in recipe?)",
+                patch_name
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Checks whether the source directory's .patches-state matches the
+/// recipe's current patch list.  Returns true if patches should be
+/// (re-)applied.
+fn fetch_patches_state_stale(
+    recipe_dir: &Path,
+    patches: &[String],
+    script: &Option<String>,
+    source_dir: &Path,
+) -> bool {
+    let state_file = recipe_dir.join("target/.patches-state");
+    let state_content = match fs::read_to_string(&state_file) {
+        Ok(c) => c,
+        Err(_) => return true,
+    };
+
+    let expected_hash = match fetch_compute_patches_hash(recipe_dir, patches) {
+        Ok(h) => h,
+        Err(_) => return true,
+    };
+    let expected_script_hash = script.as_ref().map(|s| {
+        blake3::hash(s.as_bytes()).to_hex().to_string()
+    }).unwrap_or_else(|| "none".to_string());
+    let current_source_hash = fetch_compute_source_hash(source_dir);
+
+    let mut found_hash = false;
+    let mut found_script = false;
+    let mut found_source = false;
+    for line in state_content.lines() {
+        if let Some(stored) = line.strip_prefix("patches-hash: ") {
+            if stored.trim() != expected_hash { return true; }
+            found_hash = true;
+        }
+        if let Some(stored) = line.strip_prefix("script-hash: ") {
+            if stored.trim() != expected_script_hash { return true; }
+            found_script = true;
+        }
+        if let Some(stored) = line.strip_prefix("source-hash: ") {
+            if stored.trim() != current_source_hash { return true; }
+            found_source = true;
+        }
+    }
+
+    !found_hash || !found_script || !found_source
 }
 
 pub(crate) fn fetch_apply_source_info(
