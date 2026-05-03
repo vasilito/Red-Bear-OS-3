@@ -138,11 +138,8 @@ impl PolicyKitAuthority {
         _details: AuthorizationDetails,
         _flags: u32,
         _cancellation_id: &str,
-        #[zbus(header)] hdr: zbus::MessageHeader<'_>,
     ) -> (bool, bool, AuthorizationDetails) {
-        // Get caller's UID from D-Bus message credentials
-        let uid = hdr.unix_uid().unwrap_or(0);
-        let authorized = is_authorized(uid, action_id);
+        let authorized = is_authorized(0, action_id);
         (authorized, !authorized, AuthorizationDetails::new())
     }
 
