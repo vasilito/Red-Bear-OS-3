@@ -5,6 +5,22 @@ patches = [
     "P0-daemon-fix-init-notify-unwrap.patch",
     "P0-workspace-add-bootstrap.patch",
     "P0-init-continuous-scheduling.patch",
+# TODO: P1 patches (11) exist in local/patches/base/ but need rebase
+# after redox.patch removal. ACPI (5), PCI/IRQ (3), xHCI (3) — 1144 lines.
+#   P1-acpid-acpi-core.patch
+#   P1-acpid-ec-runtime.patch
+#   P1-acpid-power-enumeration.patch
+#   P1-acpid-runtime-hardening.patch
+#   P1-acpid-scheme-surface.patch
+#   P1-pcid-uevent-surface.patch
+#   P1-pci-irq-wave1-3.patch
+#   P1-pci-irq-wave1-5.patch
+#   P1-xhcid-device-lifecycle.patch
+#   P1-xhcid-port-pm-read-fix.patch
+#   P1-xhcid-uevent-logging.patch
+# TODO: P5 patches (2) exist in local/patches/base/ but need rebase.
+#   P5-init-daemon-panic-hardening.patch
+#   P5-init-supervisor-restart.patch
     "P2-i2c-gpio-ucsi-drivers.patch",
     "P9-fix-so-pecred.patch",
     "P3-inputd-keymap-bridge.patch",
