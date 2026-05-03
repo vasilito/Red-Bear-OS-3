@@ -66,6 +66,10 @@ impl Scheduler {
         }
     }
 
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
     pub fn step(&mut self, unit_store: &mut UnitStore, init_config: &mut InitConfig) {
         'a: loop {
             let Some(mut job) = self.pending.pop_front() else {
@@ -75,6 +79,16 @@ impl Scheduler {
             match job.kind {
                 JobKind::Start => {
                     let unit = unit_store.unit(&job.unit);
+                    eprintln!(
+                        "init: DEBUG processing {} ({}) — deps: {:?}",
+                        job.unit.0,
+                        match &unit.kind {
+                            crate::unit::UnitKind::LegacyScript { .. } => "script",
+                            crate::unit::UnitKind::Service { service } => &service.cmd,
+                            crate::unit::UnitKind::Target { .. } => "target",
+                        },
+                        unit.info.requires_weak.iter().map(|u| &u.0).collect::<Vec<_>>()
+                    );
 
                     let timeout_secs = unit.info.dependency_timeout_secs;
                     let mut deps_pending = false;
@@ -91,6 +105,10 @@ impl Scheduler {
                     }
 
                     if deps_pending {
+                        eprintln!(
+                            "init: DEBUG {} waiting for deps (retry {})",
+                            job.unit.0, job.dep_retries
+                        );
                         if timeout_secs > 0 {
                             job.dep_retries += 1;
                             let max_retries = timeout_secs * 100; // ~10ms per retry

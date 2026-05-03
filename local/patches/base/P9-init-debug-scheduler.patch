@@ -1,0 +1,11 @@
+diff --git a/init/src/scheduler.rs b/init/src/scheduler.rs
+--- a/init/src/scheduler.rs
++++ b/init/src/scheduler.rs
+@@ -63,6 +63,7 @@
+             match job.kind {
+                 JobKind::Start => {
+                     let unit = unit_store.unit_mut(&job.unit);
++                    eprintln!("init: DBG job={}", job.unit.0);
+ 
+                     for dep in &unit.info.requires_weak {
+                         for pending_job in &self.pending {

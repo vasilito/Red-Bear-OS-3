@@ -1,0 +1,21 @@
+diff --git a/init/src/main.rs b/init/src/main.rs
+index 5682cf44..4501cf61 100644
+--- a/init/src/main.rs
++++ b/init/src/main.rs
+@@ -178,7 +178,15 @@ fn main() {
+     libredox::call::setrens(0, 0).expect("init: failed to enter null namespace");
+ 
+     loop {
++        // Process any pending jobs whose dependencies may now be satisfied.
++        scheduler.step(&mut unit_store, &mut init_config);
++
++        // Non-blocking wait: WNOHANG = 1.  Reap any exited children without
++        // blocking, then loop back to process any newly-unblocked pending jobs.
+         let mut status = 0;
+-        libredox::call::waitpid(0, &mut status, 0).unwrap();
++        match libredox::call::waitpid(0, &mut status, 1) {
++            Ok(_pid) => {}
++            Err(err) => eprintln!("init: waitpid error: {err}"),
++        }
+     }
+ }

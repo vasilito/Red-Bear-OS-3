@@ -177,7 +177,9 @@ fn main() {
         }
     };
 
+    eprintln!("init: DEBUG step start — {} jobs pending", scheduler.pending_len());
     scheduler.step(&mut unit_store, &mut init_config);
+    eprintln!("init: DEBUG step done — entering waitpid loop");
 
     if let Err(err) = libredox::call::setrens(0, 0) {
         eprintln!("init: failed to enter null namespace: {}", err);
