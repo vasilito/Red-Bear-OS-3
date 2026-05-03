@@ -1,4 +1,4 @@
-#TODO: redbear-polkit — minimal org.freedesktop.PolicyKit1 daemon. Always-permit authorization for at-console users.
+#TODO: redbear-polkit — org.freedesktop.PolicyKit1 daemon. UID-based authorization via /etc/polkit-1/policy.toml. Root always authorized.
 [source]
 path = "source"
 
