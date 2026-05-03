@@ -1,0 +1,54 @@
+--- a/drivers/thermald/Cargo.toml	1970-01-01 00:00:00.000000000 +0000
++++ b/drivers/thermald/Cargo.toml	2026-05-03 15:36:46.091061688 +0100
+@@ -0,0 +1,12 @@
++[package]
++name = "thermald"
++version = "0.1.0"
++edition = "2021"
++
++[dependencies]
++log.workspace = true
++anyhow.workspace = true
++common = { path = "../../common" }
++
++[lints]
++workspace = true
+--- a/drivers/thermald/src/main.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/drivers/thermald/src/main.rs	2026-05-03 15:36:46.091037823 +0100
+@@ -0,0 +1,32 @@
++use anyhow::{Context, Result};
++use std::{thread, time};
++
++fn read_temp() -> Option<f32> {
++    for zone in 0..4 {
++        let path = format!("/scheme/acpi/thermal_zone/{}/temperature", zone);
++        if let Ok(data) = std::fs::read_to_string(&path) {
++            if let Ok(mv) = data.trim().parse::<u32>() {
++                return Some(mv as f32 / 1000.0);
++            }
++        }
++    }
++    None
++}
++
++fn main() -> Result<()> {
++    common::setup_logging("system", "thermald", "thermald",
++        common::output_level(), common::file_level());
++    log::info!("thermald: started");
++    loop {
++        if let Some(temp) = read_temp() {
++            if temp > 85.0 {
++                log::error!("thermald: CRITICAL {:.1}C", temp);
++            } else if temp > 70.0 {
++                log::warn!("thermald: WARNING {:.1}C", temp);
++            } else {
++                log::info!("thermald: {:.1}C", temp);
++            }
++        }
++        thread::sleep(time::Duration::from_secs(5));
++    }
++}
+--- a/.gitkeep	2026-05-03 15:36:46.091061688 +0100
++++ b/.gitkeep	1970-01-01 00:00:00.000000000 +0000
+@@ -1 +0,0 @@
+-

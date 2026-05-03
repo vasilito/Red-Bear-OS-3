@@ -17,6 +17,8 @@ patches = [
     "P4-initfs-network-services.patch",
     "P4-initfs-getty-services.patch",
     "P4-initfs-dbus-services.patch",
+    "P4-fbcond-scrollback.patch",
+    "P4-thermal-daemon.patch",
 ]
 
 [build]
