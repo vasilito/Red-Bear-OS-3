@@ -18,7 +18,7 @@ uid = 101
 gid = 101
 name = "greeter"
 home = "/nonexistent"
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 [groups.greeter]
 gid = 101

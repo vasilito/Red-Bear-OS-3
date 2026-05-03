@@ -605,6 +605,19 @@ fn build_deps_dir(
 
         let pkey_path = "build/id_ed25519.pub.toml";
         for (name, archive_path) in dep_pkgars {
+            let archive_path: PathBuf = if archive_path.is_file() {
+                archive_path.clone()
+            } else {
+                let repo_path = std::path::PathBuf::from("repo")
+                    .join(crate::cross_target().as_deref().unwrap_or("x86_64-unknown-redox"))
+                    .join(format!("{}.pkgar", name.without_prefix()));
+                if repo_path.is_file() {
+                    log_to_pty!(logger, "DEBUG: using repo pkgar for {}: {}", name, repo_path.display());
+                    repo_path
+                } else {
+                    archive_path.clone()
+                }
+            };
             let tag_file = tags_dir.join(name.without_prefix());
             fs::write(&tag_file, "")
                 .map_err(|e| format!("failed to write tag file {}: {:?}", tag_file.display(), e))?;

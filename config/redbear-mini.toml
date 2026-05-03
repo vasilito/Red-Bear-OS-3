@@ -19,7 +19,7 @@ uid = 100
 gid = 100
 name = "messagebus"
 home = "/nonexistent"
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 [packages]
 # Red Bear OS branding and host utilities.

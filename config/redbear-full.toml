@@ -18,7 +18,7 @@ uid = 100
 gid = 100
 name = "messagebus"
 home = "/nonexistent"
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 [users.root]
 shell = "/usr/bin/zsh"
@@ -39,7 +39,7 @@ redox-drm = {}
 mesa = {}
 libdrm = {}
 
-libwayland = {}
+libwayland = "ignore"
 wayland-protocols = {}
 # redbear-compositor = {}
 
@@ -47,7 +47,10 @@ wayland-protocols = {}
 # libxkbcommon = {}  # build needed
 # xkeyboard-config = {}  # build needed
 libevdev = {}
-# libinput = {}  # WIP: missing libepoll-shim recipe dependency
+libinput = {}
+redbear-keymapd = {}
+redbear-ime = {}
+redbear-accessibility = {}
 
 # Qt6 stack
 qtbase = {}
@@ -184,6 +187,7 @@ data = """
 description = "D-Bus system bus"
 requires_weak = [
     "12_boot-late.target",
+    "00_ipcd.service",
 ]
 
 [service]
@@ -219,6 +223,48 @@ requires_weak = [
 [service]
 cmd = "/usr/bin/seatd"
 args = ["-l", "info"]
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-keymapd.service"
+data = """
+[unit]
+description = "Runtime keymap daemon"
+requires_weak = [
+    "10_evdevd.service",
+]
+
+[service]
+cmd = "redbear-keymapd"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-ime.service"
+data = """
+[unit]
+description = "Input method engine daemon"
+requires_weak = [
+    "10_evdevd.service",
+]
+
+[service]
+cmd = "redbear-ime"
+type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/13_redbear-accessibility.service"
+data = """
+[unit]
+description = "Accessibility input filter daemon (sticky/slow/bounce keys)"
+requires_weak = [
+    "10_evdevd.service",
+]
+
+[service]
+cmd = "redbear-accessibility"
 type = "oneshot_async"
 """
 
@@ -288,6 +334,7 @@ requires_weak = [
     "12_dbus.service",
     "13_redbear-sessiond.service",
     "13_seatd.service",
+    "13_redbear-keymapd.service",
     "19_redbear-authd.service",
 ]
 
@@ -308,6 +355,7 @@ requires_weak = [
     "12_dbus.service",
     "13_redbear-sessiond.service",
     "13_seatd.service",
+    "13_redbear-keymapd.service",
     "19_redbear-authd.service",
 ]
 
@@ -351,15 +399,32 @@ type = "oneshot_async"
 path = "/usr/lib/init.d/31_debug_console.service"
 data = """
 [unit]
-description = "Debug console"
+description = "Debug console on serial port"
 requires_weak = [
     "29_activate_console.service",
 ]
 
 [service]
 cmd = "getty"
-args = ["/scheme/debug/no-preserve", "-J"]
+args = ["/scheme/debug", "-J"]
 type = "oneshot_async"
+"""
+
+[[files]]
+path = "/usr/lib/init.d/99_diag_serial.service"
+data = """
+[unit]
+description = "Serial diagnostic marker"
+requires_weak = [
+    "31_debug_console.service",
+    "30_console.service",
+    "12_dbus.service",
+]
+
+[service]
+cmd = "ion"
+args = ["-c", "echo BOOT_COMPLETE_SERIAL_MARKER"]
+type = "oneshot"
 """
 
 [users.greeter]
@@ -368,7 +433,7 @@ uid = 101
 gid = 101
 name = "greeter"
 home = "/nonexistent"
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 [groups.greeter]
 gid = 101
@@ -405,4 +470,10 @@ class = 0x03
 vendor = 0x1af4
 subclass = 0x00
 command = ["redox-drm"]
+"""
+
+[[files]]
+path = "/etc/environment.d/90-dbus.conf"
+data = """
+DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
 """

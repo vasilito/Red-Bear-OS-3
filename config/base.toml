@@ -307,12 +307,12 @@ symlink = true
 password = "password"
 uid = 0
 gid = 0
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 [users.user]
 # Password is unset
 password = ""
-shell = "/usr/bin/ion"
+shell = "/usr/bin/zsh"
 
 # Group settings
 [groups.sudo]
