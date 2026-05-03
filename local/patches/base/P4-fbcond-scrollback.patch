@@ -1,0 +1,56 @@
+--- a/drivers/graphics/fbcond/src/text.rs
++++ b/drivers/graphics/fbcond/src/text.rs
+@@ -5,17 +5,25 @@
+ 
+ use crate::display::Display;
+ 
++const SCROLLBACK_LINES: usize = 1000;
++
+ pub struct TextScreen {
+     pub display: Display,
+     inner: console_draw::TextScreen,
+     ctrl: bool,
+     input: VecDeque<u8>,
++    scrollback: VecDeque<Vec<u8>>,
++    scroll_pos: usize,
+ }
+ 
+ impl TextScreen {
+     pub fn new(display: Display) -> TextScreen {
+         TextScreen {
+             display,
+             inner: console_draw::TextScreen::new(),
+             ctrl: false,
+             input: VecDeque::new(),
++            scrollback: VecDeque::with_capacity(SCROLLBACK_LINES),
++            scroll_pos: 0,
+         }
+     }
+ 
+@@ -128,6 +136,24 @@
+ 
+             let damage = self.inner.write(map, buf, &mut self.input);
+ 
++            for line in buf.split(|&b| b == b'\n') {
++                let mut v = line.to_vec();
++                v.push(b'\n');
++                self.scrollback.push_back(v);
++            }
++            while self.scrollback.len() > SCROLLBACK_LINES {
++                self.scrollback.pop_front();
++            }
++
+             self.display.sync_rect(damage);
+         }
+ 
+         Ok(buf.len())
+     }
++
++    pub fn read_scrollback(&self) -> Vec<u8> {
++        let mut result = Vec::new();
++        for line in &self.scrollback {
++            result.extend_from_slice(line);
++        }
++        result
++    }
+ }
